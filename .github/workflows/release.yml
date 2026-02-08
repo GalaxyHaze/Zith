@@ -1,0 +1,94 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target_name: nova-linux-amd64
+          - os: macos-15
+            target_name: nova-macos-amd64
+          - os: windows-latest
+            target_name: nova-windows-amd64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.26.x'
+
+      - uses: seanmiddleditch/gha-setup-ninja@master
+
+      - name: Setup MSVC Dev Cmd
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure CMake
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Prepare Artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            cp build/Nova.exe artifacts/${{ matrix.target_name }}
+          else
+            chmod +x build/Nova
+            cp build/Nova artifacts/${{ matrix.target_name }}
+          fi
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-void-musl:
+    name: Build Void Linux (musl x86_64)
+    runs-on: ubuntu-latest
+    container: voidlinux/void-musl:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          xbps-install -Suy xbps
+          xbps-install -Suy cmake ninja gcc make pkg-config
+
+      - name: Configure CMake
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Prepare Artifact
+        run: |
+          mkdir -p artifacts
+          chmod +x build/Nova
+          cp build/Nova artifacts/nova-void-linux-amd64-musl
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/nova-void-linux-amd64-musl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
