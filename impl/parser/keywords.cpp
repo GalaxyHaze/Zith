@@ -154,7 +154,7 @@ namespace {
 }
 
 // --- C API wrapper ---
-extern "C" NovaTokenType nova_lookup_keyword(const char* str, size_t len) {
+extern "C" NovaTokenType nova_lookup_keyword(const char* str, const size_t len) {
     if (!str || len == 0) return NOVA_TOKEN_IDENTIFIER;
     return g_hasher.lookup(std::string_view(str, len));
 }

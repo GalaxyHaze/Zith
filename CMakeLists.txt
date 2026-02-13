@@ -45,13 +45,13 @@ FetchContent_MakeAvailable(unordered_dense)
 # --- NovaABI: Provides the 'Nova' INTERFACE target ---
 FetchContent_Declare(NovaABI
         GIT_REPOSITORY https://github.com/GalaxyHaze/Nova.git
-        GIT_TAG        vABI-Update
+        GIT_TAG        master
         GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(NovaABI)
 
-find_package(LLVM REQUIRED CONFIG)
-message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
+#find_package(LLVM REQUIRED CONFIG)
+#message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 
 # =============================================================================
 # Compiler Flags
@@ -110,7 +110,7 @@ add_library(NovaParse STATIC ${PARSER_CPP_SOURCES})
 target_link_libraries(NovaParse
         PUBLIC
         NovaCore          # Brings in Nova::Nova transitively
-        LLVM       # Using modern CMake target for LLVM is safer
+        #LLVM       # Using modern CMake target for LLVM is safer
         unordered_dense::unordered_dense
 )
 target_compile_definitions(NovaParse PRIVATE NOVA_VERSION="v0.0-alpha")
@@ -150,7 +150,7 @@ install(TARGETS nova NovaParse NovaCore
 message("")
 message(STATUS "💡 Build Summary")
 # message(STATUS "   NovaABI version: ${Nova_ABI_VERSION}")  # Commented out as variable is likely unset
-message(STATUS "   LLVM version: ${LLVM_PACKAGE_VERSION}")
+#message(STATUS "   LLVM version: ${LLVM_PACKAGE_VERSION}")
 if(TARGET Nova::Nova)
     message(STATUS "   Nova::Nova target found.")
 endif()
