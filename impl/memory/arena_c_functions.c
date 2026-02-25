@@ -17,7 +17,7 @@ struct NovaArena {
     size_t initial_block_size;
 };
 
-static inline size_t align_up(const size_t size, size_t alignment) {
+static inline size_t align_up(const size_t size, const size_t alignment) {
     return (size + alignment - 1) & ~(alignment - 1);
 }
 

@@ -126,7 +126,7 @@ static void skipMultiLine(NovaSourceLoc& info, const char*& current, const char*
 // ── Erros ─────────────────────────────────────────────────────────────────────
 
 static void addCharError(std::vector<LexError>& errors, const char* base_msg,
-                         char c, NovaSourceLoc info, NovaArena* arena) {
+                         const char c, const NovaSourceLoc info, NovaArena* arena) {
     char stack_buf[64];
     size_t pos = 0;
     for (const char* p = base_msg; *p && pos < sizeof(stack_buf) - 5;)
@@ -270,7 +270,7 @@ static void processNumber(const char*& current, const char* end,
     bool isFloat = false;
 
     while (current < end) {
-        const unsigned char c = static_cast<unsigned char>(*current);
+        const auto c = static_cast<unsigned char>(*current);
 
         if (c == '_') { ++current; ++info.index; continue; } // separador visual: 1_000_000
 
@@ -424,9 +424,8 @@ static std::vector<NovaToken> tokenize(std::string_view src, NovaArena* arena,
 
 // ── C API ─────────────────────────────────────────────────────────────────────
 
-NovaTokenStream nova_tokenize(NovaArena* arena, const char* source, const size_t source_len,
-                   NovaTokenStream* out_stream) {
-    if (!arena || !source || !out_stream) return {nullptr, 0};
+NovaTokenStream nova_tokenize(NovaArena* arena, const char* source, const size_t source_len) {
+    if (!arena || !source ) return {nullptr, 0};
 
     std::vector<nova::detail::LexError> errors;
     const auto tokens = nova::detail::tokenize(
@@ -443,9 +442,7 @@ NovaTokenStream nova_tokenize(NovaArena* arena, const char* source, const size_t
     auto* buf = static_cast<NovaToken*>(nova_arena_alloc(arena, total_size));
     if (!buf) return {nullptr, 0};
 
-    std::memcpy(buf, tokens.data(), total_size);
-    *out_stream = NovaTokenStream{.data = buf, .len = tokens.size()};
-    return *out_stream;
+    return {buf, total_size};
 }
 
 #undef NOVA_NEWLINE
