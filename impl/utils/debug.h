@@ -1,7 +1,8 @@
 // impl/parser/token_debug.cpp — Debug utilities for KalidousToken
 #pragma once
-#include "kalidous/kalidous.h"
+#include "Kalidous/kalidous.h"
 #include <cstdio>
+#include <cstring>
 
 // ============================================================================
 // Nome de cada token
@@ -122,6 +123,8 @@ inline const char* kalidous_token_type_name(KalidousTokenType type) {
         case KALIDOUS_TOKEN_RECURSE:                return "RECURSE";
         case KALIDOUS_TOKEN_YIELD:                  return "YIELD";
         case KALIDOUS_TOKEN_ENTRY:                  return "ENTRY";
+        case KALIDOUS_TOKEN_NORETURN:               return "NORETURN";
+        case KALIDOUS_TOKEN_FLOWING:                return "FLOWING";
 
         // -- Controle interno -------------------------------------------------
         case KALIDOUS_TOKEN_END:                    return "END";
@@ -143,7 +146,9 @@ static const char* token_category(KalidousTokenType type) {
         case KALIDOUS_TOKEN_ASYNC:
         case KALIDOUS_TOKEN_RECURSE:
         case KALIDOUS_TOKEN_YIELD:
-        case KALIDOUS_TOKEN_ENTRY:     return "function";
+        case KALIDOUS_TOKEN_ENTRY:
+        case KALIDOUS_TOKEN_NORETURN:
+        case KALIDOUS_TOKEN_FLOWING:  return "function";
         default: break;
     }
     if (type <= KALIDOUS_TOKEN_IDENTIFIER)             return "literal";

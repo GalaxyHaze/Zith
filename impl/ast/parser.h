@@ -1,9 +1,9 @@
 // impl/parser/kalidous_parser.h — Parser interface for Kalidous
 #pragma once
 
-#include <kalidous/kalidous.h>
+#include <Kalidous/kalidous.h>
 #include "ast.h"
-
+#include "../memory/utils.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -52,13 +52,18 @@ typedef struct Parser {
     // Original source — needed to print the error line
     const char*          source;
     size_t               source_len;
-    const char*          filename;  // for error prefix (e.g. "src/main.kali")
+    const char*          filename;
 
-    // Accumulated diagnostics (errors + warnings)
+    // Accumulated diagnostics
     KalidousDiagList     diags;
 
-    // Convenience flag — true if any ERROR was emitted
+    // had_error: true if any ERROR was emitted
     bool                 had_error;
+
+    // panic: set when parser_expect fails — cleared after synchronizing at a
+    // statement/declaration boundary. While in panic mode, parser_expect
+    // suppresses further errors to avoid cascades.
+    bool                 panic;
 
     // Current function context
     KalidousFnKind       fn_kind;
@@ -109,7 +114,6 @@ KalidousNode* parser_parse_statement  (Parser* p);
 KalidousNode* parser_parse_expression (Parser* p);
 KalidousNode* parser_parse_type       (Parser* p);
 KalidousNode* parser_parse_block      (Parser* p);
-KalidousNode* parse_param(Parser* p);
 
 #ifdef __cplusplus
 }

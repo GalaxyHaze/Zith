@@ -21,6 +21,7 @@ void parser_init(Parser* p, KalidousArena* arena,
     p->count              = tokens.len;
     p->pos                = 0;
     p->had_error          = false;
+    p->panic              = false;
     p->fn_kind            = KALIDOUS_FN_NORMAL;
     p->inside_fn          = false;
     p->current_visibility = KALIDOUS_VIS_PRIVATE;
@@ -136,7 +137,8 @@ static void parser_emit(Parser* p, KalidousSourceLoc loc,
     if (severity == KALIDOUS_DIAG_ERROR) p->had_error = true;
 }
 
-void parser_error  (Parser* p, KalidousSourceLoc loc, const char* msg) {
+void parser_error(Parser* p, KalidousSourceLoc loc, const char* msg) {
+    if (p->panic) return; // suppress cascades — wait for sync at boundary
     parser_emit(p, loc, KALIDOUS_DIAG_ERROR, msg);
 }
 void parser_warning(Parser* p, KalidousSourceLoc loc, const char* msg) {
@@ -237,22 +239,22 @@ bool parser_match(Parser* p, KalidousTokenType type) {
 
 const KalidousToken* parser_expect(Parser* p, KalidousTokenType type, const char* msg) {
     if (parser_check(p, type)) return parser_advance(p);
-    const KalidousToken* t = parser_peek(p);
 
-    // Build: "expected X (got 'lexeme' — TOKEN_TYPE)"
+    // In panic mode, suppress cascading errors — just return without emitting
+    if (p->panic) return parser_peek(p);
+
+    const KalidousToken* t = parser_peek(p);
     char buf[256];
     if (t->lexeme.data && t->lexeme.len > 0) {
         snprintf(buf, sizeof(buf), "%s (got '%.*s' — %s)",
-                 msg,
-                 (int)t->lexeme.len, t->lexeme.data,
+                 msg, (int)t->lexeme.len, t->lexeme.data,
                  kalidous_token_type_name(t->type));
     } else {
         snprintf(buf, sizeof(buf), "%s (got %s)",
                  msg, kalidous_token_type_name(t->type));
     }
-
     parser_error(p, t->loc, buf);
-    parser_synchronize(p); // skip past the broken tokens
+    p->panic = true; // synchronization happens at statement/declaration boundary
     return t;
 }
 
@@ -559,6 +561,22 @@ static KalidousNode* parse_expr_bp(Parser* p, const int min_bp) {
             KalidousNode* rhs = kalidous_ast_make_identifier(p->arena, member->loc,
                                     member->lexeme.data, member->lexeme.len);
             left = kalidous_ast_make_member(p->arena, loc, left, rhs);
+
+            // a.b(args) — method call
+            if (parser_check(p, KALIDOUS_TOKEN_LPAREN)) {
+                const KalidousSourceLoc call_loc = parser_peek(p)->loc;
+                parser_advance(p);
+                ArenaList<KalidousNode*> args_b;
+                args_b.init(p->arena, 8);
+                while (!parser_check(p, KALIDOUS_TOKEN_RPAREN) && !parser_is_at_end(p)) {
+                    args_b.push(p->arena, parser_parse_expression(p));
+                    if (!parser_match(p, KALIDOUS_TOKEN_COMMA)) break;
+                }
+                parser_expect(p, KALIDOUS_TOKEN_RPAREN, "expected ')' after method arguments");
+                size_t         arg_count = 0;
+                KalidousNode** args      = args_b.flatten(p->arena, &arg_count);
+                left = kalidous_ast_make_call(p->arena, call_loc, left, args, arg_count);
+            }
             continue;
         }
         if (op == KALIDOUS_TOKEN_ARROW) {
@@ -748,7 +766,23 @@ KalidousNode* parser_parse_block(Parser* p) {
     return kalidous_ast_make_block(p->arena, loc, stmts, count);
 }
 
+// Forward declaration — needed by parse_struct_decl before the full definition
+static KalidousNode* parse_func_body(Parser* p, KalidousFnKind kind,
+                                     KalidousSourceLoc loc, KalidousVisibility visibility);
+static KalidousNode* parse_struct_decl(Parser* p, KalidousVisibility struct_vis);
+
+static KalidousNode* parse_enum_decl(Parser* p, KalidousVisibility enum_vis);
+
+static KalidousNode* parse_param(Parser* p);
+
 KalidousNode* parser_parse_statement(Parser* p) {
+    // Recover from previous parse failure before attempting a new statement
+    if (p->panic) {
+        parser_synchronize(p);
+        p->panic = false;
+        if (parser_is_at_end(p)) return nullptr;
+    }
+
     const KalidousSourceLoc loc = parser_peek(p)->loc;
 
     switch (parser_peek(p)->type) {
@@ -762,6 +796,22 @@ KalidousNode* parser_parse_statement(Parser* p) {
         case KALIDOUS_TOKEN_TRY:    return parse_try_catch(p);
         case KALIDOUS_TOKEN_RETURN: return parse_return(p);
         case KALIDOUS_TOKEN_YIELD:  return parse_yield(p);
+
+        // Nested declarations — fn, struct, enum can appear inside fn bodies
+        // Useful for local helpers, local types, and closures
+        case KALIDOUS_TOKEN_FN: {
+            parser_advance(p);
+            return parse_func_body(p, KALIDOUS_FN_NORMAL, loc, KALIDOUS_VIS_PRIVATE);
+        }
+        case KALIDOUS_TOKEN_ASYNC: {
+            parser_advance(p);
+            parser_expect(p, KALIDOUS_TOKEN_FN, "expected 'fn' after 'async'");
+            return parse_func_body(p, KALIDOUS_FN_ASYNC, loc, KALIDOUS_VIS_PRIVATE);
+        }
+        case KALIDOUS_TOKEN_STRUCT:
+            return parse_struct_decl(p, KALIDOUS_VIS_PRIVATE);
+        case KALIDOUS_TOKEN_ENUM:
+            return parse_enum_decl(p, KALIDOUS_VIS_PRIVATE);
 
         // Anonymous scoped block: { ... }
         // Distinct from struct literal — { at statement position is always a block
@@ -903,7 +953,43 @@ KalidousNode* parser_parse_statement(Parser* p) {
             return kalidous_ast_make_spawn(p->arena, loc, expr, false);
         }
 
+        //case KALIDOUS_TOKEN_ENTRY:
         default: {
+            // check_kw fallback for 'entry' tokenized as IDENTIFIER
+            // (happens when KALIDOUS_TOKEN_ENTRY is not yet in kalidous.h)
+            if (parser_peek(p)->type == KALIDOUS_TOKEN_ENTRY || check_kw(p, "entry")) {
+                parser_advance(p);
+                if (p->inside_fn && p->fn_kind == KALIDOUS_FN_NORMAL)
+                    parser_error(p, loc, "'entry' not allowed in normal fn");
+                if (p->inside_fn && p->fn_kind == KALIDOUS_FN_ASYNC)
+                    parser_error(p, loc, "'entry' not allowed in async fn");
+
+                const char* ename     = nullptr;
+                size_t      ename_len = 0;
+                if (parser_check(p, KALIDOUS_TOKEN_IDENTIFIER)) {
+                    const KalidousToken* t = parser_advance(p);
+                    ename     = t->lexeme.data;
+                    ename_len = t->lexeme.len;
+                }
+                ArenaList<KalidousNode*> params_b;
+                params_b.init(p->arena, 4);
+                if (ename && parser_match(p, KALIDOUS_TOKEN_LPAREN)) {
+                    while (!parser_check(p, KALIDOUS_TOKEN_RPAREN) && !parser_is_at_end(p)) {
+                        params_b.push(p->arena, parse_param(p));
+                        if (!parser_match(p, KALIDOUS_TOKEN_COMMA)) break;
+                    }
+                    parser_expect(p, KALIDOUS_TOKEN_RPAREN, "expected ')' after entry params");
+                }
+                size_t         param_count = 0;
+                KalidousNode** params      = params_b.flatten(p->arena, &param_count);
+                KalidousNode*  body        = parse_body(p);
+                const KalidousMarkerPayload data = {
+                    ename, ename_len, params, param_count, body
+                };
+                return kalidous_ast_make_entry(p->arena, loc, data);
+            }
+
+            // Expression statement / assignment
             KalidousNode* expr = parser_parse_expression(p);
             const KalidousTokenType op = parser_peek(p)->type;
             if (op == KALIDOUS_TOKEN_ASSIGNMENT   ||
@@ -988,7 +1074,7 @@ static KalidousNode* parse_enum_variant(Parser* p) {
     return kalidous_ast_make_enum_variant(p->arena, loc, data);
 }
 
-KalidousNode* parse_param(Parser* p) {
+static KalidousNode* parse_param(Parser* p) {
     const KalidousSourceLoc loc = parser_peek(p)->loc;
     KalidousOwnership own        = KALIDOUS_OWN_DEFAULT;
     bool              is_mutable = false;
@@ -1010,9 +1096,7 @@ KalidousNode* parse_param(Parser* p) {
     return kalidous_ast_make_param(p->arena, loc, param);
 }
 
-// Forward declaration — needed by parse_struct_decl before the full definition
-static KalidousNode* parse_func_body(Parser* p, KalidousFnKind kind,
-                                     KalidousSourceLoc loc, KalidousVisibility visibility);
+
 
 static KalidousNode* parse_struct_decl(Parser* p, KalidousVisibility struct_vis) {
     const KalidousSourceLoc loc = parser_peek(p)->loc;
@@ -1061,7 +1145,7 @@ static KalidousNode* parse_struct_decl(Parser* p, KalidousVisibility struct_vis)
                                                      fn_loc, item_vis));
             continue;
         }
-        if (parser_check(p, KALIDOUS_TOKEN_FN)) {
+        if (check_kw(p, "noreturn")) {
             const KalidousSourceLoc fn_loc = parser_peek(p)->loc;
             parser_advance(p);
             parser_expect(p, KALIDOUS_TOKEN_FN, "expected 'fn' after 'noreturn'");
@@ -1195,6 +1279,13 @@ static KalidousNode* parse_func_body(Parser* p, KalidousFnKind kind,
 }
 
 KalidousNode* parser_parse_declaration(Parser* p) {
+    // Recover from previous parse failure before attempting a new declaration
+    if (p->panic) {
+        parser_synchronize(p);
+        p->panic = false;
+        if (parser_is_at_end(p)) return nullptr;
+    }
+
     KalidousVisibility vis = p->current_visibility;
     if (is_visibility_inline(p)) {
         vis = resolve_visibility(parser_peek(p));
@@ -1229,12 +1320,14 @@ KalidousNode* parser_parse_declaration(Parser* p) {
         parser_expect(p, KALIDOUS_TOKEN_FN, "expected 'fn' after 'async'");
         return parse_func_body(p, KALIDOUS_FN_ASYNC, loc, vis);
     }
-    if (check_kw(p, "noreturn")) {
+    // noreturn — dedicated token if available, fallback to check_kw for older builds
+    if (t == KALIDOUS_TOKEN_NORETURN || check_kw(p, "noreturn")) {
         parser_advance(p);
         parser_expect(p, KALIDOUS_TOKEN_FN, "expected 'fn' after 'noreturn'");
         return parse_func_body(p, KALIDOUS_FN_NORETURN, loc, vis);
     }
-    if (check_kw(p, "flowing")) {
+    // flowing — dedicated token if available, fallback to check_kw
+    if (t == KALIDOUS_TOKEN_FLOWING || check_kw(p, "flowing")) {
         parser_advance(p);
         parser_expect(p, KALIDOUS_TOKEN_FN, "expected 'fn' after 'flowing'");
         return parse_func_body(p, KALIDOUS_FN_FLOWING, loc, vis);

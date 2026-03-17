@@ -16,6 +16,7 @@
 //   };
 
 #include "ast.h"
+#include "../utils/debug.h"
 #include <cstring>
 #include <cstdio>
 
@@ -86,26 +87,33 @@ KalidousNode* kalidous_ast_make_identifier(KalidousArena* a, KalidousSourceLoc l
     return n;
 }
 
-// kids.a = left, kids.b = right, custom = operator token type
+// Union layout for BINARY_OP:
+//   kids.a   (offset  0) = left  operand
+//   list.len (offset  8) = operator token type  ← cannot use kids.b here (same offset!)
+//   kids.c   (offset 16) = right operand
+// kids.b and list.len are at the same offset in the union — using kids.b for right
+// and then writing list.len = op would overwrite the right pointer.
 KalidousNode* kalidous_ast_make_binary_op(KalidousArena* a, KalidousSourceLoc loc,
                                           KalidousTokenType op,
                                           KalidousNode* left, KalidousNode* right) {
     KalidousNode* n = alloc_node(a, KALIDOUS_NODE_BINARY_OP, loc);
     if (!n) return nullptr;
-    n->data.kids.a = left;
-    n->data.kids.b = right;
-    n->data.custom = static_cast<uint64_t>(op);
+    n->data.kids.a   = left;
+    n->data.list.len = static_cast<size_t>(op);
+    n->data.kids.c   = right;  // offset 16 — safe, does not alias list.len
     return n;
 }
 
-// kids.a = operand, custom = op | (is_postfix << 16)
+// Union layout for UNARY_OP:
+//   kids.a   (offset  0) = operand
+//   list.len (offset  8) = op | (is_postfix << 16)
 KalidousNode* kalidous_ast_make_unary_op(KalidousArena* a, KalidousSourceLoc loc,
                                          KalidousTokenType op,
                                          KalidousNode* operand, bool is_postfix) {
     KalidousNode* n = alloc_node(a, KALIDOUS_NODE_UNARY_OP, loc);
     if (!n) return nullptr;
-    n->data.kids.a = operand;
-    n->data.custom = static_cast<uint64_t>(op) | (static_cast<uint64_t>(is_postfix) << 16);
+    n->data.kids.a   = operand;
+    n->data.list.len = static_cast<size_t>(op) | (static_cast<size_t>(is_postfix) << 16);
     return n;
 }
 
@@ -446,8 +454,13 @@ static void walk_children(KalidousNode* n,
     if (!n) return;
 
     switch (n->type) {
-        // kids.a/b
+        // kids.a = left, kids.c = right (kids.b aliases list.len — not safe)
         case KALIDOUS_NODE_BINARY_OP:
+            kalidous_ast_walk(n->data.kids.a, pre, post, ud);
+            kalidous_ast_walk(n->data.kids.c, pre, post, ud);
+            break;
+
+        // kids.a/b — no op stored here
         case KALIDOUS_NODE_MEMBER:
         case KALIDOUS_NODE_ARROW_CALL:
         case KALIDOUS_NODE_CAST:
@@ -675,7 +688,7 @@ KalidousNode* kalidous_ast_make_field(KalidousArena* a, KalidousSourceLoc loc,
 // list → KalidousEnumVariantPayload
 // Uses payload to avoid union collision (ident.str and kids.a both at offset 0)
 KalidousNode* kalidous_ast_make_enum_variant(KalidousArena* a, const KalidousSourceLoc loc,
-                                             const KalidousEnumVariantPayload &data) {
+                                             const KalidousEnumVariantPayload& data) {
     KalidousNode* n = alloc_node(a, KALIDOUS_NODE_ENUM_VARIANT, loc);
     if (!n) return nullptr;
     auto* p = alloc_payload<KalidousEnumVariantPayload>(a, n);
@@ -750,20 +763,24 @@ void kalidous_ast_print(const KalidousNode* node, int indent) {
             break;
         }
 
-        case KALIDOUS_NODE_BINARY_OP:
+        case KALIDOUS_NODE_BINARY_OP: {
+            const auto op = static_cast<KalidousTokenType>(node->data.list.len);
             print_indent(indent + 1);
-            fprintf(stderr, "op: %u\n", (unsigned)node->data.custom);
-            if (node->data.kids.a) kalidous_ast_print(node->data.kids.a, indent + 2);
-            if (node->data.kids.b) kalidous_ast_print(node->data.kids.b, indent + 2);
+            fprintf(stderr, "op: %s (%d)\n", kalidous_token_type_name(op), (int)op);
+            if (node->data.kids.a) kalidous_ast_print(node->data.kids.a, indent + 2); // left
+            if (node->data.kids.c) kalidous_ast_print(node->data.kids.c, indent + 2); // right
             break;
+        }
 
-        case KALIDOUS_NODE_UNARY_OP:
+        case KALIDOUS_NODE_UNARY_OP: {
+            const auto op         = static_cast<KalidousTokenType>(node->data.list.len & 0xFFFF);
+            const bool is_postfix = (node->data.list.len >> 16) != 0;
             print_indent(indent + 1);
-            fprintf(stderr, "op: %u  postfix: %d\n",
-                    (unsigned)(node->data.custom & 0xFFFF),
-                    (int)(node->data.custom >> 16));
-            kalidous_ast_print(node->data.kids.a, indent + 2);
+            fprintf(stderr, "op: %s  postfix: %d\n",
+                    kalidous_token_type_name(op), (int)is_postfix);
+            if (node->data.kids.a) kalidous_ast_print(node->data.kids.a, indent + 2);
             break;
+        }
 
         case KALIDOUS_NODE_FUNC_DECL: {
             auto* p = static_cast<const KalidousFuncPayload*>(node->data.list.ptr);

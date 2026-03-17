@@ -172,10 +172,10 @@ static int cmd_check(const std::string& input_file,
 
     // Debug: AST dump
     if (ast) {
-        fprintf(stderr, "\n── AST ──────────────────────────────────────────\n");
+        /*fprintf(stderr, "\n── AST ──────────────────────────────────────────\n");
         kalidous_ast_print(ast, 0);
         fprintf(stderr, "─────────────────────────────────────────────────\n\n");
-        fflush(stderr); // ensure debug output appears before stdout
+        fflush(stderr); // ensure debug output appears before stdout*/
     } else {
         print_error("Parse failed — null AST");
         kalidous_arena_destroy(arena);

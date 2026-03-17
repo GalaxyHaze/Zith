@@ -166,6 +166,7 @@ typedef enum {
     KALIDOUS_TOKEN_TRAIT,
     KALIDOUS_TOKEN_TYPEDEF,
     KALIDOUS_TOKEN_IMPLEMENT,
+    KALIDOUS_TOKEN_NULL,
 
     // ------------------------------------------------------------------------
     // Tokens especiais / controle

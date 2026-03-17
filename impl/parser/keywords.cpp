@@ -47,6 +47,7 @@ static constexpr auto TokenTable = std::to_array<std::pair<std::string_view, Kal
 
     // --- Primitivos gerais --------------------------------------------------
     {"bool", KALIDOUS_TOKEN_TYPE}, {"void", KALIDOUS_TOKEN_TYPE},
+        {"null", KALIDOUS_TOKEN_NULL},
 
     // --- Declarações de tipo ------------------------------------------------
     {"type",      KALIDOUS_TOKEN_TYPE},
