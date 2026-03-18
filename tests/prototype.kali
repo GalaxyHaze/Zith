@@ -8,59 +8,30 @@ enum Color {
     gray = 4
 }
 
-noreturn fn render(col: Color){
-    switch (col){
-        case blue:
-        case red:
-        case green:
-        case black:
-        case gray:
-        default:
-            abort("Invalid state of enum Color, what hell you did?");
-    }
-}
-
 struct Point{
     public:
     x: u32;
     y: u32;
-
-    private fn collide(self: Point, other: Point){
-        if (self.x == other.x) and (self.y == other.y)
-            return true;
-        return false;
-    }
-
-    fn move(self: Point, vec: Vector){
-        self.x += vec->x();
-        self.y += vec->y();
-    }
-
 }
 
-private:
+let miranha = "posição da aranha";
 
-async fn add( num1: lend long, num2: long ){
-    /*marker sample(x: u32){
+noreturn fn add( num1: lend long, num2: long ){
+    marker sample(x: u32){
 
     }
 
    if true
         entry goto sample(5);
-   else*/
+   else
         goto scene level1;
 
 }
 
-marker main(argc: u32, argv: string){
-    println("-Hello world");
-}
-
-let test = 5;
 
 fn main( agrc: u32, argv: string ){
 
-    let num1 = {1,2,3,4,5};
+    let num1: u32 = 50;
     {
         let num2: u32 = 24;
     }

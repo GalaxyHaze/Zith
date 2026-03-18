@@ -1,5 +1,5 @@
 // impl/parser/keywords.cpp
-#include "Kalidous/kalidous.h"
+#include "kalidous/kalidous.h"
 #include <string_view>
 #include <array>
 
@@ -47,6 +47,7 @@ static constexpr auto TokenTable = std::to_array<std::pair<std::string_view, Kal
 
     // --- Primitivos gerais --------------------------------------------------
     {"bool", KALIDOUS_TOKEN_TYPE}, {"void", KALIDOUS_TOKEN_TYPE},
+        {"null", KALIDOUS_TOKEN_NULL},
 
     // --- Declarações de tipo ------------------------------------------------
     {"type",      KALIDOUS_TOKEN_TYPE},
@@ -59,6 +60,7 @@ static constexpr auto TokenTable = std::to_array<std::pair<std::string_view, Kal
     {"trait",     KALIDOUS_TOKEN_TRAIT},
     {"using",     KALIDOUS_TOKEN_TYPEDEF},
     {"implement", KALIDOUS_TOKEN_IMPLEMENT},
+    {"fn", KALIDOUS_TOKEN_FN},
 
     // --- Bindings / modificadores de ownership ------------------------------
     {"let",        KALIDOUS_TOKEN_LET},
@@ -73,6 +75,11 @@ static constexpr auto TokenTable = std::to_array<std::pair<std::string_view, Kal
     {"shared",     KALIDOUS_TOKEN_SHARED},
     {"view",       KALIDOUS_TOKEN_VIEW},
     {"unique",     KALIDOUS_TOKEN_UNIQUE},
+    {"yield", KALIDOUS_TOKEN_YIELD},
+    {"async", KALIDOUS_TOKEN_ASYNC},
+    /*{"flowing", KALIDOUS_TOKEN_FLOWING},*/
+    {"entry", KALIDOUS_TOKEN_ENTRY},
+    {"noreturn", KALIDOUS_TOKEN_NORETURN},
 
     // --- Modificadores de acesso --------------------------------------------
     {"public",    KALIDOUS_TOKEN_MODIFIER},
@@ -135,7 +142,6 @@ static constexpr auto TokenTable = std::to_array<std::pair<std::string_view, Kal
     {"[", KALIDOUS_TOKEN_LBRACKET}, {"]", KALIDOUS_TOKEN_RBRACKET},
     {",", KALIDOUS_TOKEN_COMMA},    {";", KALIDOUS_TOKEN_SEMICOLON},
     {":", KALIDOUS_TOKEN_COLON},    {".", KALIDOUS_TOKEN_DOT},
-        {"fn", KALIDOUS_TOKEN_FN}
 });
 
 // ============================================================================

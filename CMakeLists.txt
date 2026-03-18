@@ -87,20 +87,20 @@ set(CORE_C_SOURCES
 )
 
 set(PARSER_CPP_SOURCES
-        impl/parser/tokenizer.cpp
-        impl/parser/keywords.cpp
-        impl/ast/parser.cpp
+        impl/lexer/tokenizer.cpp
+        impl/lexer/keywords.cpp
+        impl/parser/parser.cpp
         impl/ast/ast.h
         impl/ast/ast.cpp
-        impl/ast/parser.h
-        impl/parser/tokenizer.cpp
+        impl/parser/parser.h
+        impl/lexer/tokenizer.cpp
 )
 
 # REMOVED parser.cpp from CLI_SOURCES to prevent duplicate compilation
 set(CLI_SOURCES
-        impl/interface/CLI.cpp
+        impl/cli/CLI.cpp
         impl/memory/utils.h
-        impl/utils/debug.h
+        impl/lexer/debug.h
         include/kalidous/kalidous.h
 )
 
@@ -138,7 +138,7 @@ set_target_properties(KalidousParse PROPERTIES
 )
 
 # ────────
-add_executable(kalidous main.cpp ${CLI_SOURCES})          # ← fixed name
+add_executable(kalidous impl/main.cpp ${CLI_SOURCES})          # ← fixed name
 
 target_include_directories(kalidous PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 

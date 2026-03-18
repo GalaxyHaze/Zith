@@ -8,7 +8,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include "../utils/debug.h"
+#include "../lexer/debug.h"
 #include "../ast/ast.h"
 
 static const char* kalidous_version = KALIDOUS_VERSION;

@@ -16,7 +16,7 @@
 //   };
 
 #include "ast.h"
-#include "../utils/debug.h"
+#include "../lexer/debug.h"
 #include <cstring>
 #include <cstdio>
 

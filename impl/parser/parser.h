@@ -1,9 +1,8 @@
 // impl/parser/kalidous_parser.h — Parser interface for Kalidous
 #pragma once
 
-#include <Kalidous/kalidous.h>
-#include "ast.h"
-#include "../memory/utils.h"
+#include <kalidous/kalidous.h>
+#include "../ast/ast.h"
 
 #ifdef __cplusplus
 extern "C" {
