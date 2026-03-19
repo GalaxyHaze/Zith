@@ -54,6 +54,7 @@ static constexpr auto TokenTable = std::to_array<std::pair<std::string_view, Kal
     {"struct",    KALIDOUS_TOKEN_STRUCT},
     {"component", KALIDOUS_TOKEN_COMPONENT},
     {"enum",      KALIDOUS_TOKEN_ENUM},
+    {"raw", KALIDOUS_TOKEN_RAW},
     {"union",     KALIDOUS_TOKEN_UNION},
     {"family",    KALIDOUS_TOKEN_FAMILY},
     {"entity",    KALIDOUS_TOKEN_ENTITY},

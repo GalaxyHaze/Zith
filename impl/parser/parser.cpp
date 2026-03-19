@@ -775,6 +775,8 @@ static KalidousNode* parse_struct_decl(Parser* p, KalidousVisibility struct_vis)
 
 static KalidousNode* parse_enum_decl(Parser* p, KalidousVisibility enum_vis);
 
+static KalidousNode* parse_union_decl(Parser* p, KalidousVisibility union_vis, bool is_raw);
+
 static KalidousNode* parse_param(Parser* p);
 
 KalidousNode* parser_parse_statement(Parser* p) {
@@ -786,6 +788,12 @@ KalidousNode* parser_parse_statement(Parser* p) {
     }
 
     const KalidousSourceLoc loc = parser_peek(p)->loc;
+    KalidousVisibility vis = KALIDOUS_VIS_PRIVATE;
+
+    if (check_kw(p, "public")) vis = KALIDOUS_VIS_PUBLIC;
+    if (check_kw(p, "private")) vis = KALIDOUS_VIS_PRIVATE;
+    if (check_kw(p, "protected")) vis = KALIDOUS_VIS_PROTECTED;
+    if (parser_peek(p)->type == KALIDOUS_TOKEN_MODIFIER) parser_advance(p);
 
     switch (parser_peek(p)->type) {
         case KALIDOUS_TOKEN_LET:   parser_advance(p); return parse_var_decl(p, KALIDOUS_BINDING_LET);
@@ -801,19 +809,27 @@ KalidousNode* parser_parse_statement(Parser* p) {
 
         // Nested declarations — fn, struct, enum can appear inside fn bodies
         // Useful for local helpers, local types, and closures
+
         case KALIDOUS_TOKEN_FN: {
             parser_advance(p);
-            return parse_func_body(p, KALIDOUS_FN_NORMAL, loc, KALIDOUS_VIS_PRIVATE);
+            return parse_func_body(p, KALIDOUS_FN_NORMAL, loc, vis);
         }
         case KALIDOUS_TOKEN_ASYNC: {
             parser_advance(p);
             parser_expect(p, KALIDOUS_TOKEN_FN, "expected 'fn' after 'async'");
-            return parse_func_body(p, KALIDOUS_FN_ASYNC, loc, KALIDOUS_VIS_PRIVATE);
+            return parse_func_body(p, KALIDOUS_FN_ASYNC, loc, vis);
         }
         case KALIDOUS_TOKEN_STRUCT:
             return parse_struct_decl(p, KALIDOUS_VIS_PRIVATE);
+        case KALIDOUS_TOKEN_RAW:
+            parser_advance(p);
+            parser_expect(p, KALIDOUS_TOKEN_UNION, "expected 'union' after 'raw'");
+            return parse_union_decl(p, vis, true);
+        case KALIDOUS_TOKEN_UNION:
+            parser_advance(p);
+            return parse_union_decl(p, vis, false);
         case KALIDOUS_TOKEN_ENUM:
-            return parse_enum_decl(p, KALIDOUS_VIS_PRIVATE);
+            return parse_enum_decl(p, vis);
 
         // Anonymous scoped block: { ... }
         // Distinct from struct literal — { at statement position is always a block
@@ -955,43 +971,8 @@ KalidousNode* parser_parse_statement(Parser* p) {
             return kalidous_ast_make_spawn(p->arena, loc, expr, false);
         }
 
-        //case KALIDOUS_TOKEN_ENTRY:
         default: {
-            // check_kw fallback for 'entry' tokenized as IDENTIFIER
-            // (happens when KALIDOUS_TOKEN_ENTRY is not yet in kalidous.h)
-            if (parser_peek(p)->type == KALIDOUS_TOKEN_ENTRY || check_kw(p, "entry")) {
-                parser_advance(p);
-                if (p->inside_fn && p->fn_kind == KALIDOUS_FN_NORMAL)
-                    parser_error(p, loc, "'entry' not allowed in normal fn");
-                if (p->inside_fn && p->fn_kind == KALIDOUS_FN_ASYNC)
-                    parser_error(p, loc, "'entry' not allowed in async fn");
-
-                const char* ename     = nullptr;
-                size_t      ename_len = 0;
-                if (parser_check(p, KALIDOUS_TOKEN_IDENTIFIER)) {
-                    const KalidousToken* t = parser_advance(p);
-                    ename     = t->lexeme.data;
-                    ename_len = t->lexeme.len;
-                }
-                ArenaList<KalidousNode*> params_b;
-                params_b.init(p->arena, 4);
-                if (ename && parser_match(p, KALIDOUS_TOKEN_LPAREN)) {
-                    while (!parser_check(p, KALIDOUS_TOKEN_RPAREN) && !parser_is_at_end(p)) {
-                        params_b.push(p->arena, parse_param(p));
-                        if (!parser_match(p, KALIDOUS_TOKEN_COMMA)) break;
-                    }
-                    parser_expect(p, KALIDOUS_TOKEN_RPAREN, "expected ')' after entry params");
-                }
-                size_t         param_count = 0;
-                KalidousNode** params      = params_b.flatten(p->arena, &param_count);
-                KalidousNode*  body        = parse_body(p);
-                const KalidousMarkerPayload data = {
-                    ename, ename_len, params, param_count, body
-                };
-                return kalidous_ast_make_entry(p->arena, loc, data);
-            }
-
-            // Expression statement / assignment
+            // Expression statement — includes assignments and method calls
             KalidousNode* expr = parser_parse_expression(p);
             const KalidousTokenType op = parser_peek(p)->type;
             if (op == KALIDOUS_TOKEN_ASSIGNMENT   ||
@@ -1004,10 +985,11 @@ KalidousNode* parser_parse_statement(Parser* p) {
                 parser_advance(p);
                 KalidousNode* value = parser_parse_expression(p);
                 expr = kalidous_ast_make_binary_op(p->arena, assign_loc, op, expr, value);
-            }
+                }
             parser_expect(p, KALIDOUS_TOKEN_SEMICOLON, "expected ';' after expression statement");
             return expr;
         }
+
     }
 }
 
@@ -1099,8 +1081,7 @@ static KalidousNode* parse_param(Parser* p) {
 }
 
 // Forward declaration — needed by parse_struct_decl before the full definition
-static KalidousNode* parse_func_body(Parser* p, KalidousFnKind kind,
-                                     KalidousSourceLoc loc, KalidousVisibility visibility);
+
 
 static KalidousNode* parse_struct_decl(Parser* p, KalidousVisibility struct_vis) {
     const KalidousSourceLoc loc = parser_peek(p)->loc;
@@ -1208,9 +1189,31 @@ static KalidousNode* parse_struct_decl(Parser* p, KalidousVisibility struct_vis)
     return kalidous_ast_make_struct(p->arena, loc, decl);
 }
 
-KalidousNode* parse_union_decl(Parser* parser, KalidousVisibility vis)
-{
+static KalidousNode* parse_union_decl(Parser* p, KalidousVisibility vis, bool is_raw = false) {
+    const KalidousSourceLoc loc = parser_peek(p)->loc;
+    //parser_advance(p); // consume 'union'
 
+    const KalidousToken* name = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER,
+                                              "expected union name");
+    parser_expect(p, KALIDOUS_TOKEN_LBRACE, "expected '{'");
+
+    ArenaList<KalidousNode*> types_b;
+    types_b.init(p->arena, 4);
+    while (!parser_check(p, KALIDOUS_TOKEN_RBRACE) && !parser_is_at_end(p)) {
+        types_b.push(p->arena, parser_parse_type(p));
+        if (!parser_match(p, KALIDOUS_TOKEN_COMMA)) break;
+    }
+    parser_expect(p, KALIDOUS_TOKEN_RBRACE, "expected '}'");
+
+    size_t         type_count = 0;
+    KalidousNode** types      = types_b.flatten(p->arena, &type_count);
+
+    const KalidousUnionPayload data = {
+        name->lexeme.data, name->lexeme.len,
+        types, type_count,
+        vis, is_raw  // is_raw = false por defeito
+    };
+    return kalidous_ast_make_union(p->arena, loc, data);
 }
 
 static KalidousNode* parse_enum_decl(Parser* p, KalidousVisibility enum_vis) {
@@ -1312,6 +1315,11 @@ KalidousNode* parser_parse_declaration(Parser* p) {
     const KalidousSourceLoc loc = parser_peek(p)->loc;
     const KalidousTokenType t   = parser_peek(p)->type;
 
+    if (t == KALIDOUS_TOKEN_RAW){
+        parser_advance(p);
+        parser_expect(p, KALIDOUS_TOKEN_UNION, "expected 'union' after 'raw'");
+        return parse_union_decl(p, vis, true);
+    }
     if (t == KALIDOUS_TOKEN_STRUCT) return parse_struct_decl(p, vis);
     if (t == KALIDOUS_TOKEN_UNION) return parse_union_decl(p, vis);
     if (t == KALIDOUS_TOKEN_ENUM)   return parse_enum_decl(p, vis);

@@ -14,7 +14,7 @@ struct Point{
     y: u32;
 }
 
-let miranha = "posição da aranha";
+
 
 noreturn fn add( num1: lend long, num2: long ){
     marker sample(x: u32){
@@ -26,14 +26,29 @@ noreturn fn add( num1: lend long, num2: long ){
    else
         goto scene level1;
 
+   public struct Point{
+       public:
+       x: u32;
+       y: u32;
+   }
+    union Number{
+        u8 i,
+        u16,
+        f32,
+        char
+    }
 }
 
 
 fn main( agrc: u32, argv: string ){
 
     let num1: u32 = 50;
-    {
-        let num2: u32 = 24;
+
+    switch(a){
+        case 1:
+            break;
+        default:
+            println(5);
     }
 
 

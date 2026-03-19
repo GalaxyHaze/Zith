@@ -61,7 +61,7 @@ enum {
     KALIDOUS_NODE_FAMILY_DECL   = 1039,
     KALIDOUS_NODE_ENTITY_DECL   = 1040,
     KALIDOUS_NODE_MODULE_DECL   = 1041,
-    KALIDOUS_NODE_IMPORT        = 1042, // use foo::bar
+    KALIDOUS_NODE_IMPORT        = 1042, // use foo::bar,
 
     // -- Statements ----------------------------------------------------------
     KALIDOUS_NODE_SWITCH        = 1050, // switch expr { ... }
@@ -205,6 +205,16 @@ typedef struct {
     KalidousVisibility visibility;
 } KalidousEnumPayload;
 
+// KALIDOUS_NODE_UNION_DECL (1038) — list.ptr, list.len = type_count
+typedef struct {
+        const char*        name;
+        size_t             name_len;
+        KalidousNode**     types;
+        size_t             type_count;
+        KalidousVisibility visibility;
+        bool                is_raw;
+} KalidousUnionPayload;
+
 // KALIDOUS_NODE_SWITCH (1050) — list.ptr, list.len = arm_count
 typedef struct {
     KalidousNode*  subject;
@@ -342,7 +352,6 @@ KalidousNode* kalidous_ast_make_program    (KalidousArena* a, KalidousNode** dec
 KalidousNode* kalidous_ast_make_literal    (KalidousArena* a, KalidousSourceLoc loc, KalidousLiteral lit);
 KalidousNode* kalidous_ast_make_identifier (KalidousArena* a, KalidousSourceLoc loc, const char* name, size_t len);
 KalidousNode* kalidous_ast_make_field      (KalidousArena* a, KalidousSourceLoc loc, KalidousFieldPayload field);
-//KalidousNode* kalidous_ast_make_enum_variant(KalidousArena* a, KalidousSourceLoc loc, const char* name, size_t len, KalidousNode* value);
 KalidousNode* kalidous_ast_make_binary_op  (KalidousArena* a, KalidousSourceLoc loc, KalidousTokenType op, KalidousNode* left, KalidousNode* right);
 KalidousNode* kalidous_ast_make_unary_op   (KalidousArena* a, KalidousSourceLoc loc, KalidousTokenType op, KalidousNode* operand, bool is_postfix);
 KalidousNode* kalidous_ast_make_call       (KalidousArena* a, KalidousSourceLoc loc, KalidousNode* callee, KalidousNode** args, size_t arg_count);
@@ -361,6 +370,7 @@ KalidousNode* kalidous_ast_make_yield      (KalidousArena* a, KalidousSourceLoc 
 KalidousNode* kalidous_ast_make_await      (KalidousArena* a, KalidousSourceLoc loc, KalidousNode* expr);
 KalidousNode* kalidous_ast_make_struct     (KalidousArena* a, KalidousSourceLoc loc, KalidousStructPayload decl);
 KalidousNode* kalidous_ast_make_enum       (KalidousArena* a, KalidousSourceLoc loc, KalidousEnumPayload decl);
+KalidousNode* kalidous_ast_make_union       (KalidousArena* a, KalidousSourceLoc loc, const KalidousUnionPayload &decl);
 KalidousNode* kalidous_ast_make_switch     (KalidousArena* a, KalidousSourceLoc loc, KalidousSwitchPayload data);
 KalidousNode* kalidous_ast_make_try_catch  (KalidousArena* a, KalidousSourceLoc loc, KalidousTryCatchPayload data);
 KalidousNode* kalidous_ast_make_import       (KalidousArena* a, KalidousSourceLoc loc, KalidousImportPayload data);

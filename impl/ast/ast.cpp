@@ -563,6 +563,14 @@ static void walk_children(KalidousNode* n,
             break;
         }
 
+        // list → KalidousEnumPayload
+        case KALIDOUS_NODE_UNION_DECL: {
+            auto* p = static_cast<KalidousUnionPayload*>(n->data.list.ptr);
+            if (!p) break;
+            walk_node_list(p->types, p->type_count, pre, post, ud);
+            break;
+        }
+
         // list → KalidousSwitchPayload
         case KALIDOUS_NODE_SWITCH: {
             auto* p = static_cast<KalidousSwitchPayload*>(n->data.list.ptr);
@@ -653,6 +661,7 @@ const char* kalidous_ast_node_name(KalidousNodeId id) {
         case KALIDOUS_NODE_PROGRAM:        return "program";
         case KALIDOUS_NODE_STRUCT_DECL:    return "struct_decl";
         case KALIDOUS_NODE_ENUM_DECL:      return "enum_decl";
+        case KALIDOUS_NODE_UNION_DECL:      return "union_decl";
         case KALIDOUS_NODE_SWITCH:         return "switch";
         case KALIDOUS_NODE_CASE:           return "case";
         case KALIDOUS_NODE_BREAK:          return "break";
@@ -695,6 +704,18 @@ KalidousNode* kalidous_ast_make_enum_variant(KalidousArena* a, const KalidousSou
     if (!p) return n;
     *p       = data;
     p->name  = kalidous_arena_str(a, data.name, data.name_len);
+    return n;
+}
+
+KalidousNode* kalidous_ast_make_union(KalidousArena* a, const KalidousSourceLoc loc,
+                                      const KalidousUnionPayload &decl) {
+    KalidousNode* n = alloc_node(a, KALIDOUS_NODE_UNION_DECL, loc);
+    if (!n) return nullptr;
+    auto* p = alloc_payload<KalidousUnionPayload>(a, n);
+    if (!p) return n;
+    *p       = decl;
+    p->name  = kalidous_arena_str(a, decl.name, decl.name_len);
+    n->data.list.len = decl.type_count;
     return n;
 }
 
@@ -880,6 +901,20 @@ void kalidous_ast_print(const KalidousNode* node, int indent) {
                     p->field_count, p->method_count);
             for (size_t i = 0; i < p->field_count;  ++i) kalidous_ast_print(p->fields[i],  indent + 2);
             for (size_t i = 0; i < p->method_count; ++i) kalidous_ast_print(p->methods[i], indent + 2);
+            break;
+        }
+
+        case KALIDOUS_NODE_UNION_DECL: {
+            auto* p = static_cast<const KalidousUnionPayload*>(node->data.list.ptr);
+            if (!p) break;
+            print_indent(indent + 1);
+            fprintf(stderr, "name: %s  vis: %s  types: %zu  raw: %d\n",
+                    p->name,
+                    kalidous_ast_visibility_name(p->visibility),
+                    p->type_count,
+                    (int)p->is_raw);
+            for (size_t i = 0; i < p->type_count; ++i)
+                kalidous_ast_print(p->types[i], indent + 2);
             break;
         }
 
