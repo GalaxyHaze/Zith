@@ -76,6 +76,7 @@ inline const char *kalidous_token_type_name(KalidousTokenType type) {
         case KALIDOUS_TOKEN_GOTO: return "GOTO";
         case KALIDOUS_TOKEN_MARKER: return "MARKER";
         case KALIDOUS_TOKEN_SCENE: return "SCENE";
+        case KALIDOUS_TOKEN_IMPORT: return "IMPORT";
 
         // -- Concorrência -----------------------------------------------------
         case KALIDOUS_TOKEN_SPAWN: return "SPAWN";
@@ -162,6 +163,7 @@ static const char *token_category(KalidousTokenType type) {
     if (type <= KALIDOUS_TOKEN_MUST) return "error";
     if (type <= KALIDOUS_TOKEN_PACK) return "binding";
     if (type == KALIDOUS_TOKEN_MODIFIER) return "access";
+    if (type == KALIDOUS_TOKEN_IMPORT) return "module";
     if (type <= KALIDOUS_TOKEN_IMPLEMENT) return "type-decl";
     return "control";
 }

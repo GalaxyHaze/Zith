@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="BackendCodeEditorMiscSettings">
-    <option name="/Default/Environment/Hierarchy/GeneratedFilesCacheKey/Timestamp/@EntryValue" value="12" type="long" />
+    <option name="/Default/Environment/Hierarchy/GeneratedFilesCacheKey/Timestamp/@EntryValue" value="20" type="long" />
     <option name="/Default/Housekeeping/FeatureSuggestion/FeatureSuggestionManager/DisabledSuggesters/=SwitchToGoToActionSuggester/@EntryIndexedValue" value="true" type="bool" />
     <option name="/Default/Housekeeping/GlobalSettingsUpgraded/IsUpgraded/@EntryValue" value="true" type="bool" />
     <option name="/Default/RiderDebugger/RiderRestoreDecompile/RestoreDecompileSetting/@EntryValue" value="false" type="bool" />
@@ -33,29 +33,16 @@
     </configurations>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d080124f-2444-4f78-93fb-8b99318eaf32" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/examples/dev/small.kali" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/editor.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/editor.xml" afterDir="false" />
+    <list default="true" id="d080124f-2444-4f78-93fb-8b99318eaf32" name="Changes" comment=".ignore">
+      <change beforePath="$PROJECT_DIR$/.idea/Kalidous-Implementation.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/Kalidous-Implementation.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/dev/small.kali" beforeDir="false" afterPath="$PROJECT_DIR$/examples/dev/small.kali" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/impl/ast/ast.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/impl/ast/ast.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/impl/ast/ast.h" beforeDir="false" afterPath="$PROJECT_DIR$/impl/ast/ast.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/impl/cli/CLI.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/impl/cli/CLI.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/impl/lexer/debug.h" beforeDir="false" afterPath="$PROJECT_DIR$/impl/lexer/debug.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/impl/lexer/keywords.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/impl/lexer/keywords.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/impl/lexer/tokenizer.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/impl/lexer/tokenizer.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/impl/main.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/impl/main.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/impl/memory/arena_c_functions.c" beforeDir="false" afterPath="$PROJECT_DIR$/impl/memory/arena_c_functions.c" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/impl/memory/file.c" beforeDir="false" afterPath="$PROJECT_DIR$/impl/memory/file.c" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/impl/memory/utils.h" beforeDir="false" afterPath="$PROJECT_DIR$/impl/memory/utils.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/impl/parser/parser.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/impl/parser/parser.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/impl/parser/parser.h" beforeDir="false" afterPath="$PROJECT_DIR$/impl/parser/parser.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/include/kalidous/kalidous.h" beforeDir="false" afterPath="$PROJECT_DIR$/include/kalidous/kalidous.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/install.ps1" beforeDir="false" afterPath="$PROJECT_DIR$/install.ps1" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/hello-world.kali" beforeDir="false" afterPath="$PROJECT_DIR$/examples/start/hello-world.kali" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/prototype.kali" beforeDir="false" afterPath="$PROJECT_DIR$/examples/dev/prototype.kali" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -67,14 +54,8 @@
   </component>
   <component name="ExecutionTargetManager" SELECTED_TARGET="CMakeBuildProfile:Debug" />
   <component name="Git.Settings">
-    <option name="RECENT_BRANCH_BY_REPOSITORY">
-      <map>
-        <entry key="$PROJECT_DIR$" value="master" />
-      </map>
-    </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
     <option name="ROOT_SYNC" value="DONT_SYNC" />
-    <option name="SWAP_SIDES_IN_COMPARE_BRANCHES" value="true" />
   </component>
   <component name="GitHubPullRequestSearchHistory">{
   &quot;lastFilter&quot;: {
@@ -85,12 +66,9 @@
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
     &quot;url&quot;: &quot;https://github.com/GalaxyHaze/Kalidous-Implementation.git&quot;,
-    &quot;accountId&quot;: &quot;4f49c8f5-3fc2-41e1-9110-c8a1f5e694d5&quot;
+    &quot;accountId&quot;: &quot;780da64c-3602-4eb0-8256-dedc90a12900&quot;
   }
 }</component>
-  <component name="HighlightingSettingsPerFile">
-    <setting file="file://$PROJECT_DIR$/impl/utils/debug.h" root0="FORCE_HIGHLIGHTING" />
-  </component>
   <component name="MacroExpansionManager">
     <option name="directoryName" value="bWTyexzf" />
   </component>
@@ -137,7 +115,7 @@
     &quot;onboarding.tips.debug.path&quot;: &quot;/home/diogo/CLionProjects/Kalidous-Implementation/main.cpp&quot;,
     &quot;org.rust.first.attach.projects&quot;: &quot;true&quot;,
     &quot;run.code.analysis.last.selected.profile&quot;: &quot;pProject Default&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;terminal&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
 }</component>
@@ -146,11 +124,9 @@
       <recent name="$PROJECT_DIR$/tests" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
-      <recent name="C:\Users\al24254\CLionProjects\Kalidous-Implementation\examples\start" />
-      <recent name="C:\Users\al24254\CLionProjects\Kalidous-Implementation\tests\dev" />
-      <recent name="$PROJECT_DIR$" />
-      <recent name="$PROJECT_DIR$/impl" />
-      <recent name="$PROJECT_DIR$/impl/docs" />
+      <recent name="$PROJECT_DIR$/include/kalidous" />
+      <recent name="$PROJECT_DIR$/impl/memory" />
+      <recent name="$PROJECT_DIR$/impl/ast" />
     </key>
   </component>
   <component name="RunManager" selected="CMake Application.kalidous">
@@ -165,6 +141,16 @@
       </method>
     </configuration>
     <configuration name="KalidousParse" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="Kalidous" TARGET_NAME="KalidousParse" CONFIG_NAME="Debug">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration default="true" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="kalidous" type="CMakeRunConfiguration" factoryName="Application" nameIsGenerated="true" PROGRAM_PARAMS="-v check examples/dev/small.kali" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" WORKING_DIR="file://$PROJECT_DIR$" PASS_PARENT_ENVS_2="true" PROJECT_NAME="Kalidous" TARGET_NAME="kalidous" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="Kalidous" RUN_TARGET_NAME="kalidous">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
@@ -197,13 +183,8 @@
       <workItem from="1773654671544" duration="1284000" />
       <workItem from="1773662697590" duration="1378000" />
       <workItem from="1773671480039" duration="4000" />
-      <workItem from="1773671468683" duration="4067000" />
-      <workItem from="1773751292461" duration="1792000" />
-      <workItem from="1773757119625" duration="3190000" />
-      <workItem from="1773832453915" duration="124000" />
-      <workItem from="1773832600994" duration="3000" />
-      <workItem from="1773833981953" duration="3217000" />
-      <workItem from="1773915447129" duration="4822000" />
+      <workItem from="1773671468683" duration="4105000" />
+      <workItem from="1773997298376" duration="2601000" />
     </task>
     <task id="LOCAL-00001" summary="Migration: to Kalidous-Lang">
       <option name="closed" value="true" />
@@ -245,7 +226,15 @@
       <option name="project" value="LOCAL" />
       <updated>1773619839344</updated>
     </task>
-    <option name="localTasksCounter" value="6" />
+    <task id="LOCAL-00006" summary=".ignore">
+      <option name="closed" value="true" />
+      <created>1773675586201</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1773675586201</updated>
+    </task>
+    <option name="localTasksCounter" value="7" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -261,13 +250,5 @@
     <MESSAGE value="Open-source" />
     <MESSAGE value=".ignore" />
     <option name="LAST_COMMIT_MESSAGE" value=".ignore" />
-  </component>
-  <component name="github-copilot-workspace">
-    <instructionFileLocations>
-      <option value=".github/instructions" />
-    </instructionFileLocations>
-    <promptFileLocations>
-      <option value=".github/prompts" />
-    </promptFileLocations>
   </component>
 </project>

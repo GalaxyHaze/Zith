@@ -270,7 +270,7 @@ typedef struct {
 typedef struct {
     const char *path;
     size_t path_len;
-    const KalidousVisibility vis;
+    KalidousVisibility vis;
 } KalidousImportPayload;
 
 // KALIDOUS_NODE_MARKER (1055) — named jump target with body

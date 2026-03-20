@@ -1,4 +1,5 @@
-// impl/parser/kalidous_ast.cpp — AST constructors, walker, and debug
+// impl/parse
+// r/kalidous_ast.cpp — AST constructors, walker, and debug
 //
 // Uses the actual KalidousNode layout from kalidous.h:
 //
@@ -333,8 +334,8 @@ KalidousNode *kalidous_ast_make_import(KalidousArena *a, KalidousSourceLoc loc,
     auto *p = alloc_payload<KalidousImportPayload>(a, n);
     if (!p) return n;
     *p = data;
-    if (data.alias)
-        p->alias = kalidous_arena_strdup(a, data.alias);
+    if (data.path)
+        p->path = kalidous_arena_str(a, data.path, data.path_len);
     n->data.list.len = data.path_len;
     return n;
 }
@@ -964,6 +965,13 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
             printf("items: %zu\n", node->data.list.len);
             for (size_t i = 0; i < node->data.list.len; ++i)
                 kalidous_ast_print(items[i], indent + 2);
+            break;
+        }
+
+        case KALIDOUS_NODE_IMPORT: {
+            const auto import = static_cast<KalidousImportPayload *>(node->data.list.ptr);
+            print_indent(indent + 1);
+            printf("module import path: %s\n", import->path);
             break;
         }
 

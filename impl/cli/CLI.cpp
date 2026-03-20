@@ -176,10 +176,10 @@ static int cmd_check(const std::string &input_file,
 
     // Debug: AST dump
     if (ast) {
-        /*std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::seconds(1));
         printf("-Starting AST\n");
         kalidous_ast_print(ast, 0);
-        printf("Ending AST\n");*/
+        printf("Ending AST\n");
     } else {
         print_error("Parse failed — null AST");
         kalidous_arena_destroy(arena);

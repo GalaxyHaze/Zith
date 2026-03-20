@@ -1301,40 +1301,44 @@ static KalidousNode *parse_func_body(Parser *p, KalidousFnKind kind,
     return kalidous_ast_make_func_decl(p->arena, loc, decl);
 }
 
+static KalidousNode* parse_import_decl(Parser* p) {
+    const KalidousSourceLoc loc = parser_peek(p)->loc;
+    parser_advance(p); // consume 'import'
 
+    // Acumular os segmentos do path numa buffer na arena
+    // max razoável: 256 chars para um path de módulo
+    char   buf[256];
+    size_t buf_len = 0;
 
+    // Primeiro identificador — obrigatório
+    const KalidousToken* seg = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER,
+                                             "expected module name after 'import'");
+    if (seg->lexeme.data && seg->lexeme.len > 0) {
+        size_t copy = seg->lexeme.len < sizeof(buf) ? seg->lexeme.len : sizeof(buf) - 1;
+        memcpy(buf + buf_len, seg->lexeme.data, copy);
+        buf_len += copy;
+    }
 
-KalidousNode* parse_import_decl(Parser * p) {
-    //consume 'import'
-    auto loc = parser_peek(p)->loc;
-    parser_advance(p);
-    //first identifier afetr import
-    parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected 'identifier' after import");
-    //takes the len and the start of the string
-    size_t len = parser_peek(p)->lexeme.len;
-    auto base = parser_peek(p)->lexeme;
-    parser_advance(p);
-    bool had_found = false;
-    while (!parser_is_at_end(p) && !had_found ) {
-        if (parser_match(p, KALIDOUS_TOKEN_SEMICOLON)) {
-            had_found = true;
-            parser_advance(p);
-            break;
+    // Segmentos adicionais: .identifier
+    while (parser_check(p, KALIDOUS_TOKEN_DOT)) {
+        parser_advance(p); // consume '.'
+        if (buf_len < sizeof(buf) - 1) buf[buf_len++] = '.';
+
+        const KalidousToken* part = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER,
+                                                  "expected identifier after '.'");
+        if (part->lexeme.data && part->lexeme.len > 0) {
+            size_t copy = part->lexeme.len;
+            if (buf_len + copy >= sizeof(buf)) copy = sizeof(buf) - buf_len - 1;
+            memcpy(buf + buf_len, part->lexeme.data, copy);
+            buf_len += copy;
         }
-        parser_expect(p, KALIDOUS_TOKEN_DOT, "expected '.' after identifier");
-        len += parser_peek(p)->lexeme.len;
-        parser_advance(p);
-        parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected 'identifier' after '.'");
-        len += parser_peek(p)->lexeme.len;
     }
-    if (!had_found) {
-        parser_error(p, loc, "non-terminated string");
-    }
-    const KalidousImportPayload decl = {
-        base.data, len, KALIDOUS_VIS_PRIVATE
-    };
-    return kalidous_ast_make_import_decl(p->arena, loc, decl);
 
+    parser_expect(p, KALIDOUS_TOKEN_SEMICOLON, "expected ';' after import path");
+
+    const char* path = kalidous_arena_str(p->arena, buf, buf_len);
+    const KalidousImportPayload decl = { path, buf_len, KALIDOUS_VIS_PRIVATE };
+    return kalidous_ast_make_import(p->arena, loc, decl);
 }
 
 KalidousNode *parser_parse_declaration(Parser *p) {
@@ -1365,12 +1369,13 @@ KalidousNode *parser_parse_declaration(Parser *p) {
         parser_expect(p, KALIDOUS_TOKEN_UNION, "expected 'union' after 'raw'");
         return parse_union_decl(p, vis, true);
     }
+    if (t == KALIDOUS_TOKEN_IMPORT) return parse_import_decl(p);
     if (t == KALIDOUS_TOKEN_STRUCT) return parse_struct_decl(p, vis);
     if (t == KALIDOUS_TOKEN_UNION) return parse_union_decl(p, vis);
     if (t == KALIDOUS_TOKEN_ENUM) return parse_enum_decl(p, vis);
 
-    // TODO: COMPONENT, UNION, FAMILY, ENTITY, TRAIT, IMPLEMENT, MODULE
-    // TODO: use & import is almost working
+    // TODO: COMPONENT, FAMILY, ENTITY, TRAIT, IMPLEMENT, MODULE
+    // TODO: use
     if (t == KALIDOUS_TOKEN_IMPORT) return parse_import_decl(p);
     if (t == KALIDOUS_TOKEN_CONST) {
         parser_advance(p);
