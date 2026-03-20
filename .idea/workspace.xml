@@ -34,15 +34,36 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="d080124f-2444-4f78-93fb-8b99318eaf32" name="Changes" comment=".ignore">
-      <change beforePath="$PROJECT_DIR$/.idea/Kalidous-Implementation.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/Kalidous-Implementation.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/App.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/App.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Argv.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Argv.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/CLI.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/CLI.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Config.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Config.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/ConfigFwd.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/ConfigFwd.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Encoding.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Encoding.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Error.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Error.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Formatter.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Formatter.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/FormatterFwd.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/FormatterFwd.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Macros.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Macros.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Option.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Option.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Split.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Split.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/StringTools.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/StringTools.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Timer.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Timer.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/TypeTools.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/TypeTools.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Validators.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Validators.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Version.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Version.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/App_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/App_inl.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Argv_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Argv_inl.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Config_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Config_inl.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Encoding_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Encoding_inl.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Formatter_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Formatter_inl.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Option_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Option_inl.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Split_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Split_inl.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/StringTools_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/StringTools_inl.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Validators_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Validators_inl.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/src/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/src/CMakeLists.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/src/Precompile.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/src/Precompile.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/examples/dev/small.kali" beforeDir="false" afterPath="$PROJECT_DIR$/examples/dev/small.kali" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/impl/ast/ast.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/impl/ast/ast.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/impl/ast/ast.h" beforeDir="false" afterPath="$PROJECT_DIR$/impl/ast/ast.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/impl/cli/CLI.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/impl/cli/CLI.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/impl/lexer/debug.h" beforeDir="false" afterPath="$PROJECT_DIR$/impl/lexer/debug.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/impl/parser/parser.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/impl/parser/parser.cpp" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
