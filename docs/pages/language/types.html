@@ -1,0 +1,155 @@
+<div class="breadcrumb">
+  <span onclick="navigate('intro')" style="cursor:pointer">docs</span>
+  <span class="breadcrumb-sep">/</span>
+  <span onclick="navigate('lang-overview')" style="cursor:pointer">language</span>
+  <span class="breadcrumb-sep">/</span>
+  <span>types</span>
+</div>
+<div class="page-eyebrow animate-in">Language Guide</div>
+<h1 class="animate-in">Types</h1>
+<p class="lead animate-in">Kalidous has a comprehensive type system with primitives, composites, and user-defined types.</p>
+
+<h2>Integer Types</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Bits</th>
+        <th>Range</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>i8</code></td>
+        <td>8</td>
+        <td>-128 to 127</td>
+      </tr>
+      <tr>
+        <td><code>i16</code></td>
+        <td>16</td>
+        <td>-32,768 to 32,767</td>
+      </tr>
+      <tr>
+        <td><code>i32</code></td>
+        <td>32</td>
+        <td>-2^31 to 2^31-1</td>
+      </tr>
+      <tr>
+        <td><code>i64</code></td>
+        <td>64</td>
+        <td>-2^63 to 2^63-1</td>
+      </tr>
+      <tr>
+        <td><code>u8</code></td>
+        <td>8</td>
+        <td>0 to 255</td>
+      </tr>
+      <tr>
+        <td><code>u16</code></td>
+        <td>16</td>
+        <td>0 to 65,535</td>
+      </tr>
+      <tr>
+        <td><code>u32</code></td>
+        <td>32</td>
+        <td>0 to 2^32-1</td>
+      </tr>
+      <tr>
+        <td><code>u64</code></td>
+        <td>64</td>
+        <td>0 to 2^64-1</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Floating Point Types</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Precision</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>f32</code></td>
+        <td>Single (32-bit)</td>
+        <td><code>let x: f32 = 3.14;</code></td>
+      </tr>
+      <tr>
+        <td><code>f64</code></td>
+        <td>Double (64-bit)</td>
+        <td><code>let x: f64 = 3.14159;</code></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Other Primitives</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre><span class="tok-kw">let</span> is_active: <span class="tok-type">bool</span> = <span class="tok-kw">true</span>;
+<span class="tok-kw">let</span> character: <span class="tok-type">char</span> = 'A';
+<span class="tok-kw">let</span> text: <span class="tok-type">str</span> = "Hello";</pre>
+</div>
+
+<h2>Array Types</h2>
+<p>Fixed-size arrays:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">let</span> arr: <span class="tok-type">[i32; 3]</span> = [1, 2, 3];
+<span class="tok-kw">let</span> zeros: <span class="tok-type">[i32; 5]</span> = [0; 5];</pre>
+</div>
+
+<h2>Tuple Types</h2>
+<p>Heterogeneous fixed-size collections:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">let</span> pair: <span class="tok-type">(i32, str)</span> = (42, "answer");
+<span class="tok-kw">let</span> x = pair.0;  <span class="tok-cmt">// Access by index</span>
+<span class="tok-kw">let</span> s = pair.1;</pre>
+</div>
+
+<h2>Struct Types</h2>
+<p>Define custom data structures:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">struct</span> <span class="tok-type">Point</span> {
+  x: <span class="tok-type">i32</span>,
+  y: <span class="tok-type">i32</span>,
+}
+
+<span class="tok-kw">let</span> p = <span class="tok-type">Point</span> { x: 10, y: 20 };</pre>
+</div>
+
+<h2>Enum Types</h2>
+<p>Define types with named variants:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">enum</span> <span class="tok-type">Color</span> {
+  Red,
+  Green,
+  Blue,
+}
+
+<span class="tok-kw">let</span> c = <span class="tok-type">Color</span>::Red;</pre>
+</div>
+
+<h2>Type Aliases</h2>
+<p>Create alternative names for types:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">type</span> <span class="tok-type">UserId</span> = <span class="tok-type">u64</span>;
+<span class="tok-kw">let</span> user: <span class="tok-type">UserId</span> = 12345;</pre>
+</div>
+
+<h2>Type Conversions</h2>
+<p>Convert between types using <code>as</code>:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">let</span> x: <span class="tok-type">i32</span> = 42;
+<span class="tok-kw">let</span> y: <span class="tok-type">i

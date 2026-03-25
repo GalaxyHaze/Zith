@@ -1,0 +1,102 @@
+<div class="breadcrumb">
+  <span onclick="navigate('intro')" style="cursor:pointer">docs</span>
+  <span class="breadcrumb-sep">/</span>
+  <span onclick="navigate('lang-overview')" style="cursor:pointer">language</span>
+  <span class="breadcrumb-sep">/</span>
+  <span>variables</span>
+</div>
+<div class="page-eyebrow animate-in">Language Guide</div>
+<h1 class="animate-in">Variables & Constants</h1>
+<p class="lead animate-in">Kalidous distinguishes between mutable variables and immutable constants at the syntax level.</p>
+
+<h2>Variable Declaration</h2>
+<p>Declare variables with the <code>let</code> keyword. By default, variables are immutable:</p>
+
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre><span class="tok-kw">let</span> x = 5;           <span class="tok-cmt">// Immutable</span>
+<span class="tok-kw">let mut</span> y = 10;      <span class="tok-cmt">// Mutable</span></pre>
+</div>
+
+<h2>Type Annotations</h2>
+<p>Explicitly specify types with a colon:</p>
+
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">let</span> x: <span class="tok-type">i32</span> = 42;
+<span class="tok-kw">let mut</span> name: <span class="tok-type">str</span> = "Alice";
+<span class="tok-kw">let</span> items: <span class="tok-type">[i32]</span> = [1, 2, 3];</pre>
+</div>
+
+<h2>Type Inference</h2>
+<p>Kalidous can infer types from context:</p>
+
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">let</span> x = 42;      <span class="tok-cmt">// Inferred as i32</span>
+<span class="tok-kw">let</span> y = 3.14;    <span class="tok-cmt">// Inferred as f64</span>
+<span class="tok-kw">let</span> s = "hi";    <span class="tok-cmt">// Inferred as str</span></pre>
+</div>
+
+<h2>Constants</h2>
+<p>Constants are compile-time values using the <code>const</code> keyword:</p>
+
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">const</span> PI: <span class="tok-type">f64</span> = 3.14159;
+<span class="tok-kw">const</span> MAX_SIZE: <span class="tok-type">i32</span> = 1024;</pre>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Feature</th>
+        <th>let</th>
+        <th>let mut</th>
+        <th>const</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Mutable</td>
+        <td>No</td>
+        <td>Yes</td>
+        <td>No</td>
+      </tr>
+      <tr>
+        <td>Type Required</td>
+        <td>No (inferred)</td>
+        <td>No (inferred)</td>
+        <td>Yes</td>
+      </tr>
+      <tr>
+        <td>Runtime</td>
+        <td>Yes</td>
+        <td>Yes</td>
+        <td>No</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Shadowing</h2>
+<p>You can declare a new variable with the same name:</p>
+
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">let</span> x = 5;
+<span class="tok-kw">let</span> x = x + 1;   <span class="tok-cmt">// x is now 6</span>
+<span class="tok-kw">let</span> x = "hello"; <span class="tok-cmt">// x is now a string</span></pre>
+</div>
+
+<div class="callout callout-note">
+  <span class="callout-icon">ℹ</span>
+  <div class="callout-body">Prefer immutable bindings by default. Use <code>mut</code> only when necessary for clarity.</div>
+</div>
+
+<h2>See Also</h2>
+<ul>
+  <li><span onclick="navigate('lang-types')" style="cursor:pointer; color: #4d9fff;">Types</span> - Type system details</li>
+  <li><span onclick="navigate('lang-memory')" style="cursor:pointer; color: #4d9fff;">Memory Management</span> - Ownership and borrowing</li>
+</ul>

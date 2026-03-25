@@ -1,0 +1,110 @@
+<div class="breadcrumb">
+  <span onclick="navigate('intro')" style="cursor:pointer">docs</span>
+  <span class="breadcrumb-sep">/</span>
+  <span onclick="navigate('lang-overview')" style="cursor:pointer">language</span>
+  <span class="breadcrumb-sep">/</span>
+  <span>functions</span>
+</div>
+<div class="page-eyebrow animate-in">Language Guide</div>
+<h1 class="animate-in">Functions</h1>
+<p class="lead animate-in">Functions are reusable blocks of code that can take parameters and return values.</p>
+
+<h2>Function Declaration</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre><span class="tok-kw">fn</span> <span class="tok-fn">greet</span>() {
+  println("Hello!");
+}
+
+<span class="tok-fn">greet</span>();  <span class="tok-cmt">// Call function</span></pre>
+</div>
+
+<h2>Parameters</h2>
+<p>Functions can accept typed parameters:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">fn</span> <span class="tok-fn">add</span>(a: <span class="tok-type">i32</span>, b: <span class="tok-type">i32</span>) {
+  println(a + b);
+}
+
+<span class="tok-fn">add</span>(5, 3);</pre>
+</div>
+
+<h2>Return Types</h2>
+<p>Specify what a function returns:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">fn</span> <span class="tok-fn">add</span>(a: <span class="tok-type">i32</span>, b: <span class="tok-type">i32</span>) -> <span class="tok-type">i32</span> {
+  a + b  <span class="tok-cmt">// No semicolon = return value</span>
+}
+
+<span class="tok-kw">let</span> result = <span class="tok-fn">add</span>(5, 3);</pre>
+</div>
+
+<h2>Early Returns</h2>
+<p>Use <code>return</code> to exit early:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">fn</span> <span class="tok-fn">check</span>(x: <span class="tok-type">i32</span>) -> <span class="tok-type">str</span> {
+  <span class="tok-kw">if</span> x < 0 {
+    <span class="tok-kw">return</span> "negative";
+  }
+  <span class="tok-kw">if</span> x > 0 {
+    <span class="tok-kw">return</span> "positive";
+  }
+  "zero"
+}</pre>
+</div>
+
+<h2>Function Pointers</h2>
+<p>Store and pass functions:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">fn</span> <span class="tok-fn">apply</span>(f: <span class="tok-kw">fn</span>(<span class="tok-type">i32</span>) -> <span class="tok-type">i32</span>, x: <span class="tok-type">i32</span>) -> <span class="tok-type">i32</span> {
+  <span class="tok-fn">f</span>(x)
+}</pre>
+</div>
+
+<h2>Closures</h2>
+<p>Anonymous functions that capture variables:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">let</span> y = 5;
+<span class="tok-kw">let</span> add_y = <span class="tok-kw">|x|</span> x + y;
+<span class="tok-kw">let</span> result = <span class="tok-fn">add_y</span>(3);  <span class="tok-cmt">// 8</span></pre>
+</div>
+
+<h2>Documentation Comments</h2>
+<p>Document functions for users:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-cmt">/// Adds two numbers.
+///
+/// # Example
+/// ```
+/// let sum = add(2, 3);  // 5
+/// ```</span>
+<span class="tok-kw">fn</span> <span class="tok-fn">add</span>(a: <span class="tok-type">i32</span>, b: <span class="tok-type">i32</span>) -> <span class="tok-type">i32</span> {
+  a + b
+}</pre>
+</div>
+
+<h2>Visibility</h2>
+<p>Control function visibility with <code>pub</code>:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">pub fn</span> <span class="tok-fn">public_fn</span>() { }
+
+<span class="tok-kw">fn</span> <span class="tok-fn">private_fn</span>() { }</pre>
+</div>
+
+<div class="callout callout-note">
+  <span class="callout-icon">ℹ</span>
+  <div class="callout-body">Functions should do one thing well. If a function is getting long, consider breaking it into smaller functions.</div>
+</div>
+
+<h2>See Also</h2>
+<ul>
+  <li><span onclick="navigate('lang-syntax')" style="cursor:pointer; color: #4d9fff;">Syntax Basics</span> - Blocks and expressions</li>
+  <li><span onclick="navigate('lang-generics')" style="cursor:pointer; color: #4d9fff;">Generics</span> - Generic functions</li>
+</ul>

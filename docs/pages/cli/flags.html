@@ -1,0 +1,180 @@
+<div class="breadcrumb">
+  <span onclick="navigate('intro')" style="cursor:pointer">docs</span>
+  <span class="breadcrumb-sep">/</span>
+  <span onclick="navigate('cli-overview')" style="cursor:pointer">cli</span>
+  <span class="breadcrumb-sep">/</span>
+  <span>global flags</span>
+</div>
+<div class="page-eyebrow animate-in">CLI Reference</div>
+<h1 class="animate-in">Global Flags</h1>
+<p class="lead animate-in">Universal command-line options available with all Kalidous commands.</p>
+
+<h2>Help & Version</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Flag</th>
+        <th>Description</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>-h, --help</code></td>
+        <td>Show help message</td>
+        <td><code>kalidous build --help</code></td>
+      </tr>
+      <tr>
+        <td><code>--version</code></td>
+        <td>Show version info</td>
+        <td><code>kalidous --version</code></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Output Control</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Flag</th>
+        <th>Description</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>-v, --verbose</code></td>
+        <td>Show detailed output</td>
+        <td><code>kalidous build -v</code></td>
+      </tr>
+      <tr>
+        <td><code>-q, --quiet</code></td>
+        <td>Suppress non-error output</td>
+        <td><code>kalidous build -q</code></td>
+      </tr>
+      <tr>
+        <td><code>--color auto|on|off</code></td>
+        <td>Control colored output</td>
+        <td><code>kalidous build --color off</code></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Build Control</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Flag</th>
+        <th>Description</th>
+        <th>Commands</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>-m, --mode MODE</code></td>
+        <td>Build mode (debug/release)</td>
+        <td>build, run</td>
+      </tr>
+      <tr>
+        <td><code>-j, --jobs N</code></td>
+        <td>Parallel build jobs</td>
+        <td>build</td>
+      </tr>
+      <tr>
+        <td><code>-O LEVEL</code></td>
+        <td>Optimization (0-3)</td>
+        <td>compile</td>
+      </tr>
+      <tr>
+        <td><code>-g</code></td>
+        <td>Include debug symbols</td>
+        <td>build, compile</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Configuration</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Flag</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>--config PATH</code></td>
+        <td>Use alternate project config file</td>
+      </tr>
+      <tr>
+        <td><code>--env FILE</code></td>
+        <td>Load environment variables from file</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Common Patterns</h2>
+
+<h3>Development Build (Fast)</h3>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre>kalidous run <span class="tok-flag">-m</span> debug</pre>
+</div>
+
+<h3>Release Build (Optimized)</h3>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre>kalidous build <span class="tok-flag">-m</span> release <span class="tok-flag">-O3</span></pre>
+</div>
+
+<h3>Parallel Build</h3>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre>kalidous build <span class="tok-flag">-j</span> 8</pre>
+</div>
+
+<h3>Quiet Mode (CI/CD)</h3>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre>kalidous build <span class="tok-flag">-q</span></pre>
+</div>
+
+<h2>Environment Variables</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Variable</th>
+        <th>Purpose</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>KALIDOUS_MODE</code></td>
+        <td>Default build mode</td>
+      </tr>
+      <tr>
+        <td><code>KALIDOUS_JOBS</code></td>
+        <td>Default parallel jobs</td>
+      </tr>
+      <tr>
+        <td><code>KALIDOUS_HOME</code></td>
+        <td>Config directory</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>See Also</h2>
+<ul>
+  <li><span onclick="navigate('cli-overview')" style="cursor:pointer; color: #4d9fff;">CLI Reference</span> - All commands</li>
+  <li><span onclick="navigate('cmd-build')" style="cursor:pointer; color: #4d9fff;">build</span> - Building projects</li>
+</ul>

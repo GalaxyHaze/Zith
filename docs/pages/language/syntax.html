@@ -1,0 +1,106 @@
+<div class="breadcrumb">
+  <span onclick="navigate('intro')" style="cursor:pointer">docs</span>
+  <span class="breadcrumb-sep">/</span>
+  <span onclick="navigate('lang-overview')" style="cursor:pointer">language</span>
+  <span class="breadcrumb-sep">/</span>
+  <span>syntax basics</span>
+</div>
+<div class="page-eyebrow animate-in">Language Guide</div>
+<h1 class="animate-in">Syntax Basics</h1>
+<p class="lead animate-in">Kalidous syntax is influenced by modern systems languages, favoring clarity and explicitness.</p>
+
+<h2>Hello World</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre>fn main() {
+  println("Hello, World!");
+}</pre>
+</div>
+
+<h2>Comments</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre><span class="tok-cmt">// Single line comment</span>
+
+<span class="tok-cmt">/* Multi-line
+   comment */</span>
+
+<span class="tok-cmt">/// Documentation comment
+/// This appears in generated docs</span></pre>
+</div>
+
+<h2>Statements</h2>
+<p>Statements are instructions that end with a semicolon. Expressions return values.</p>
+
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-cmt">// Statement</span>
+let x = 5;
+
+<span class="tok-cmt">// Expression (no semicolon)</span>
+let y = {
+  let x = 3;
+  x + 1
+};</pre>
+</div>
+
+<h2>Blocks</h2>
+<p>Blocks are enclosed in curly braces and return the value of the last expression:</p>
+
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre>let result = {
+  let a = 10;
+  let b = 20;
+  a + b  <span class="tok-cmt">// Returns 30</span>
+};</pre>
+</div>
+
+<h2>Indentation & Formatting</h2>
+<p>Kalidous uses standard formatting conventions:</p>
+<ul>
+  <li>2 or 4 spaces for indentation (no tabs)</li>
+  <li>Lines should be under 100 characters</li>
+  <li>Use <code>kalidous fmt</code> to auto-format code</li>
+</ul>
+
+<h2>Built-in Functions</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Function</th>
+        <th>Purpose</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>println</code></td>
+        <td>Print line with newline</td>
+        <td><code>println("hello")</code></td>
+      </tr>
+      <tr>
+        <td><code>print</code></td>
+        <td>Print without newline</td>
+        <td><code>print("hello")</code></td>
+      </tr>
+      <tr>
+        <td><code>len</code></td>
+        <td>Length of collection</td>
+        <td><code>len(array)</code></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="callout callout-note">
+  <span class="callout-icon">ℹ</span>
+  <div class="callout-body">Statements end with semicolons; expressions do not. This distinction is important in Kalidous.</div>
+</div>
+
+<h2>See Also</h2>
+<ul>
+  <li><span onclick="navigate('lang-vars')" style="cursor:pointer; color: #4d9fff;">Variables</span> - Declaring and using variables</li>
+  <li><span onclick="navigate('lang-types')" style="cursor:pointer; color: #4d9fff;">Types</span> - Type system overview</li>
+</ul>

@@ -1,0 +1,112 @@
+<div class="breadcrumb">
+  <span onclick="navigate('intro')" style="cursor:pointer">docs</span>
+  <span class="breadcrumb-sep">/</span>
+  <span onclick="navigate('lang-overview')" style="cursor:pointer">language</span>
+  <span class="breadcrumb-sep">/</span>
+  <span>memory management</span>
+</div>
+<div class="page-eyebrow animate-in">Language Guide</div>
+<h1 class="animate-in">Memory Management</h1>
+<p class="lead animate-in">Kalidous provides memory safety through compile-time analysis and explicit ownership semantics.</p>
+
+<h2>Ownership</h2>
+<p>Every value in Kalidous has one owner. When the owner goes out of scope, the value is dropped:</p>
+
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre><span class="tok-kw">fn</span> <span class="tok-fn">main</span>() {
+  <span class="tok-kw">let</span> s = "hello";  <span class="tok-cmt">// s owns the string</span>
+}  <span class="tok-cmt">// s goes out of scope, memory freed</span></pre>
+</div>
+
+<h2>Move Semantics</h2>
+<p>Assigning a value transfers ownership:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">let</span> s1 = "hello";
+<span class="tok-kw">let</span> s2 = s1;  <span class="tok-cmt">// Ownership moved to s2</span>
+<span class="tok-cmt">// println(s1);  // Error! s1 no longer owns</span></pre>
+</div>
+
+<h2>Borrowing</h2>
+<p>Borrow a value without taking ownership using <code>&</code>:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">fn</span> <span class="tok-fn">len</span>(s: &<span class="tok-type">str</span>) -> <span class="tok-type">i32</span> {
+  <span class="tok-cmt">// Borrows s, doesn't own it</span>
+}
+
+<span class="tok-kw">let</span> s = "hello";
+<span class="tok-fn">len</span>(&s);  <span class="tok-cmt">// Pass reference</span>
+<span class="tok-cmt">// s still owns the string</span></pre>
+</div>
+
+<h2>Mutable Borrows</h2>
+<p>Borrow mutably with <code>&mut</code>:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">fn</span> <span class="tok-fn">modify</span>(s: &<span class="tok-kw">mut</span> <span class="tok-type">str</span>) {
+  <span class="tok-cmt">// Can modify s</span>
+}
+
+<span class="tok-kw">let</span> <span class="tok-kw">mut</span> s = "hello";
+<span class="tok-fn">modify</span>(&<span class="tok-kw">mut</span> s);  <span class="tok-cmt">// Pass mutable reference</span></pre>
+</div>
+
+<h2>Borrowing Rules</h2>
+<ul>
+  <li>One mutable borrow OR multiple immutable borrows (not both)</li>
+  <li>Borrows must not outlive the owner</li>
+  <li>Checked at compile time</li>
+</ul>
+
+<h2>Lifetimes</h2>
+<p>Explicit lifetimes for complex borrowing scenarios:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">fn</span> <span class="tok-fn">longest</span><'a>(s1: &'a <span class="tok-type">str</span>, s2: &'a <span class="tok-type">str</span>) -> &'a <span class="tok-type">str</span> {
+  <span class="tok-cmt">// Returns reference valid for lifetime 'a</span>
+  <span class="tok-kw">if</span> <span class="tok-fn">len</span>(s1) > <span class="tok-fn">len</span>(s2) { s1 } <span class="tok-kw">else</span> { s2 }
+}</pre>
+</div>
+
+<h2>Stack vs Heap</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Stack</th>
+        <th>Heap</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Fixed size</td>
+        <td>Dynamic size</td>
+      </tr>
+      <tr>
+        <td>Fast allocation</td>
+        <td>Slower allocation</td>
+      </tr>
+      <tr>
+        <td>Automatic cleanup</td>
+        <td>Managed via ownership</td>
+      </tr>
+      <tr>
+        <td>Primitives, arrays</td>
+        <td>Strings, vectors</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="callout callout-note">
+  <span class="callout-icon">ℹ</span>
+  <div class="callout-body">Kalidous's memory model prevents data races and use-after-free errors at compile time.</div>
+</div>
+
+<h2>See Also</h2>
+<ul>
+  <li><span onclick="navigate('lang-errors')" style="cursor:pointer; color: #4d9fff;">Error Handling</span> - Safe error patterns</li>
+  <li><span onclick="navigate('lang-functions')" style="cursor:pointer; color: #4d9fff;">Functions</span> - Parameter passing</li>
+</ul>

@@ -1,0 +1,120 @@
+<div class="breadcrumb">
+  <span onclick="navigate('intro')" style="cursor:pointer">docs</span>
+  <span class="breadcrumb-sep">/</span>
+  <span onclick="navigate('cli-overview')" style="cursor:pointer">cli</span>
+  <span class="breadcrumb-sep">/</span>
+  <span>check</span>
+</div>
+<div class="page-eyebrow animate-in">CLI Reference</div>
+<h1 class="animate-in">kalidous check</h1>
+<p class="lead animate-in">Perform syntax and type checking without compilation or linking.</p>
+
+<h2>Synopsis</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span></div>
+  <pre><span class="tok-fn">kalidous</span> check [target] [<span class="tok-flag">-v</span>] [<span class="tok-flag">--strict</span>]</pre>
+</div>
+
+<h2>Description</h2>
+<p>The check command validates source code for syntax errors and type mismatches without generating machine code. This is useful for rapid feedback during development.</p>
+
+<h2>Options</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Option</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>-v, --verbose</code></td>
+        <td>Show detailed type information</td>
+      </tr>
+      <tr>
+        <td><code>--strict</code></td>
+        <td>Enable strict mode (more warnings)</td>
+      </tr>
+      <tr>
+        <td><code>-q, --quiet</code></td>
+        <td>Only show errors</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Exit Codes</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Code</th>
+        <th>Meaning</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>0</code></td>
+        <td>Check succeeded</td>
+      </tr>
+      <tr>
+        <td><code>1</code></td>
+        <td>Syntax error</td>
+      </tr>
+      <tr>
+        <td><code>2</code></td>
+        <td>Type error</td>
+      </tr>
+      <tr>
+        <td><code>3</code></td>
+        <td>File not found</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Examples</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre><span class="tok-cmt"># Check current project</span>
+<span class="tok-fn">kalidous</span> check
+
+<span class="tok-cmt"># Check specific file</span>
+<span class="tok-fn">kalidous</span> check <span class="tok-path">src/main.kali</span>
+
+<span class="tok-cmt"># Verbose type information</span>
+<span class="tok-fn">kalidous</span> check <span class="tok-flag">-v</span>
+
+<span class="tok-cmt"># Strict mode with warnings</span>
+<span class="tok-fn">kalidous</span> check <span class="tok-flag">--strict</span></pre>
+</div>
+
+<h2>Output Format</h2>
+<p>Errors are displayed with file, line, column, and message:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">text</span></div>
+  <pre>error: type mismatch
+  --> src/main.kali:5:10
+   |
+ 5 | let x: i32 = "string";
+   |        ^^^ expected i32, got str</pre>
+</div>
+
+<h2>Tips</h2>
+<ul>
+  <li>Use <code>check</code> frequently while editing for fast feedback</li>
+  <li>Use <code>--strict</code> to catch potential issues early</li>
+  <li>Integrate with your editor for real-time checking</li>
+</ul>
+
+<div class="callout callout-note">
+  <span class="callout-icon">ℹ</span>
+  <div class="callout-body">Check is much faster than full compilation and ideal for IDEs and editor plugins.</div>
+</div>
+
+<h2>See Also</h2>
+<ul>
+  <li><span onclick="navigate('cmd-build')" style="cursor:pointer; color: #4d9fff;">build</span> - Full compilation</li>
+  <li><span onclick="navigate('cmd-compile')" style="cursor:pointer; color: #4d9fff;">compile</span> - Compile to machine code</li>
+</ul>

@@ -1,0 +1,103 @@
+<div class="breadcrumb">
+  <span onclick="navigate('intro')" style="cursor:pointer">docs</span>
+  <span class="breadcrumb-sep">/</span>
+  <span onclick="navigate('cli-overview')" style="cursor:pointer">cli</span>
+  <span class="breadcrumb-sep">/</span>
+  <span>execute</span>
+</div>
+<div class="page-eyebrow animate-in">CLI Reference</div>
+<h1 class="animate-in">kalidous execute</h1>
+<p class="lead animate-in">Run compiled binaries or bytecode. Does not compile anything.</p>
+
+<h2>Synopsis</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span></div>
+  <pre><span class="tok-fn">kalidous</span> execute [target] [<span class="tok-flag">--interpreted</span>] [<span class="tok-flag">-v</span>]</pre>
+</div>
+
+<h2>Description</h2>
+<p>Execute runs pre-compiled binaries or bytecode files. If the target is not found, it fails with an explicit error. This command is useful for running previously-built artifacts.</p>
+
+<h2>Target Resolution</h2>
+<p>When target is omitted, reads <code>output</code> from <code>KalidousProject.toml</code>. If no toml exists, the command fails immediately.</p>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Invocation</th>
+        <th>Resolves to</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>kalidous execute</code></td>
+        <td><code>toml.output</code></td>
+      </tr>
+      <tr>
+        <td><code>kalidous execute --interpreted</code></td>
+        <td><code>toml.output.bc</code></td>
+      </tr>
+      <tr>
+        <td><code>kalidous execute bin/app</code></td>
+        <td><code>bin/app</code></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Options</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Option</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>--interpreted</code></td>
+        <td>Run bytecode with interpreter (not JIT)</td>
+      </tr>
+      <tr>
+        <td><code>-v, --verbose</code></td>
+        <td>Show execution details</td>
+      </tr>
+      <tr>
+        <td><code>-- ARGS</code></td>
+        <td>Pass arguments to the program</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Examples</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre><span class="tok-cmt"># Run binary from toml</span>
+<span class="tok-fn">kalidous</span> execute
+
+<span class="tok-cmt"># Run specific binary</span>
+<span class="tok-fn">kalidous</span> execute <span class="tok-path">bin/app</span>
+
+<span class="tok-cmt"># Run with arguments</span>
+<span class="tok-fn">kalidous</span> execute bin/app <span class="tok-flag">--</span> arg1 arg2
+
+<span class="tok-cmt"># Run bytecode with interpreter</span>
+<span class="tok-fn">kalidous</span> execute program.bc <span class="tok-flag">--interpreted</span></pre>
+</div>
+
+<h2>Exit Codes</h2>
+<p>Exit codes from the executed program are preserved.</p>
+
+<div class="callout callout-warning">
+  <span class="callout-icon">⚠</span>
+  <div class="callout-body">If the target binary is not found, <code>execute</code> exits with code 127.</div>
+</div>
+
+<h2>See Also</h2>
+<ul>
+  <li><span onclick="navigate('cmd-run')" style="cursor:pointer; color: #4d9fff;">run</span> - Build and execute</li>
+  <li><span onclick="navigate('cmd-build')" style="cursor:pointer; color: #4d9fff;">build</span> - Compile projects</li>
+</ul>

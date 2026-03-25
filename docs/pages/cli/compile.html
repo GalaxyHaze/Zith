@@ -1,0 +1,150 @@
+<div class="breadcrumb">
+  <span onclick="navigate('intro')" style="cursor:pointer">docs</span>
+  <span class="breadcrumb-sep">/</span>
+  <span onclick="navigate('cli-overview')" style="cursor:pointer">cli</span>
+  <span class="breadcrumb-sep">/</span>
+  <span>compile</span>
+</div>
+<div class="page-eyebrow animate-in">CLI Reference</div>
+<h1 class="animate-in">kalidous compile</h1>
+<p class="lead animate-in">Compile Kalidous source files directly to machine code or intermediate bytecode.</p>
+
+<h2>Synopsis</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span></div>
+  <pre><span class="tok-fn">kalidous</span> compile &lt;source&gt; [<span class="tok-flag">-o</span> output] [<span class="tok-flag">--target</span> triple] [<span class="tok-flag">--emit</span> type]</pre>
+</div>
+
+<h2>Description</h2>
+<p>Low-level compilation tool that compiles individual source files to machine code or bytecode. Unlike <code>build</code>, this command does not manage dependencies or link multiple files.</p>
+
+<h2>Options</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Option</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>-o, --output PATH</code></td>
+        <td>Output file path</td>
+      </tr>
+      <tr>
+        <td><code>--target TRIPLE</code></td>
+        <td>Target architecture (e.g., x86_64-linux-gnu)</td>
+      </tr>
+      <tr>
+        <td><code>--emit TYPE</code></td>
+        <td>Output type: <code>asm</code>, <code>obj</code>, <code>bc</code></td>
+      </tr>
+      <tr>
+        <td><code>-O LEVEL</code></td>
+        <td>Optimization level (0-3)</td>
+      </tr>
+      <tr>
+        <td><code>-g</code></td>
+        <td>Include debug symbols</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Emit Types</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Output</th>
+        <th>Use Case</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>asm</code></td>
+        <td>Assembly code (.s)</td>
+        <td>Inspection, debugging</td>
+      </tr>
+      <tr>
+        <td><code>obj</code></td>
+        <td>Object file (.o)</td>
+        <td>Linking with C libraries</td>
+      </tr>
+      <tr>
+        <td><code>bc</code></td>
+        <td>Bytecode (.bc)</td>
+        <td>Intermediate format</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Examples</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre><span class="tok-cmt"># Compile to assembly</span>
+<span class="tok-fn">kalidous</span> compile main.kali <span class="tok-flag">--emit</span> asm <span class="tok-flag">-o</span> <span class="tok-path">main.s</span>
+
+<span class="tok-cmt"># Compile to object file</span>
+<span class="tok-fn">kalidous</span> compile app.kali <span class="tok-flag">--emit</span> obj <span class="tok-flag">-o</span> <span class="tok-path">app.o</span>
+
+<span class="tok-cmt"># With optimization</span>
+<span class="tok-fn">kalidous</span> compile fast.kali <span class="tok-flag">-O3</span> <span class="tok-flag">-o</span> <span class="tok-path">fast</span>
+
+<span class="tok-cmt"># Cross-compile</span>
+<span class="tok-fn">kalidous</span> compile app.kali <span class="tok-flag">--target</span> aarch64-linux-gnu</pre>
+</div>
+
+<h2>Optimization Levels</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Level</th>
+        <th>Speed</th>
+        <th>Size</th>
+        <th>Build Time</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>-O0</code></td>
+        <td>Slow</td>
+        <td>Large</td>
+        <td>Fast</td>
+      </tr>
+      <tr>
+        <td><code>-O1</code></td>
+        <td>Better</td>
+        <td>Smaller</td>
+        <td>Medium</td>
+      </tr>
+      <tr>
+        <td><code>-O2</code></td>
+        <td>Good</td>
+        <td>Good</td>
+        <td>Slower</td>
+      </tr>
+      <tr>
+        <td><code>-O3</code></td>
+        <td>Best</td>
+        <td>Larger</td>
+        <td>Slowest</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="callout callout-note">
+  <span class="callout-icon">ℹ</span>
+  <div class="callout-body">For most development, use <code>kalidous build</code> instead. Use <code>compile</code> only when you need low-level control.</div>
+</div>
+
+<h2>See Also</h2>
+<ul>
+  <li><span onclick="navigate('cmd-build')" style="cursor:pointer; color: #4d9fff;">build</span> - High-level project building</li>
+  <li><span onclick="navigate('cmd-check')" style="cursor:pointer; color: #4d9fff;">check</span> - Syntax checking</li>
+</ul>

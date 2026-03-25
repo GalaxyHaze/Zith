@@ -1,0 +1,112 @@
+<div class="breadcrumb">
+  <span onclick="navigate('intro')" style="cursor:pointer">docs</span>
+  <span class="breadcrumb-sep">/</span>
+  <span onclick="navigate('lang-overview')" style="cursor:pointer">language</span>
+  <span class="breadcrumb-sep">/</span>
+  <span>generics</span>
+</div>
+<div class="page-eyebrow animate-in">Language Guide</div>
+<h1 class="animate-in">Generics</h1>
+<p class="lead animate-in">Write code that works with multiple types while maintaining type safety.</p>
+
+<h2>Generic Functions</h2>
+<p>Define functions that work with any type:</p>
+
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre><span class="tok-kw">fn</span> <span class="tok-fn">first</span>&lt;T>(arr: [T]) -> <span class="tok-type">T</span> {
+  arr[0]
+}
+
+<span class="tok-kw">let</span> x = <span class="tok-fn">first</span>([1, 2, 3]);    <span class="tok-cmt">// T = i32</span>
+<span class="tok-kw">let</span> s = <span class="tok-fn">first</span>(["a", "b"]); <span class="tok-cmt">// T = str</span></pre>
+</div>
+
+<h2>Generic Types</h2>
+<p>Define generic structs and enums:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">struct</span> <span class="tok-type">Box</span>&lt;T> {
+  value: <span class="tok-type">T</span>,
+}
+
+<span class="tok-kw">let</span> int_box = <span class="tok-type">Box</span> { value: 42 };
+<span class="tok-kw">let</span> str_box = <span class="tok-type">Box</span> { value: "hello" };</pre>
+</div>
+
+<h2>Trait Bounds</h2>
+<p>Constrain generic types with traits:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">trait</span> <span class="tok-type">Printable</span> {
+  <span class="tok-kw">fn</span> <span class="tok-fn">display</span>(&<span class="tok-kw">self</span>) -> <span class="tok-type">str</span>;
+}
+
+<span class="tok-kw">fn</span> <span class="tok-fn">show</span>&lt;T: <span class="tok-type">Printable</span>>(item: T) {
+  println(<span class="tok-fn">item.display</span>());
+}</pre>
+</div>
+
+<h2>Multiple Bounds</h2>
+<p>Combine multiple trait bounds:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">fn</span> <span class="tok-fn">process</span>&lt;T: <span class="tok-type">Clone</span> + <span class="tok-type">Display</span>>(x: T) {
+  <span class="tok-cmt">// T must implement Clone and Display</span>
+}</pre>
+</div>
+
+<h2>Associated Types</h2>
+<p>Types defined in traits:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">trait</span> <span class="tok-type">Iterator</span> {
+  <span class="tok-kw">type</span> <span class="tok-type">Item</span>;
+  <span class="tok-kw">fn</span> <span class="tok-fn">next</span>(&<span class="tok-kw">mut self</span>) -> <span class="tok-type">Option</span>&lt;<span class="tok-kw">Self</span>::<span class="tok-type">Item</span>>;
+}</pre>
+</div>
+
+<h2>Generic Lifetimes</h2>
+<p>Generics can include lifetimes:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">struct</span> <span class="tok-type">Ref</span>&lt;'a, T> {
+  value: &'a T,
+}</pre>
+</div>
+
+<h2>Where Clause</h2>
+<p>Express complex bounds clearly:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-kw">fn</span> <span class="tok-fn">process</span>&lt;T, U>(x: T, y: U)
+<span class="tok-kw">where</span>
+  T: <span class="tok-type">Clone</span>,
+  U: <span class="tok-type">Display</span>,
+{
+  <span class="tok-cmt">// Implementation</span>
+}</pre>
+</div>
+
+<h2>Monomorphization</h2>
+<p>Generics are specialized at compile time:</p>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <pre><span class="tok-cmt">// This generic function:</span>
+<span class="tok-kw">fn</span> <span class="tok-fn">print_val</span>&lt;T: <span class="tok-type">Display</span>>(x: T) { }
+
+<span class="tok-cmt">// Gets compiled to:</span>
+<span class="tok-kw">fn</span> <span class="tok-fn">print_val_i32</span>(x: <span class="tok-type">i32</span>) { }
+<span class="tok-kw">fn</span> <span class="tok-fn">print_val_str</span>(x: <span class="tok-type">str</span>) { }</pre>
+</div>
+
+<div class="callout callout-note">
+  <span class="callout-icon">ℹ</span>
+  <div class="callout-body">Generics have zero runtime cost—they're resolved at compile time through monomorphization.</div>
+</div>
+
+<h2>See Also</h2>
+<ul>
+  <li><span onclick="navigate('lang-types')" style="cursor:pointer; color: #4d9fff;">Types</span> - Type fundamentals</li>
+  <li><span onclick="navigate('lang-functions')" style="cursor:pointer; color: #4d9fff;">Functions</span> - Function definitions</li>
+</ul>

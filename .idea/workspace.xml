@@ -33,19 +33,24 @@
     </configurations>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d080124f-2444-4f78-93fb-8b99318eaf32" name="Changes" comment="shikai">
-      <change afterPath="$PROJECT_DIR$/docs/assets/css/style.css" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/assets/js/main.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/index.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/pages/installation.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/pages/intro.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/pages/language/control-flow.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/pages/language/errors.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/pages/project/toml.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/pages/quickstart.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/sitemap.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+    <list default="true" id="d080124f-2444-4f78-93fb-8b99318eaf32" name="Changes" comment="Documentation web-site HUGE update">
+      <change afterPath="$PROJECT_DIR$/docs/pages/cli/build.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/pages/cli/check.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/pages/cli/compile.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/pages/cli/execute.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/pages/cli/flags.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/pages/cli/overview.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/pages/cli/run.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/pages/language/functions.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/pages/language/generics.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/pages/language/memory.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/pages/language/modules.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/pages/language/overview.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/pages/language/syntax.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/pages/language/types.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/pages/language/variables.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/sitemap.xml" beforeDir="false" afterPath="$PROJECT_DIR$/docs/sitemap.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -213,7 +218,7 @@
       <workItem from="1774436584517" duration="76000" />
       <workItem from="1774450174898" duration="3729000" />
       <workItem from="1774463480180" duration="618000" />
-      <workItem from="1774466132299" duration="2956000" />
+      <workItem from="1774466132299" duration="4024000" />
     </task>
     <task id="LOCAL-00001" summary="Migration: to Kalidous-Lang">
       <option name="closed" value="true" />
@@ -271,7 +276,15 @@
       <option name="project" value="LOCAL" />
       <updated>1774436647588</updated>
     </task>
-    <option name="localTasksCounter" value="8" />
+    <task id="LOCAL-00008" summary="Documentation web-site HUGE update">
+      <option name="closed" value="true" />
+      <created>1774471649290</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1774471649290</updated>
+    </task>
+    <option name="localTasksCounter" value="9" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -287,7 +300,8 @@
     <MESSAGE value="Open-source" />
     <MESSAGE value=".ignore" />
     <MESSAGE value="shikai" />
-    <option name="LAST_COMMIT_MESSAGE" value="shikai" />
+    <MESSAGE value="Documentation web-site HUGE update" />
+    <option name="LAST_COMMIT_MESSAGE" value="Documentation web-site HUGE update" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
