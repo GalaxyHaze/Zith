@@ -129,7 +129,7 @@ hello-world/
 └── .gitignore
 ```
 
-**For comprehensive guides**, see the [Documentation](./docs/index.html).
+**For comprehensive guides**, see the [Documentation](https://galaxyhaze.github.io/Kalidous-Lang/docs/index.html?page=intro).
 
 ---
 
@@ -231,7 +231,7 @@ fn main() {
 }
 ```
 
-For more examples and documentation, visit the [Language Guide](./docs/index.html).
+For more examples and documentation, visit the [Language Guide](https://galaxyhaze.github.io/Kalidous-Lang/docs/index.html?page=intro).
 
 ---
 
@@ -289,7 +289,7 @@ kalidous run
 kalidous run -m release
 ```
 
-For detailed CLI documentation, see the [CLI Reference](./docs/index.html).
+For detailed CLI documentation, see the [CLI Reference](https://galaxyhaze.github.io/Kalidous-Lang/docs/index.html?page=intro).
 
 ---
 
@@ -457,7 +457,7 @@ Found a bug or have a feature request? [Open an issue](https://github.com/Galaxy
 
 - **🐛 [Report Issues](https://github.com/GalaxyHaze/Kalidous-Lang/issues)** - Bug reports and feature requests
 - **💬 [Discussions](https://github.com/GalaxyHaze/Kalidous-Lang/discussions)** - Questions, ideas, and community chat
-- **📖 [Documentation](./docs/index.html)** - Comprehensive guides and language reference
+- **📖 [Documentation](https://galaxyhaze.github.io/Kalidous-Lang/docs/index.html?page=intro)** - Comprehensive guides and language reference
 - **🌟 Star the Project** - Show your support!
 
 ---
@@ -521,7 +521,7 @@ Kalidous is licensed under the [MIT License](./LICENSE) - see the LICENSE file f
 ---
 
 ### Quick Links
-- 📖 [Documentation](./docs/index.html)
+- 📖 [Documentation](https://galaxyhaze.github.io/Kalidous-Lang/docs/index.html?page=intro)
 - 🐛 [Issues](https://github.com/GalaxyHaze/Kalidous-Lang/issues)
 - 💬 [Discussions](https://github.com/GalaxyHaze/Kalidous-Lang/discussions)
 - 🌟 [GitHub](https://github.com/GalaxyHaze/Kalidous-Lang)
