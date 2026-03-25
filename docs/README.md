@@ -6,7 +6,7 @@
 
 ## 📚 Documentation
 
-**📖 [Read the Complete Documentation](https://galaxyhaze.github.io/Kalidous-Lang/docs/index.html?page=intro)** | [View on GitHub](https://github.com/GalaxyHaze/Kalidous-Lang/tree/main/docs)
+**📖 [Read the Complete Documentation](https://galaxyhaze.github.io/Kalidous-Lang/docs/index.html?page=intro)** | [View on GitHub](https://github.com/GalaxyHaze/Kalidous-Lang/)
 
 The full documentation includes:
 - **Getting Started** - Installation and quick start tutorials
