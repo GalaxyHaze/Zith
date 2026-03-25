@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="BackendCodeEditorMiscSettings">
-    <option name="/Default/Environment/Hierarchy/GeneratedFilesCacheKey/Timestamp/@EntryValue" value="20" type="long" />
+    <option name="/Default/Environment/Hierarchy/GeneratedFilesCacheKey/Timestamp/@EntryValue" value="6" type="long" />
     <option name="/Default/Housekeeping/FeatureSuggestion/FeatureSuggestionManager/DisabledSuggesters/=SwitchToGoToActionSuggester/@EntryIndexedValue" value="true" type="bool" />
     <option name="/Default/Housekeeping/GlobalSettingsUpgraded/IsUpgraded/@EntryValue" value="true" type="bool" />
     <option name="/Default/RiderDebugger/RiderRestoreDecompile/RestoreDecompileSetting/@EntryValue" value="false" type="bool" />
@@ -33,37 +33,14 @@
     </configurations>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d080124f-2444-4f78-93fb-8b99318eaf32" name="Changes" comment=".ignore">
+    <list default="true" id="d080124f-2444-4f78-93fb-8b99318eaf32" name="Changes" comment="shikai">
+      <change afterPath="$PROJECT_DIR$/kalidous doc.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/editor.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/editor.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/App.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/App.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Argv.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Argv.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/CLI.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/CLI.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Config.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Config.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/ConfigFwd.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/ConfigFwd.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Encoding.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Encoding.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Error.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Error.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Formatter.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Formatter.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/FormatterFwd.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/FormatterFwd.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Macros.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Macros.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Option.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Option.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Split.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Split.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/StringTools.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/StringTools.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Timer.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Timer.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/TypeTools.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/TypeTools.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Validators.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Validators.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Version.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/Version.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/App_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/App_inl.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Argv_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Argv_inl.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Config_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Config_inl.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Encoding_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Encoding_inl.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Formatter_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Formatter_inl.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Option_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Option_inl.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Split_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Split_inl.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/StringTools_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/StringTools_inl.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Validators_inl.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/include/CLI/impl/Validators_inl.hpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/src/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/src/CMakeLists.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/src/Precompile.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/_deps/cli11-src/src/Precompile.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/dev/small.kali" beforeDir="false" afterPath="$PROJECT_DIR$/examples/dev/small.kali" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/impl/lexer/keywords.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/impl/lexer/keywords.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/impl/parser/parser.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/impl/parser/parser.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/impl/parser/parser.h" beforeDir="false" afterPath="$PROJECT_DIR$/impl/parser/parser.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/include/kalidous/kalidous.h" beforeDir="false" afterPath="$PROJECT_DIR$/include/kalidous/kalidous.h" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -74,6 +51,13 @@
     <option name="formatViaClangd" value="false" />
   </component>
   <component name="ExecutionTargetManager" SELECTED_TARGET="CMakeBuildProfile:Debug" />
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="HTML File" />
+      </list>
+    </option>
+  </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
     <option name="ROOT_SYNC" value="DONT_SYNC" />
@@ -110,36 +94,37 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;CMake Application.KalidousCore.executor&quot;: &quot;Run&quot;,
-    &quot;CMake Application.kalidous.executor&quot;: &quot;Run&quot;,
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.RadMigrateCodeStyle&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.cidr.known.project.marker&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.readMode.enableVisualFormatting&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.west.config.association.type.startup.service&quot;: &quot;true&quot;,
-    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
-    &quot;cf.first.check.clang-format&quot;: &quot;false&quot;,
-    &quot;cidr.known.project.marker&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/home/diogo/CLionProjects/Kalidous-Implementation/tests&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;onboarding.tips.debug.path&quot;: &quot;/home/diogo/CLionProjects/Kalidous-Implementation/main.cpp&quot;,
-    &quot;org.rust.first.attach.projects&quot;: &quot;true&quot;,
-    &quot;run.code.analysis.last.selected.profile&quot;: &quot;pProject Default&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;terminal&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "CMake Application.KalidousCore.executor": "Run",
+    "CMake Application.kalidous.executor": "Run",
+    "DefaultHtmlFileTemplate": "HTML File",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.RadMigrateCodeStyle": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.cidr.known.project.marker": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.readMode.enableVisualFormatting": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "RunOnceActivity.west.config.association.type.startup.service": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "cf.first.check.clang-format": "false",
+    "cidr.known.project.marker": "true",
+    "git-widget-placeholder": "master",
+    "last_opened_file_path": "/home/diogo/CLionProjects/Kalidous-Implementation",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "onboarding.tips.debug.path": "/home/diogo/CLionProjects/Kalidous-Implementation/main.cpp",
+    "org.rust.first.attach.projects": "true",
+    "run.code.analysis.last.selected.profile": "pProject Default",
+    "settings.editor.selected.configurable": "terminal",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$/tests" />
@@ -150,12 +135,7 @@
       <recent name="$PROJECT_DIR$/impl/ast" />
     </key>
   </component>
-  <component name="RunManager" selected="CMake Application.kalidous">
-    <configuration default="true" type="CLionExternalRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true">
-      <method v="2">
-        <option name="CLION.EXTERNAL.BUILD" enabled="true" />
-      </method>
-    </configuration>
+  <component name="RunManager" selected="JavaScript Debug.kalidous doc.html">
     <configuration name="CLI11" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="Kalidous" TARGET_NAME="CLI11" CONFIG_NAME="Debug">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
@@ -171,17 +151,21 @@
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
-    <configuration name="kalidous" type="CMakeRunConfiguration" factoryName="Application" nameIsGenerated="true" PROGRAM_PARAMS="-v check examples/dev/small.kali" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" WORKING_DIR="file://$PROJECT_DIR$" PASS_PARENT_ENVS_2="true" PROJECT_NAME="Kalidous" TARGET_NAME="kalidous" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="Kalidous" RUN_TARGET_NAME="kalidous">
-      <method v="2">
-        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
-      </method>
+    <configuration name="kalidous doc.html" type="JavascriptDebugType" temporary="true" nameIsGenerated="true" uri="http://localhost:63342/Kalidous/kalidous doc.html" useBuiltInWebServerPort="true">
+      <method v="2" />
     </configuration>
     <list>
       <item itemvalue="CMake Application.CLI11" />
       <item itemvalue="CMake Application.KalidousCore" />
       <item itemvalue="CMake Application.KalidousParse" />
       <item itemvalue="CMake Application.kalidous" />
+      <item itemvalue="JavaScript Debug.kalidous doc.html" />
     </list>
+    <recent_temporary>
+      <list>
+        <item itemvalue="JavaScript Debug.kalidous doc.html" />
+      </list>
+    </recent_temporary>
   </component>
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
@@ -206,6 +190,9 @@
       <workItem from="1773671480039" duration="4000" />
       <workItem from="1773671468683" duration="4105000" />
       <workItem from="1773997298376" duration="2601000" />
+      <workItem from="1774436584517" duration="76000" />
+      <workItem from="1774450174898" duration="3729000" />
+      <workItem from="1774463480180" duration="618000" />
     </task>
     <task id="LOCAL-00001" summary="Migration: to Kalidous-Lang">
       <option name="closed" value="true" />
@@ -255,7 +242,15 @@
       <option name="project" value="LOCAL" />
       <updated>1773675586201</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="shikai">
+      <option name="closed" value="true" />
+      <created>1774436647588</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1774436647588</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -270,6 +265,18 @@
     <MESSAGE value="Migration: to Kalidous-Lang" />
     <MESSAGE value="Open-source" />
     <MESSAGE value=".ignore" />
-    <option name="LAST_COMMIT_MESSAGE" value=".ignore" />
+    <MESSAGE value="shikai" />
+    <option name="LAST_COMMIT_MESSAGE" value="shikai" />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
+          <url>file://$PROJECT_DIR$/impl/parser/parser.cpp</url>
+          <line>266</line>
+          <option name="timeStamp" value="3" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
   </component>
 </project>

@@ -10,9 +10,9 @@
 // ============================================================================
 
 void parser_init(Parser *p, KalidousArena *arena,
-                 const char *source, size_t source_len,
+                 const char *source, const size_t source_len,
                  const char *filename,
-                 KalidousTokenStream tokens) {
+                 const KalidousTokenStream tokens) {
     p->arena = arena;
     p->source = source;
     p->source_len = source_len;
@@ -64,7 +64,7 @@ static const char *severity_label(KalidousDiagSeverity s) {
 }
 
 void kalidous_diag_print_all(const KalidousDiagList *diags,
-                             const char *source, size_t source_len,
+                             const char *source, const size_t source_len,
                              const char *filename) {
     if (!diags || diags->count == 0) return;
 
@@ -114,8 +114,8 @@ void kalidous_diag_print_all(const KalidousDiagList *diags,
 
 // ── Internal emit ────────────────────────────────────────────────────────────
 
-static void parser_emit(Parser *p, KalidousSourceLoc loc,
-                        KalidousDiagSeverity severity, const char *msg) {
+static void parser_emit(Parser *p, const KalidousSourceLoc loc,
+                        const KalidousDiagSeverity severity, const char *msg) {
     // Grow the diagnostic array if needed (arena-allocated, no free)
     if (p->diags.count >= p->diags.capacity) {
         const size_t new_cap = p->diags.capacity == 0 ? 8 : p->diags.capacity * 2;
@@ -137,7 +137,7 @@ static void parser_emit(Parser *p, KalidousSourceLoc loc,
     if (severity == KALIDOUS_DIAG_ERROR) p->had_error = true;
 }
 
-void parser_error(Parser *p, KalidousSourceLoc loc, const char *msg) {
+void parser_error(Parser *p, const KalidousSourceLoc loc, const char *msg) {
     if (p->panic) return; // suppress cascades
     parser_emit(p, loc, KALIDOUS_DIAG_ERROR, msg);
     p->panic = true; // activate panic — sync at next statement/declaration boundary
@@ -230,11 +230,11 @@ const KalidousToken *parser_advance(Parser *p) {
     return t;
 }
 
-bool parser_check(const Parser *p, KalidousTokenType type) {
+bool parser_check(const Parser *p, const KalidousTokenType type) {
     return parser_peek(p)->type == type;
 }
 
-bool parser_match(Parser *p, KalidousTokenType type) {
+bool parser_match(Parser *p, const KalidousTokenType type) {
     if (parser_check(p, type)) {
         parser_advance(p);
         return true;
@@ -304,7 +304,7 @@ static KalidousLiteral parse_lit_decimal(const char *data, size_t len) {
     return lit;
 }
 
-static KalidousLiteral parse_lit_hex(const char *data, size_t len) {
+static KalidousLiteral parse_lit_hex(const char *data, const size_t len) {
     char buf[64];
     lexeme_to_cstr(buf, sizeof(buf), data, len);
     KalidousLiteral lit;
@@ -365,7 +365,7 @@ static KalidousNode *parse_body(Parser *p) {
     // Guard: error recovery can produce nullptr — wrap only if valid
     if (!stmt) return kalidous_ast_make_block(p->arena, loc, nullptr, 0);
 
-    KalidousNode **arr = static_cast<KalidousNode **>(
+    auto **arr = static_cast<KalidousNode **>(
         kalidous_arena_alloc(p->arena, sizeof(KalidousNode *)));
     if (arr) *arr = stmt;
     return kalidous_ast_make_block(p->arena, loc, arr, arr ? 1 : 0);
@@ -419,8 +419,8 @@ KalidousNode *parser_parse_type(Parser *p) {
 // ============================================================================
 
 typedef struct {
-    int left;
-    int right;
+    int8_t left;
+    int8_t right;
 } BindingPower;
 
 static BindingPower infix_bp(KalidousTokenType op) {
@@ -452,8 +452,6 @@ static KalidousNode *parse_nud(Parser *p) {
 
     switch (t->type) {
         case KALIDOUS_TOKEN_NUMBER:
-            return kalidous_ast_make_literal(p->arena, loc,
-                                             parse_lit_decimal(t->lexeme.data, t->lexeme.len));
         case KALIDOUS_TOKEN_FLOAT:
             return kalidous_ast_make_literal(p->arena, loc,
                                              parse_lit_decimal(t->lexeme.data, t->lexeme.len));
@@ -758,6 +756,23 @@ static KalidousNode *parse_yield(Parser *p) {
         value = parser_parse_expression(p);
     parser_expect(p, KALIDOUS_TOKEN_SEMICOLON, "expected ';' after yield");
     return kalidous_ast_make_yield(p->arena, loc, value);
+}
+
+void skip_block(Parser *p) {
+    if (!parser_match(p, KALIDOUS_TOKEN_LBRACE)) {
+        while (!parser_check(p, KALIDOUS_TOKEN_SEMICOLON) && !parser_is_at_end(p)) {
+            parser_advance(p);
+        }
+        parser_expect(p, KALIDOUS_TOKEN_SEMICOLON, "expected ';'");
+        return;
+    }
+
+    int depth = 1;
+    while (!parser_is_at_end(p) && depth > 0) {
+        const KalidousToken *t = parser_advance(p);
+        if (t->type == KALIDOUS_TOKEN_LBRACE) depth++;
+        else if (t->type == KALIDOUS_TOKEN_RBRACE) depth--;
+    }
 }
 
 KalidousNode *parser_parse_block(Parser *p) {
@@ -1253,8 +1268,8 @@ static KalidousNode *parse_enum_decl(Parser *p, KalidousVisibility enum_vis) {
 }
 
 // Full implementation of the forward-declared parse_func_body
-static KalidousNode *parse_func_body(Parser *p, KalidousFnKind kind,
-                                     KalidousSourceLoc loc, KalidousVisibility visibility) {
+static KalidousNode *parse_func_body(Parser *p, const KalidousFnKind kind,
+                                     const KalidousSourceLoc loc, const KalidousVisibility visibility) {
     const KalidousToken *name = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER,
                                               "expected function name");
     parser_expect(p, KALIDOUS_TOKEN_LPAREN, "expected '(' after function name");
@@ -1281,10 +1296,19 @@ static KalidousNode *parse_func_body(Parser *p, KalidousFnKind kind,
     p->inside_fn = true;
 
     KalidousNode *body = nullptr;
-    if (!parser_check(p, KALIDOUS_TOKEN_SEMICOLON))
-        body = parse_body(p);
-    else
-        parser_expect(p, KALIDOUS_TOKEN_SEMICOLON, "expected ';' for forward declaration");
+    if (p->mode == KALIDOUS_PARSER_MODE_SCAN) {
+        if (parser_check(p, KALIDOUS_TOKEN_SEMICOLON)) {
+            parser_advance(p); // forward decl
+        } else {
+            skip_block(p); // pula o corpo { ... }
+        }
+        body = nullptr;
+    } else {
+        if (!parser_check(p, KALIDOUS_TOKEN_SEMICOLON))
+            body = parse_body(p);
+        else
+            parser_expect(p, KALIDOUS_TOKEN_SEMICOLON, "expected ';' for forward declaration");
+    }
 
     p->fn_kind = outer_kind;
     p->inside_fn = outer_inside;

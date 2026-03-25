@@ -59,10 +59,13 @@ static constexpr auto TokenTable = std::to_array<std::pair<std::string_view, Kal
     {"family", KALIDOUS_TOKEN_FAMILY},
     {"entity", KALIDOUS_TOKEN_ENTITY},
     {"trait", KALIDOUS_TOKEN_TRAIT},
-    {"use", KALIDOUS_TOKEN_TYPEDEF},
+    {"type", KALIDOUS_TOKEN_TYPEDEF},
     {"implement", KALIDOUS_TOKEN_IMPLEMENT},
     {"fn", KALIDOUS_TOKEN_FN},
     {"import", KALIDOUS_TOKEN_IMPORT},
+    {"use", KALIDOUS_TOKEN_USE},
+    {"context", KALIDOUS_TOKEN_CONTEXT},
+    {"macro", KALIDOUS_TOKEN_MACRO},
 
     // --- Bindings / modificadores de ownership ------------------------------
     {"let", KALIDOUS_TOKEN_LET},

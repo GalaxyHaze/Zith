@@ -18,6 +18,11 @@ typedef enum KalidousDiagSeverity {
     KALIDOUS_DIAG_NOTE = 2,
 } KalidousDiagSeverity;
 
+    typedef enum KalidousParserMode{
+        KALIDOUS_PARSER_MODE_SCAN = 0,
+        KALIDOUS_PARSER_MODE_PARSE = 1,
+    } KalidousParserMode;
+
 typedef struct KalidousDiagnostic {
     const char *message; // interned in arena
     KalidousSourceLoc loc;
@@ -42,6 +47,13 @@ void kalidous_diag_print_all(const KalidousDiagList *diags,
 // Parser state
 // ============================================================================
 
+typedef struct KalidousSymbolTable KalidousSymbolTable;
+
+typedef struct KalidousScope{
+        KalidousSymbolTable* parent = nullptr;
+        KalidousSymbolTable* symbols = nullptr;
+}KalidousScope;
+
 typedef struct Parser {
     KalidousArena *arena;
     const KalidousToken *tokens;
@@ -52,6 +64,7 @@ typedef struct Parser {
     const char *source;
     size_t source_len;
     const char *filename;
+    KalidousSymbolTable* currentScope;
 
     // Accumulated diagnostics
     KalidousDiagList diags;
@@ -70,6 +83,7 @@ typedef struct Parser {
 
     // Active group visibility modifier (default: private)
     KalidousVisibility current_visibility;
+    KalidousParserMode mode;
 } Parser;
 
 // ============================================================================
@@ -125,6 +139,8 @@ KalidousNode *parser_parse_expression(Parser *p);
 KalidousNode *parser_parse_type(Parser *p);
 
 KalidousNode *parser_parse_block(Parser *p);
+
+void skip_block(Parser *p);
 
 #ifdef __cplusplus
 }
