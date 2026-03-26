@@ -305,4 +305,4 @@ A: KBC bytecode runs in the Kalidous VM for portability. Native compilation via 
 
 ## License
 
-Kalidous is licensed under the [MIT License](./LICENSE).
+Kalidous is licensed under the [MIT License](./license).
