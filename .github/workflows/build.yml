@@ -7,6 +7,10 @@ on:
 permissions:
   contents: write
 
+env:
+  # Fix for Node.js 20 deprecation warnings
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-and-release:
     name: Build on ${{ matrix.os }}
@@ -20,12 +24,12 @@ jobs:
           - os: ubuntu-latest
             target_name: kalidous-linux-amd64
             
-          # macOS (Intel)
-          - os: macos-13 # Intel runner
+          # macOS (Intel) - Changed from macos-13 to macos-12 (Stable Intel Runner)
+          - os: macos-12
             target_name: kalidous-macos-amd64
             
           # macOS (Apple Silicon - M1/M2/M3)
-          - os: macos-latest # ARM runner (macos-14+)
+          - os: macos-latest # ARM runner
             target_name: kalidous-macos-arm64
             
           # Windows (Intel/AMD)
@@ -35,7 +39,6 @@ jobs:
           # Windows (ARM64)
           - os: windows-latest
             target_name: kalidous-windows-arm64.exe
-            # We need to tell CMake to target ARM64 on Windows
             cmake_arch: -A ARM64
 
     steps:
@@ -46,14 +49,14 @@ jobs:
         with:
           cmake-version: '3.26.x'
 
-      - uses: seanmiddleditch/gha-setup-ninja@master
+      # REMOVED: seanmiddleditch/gha-setup-ninja (Deprecated/Not needed)
+      # Ninja is now included by default on GitHub runners.
 
       - name: Setup MSVC Dev Cmd
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Configure CMake
-        # Pass the architecture flag if it exists in the matrix
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_arch }}
 
       - name: Build
@@ -70,7 +73,6 @@ jobs:
             cp build/Kalidous artifacts/${{ matrix.target_name }}
           fi
 
-      # --- This was separated in your snippet, now connected properly ---
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v1
         with:
@@ -81,12 +83,16 @@ jobs:
   build-void-musl:
     name: Build Void Linux (musl x86_64)
     runs-on: ubuntu-latest
-    container: voidlinux/void-musl:latest
+    # Added 'options: --user root' to fix permission/pull issues on GitHub's container runner
+    container: 
+      image: voidlinux/void-musl:latest
+      options: --user root
     steps:
       - uses: actions/checkout@v4
 
       - name: Install build deps
         run: |
+          # Ensure xbps is updated
           xbps-install -Suy xbps
           xbps-install -Suy cmake ninja gcc make pkg-config
 
