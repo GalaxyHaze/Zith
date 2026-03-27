@@ -3,43 +3,50 @@ name: Build and Release
 on:
   push:
     tags:
+      - '*'
 
 permissions:
   contents: write
 
-env:
-  # Fix for Node.js 20 deprecation warnings
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Standard matrix: Linux, macOS (Intel + ARM), Windows (x64 + ARM64)
+  # ─────────────────────────────────────────────────────────────────────────────
   build-and-release:
-    name: Build on ${{ matrix.os }}
+    name: Build on ${{ matrix.os }} (${{ matrix.target_name }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux
+          # ── Linux (x64) ──────────────────────────────────────────────────────
           - os: ubuntu-latest
             target_name: kalidous-linux-amd64
-            
-          # macOS (Intel) - Changed from macos-13 to macos-12 (Stable Intel Runner)
-          - os: macos-12
+
+          # ── macOS Intel (x64) ────────────────────────────────────────────────
+          # macos-12 is deprecated; macos-13 is the last stable Intel runner.
+          - os: macos-13
             target_name: kalidous-macos-amd64
-            
-          # macOS (Apple Silicon - M1/M2/M3)
-          - os: macos-latest # ARM runner
+
+          # ── macOS Apple Silicon (ARM64) ───────────────────────────────────────
+          - os: macos-latest
             target_name: kalidous-macos-arm64
-            
-          # Windows (Intel/AMD)
+
+          # ── Windows x64 ──────────────────────────────────────────────────────
           - os: windows-latest
             target_name: kalidous-windows-amd64.exe
-            
-          # Windows (ARM64)
+            # Default MSVC host+target toolchain (x64 → x64)
+            msvc_arch: amd64
+
+          # ── Windows ARM64 (cross-compiled from x64 host) ─────────────────────
+          # FIX: '-A ARM64' is a Visual Studio generator flag and is incompatible
+          #      with '-G Ninja'. The correct approach for Ninja cross-compilation
+          #      is to activate the amd64_arm64 MSVC toolchain via msvc-dev-cmd.
           - os: windows-latest
             target_name: kalidous-windows-arm64.exe
-            cmake_arch: -A ARM64
+            msvc_arch: amd64_arm64
 
     steps:
       - uses: actions/checkout@v4
@@ -49,52 +56,70 @@ jobs:
         with:
           cmake-version: '3.26.x'
 
-      # REMOVED: seanmiddleditch/gha-setup-ninja (Deprecated/Not needed)
-      # Ninja is now included by default on GitHub runners.
-
-      - name: Setup MSVC Dev Cmd
+      # Activates the correct MSVC toolchain.
+      # For ARM64 cross-compilation, 'amd64_arm64' sets the host as x64
+      # and the target as ARM64 — required for Ninja-based cross builds.
+      - name: Setup MSVC Dev Environment
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
 
       - name: Configure CMake
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_arch }}
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release
 
-      - name: Prepare Artifacts
+      - name: Prepare Artifact
         shell: bash
         run: |
           mkdir -p artifacts
           if [ "${{ runner.os }}" == "Windows" ]; then
-            cp build/Kalidous.exe artifacts/${{ matrix.target_name }}
+            cp build/Kalidous.exe "artifacts/${{ matrix.target_name }}"
           else
             chmod +x build/Kalidous
-            cp build/Kalidous artifacts/${{ matrix.target_name }}
+            cp build/Kalidous "artifacts/${{ matrix.target_name }}"
           fi
 
-      - name: Upload Release Assets
-        uses: softprops/action-gh-release@v1
+      # FIX: Updated from @v1 (deprecated Node 16) to @v2 (Node 20+).
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build-void-musl:
-    name: Build Void Linux (musl x86_64)
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Void Linux (glibc, x86_64) — runs inside an official Void container
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-void-glibc:
+    name: Build Void Linux (glibc x86_64)
     runs-on: ubuntu-latest
-    # Added 'options: --user root' to fix permission/pull issues on GitHub's container runner
-    container: 
-      image: voidlinux/void-musl:latest
+    # Explicit per-job permission so the upload step can create/update releases
+    # even when running inside a container, where the workflow-level setting
+    # may not propagate reliably.
+    permissions:
+      contents: write
+
+    container:
+      image: voidlinux/void-glibc:latest
       options: --user root
+
     steps:
+      # FIX: actions/checkout@v4 requires git to be present on the system.
+      # In a minimal Void Linux container, git is NOT pre-installed.
+      # Installing it here (before the checkout step) prevents a silent failure
+      # or a misleading "not a git repository" error.
+      - name: Install git (required by actions/checkout)
+        run: |
+          xbps-install -Suy xbps
+          xbps-install -Suy git
+
       - uses: actions/checkout@v4
 
-      - name: Install build deps
-        run: |
-          # Ensure xbps is updated
-          xbps-install -Suy xbps
-          xbps-install -Suy cmake ninja gcc make pkg-config
+      - name: Install build dependencies
+        run: xbps-install -Suy cmake ninja gcc make pkg-config
 
       - name: Configure CMake
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -106,11 +131,12 @@ jobs:
         run: |
           mkdir -p artifacts
           chmod +x build/Kalidous
-          cp build/Kalidous artifacts/kalidous-void-linux-amd64-musl
+          cp build/Kalidous artifacts/kalidous-void-linux-amd64-glibc
 
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v1
+      # FIX: Updated from @v1 (deprecated Node 16) to @v2 (Node 20+).
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/kalidous-void-linux-amd64-musl
+          files: artifacts/kalidous-void-linux-amd64-glibc
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
