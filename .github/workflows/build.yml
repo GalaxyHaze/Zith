@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - '*'
+  workflow_dispatch:   # still manually runnable on its own
+  workflow_call:       # ← allows other workflows to call it directly
 
 permissions:
   contents: write
