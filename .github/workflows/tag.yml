@@ -62,3 +62,10 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  build:
+    name: Trigger Build & Release
+    needs: tag-and-release   # waits for tag + release page to be created first
+    uses: ./.github/workflows/build-and-release.yml
+    secrets: inherit         # passes GITHUB_TOKEN through automatically
+    permissions:
+      contents: write
