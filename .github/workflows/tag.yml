@@ -1,4 +1,4 @@
-name: Create Release Tag
+name: Create Release Tag and Page
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 jobs:
-  tag-and-push:
+  tag-and-release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -25,13 +25,40 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Create and Push Tag
+      - name: Create Tag and Push
         run: |
-          # Optional: Check if tag already exists to fail gracefully
+          # Verifica se a tag já existe
           if git rev-parse v${{ inputs.version }} >/dev/null 2>&1; then
             echo "Error: Tag v${{ inputs.version }} already exists."
             exit 1
           fi
           
+          # Cria a tag anotada
           git tag -a v${{ inputs.version }} -m "Release v${{ inputs.version }}"
+          
+          # Envia a tag para o GitHub
           git push origin v${{ inputs.version }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ inputs.version }}
+          name: Release v${{ inputs.version }}
+          body: |
+            ## Changes in v${{ inputs.version }}
+            <!-- Você pode adicionar notas de lançamento aqui manualmente depois, ou automatizar -->
+            
+            ### Installation
+            **Linux / macOS:**
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/GalaxyHaze/Kalidous-Lang/main/install.sh | bash
+            ```
+            
+            **Windows:**
+            ```powershell
+            irm https://raw.githubusercontent.com/GalaxyHaze/Kalidous-Lang/main/install.ps1 | iex
+            ```
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
