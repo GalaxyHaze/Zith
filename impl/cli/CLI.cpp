@@ -201,6 +201,7 @@ static int cmd_compile(const std::string &input_file,
                        bool interpreted,
                        bool verbose,
                        const std::vector<std::string> &include_dirs) {
+    (void)include_dirs;
     if (verbose) {
         const std::string kind = interpreted ? "bytecode" : "LLVM IR / native object";
         print_info("Compiling '" + input_file + "' → " + kind + " (" + mode_str + ")");
@@ -389,10 +390,18 @@ static int cmd_repl(bool /*verbose*/) {
     return 1;
 }
 
+#if defined(__VERSION__)
+    std::string compiler = __VERSION__;
+#elif defined(_MSC_FULL_VER)
+    std::string compiler = "MSVC " + std::to_string(_MSC_FULL_VER);
+#else
+    std::string compiler = "unknown compiler";
+#endif
+
 static int cmd_version() {
     std::cout << "Kalidous Programming Language\n"
             << "Version:  " << kalidous_version << "\n"
-            << "Compiler: " << __VERSION__ << "\n";
+            << "Compiler: " << compiler << "\n";
     // TODO: LLVMGetVersion() quando o backend estiver linkado
     // TODO: LLVMGetDefaultTargetTriple() para mostrar o host target
     return 0;
