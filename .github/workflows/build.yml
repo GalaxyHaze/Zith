@@ -141,13 +141,13 @@ jobs:
         run: |
           mkdir -p artifacts
           chmod +x build/bin/kalidous
-          cp build/bin/kalidous artifacts/kalidous-void-linux-amd64-glibc
+          cp build/bin/kalidous artifacts/kalidous-linux-amd64-glibc
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag_name || github.ref_name }}
-          files: artifacts/kalidous-void-linux-amd64-glibc
+          files: artifacts/kalidous-linux-amd64-glibc
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -159,48 +159,36 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    container:
-      image: ghcr.io/void-linux/void-musl
-      options: --user root
     steps:
-      # FIX: Must install nodejs BEFORE any uses: action.
-      # GitHub Actions injects a glibc Node.js binary to run actions —
-      # it doesn't work on musl. Installing nodejs here gives the runner
-      # a musl-compatible binary it can actually execute.
-      - name: Install Node.js and git
-        run: |
-          xbps-install -Suy xbps
-          xbps-install -Suy nodejs git
-  
-      # This now works — actions/checkout will find the musl Node.js
       - uses: actions/checkout@v4
   
-      - name: Install build dependencies
-        run: xbps-install -Suy cmake ninja gcc make pkg-config
-
+      - name: Install musl cross-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools musl-dev cmake ninja-build
+  
       - name: Configure CMake
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=musl-gcc \
+            -DCMAKE_EXE_LINKER_FLAGS="-static"
+  
       - name: Build
         run: cmake --build build --config Release
-
-      # FIX: this step was entirely missing — binary was never copied to artifacts/.
-      # FIX: original upload path was 'artifacts/build/bin/kalidous' (spurious build/ prefix).
+  
       - name: Prepare Artifact
         run: |
           mkdir -p artifacts
           chmod +x build/bin/kalidous
-          cp build/bin/kalidous artifacts/kalidous-void-linux-amd64-musl
+          cp build/bin/kalidous artifacts/kalidous-linux-amd64-musl
+          file artifacts/kalidous-linux-amd64-musl
+          ldd  artifacts/kalidous-linux-amd64-musl || echo "Static binary confirmed"
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag_name || github.ref_name }}
-          files: artifacts/kalidous-void-linux-amd64-musl
-        env:
-          # FIX: GITHUB_TOKEN env was missing entirely on this job.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+          files: artifacts/kalidous-linux-amd64-musl
   # ─────────────────────────────────────────────────────────────────────────────
   # WebAssembly (Emscripten)
   # ─────────────────────────────────────────────────────────────────────────────
