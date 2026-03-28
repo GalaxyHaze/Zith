@@ -9,7 +9,7 @@ on:
       tag_name:
         description: 'Tag para a Release (ex: v1.0.0)'
         required: false
-        default: 'manual-build'
+        default: 'v0.0.1'
   workflow_call:
     inputs:
       tag_name:
