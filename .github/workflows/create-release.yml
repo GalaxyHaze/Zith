@@ -26,22 +26,33 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Create and Push Tag
+      - name: Create or verify tag
+        id: tag
         run: |
-          if git rev-parse "v${{ inputs.version }}" >/dev/null 2>&1; then
-            echo "Error: Tag v${{ inputs.version }} already exists."
-            exit 1
-          fi
-          git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
-          git push origin "v${{ inputs.version }}"
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"  # remove leading 'v' if user included it
 
-      - name: Create GitHub Release Page
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "Tag v$VERSION already exists — skipping creation, will update release page only."
+            echo "tag_created=false" >> $GITHUB_OUTPUT
+          else
+            git tag -a "v$VERSION" -m "Release v$VERSION"
+            git push origin "v$VERSION"
+            echo "tag_created=true" >> $GITHUB_OUTPUT
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create or Update GitHub Release Page
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ inputs.version }}
-          name: Release v${{ inputs.version }}
+          tag_name: v${{ steps.tag.outputs.version }}
+          name: Release v${{ steps.tag.outputs.version }}
+          # allow_update: true faz update se a release já existir
+          # em vez de falhar com "already exists"
+          draft: false
+          prerelease: false
           body: |
-            ## Changes in v${{ inputs.version }}
+            ## Changes in v${{ steps.tag.outputs.version }}
 
             ### Installation
-            **Linux / macOS:**
+            **Linux / macOS:**-
