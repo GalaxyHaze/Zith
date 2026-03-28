@@ -43,9 +43,7 @@ jobs:
               -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc
               -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
 
-          # ── macOS Intel (x64) ────────────────────────────────────────────────
-          # FIX: macos-14 is an ARM (M1/M2) runner, NOT Intel.
-          # macos-13 is the last stable Intel runner.
+          # ── macOS Intel (x64, cross-compiled from ARM runner) ─────────────────
           - os: macos-latest
             target_name: kalidous-macos-amd64
             cmake_flags: -DCMAKE_OSX_ARCHITECTURES=x86_64
@@ -72,7 +70,6 @@ jobs:
         with:
           cmake-version: '3.26.x'
 
-      # Install cross-compiler for Linux ARM64 builds only.
       - name: Install ARM64 cross-compiler
         if: matrix.target_name == 'kalidous-linux-arm64'
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
@@ -83,7 +80,6 @@ jobs:
         with:
           arch: ${{ matrix.msvc_arch }}
 
-      # FIX: cmake_flags was defined in the matrix but never passed here.
       - name: Configure CMake
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_flags }}
 
@@ -110,99 +106,86 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Void Linux glibc (x86_64)
+  # musl static builds (x86_64 + ARM64) via Zig toolchain
+  #
+  # REMOVED: build-void-glibc — redundant with kalidous-linux-amd64 (Ubuntu),
+  # which is also glibc. The musl static binary works on Void glibc too.
+  #
+  # Zig is used because musl-gcc is a glibc GCC wrapper and cannot link
+  # a C++ project statically — libstdc++ on the Ubuntu runner is glibc-compiled
+  # and missing musl symbols (__libc_single_threaded, __printf_chk, etc.).
+  # Zig ships its own musl libc + C++ runtime, fully self-contained.
   # ─────────────────────────────────────────────────────────────────────────────
-  build-void-glibc:
-    name: Build Void Linux (glibc x86_64)
+  build-musl:
+    name: Build Linux musl static (${{ matrix.target_name }})
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    container:
-      image: ghcr.io/void-linux/void-glibc
-      options: --user root
-    steps:
-      - name: Install git (required by actions/checkout)
-        run: |
-          xbps-install -Suy xbps
-          xbps-install -Suy git
 
-      - uses: actions/checkout@v4
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target_name: kalidous-linux-amd64-musl
+            zig_target: x86_64-linux-musl
 
-      - name: Install build dependencies
-        run: xbps-install -Suy cmake ninja gcc make pkg-config
+          - target_name: kalidous-linux-arm64-musl
+            zig_target: aarch64-linux-musl
 
-      - name: Configure CMake
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-
-      - name: Build
-        run: cmake --build build --config Release
-
-      - name: Prepare Artifact
-        run: |
-          mkdir -p artifacts
-          chmod +x build/bin/kalidous
-          cp build/bin/kalidous artifacts/kalidous-linux-amd64-glibc
-
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ inputs.tag_name || github.ref_name }}
-          files: artifacts/kalidous-linux-amd64-glibc
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # Void Linux musl (x86_64)
-  # ─────────────────────────────────────────────────────────────────────────────
-  build-void-musl:
-    name: Build Linux (musl x86_64 static)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
-  
+
       - name: Install Zig and build tools
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build wget
-          # Download Zig (bundles musl + clang, no system deps needed)
           wget -q https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
           tar -xf zig-linux-x86_64-0.13.0.tar.xz
           echo "$PWD/zig-linux-x86_64-0.13.0" >> $GITHUB_PATH
-  
-      - name: Configure CMake (musl static via Zig)
+
+      - name: Configure CMake
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER="zig;cc;-target;x86_64-linux-musl" \
-            -DCMAKE_CXX_COMPILER="zig;c++;-target;x86_64-linux-musl" \
+            -DCMAKE_C_COMPILER="zig;cc;-target;${{ matrix.zig_target }}" \
+            -DCMAKE_CXX_COMPILER="zig;c++;-target;${{ matrix.zig_target }}" \
             -DCMAKE_EXE_LINKER_FLAGS="-static"
-  
+
       - name: Build
         run: cmake --build build --config Release
-  
+
       - name: Prepare Artifact
         run: |
           mkdir -p artifacts
           chmod +x build/bin/kalidous
-          cp build/bin/kalidous artifacts/kalidous-linux-amd64-musl
-          file artifacts/kalidous-linux-amd64-musl
-          ldd artifacts/kalidous-linux-amd64-musl || echo "Static binary confirmed"
-  
+          cp build/bin/kalidous artifacts/${{ matrix.target_name }}
+          file artifacts/${{ matrix.target_name }}
+          ldd  artifacts/${{ matrix.target_name }} || echo "Static binary confirmed"
+
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag_name || github.ref_name }}
-          files: artifacts/kalidous-linux-amd64-musl
+          files: artifacts/${{ matrix.target_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # ─────────────────────────────────────────────────────────────────────────────
   # WebAssembly (Emscripten)
+  #
+  # Optimization flags:
+  #   -O3          — maximum speed optimization
+  #   -flto        — link-time optimization across all translation units
+  #   --closure 1  — runs Google Closure Compiler on the JS glue (minifies ~30%)
+  #   -s WASM=1    — explicit wasm output (guard against fallback to asm.js)
+  #   -s ENVIRONMENT='web,node' — strips runtime checks for other environments
+  #   -s FILESYSTEM=1           — keep if your lang reads source files at runtime
   # ─────────────────────────────────────────────────────────────────────────────
   build-wasm:
     name: Build WebAssembly
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -212,26 +195,45 @@ jobs:
       - name: Verify Emscripten
         run: emcc -v
 
-      - name: Configure and Build
+      - name: Configure CMake
         run: |
-          emcmake cmake -B build-wasm -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-wasm
+          emcmake cmake -B build-wasm \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS="-O3 -flto" \
+            -DCMAKE_CXX_FLAGS="-O3 -flto" \
+            -DCMAKE_EXE_LINKER_FLAGS="\
+              -O3 -flto \
+              --closure 1 \
+              -s WASM=1 \
+              -s FILESYSTEM=1 \
+              -s ENVIRONMENT='web,node'"
 
-      # Emscripten typically emits .wasm + .js + .html together.
-      # Collecting all three avoids a silent partial upload.
-      - name: Prepare Artifacts
+      - name: Build
+        run: cmake --build build-wasm
+
+      - name: Prepare Artifact (zip)
         run: |
-          mkdir -p artifacts
-          cp build-wasm/kalidous.wasm artifacts/ 2>/dev/null || true
-          cp build-wasm/kalidous.js   artifacts/ 2>/dev/null || true
-          cp build-wasm/kalidous.html artifacts/ 2>/dev/null || true
+          mkdir -p artifacts wasm-staging
+
+          echo "=== Emscripten output ==="
+          find build-wasm -type f | sort
+
+          cp build-wasm/kalidous.wasm wasm-staging/ 2>/dev/null || true
+          cp build-wasm/kalidous.js   wasm-staging/ 2>/dev/null || true
+          cp build-wasm/kalidous.html wasm-staging/ 2>/dev/null || true
+
+          echo "=== WASM files staged ==="
+          ls -lh wasm-staging/
+
+          cd wasm-staging && zip ../artifacts/kalidous-wasm.zip * && cd ..
+
+          echo "=== Final artifact ==="
           ls -lh artifacts/
 
       - name: Upload WASM
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag_name || github.ref_name }}
-          files: artifacts/*
+          files: artifacts/kalidous-wasm.zip
         env:
-          # FIX: GITHUB_TOKEN env was missing entirely on this job.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
