@@ -5,6 +5,7 @@
 #ifdef __cplusplus
 #include <string>
 #include <stdexcept>
+#include <format>
 #endif 
 #include <stdint.h>
 #include <string.h>
@@ -373,7 +374,7 @@ namespace KALIDOUS {
     inline std::pair<char *, size_t> load_file(const Arena &arena, const char *path) {
         size_t size = 0;
         char *data = kalidous_load_file_to_arena(arena.get(), path, &size);
-        if (!data) throw std::runtime_error("Failed to load file: " + std::string(path));
+        if (!data) throw std::runtime_error(std::string("Failed to load file: ") + std::string(path));
         return {data, size};
     }
 
