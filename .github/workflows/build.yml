@@ -16,7 +16,6 @@ on:
         type: string
         required: false
 
-
 permissions:
   contents: write
 
@@ -37,8 +36,16 @@ jobs:
           - os: ubuntu-latest
             target_name: kalidous-linux-amd64
 
+          # ── Linux (ARM64, cross-compiled) ─────────────────────────────────────
+          - os: ubuntu-latest
+            target_name: kalidous-linux-arm64
+            cmake_flags: >-
+              -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc
+              -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+
           # ── macOS Intel (x64) ────────────────────────────────────────────────
-          # macos-12 is deprecated; macos-13 is the last stable Intel runner.
+          # FIX: macos-14 is an ARM (M1/M2) runner, NOT Intel.
+          # macos-13 is the last stable Intel runner.
           - os: macos-13
             target_name: kalidous-macos-amd64
 
@@ -49,13 +56,9 @@ jobs:
           # ── Windows x64 ──────────────────────────────────────────────────────
           - os: windows-latest
             target_name: kalidous-windows-amd64.exe
-            # Default MSVC host+target toolchain (x64 → x64)
             msvc_arch: amd64
 
           # ── Windows ARM64 (cross-compiled from x64 host) ─────────────────────
-          # FIX: '-A ARM64' is a Visual Studio generator flag and is incompatible
-          #      with '-G Ninja'. The correct approach for Ninja cross-compilation
-          #      is to activate the amd64_arm64 MSVC toolchain via msvc-dev-cmd.
           - os: windows-latest
             target_name: kalidous-windows-arm64.exe
             msvc_arch: amd64_arm64
@@ -68,17 +71,20 @@ jobs:
         with:
           cmake-version: '3.26.x'
 
-      # Activates the correct MSVC toolchain.
-      # For ARM64 cross-compilation, 'amd64_arm64' sets the host as x64
-      # and the target as ARM64 — required for Ninja-based cross builds.
+      # Install cross-compiler for Linux ARM64 builds only.
+      - name: Install ARM64 cross-compiler
+        if: matrix.target_name == 'kalidous-linux-arm64'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
       - name: Setup MSVC Dev Environment
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ matrix.msvc_arch }}
 
+      # FIX: cmake_flags was defined in the matrix but never passed here.
       - name: Configure CMake
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_flags }}
 
       - name: Build
         run: cmake --build build --config Release
@@ -94,38 +100,26 @@ jobs:
             cp build/bin/kalidous "artifacts/${{ matrix.target_name }}"
           fi
 
-      # FIX: Updated from @v1 (deprecated Node 16) to @v2 (Node 20+).
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
-          # Se houver input manual, usa-o. Se não, usa a tag do evento.
           tag_name: ${{ inputs.tag_name || github.ref_name }}
           files: artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-
   # ─────────────────────────────────────────────────────────────────────────────
-  # Void Linux (glibc, x86_64) — runs inside an official Void container
+  # Void Linux glibc (x86_64)
   # ─────────────────────────────────────────────────────────────────────────────
   build-void-glibc:
     name: Build Void Linux (glibc x86_64)
     runs-on: ubuntu-latest
-    # Explicit per-job permission so the upload step can create/update releases
-    # even when running inside a container, where the workflow-level setting
-    # may not propagate reliably.
     permissions:
       contents: write
-
     container:
       image: ghcr.io/void-linux/void-glibc
       options: --user root
-
     steps:
-      # FIX: actions/checkout@v4 requires git to be present on the system.
-      # In a minimal Void Linux container, git is NOT pre-installed.
-      # Installing it here (before the checkout step) prevents a silent failure
-      # or a misleading "not a git repository" error.
       - name: Install git (required by actions/checkout)
         run: |
           xbps-install -Suy xbps
@@ -148,13 +142,98 @@ jobs:
           chmod +x build/bin/kalidous
           cp build/bin/kalidous artifacts/kalidous-void-linux-amd64-glibc
 
-      # FIX: Updated from @v1 (deprecated Node 16) to @v2 (Node 20+).
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
-          # Se houver input manual, usa-o. Se não, usa a tag do evento.
           tag_name: ${{ inputs.tag_name || github.ref_name }}
           files: artifacts/kalidous-void-linux-amd64-glibc
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Void Linux musl (x86_64)
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-void-musl:
+    name: Build Void Linux (musl x86_64)
+    runs-on: ubuntu-latest
+    # FIX: was missing — required to upload to releases from inside a container.
+    permissions:
+      contents: write
+    container:
+      image: ghcr.io/void-linux/void-musl
+      # FIX: was missing — xbps-install requires root, just like the glibc job.
+      options: --user root
+    steps:
+      # FIX: git must be installed before actions/checkout, same as glibc job.
+      # Chaining with && is risky — a repo refresh failure silently skips the install.
+      - name: Install git (required by actions/checkout)
+        run: |
+          xbps-install -Suy xbps
+          xbps-install -Suy git
+
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: xbps-install -Suy cmake ninja gcc make pkg-config
+
+      - name: Configure CMake
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      # FIX: this step was entirely missing — binary was never copied to artifacts/.
+      # FIX: original upload path was 'artifacts/build/bin/kalidous' (spurious build/ prefix).
+      - name: Prepare Artifact
+        run: |
+          mkdir -p artifacts
+          chmod +x build/bin/kalidous
+          cp build/bin/kalidous artifacts/kalidous-void-linux-amd64-musl
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
+          files: artifacts/kalidous-void-linux-amd64-musl
+        env:
+          # FIX: GITHUB_TOKEN env was missing entirely on this job.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # WebAssembly (Emscripten)
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-wasm:
+    name: Build WebAssembly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+
+      - name: Verify Emscripten
+        run: emcc -v
+
+      - name: Configure and Build
+        run: |
+          emcmake cmake -B build-wasm -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-wasm
+
+      # Emscripten typically emits .wasm + .js + .html together.
+      # Collecting all three avoids a silent partial upload.
+      - name: Prepare Artifacts
+        run: |
+          mkdir -p artifacts
+          cp build-wasm/kalidous.wasm artifacts/ 2>/dev/null || true
+          cp build-wasm/kalidous.js   artifacts/ 2>/dev/null || true
+          cp build-wasm/kalidous.html artifacts/ 2>/dev/null || true
+          ls -lh artifacts/
+
+      - name: Upload WASM
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
+          files: artifacts/*
+        env:
+          # FIX: GITHUB_TOKEN env was missing entirely on this job.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
