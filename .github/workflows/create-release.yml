@@ -76,7 +76,7 @@ jobs:
   build:
     name: Trigger Build & Release
     needs: tag-and-release
-    uses: ./.github/workflows/build-and-release.yml
+    uses:  ./.github/workflows/build-release.yml
     with:
       tag_name: v${{ inputs.version }}
     secrets: inherit
