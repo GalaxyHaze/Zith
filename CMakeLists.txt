@@ -42,34 +42,30 @@ FetchContent_Declare(unordered_dense
 )
 FetchContent_MakeAvailable(unordered_dense)
 
+# --- tomlplusplus ---
+# CORREÇÃO: Garante que o FetchContent baixe e construa o tomlplusplus
+# mesmo que o sistema não tenha o pacote instalado.
 FetchContent_Declare(
         tomlplusplus
         GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
-        GIT_TAG v3.4.0  # ou a versão mais recente
+        GIT_TAG v3.4.0
+        GIT_SHALLOW TRUE
 )
-
+# Tornar disponível antes de tentar usar
 FetchContent_MakeAvailable(tomlplusplus)
 
-# --- KalidousABI: Provides the 'Kalidous' INTERFACE target ---
-#FetchContent_Declare(KalidousABI
-#        GIT_REPOSITORY https://github.com/GalaxyHaze/Kalidous-Lang.git
-#        GIT_TAG        master
-#        GIT_SHALLOW    TRUE
-#)
-#FetchContent_MakeAvailable(KalidousABI)
-
-#find_package(LLVM REQUIRED CONFIG)
-#message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 
 # =============================================================================
 # Compiler Flags
 # =============================================================================
-# Prefer target-specific flags over global add_definitions where possible
 if (MSVC)
     add_compile_options(/W4 /WX)
 else ()
-    #add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+    # Cuidado com -Werror em compilações cruzadas (CI), pode falhar por warnings de versão do compilador
+    # add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+    
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        # Verifica se o linker lld existe antes de forçar
         if (EXISTS "/usr/bin/ld.lld" OR EXISTS "/usr/local/bin/ld.lld")
             set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld")
             set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fuse-ld=lld")
@@ -86,17 +82,15 @@ set(CORE_C_SOURCES
         impl/memory/file.c
 )
 
+# CORREÇÃO: Removido 'impl/ast/ast.h' e duplicata de 'tokenizer.cpp'
 set(PARSER_CPP_SOURCES
         impl/lexer/tokenizer.cpp
         impl/lexer/keywords.cpp
         impl/parser/parser.cpp
-        impl/ast/ast.h
         impl/ast/ast.cpp
         impl/parser/parser.h
-        impl/lexer/tokenizer.cpp
 )
 
-# REMOVED parser.cpp from CLI_SOURCES to prevent duplicate compilation
 set(CLI_SOURCES
         impl/cli/CLI.cpp
         impl/memory/utils.h
@@ -115,6 +109,7 @@ target_include_directories(KalidousCore
         $<INSTALL_INTERFACE:include>
 )
 target_compile_definitions(KalidousCore PRIVATE KALIDOUS_VERSION="v0.0-alpha")
+# Agora o tomlplusplus::tomlplusplus deve ser encontrado com segurança
 target_link_libraries(KalidousCore PUBLIC tomlplusplus::tomlplusplus)
 
 # ────────
@@ -138,7 +133,7 @@ set_target_properties(KalidousParse PROPERTIES
 )
 
 # ────────
-add_executable(kalidous impl/main.cpp ${CLI_SOURCES})          # ← fixed name
+add_executable(kalidous impl/main.cpp ${CLI_SOURCES})
 
 target_include_directories(kalidous PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
@@ -163,11 +158,9 @@ install(TARGETS kalidous KalidousParse KalidousCore
 # =============================================================================
 message("")
 message(STATUS "💡 Build Summary")
-#message(STATUS "   KalidousABI version: ${Kalidous_ABI_VERSION}")  # Commented out as variable is likely unset
-#message(STATUS "   LLVM version: ${LLVM_PACKAGE_VERSION}")
-if (TARGET kalidous::alidous)
-    message(STATUS "   kalidous::kalidous target found.")
-endif ()
+if (TARGET kalidous)
+    message(STATUS "   Executable 'kalidous' target configured.")
+endif()
 message("")
 
 # =============================================================================
@@ -176,7 +169,6 @@ message("")
 if(EMSCRIPTEN)
   add_executable(kalidous-wasm
     impl/main.cpp
-    # Do NOT include CLI_SOURCES here
   )
   target_include_directories(kalidous-wasm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_link_libraries(kalidous-wasm PRIVATE KalidousParse)
