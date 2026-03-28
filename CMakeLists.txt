@@ -167,30 +167,25 @@ message("")
 # WebAssembly (Emscripten)
 # =============================================================================
 if(EMSCRIPTEN)
-  add_executable(kalidous-wasm
-    impl/main.cpp
-  )
-  target_include_directories(kalidous-wasm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_link_libraries(kalidous-wasm PRIVATE KalidousParse)
+    add_executable(kalidous-wasm impl/main.cpp)
 
-  target_compile_definitions(kalidous-wasm PRIVATE
-    KALIDOUS_VERSION="v0.0-alpha"
-    KALIDOUS_EXECUTABLE
-    KALIDOUS_WASM
-  )
+    target_include_directories(kalidous-wasm PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
 
-  target_link_options(kalidous-wasm PRIVATE
-    -O3 -flto
-    --closure 1
-    -s WASM=1
-    -s FILESYSTEM=1
-    -s ENVIRONMENT=web,node
-    -s EXPORTED_RUNTIME_METHODS=['ccall','cwrap']
-    -s ALLOW_MEMORY_GROWTH=1
-  )
+    target_link_libraries(kalidous-wasm PRIVATE KalidousParse)
 
-  set_target_properties(kalidous-wasm PROPERTIES
-    SUFFIX ".html"
-    OUTPUT_NAME "kalidous"
-  )
+    target_compile_definitions(kalidous-wasm PRIVATE
+        KALIDOUS_VERSION="v0.0-alpha"
+        KALIDOUS_EXECUTABLE
+        KALIDOUS_WASM
+    )
+
+    # LINK_FLAGS passa como string única — evita o CMake splittar os -s flags
+    set_target_properties(kalidous-wasm PROPERTIES
+        SUFFIX ".html"
+        OUTPUT_NAME "kalidous"
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+        LINK_FLAGS "-O3 -flto --closure 1 -s WASM=1 -s FILESYSTEM=1 -s ENVIRONMENT=web,node -s EXPORTED_RUNTIME_METHODS=['ccall','cwrap'] -s ALLOW_MEMORY_GROWTH=1"
+    )
 endif()
