@@ -155,22 +155,28 @@ jobs:
   # Void Linux musl (x86_64)
   # ─────────────────────────────────────────────────────────────────────────────
   build-void-musl:
-    name: Build Void Linux (musl x86_64)
+    name: Build Linux (musl x86_64 static)
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
   
-      - name: Install musl cross-compiler
+      - name: Install Zig and build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools musl-dev cmake ninja-build
+          sudo apt-get install -y cmake ninja-build wget
+          # Download Zig (bundles musl + clang, no system deps needed)
+          wget -q https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
+          tar -xf zig-linux-x86_64-0.13.0.tar.xz
+          echo "$PWD/zig-linux-x86_64-0.13.0" >> $GITHUB_PATH
   
-      - name: Configure CMake
+      - name: Configure CMake (musl static via Zig)
         run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=musl-gcc \
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="zig;cc;-target;x86_64-linux-musl" \
+            -DCMAKE_CXX_COMPILER="zig;c++;-target;x86_64-linux-musl" \
             -DCMAKE_EXE_LINKER_FLAGS="-static"
   
       - name: Build
@@ -182,13 +188,15 @@ jobs:
           chmod +x build/bin/kalidous
           cp build/bin/kalidous artifacts/kalidous-linux-amd64-musl
           file artifacts/kalidous-linux-amd64-musl
-          ldd  artifacts/kalidous-linux-amd64-musl || echo "Static binary confirmed"
-
+          ldd artifacts/kalidous-linux-amd64-musl || echo "Static binary confirmed"
+  
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag_name || github.ref_name }}
           files: artifacts/kalidous-linux-amd64-musl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   # ─────────────────────────────────────────────────────────────────────────────
   # WebAssembly (Emscripten)
   # ─────────────────────────────────────────────────────────────────────────────
