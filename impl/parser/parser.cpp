@@ -4,6 +4,7 @@
 #include "../lexer/debug.h"
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
 
 // ============================================================================
 // Parser init

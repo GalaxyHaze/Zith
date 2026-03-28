@@ -7,6 +7,14 @@
 #define KALIDOUS_DEFAULT_BLOCK_SIZE (64 * 1024)
 
 #ifdef _MSC_VER
+  typedef union {
+      long long   _ll;
+      long double _ld;
+      void       *_ptr;
+  } max_align_t;
+#endif
+
+#ifdef _MSC_VER
   #pragma warning(push)
   #pragma warning(disable: 4200)
 #endif
