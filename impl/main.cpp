@@ -1,6 +1,3 @@
-#include <kalidous/kalidous.hpp>
-
-
 #ifdef KALIDOUS_WASM
 #include <iostream>
     int main() {
@@ -9,6 +6,7 @@
         return -1;
     }
 #else
+#include <kalidous/kalidous.hpp>
     int main(int argc, const char** argv) {
         return kalidous_run(argc, argv);
     }
