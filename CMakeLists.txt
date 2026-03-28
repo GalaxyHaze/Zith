@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Kalidous LANGUAGES C CXX)
+project(kalidous LANGUAGES C CXX)
 
 # =============================================================================
 # Standards & Policies
@@ -165,7 +165,7 @@ message("")
 message(STATUS "💡 Build Summary")
 #message(STATUS "   KalidousABI version: ${Kalidous_ABI_VERSION}")  # Commented out as variable is likely unset
 #message(STATUS "   LLVM version: ${LLVM_PACKAGE_VERSION}")
-if (TARGET Kalidous::Kalidous)
-    message(STATUS "   Kalidous::Kalidous target found.")
+if (TARGET kalidous::alidous)
+    message(STATUS "   kalidous::kalidous target found.")
 endif ()
 message("")
