@@ -3,10 +3,37 @@
   "description": "The Kalidous programming language toolchain.",
   "homepage": "https://github.com/GalaxyHaze/Kalidous-Lang",
   "license": "MIT",
-  "url": "https://github.com/GalaxyHaze/Kalidous-Lang/releases/download/v1.0.0/kalidous-windows-amd64.exe",
-  "hash": "REPLACE_WITH_SHA256",
-  "bin": "kalidous-windows-amd64.exe",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/GalaxyHaze/Kalidous-Lang/releases/download/v1.0.0/kalidous-windows-amd64.exe",
+      "hash": "REPLACE_WITH_SHA256"
+    },
+    "arm64": {
+      "url": "https://github.com/GalaxyHaze/Kalidous-Lang/releases/download/v1.0.0/kalidous-windows-arm64.exe",
+      "hash": "REPLACE_WITH_SHA256"
+    }
+  },
   "installer": {
-    "script": "Rename-Item \"$dir\\kalidous-windows-amd64.exe\" \"kalidous.exe\""
+    "script": [
+      "if ($architecture -eq 'arm64') {",
+      "  Rename-Item \"$dir\\kalidous-windows-arm64.exe\" \"kalidous.exe\"",
+      "} else {",
+      "  Rename-Item \"$dir\\kalidous-windows-amd64.exe\" \"kalidous.exe\"",
+      "}"
+    ]
+  },
+  "bin": "kalidous.exe",
+  "checkver": {
+    "github": "https://github.com/GalaxyHaze/Kalidous-Lang"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/GalaxyHaze/Kalidous-Lang/releases/download/v$version/kalidous-windows-amd64.exe"
+      },
+      "arm64": {
+        "url": "https://github.com/GalaxyHaze/Kalidous-Lang/releases/download/v$version/kalidous-windows-arm64.exe"
+      }
+    }
   }
 }
