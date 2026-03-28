@@ -5,7 +5,6 @@
 #ifdef __cplusplus
 #include <string>
 #include <stdexcept>
-#include <format>
 #endif 
 #include <stdint.h>
 #include <string.h>

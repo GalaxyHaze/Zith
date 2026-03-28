@@ -18,6 +18,7 @@
 
 #include "ast.h"
 #include "../lexer/debug.h"
+#include <cstdint>
 #include <cstring>
 #include <cstdio>
 
@@ -408,7 +409,7 @@ KalidousNode *kalidous_ast_make_continue(KalidousArena *a, KalidousSourceLoc loc
 // kids.a = body/expr, custom = is_block
 KalidousNode *kalidous_ast_make_spawn(KalidousArena *a, KalidousSourceLoc loc,
                                       KalidousNode *body, bool is_block) {
-    const KalidousNodeId id = is_block ? KALIDOUS_NODE_SPAWN_STMT : KALIDOUS_NODE_SPAWN_EXPR;
+    const KalidousNodeId id = is_block ? (uint16_t)KALIDOUS_NODE_SPAWN_STMT : (uint16_t)KALIDOUS_NODE_SPAWN_EXPR;
     KalidousNode *n = alloc_node(a, id, loc);
     if (!n) return nullptr;
     n->data.kids.a = body;

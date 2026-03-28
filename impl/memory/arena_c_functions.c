@@ -1,16 +1,26 @@
 // src/arena.c
 #include <kalidous/kalidous.hpp>
+#include <stddef.h>  // gives you max_align_t on MSVC
 #include <stdlib.h>
 #include <string.h>
 
 #define KALIDOUS_DEFAULT_BLOCK_SIZE (64 * 1024)
 
+#ifdef _MSC_VER
+  #pragma warning(push)
+  #pragma warning(disable: 4200)
+#endif
+
 typedef struct KalidousArenaBlock {
     struct KalidousArenaBlock *next;
-    size_t offset; // current write offset in data
-    size_t capacity; // total size of data
-    char data[]; // flexible array
+    size_t offset;
+    size_t capacity;
+    char data[];
 } KalidousArenaBlock;
+
+#ifdef _MSC_VER
+  #pragma warning(pop)
+#endif
 
 struct KalidousArena {
     KalidousArenaBlock *head;

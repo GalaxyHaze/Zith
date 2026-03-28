@@ -32,7 +32,7 @@ extern "C" {
 // Extended node IDs (>= KALIDOUS_NODE_CUSTOM_START = 1000)
 // ============================================================================
 
-enum {
+enum NodeTypes: unsigned short{
     // -- Expressions ---------------------------------------------------------
     KALIDOUS_NODE_ARROW_CALL = 1000, // a->b(...)   receiver + call node
     KALIDOUS_NODE_CAST = 1001, // expr as Type
