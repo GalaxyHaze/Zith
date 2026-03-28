@@ -1,0 +1,76 @@
+name: Update Scoop Manifest
+
+on:
+  workflow_run:
+    workflows: ["Build and Release"]
+    types:
+      - completed
+
+jobs:
+  update-scoop:
+    name: Update Scoop Manifest
+    runs-on: ubuntu-latest
+    # Only run if the build workflow succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout Kalidous-Lang
+        uses: actions/checkout@v4
+
+      - name: Get release tag
+        id: tag
+        run: |
+          TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download release binaries
+        run: |
+          gh release download ${{ steps.tag.outputs.tag }} \
+            --pattern "kalidous-windows-amd64.exe" \
+            --pattern "kalidous-windows-arm64.exe" \
+            --dir release-bins
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute SHA256 hashes
+        id: hashes
+        run: |
+          AMD64=$(sha256sum release-bins/kalidous-windows-amd64.exe | cut -d' ' -f1)
+          ARM64=$(sha256sum release-bins/kalidous-windows-arm64.exe | cut -d' ' -f1)
+          echo "amd64=$AMD64" >> $GITHUB_OUTPUT
+          echo "arm64=$ARM64" >> $GITHUB_OUTPUT
+
+      - name: Checkout Scoop bucket repo
+        uses: actions/checkout@v4
+        with:
+          # Your scoop bucket repo e.g. GalaxyHaze/scoop-kalidous
+          repository: GalaxyHaze/scoop-kalidous
+          token: ${{ secrets.RELEASE_PAT }}
+          path: scoop-bucket
+
+      - name: Update manifest
+        run: |
+          cd scoop-bucket
+          jq \
+            --arg version "${{ steps.tag.outputs.version }}" \
+            --arg amd64 "${{ steps.hashes.outputs.amd64 }}" \
+            --arg arm64 "${{ steps.hashes.outputs.arm64 }}" \
+            '
+              .version = $version |
+              .architecture["64bit"].hash = $amd64 |
+              .architecture["64bit"].url = "https://github.com/GalaxyHaze/Kalidous-Lang/releases/download/v\($version)/kalidous-windows-amd64.exe" |
+              .architecture.arm64.hash = $arm64 |
+              .architecture.arm64.url = "https://github.com/GalaxyHaze/Kalidous-Lang/releases/download/v\($version)/kalidous-windows-arm64.exe"
+            ' bucket/kalidous.json > tmp.json && mv tmp.json bucket/kalidous.json
+
+      - name: Commit and push
+        run: |
+          cd scoop-bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bucket/kalidous.json
+          git diff --staged --quiet || git commit -m "chore: update kalidous to ${{ steps.tag.outputs.tag }}"
+          git push
