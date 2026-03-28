@@ -78,10 +78,10 @@ jobs:
         run: |
           mkdir -p artifacts
           if [ "${{ runner.os }}" == "Windows" ]; then
-            cp build/Kalidous.exe "artifacts/${{ matrix.target_name }}"
+            cp build/kalidous.exe "artifacts/${{ matrix.target_name }}"
           else
-            chmod +x build/Kalidous
-            cp build/Kalidous "artifacts/${{ matrix.target_name }}"
+            chmod +x build/kalidous
+            cp build/kalidous "artifacts/${{ matrix.target_name }}"
           fi
 
       # FIX: Updated from @v1 (deprecated Node 16) to @v2 (Node 20+).
@@ -132,8 +132,8 @@ jobs:
       - name: Prepare Artifact
         run: |
           mkdir -p artifacts
-          chmod +x build/Kalidous
-          cp build/Kalidous artifacts/kalidous-void-linux-amd64-glibc
+          chmod +x build/kalidous
+          cp build/kalidous artifacts/kalidous-void-linux-amd64-glibc
 
       # FIX: Updated from @v1 (deprecated Node 16) to @v2 (Node 20+).
       - name: Upload Release Asset
