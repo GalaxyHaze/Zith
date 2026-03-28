@@ -98,9 +98,12 @@ jobs:
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
+          # Se houver input manual, usa-o. Se não, usa a tag do evento.
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
           files: artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Void Linux (glibc, x86_64) — runs inside an official Void container
@@ -149,6 +152,9 @@ jobs:
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
+          # Se houver input manual, usa-o. Se não, usa a tag do evento.
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
           files: artifacts/kalidous-void-linux-amd64-glibc
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
