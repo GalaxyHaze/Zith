@@ -19,7 +19,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # Use PAT to ensure this push triggers the build workflow
           token: ${{ secrets.RELEASE_PAT }}
 
       - name: Configure Git
@@ -46,15 +45,3 @@ jobs:
 
             ### Installation
             **Linux / macOS:**
-            ```bash
-            curl -fsSL https://raw.githubusercontent.com/GalaxyHaze/Kalidous-Lang/main/install.sh | bash
-            ```
-
-            **Windows:**
-            ```powershell
-            irm https://raw.githubusercontent.com/GalaxyHaze/Kalidous-Lang/main/install.ps1 | iex
-            ```
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
