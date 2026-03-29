@@ -42,32 +42,30 @@ jobs:
           echo "amd64=$AMD64" >> $GITHUB_OUTPUT
           echo "arm64=$ARM64" >> $GITHUB_OUTPUT
 
-      - name: Checkout Scoop bucket
+      - name: Checkout Kalidous-Lang
         uses: actions/checkout@v4
         with:
-          repository: GalaxyHaze/scoop-kalidous
           token: ${{ secrets.RELEASE_PAT }}
-          path: scoop-bucket
+          # Sem 'repository' — usa o repo atual
 
       - name: Update manifest
         run: |
-          cd scoop-bucket
-          jq --arg version "${{ steps.tag.outputs.version }}" \
-             --arg amd64 "${{ steps.hashes.outputs.amd64 }}" \
-             --arg arm64 "${{ steps.hashes.outputs.arm64 }}" \
-             --arg repo "https://github.com/GalaxyHaze/Kalidous-Lang" '
-            .version = $version |
-            .architecture["64bit"].hash = $amd64 |
-            .architecture["64bit"].url = "\($repo)/releases/download/v\($version)/kalidous-windows-amd64.exe" |
-            .architecture.arm64.hash = $arm64 |
-            .architecture.arm64.url = "\($repo)/releases/download/v\($version)/kalidous-windows-arm64.exe"
-          ' bucket/kalidous.json > tmp.json && mv tmp.json bucket/kalidous.json
-
+          jq \
+            --arg version "${{ steps.tag.outputs.version }}" \
+            --arg amd64 "${{ steps.hashes.outputs.amd64 }}" \
+            --arg arm64 "${{ steps.hashes.outputs.arm64 }}" \
+            '
+              .version = $version |
+              .architecture["64bit"].hash = $amd64 |
+              .architecture["64bit"].url = "https://github.com/GalaxyHaze/Kalidous-Lang/releases/download/v\($version)/kalidous-windows-amd64.exe" |
+              .architecture.arm64.hash = $arm64 |
+              .architecture.arm64.url = "https://github.com/GalaxyHaze/Kalidous-Lang/releases/download/v\($version)/kalidous-windows-arm64.exe"
+            ' .github/scoop/bucket/kalidous.json > tmp.json && mv tmp.json .github/scoop/bucket/kalidous.json
+      
       - name: Commit and push
         run: |
-          cd scoop-bucket
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add bucket/kalidous.json
-          git diff --staged --quiet || git commit -m "chore: update kalidous to ${{ steps.tag.outputs.tag }}"
+          git add .github/scoop/bucket/kalidous.json
+          git diff --staged --quiet || git commit -m "chore: update scoop manifest to ${{ steps.tag.outputs.tag }}"
           git push
