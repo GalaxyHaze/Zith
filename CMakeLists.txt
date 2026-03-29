@@ -108,7 +108,7 @@ target_include_directories(KalidousCore
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
 )
-target_compile_definitions(KalidousCore PRIVATE KALIDOUS_VERSION="v0.0-alpha")
+option(KALIDOUS_VERSION "Project version" "v0.0.1")
 # Agora o tomlplusplus::tomlplusplus deve ser encontrado com segurança
 target_link_libraries(KalidousCore PUBLIC tomlplusplus::tomlplusplus)
 
@@ -123,7 +123,7 @@ target_link_libraries(KalidousParse
         KalidousCore
         unordered_dense::unordered_dense
 )
-target_compile_definitions(KalidousParse PRIVATE KALIDOUS_VERSION="v0.0-alpha")
+target_compile_definitions(KalidousParse PRIVATE KALIDOUS_VERSION="${KALIDOUS_VERSION}")
 
 set_target_properties(KalidousParse PROPERTIES
         VERSION 0.0.1
@@ -142,7 +142,7 @@ target_link_libraries(kalidous
         KalidousParse
         CLI11::CLI11
 )
-target_compile_definitions(kalidous PRIVATE KALIDOUS_VERSION="v0.0-alpha" KALIDOUS_EXECUTABLE)
+target_compile_definitions(kalidous PRIVATE KALIDOUS_VERSION="${KALIDOUS_VERSION}" KALIDOUS_EXECUTABLE)
 
 # ───────────────────────────────────────────────
 # Install
@@ -176,7 +176,7 @@ if(EMSCRIPTEN)
     target_link_libraries(kalidous-wasm PRIVATE KalidousParse)
 
     target_compile_definitions(kalidous-wasm PRIVATE
-        KALIDOUS_VERSION="v0.0-alpha"
+        KALIDOUS_VERSION="${KALIDOUS_VERSION}"
         KALIDOUS_EXECUTABLE
         KALIDOUS_WASM
     )
