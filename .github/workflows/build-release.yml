@@ -81,7 +81,7 @@ jobs:
           arch: ${{ matrix.msvc_arch }}
 
       - name: Configure CMake
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_flags }}
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_flags }} -DKALIDOUS_VERSION=${{ inputs.tag_name || github.ref_name }}
 
       - name: Build
         run: cmake --build build --config Release
@@ -141,6 +141,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER="zig;cc;-target;${{ matrix.zig_target }}" \
             -DCMAKE_CXX_COMPILER="zig;c++;-target;${{ matrix.zig_target }}" \
+            -DKALIDOUS_VERSION=${{ inputs.tag_name || github.ref_name }} \
             -DCMAKE_EXE_LINKER_FLAGS="-static"
 
       - name: Build
@@ -190,6 +191,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_FLAGS="-O3 -flto" \
             -DCMAKE_CXX_FLAGS="-O3 -flto" \
+            -DKALIDOUS_VERSION=${{ inputs.tag_name || github.ref_name }} \
             -DCMAKE_EXE_LINKER_FLAGS="\
               -O3 -flto \
               --closure 1 \
