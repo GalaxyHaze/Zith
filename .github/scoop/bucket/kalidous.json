@@ -1,16 +1,16 @@
 {
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "The Kalidous programming language toolchain",
   "homepage": "https://github.com/GalaxyHaze/Kalidous-Lang",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/GalaxyHaze/Kalidous-Lang/releases/download/v0.0.0/kalidous-windows-amd64.exe",
-      "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+      "url": "https://github.com/GalaxyHaze/Kalidous-Lang/releases/download/v0.0.1/kalidous-windows-amd64.exe",
+      "hash": "e742508af083a9ec97a6423674c960467687d8bc7fef83ce8d5afbfa0554045b"
     },
     "arm64": {
-      "url": "https://github.com/GalaxyHaze/Kalidous-Lang/releases/download/v0.0.0/kalidous-windows-arm64.exe",
-      "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+      "url": "https://github.com/GalaxyHaze/Kalidous-Lang/releases/download/v0.0.1/kalidous-windows-arm64.exe",
+      "hash": "d5703ff0e2ca9aa1bccd61481cba72619f3a991f75b5f8ffae64241b14c3e1d0"
     }
   },
   "bin": "kalidous-windows-amd64.exe",
