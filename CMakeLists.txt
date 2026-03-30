@@ -77,25 +77,17 @@ endif ()
 # =============================================================================
 # Sources
 # =============================================================================
-set(CORE_C_SOURCES
-        impl/memory/arena_c_functions.c
-        impl/memory/file.c
+file(GLOB_RECURSE CORE_C_SOURCES "impl/memory/*.c")
+file(GLOB_RECURSE PARSER_CPP_SOURCES 
+    "impl/lexer/*.cpp"
+    "impl/parser/*.cpp"
+    "impl/ast/*.cpp"
 )
 
-# CORREÇÃO: Removido 'impl/ast/ast.h' e duplicata de 'tokenizer.cpp'
-set(PARSER_CPP_SOURCES
-        impl/lexer/tokenizer.cpp
-        impl/lexer/keywords.cpp
-        impl/parser/parser.cpp
-        impl/ast/ast.cpp
-        impl/parser/parser.h
-)
-
-set(CLI_SOURCES
-        impl/cli/CLI.cpp
-        impl/memory/utils.h
-        impl/lexer/debug.h
-        include/kalidous/kalidous.hpp
+file(GLOB_RECURSE CLI_SOURCES 
+    "impl/cli/*.cpp"
+    "impl/memory/*.h"      # se quiser headers no target
+    "impl/lexer/*.h"
 )
 
 # ───────────────────────────────────────────────

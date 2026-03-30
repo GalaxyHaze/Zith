@@ -4,6 +4,7 @@
 // Depends on: CLI11, Kalidous/kalidous.h
 
 #include <CLI/CLI.hpp>
+#include <chrono>
 #include <kalidous/kalidous.hpp>
 #include <iostream>
 #include <string>
@@ -175,16 +176,18 @@ static int cmd_check(const std::string &input_file,
                                                    src.c_str(), stream);
 
     // Debug: AST dump
-    if (ast) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-        printf("-Starting AST\n");
-        kalidous_ast_print(ast, 0);
-        printf("Ending AST\n");
-    } else {
-        print_error("Parse failed — null AST");
-        kalidous_arena_destroy(arena);
-        return 1;
-    }
+    if (verbose){
+        if (ast) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            printf("-Starting AST\n");
+            kalidous_ast_print(ast, 0);
+            printf("Ending AST\n");
+        } else {
+            print_error("Parse failed — null AST");
+            kalidous_arena_destroy(arena);
+            return 1;
+        }
+}
 
     // TODO: kalidous_sema(arena, ast) — name resolution, types, borrow checker
     // TODO: report errors/warnings with full span (line:col start+end)
