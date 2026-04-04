@@ -226,6 +226,17 @@ KalidousNode *kalidous_ast_make_block(KalidousArena *a, KalidousSourceLoc loc,
     return n;
 }
 
+// UNBODY: armazena token stream bruto entre { e } para parseamento posterior
+// list.ptr = KalidousToken*, list.len = token_count
+KalidousNode *kalidous_ast_make_unbody(KalidousArena *a, KalidousSourceLoc loc,
+                                        const KalidousToken *tokens, size_t token_count) {
+    KalidousNode *n = alloc_node(a, KALIDOUS_NODE_UNBODY, loc);
+    if (!n) return nullptr;
+    n->data.list.ptr = const_cast<KalidousToken*>(tokens);
+    n->data.list.len = token_count;
+    return n;
+}
+
 // kids.a = condition, kids.b = then_branch, kids.c = else_branch (NULL ok)
 KalidousNode *kalidous_ast_make_if(KalidousArena *a, KalidousSourceLoc loc,
                                    KalidousNode *cond,

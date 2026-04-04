@@ -23,6 +23,37 @@ extern KalidousNode *parser_parse_expression(Parser *p);
 // Helpers
 // ============================================================================
 
+// Captura tokens entre { e } para criar um nó UNBODY
+static KalidousNode *capture_unbody(Parser *p) {
+    const KalidousSourceLoc loc = parser_peek(p)->loc;
+    
+    if (!parser_match(p, KALIDOUS_TOKEN_LBRACE)) {
+        // Se não tem '{', retorna nullptr (não é um bloco)
+        return nullptr;
+    }
+    
+    // Marca o início dos tokens do corpo (primeiro token após '{')
+    const size_t start_pos = p->pos;
+    int depth = 1;
+    
+    // Avança até encontrar o '}' correspondente
+    while (!parser_is_at_end(p) && depth > 0) {
+        const KalidousToken *t = parser_advance(p);
+        if (t->type == KALIDOUS_TOKEN_LBRACE) depth++;
+        else if (t->type == KALIDOUS_TOKEN_RBRACE) depth--;
+    }
+    
+    // Calcula quantos tokens estão no corpo (excluindo '{' e '}')
+    // start_pos aponta para o primeiro token após '{'
+    // p->pos agora aponta para o token após '}'
+    const size_t token_count = p->pos - start_pos - 1; // -1 para excluir o '}'
+    
+    // Os tokens do corpo começam em start_pos
+    const KalidousToken *body_tokens = &p->tokens[start_pos];
+    
+    return kalidous_ast_make_unbody(p->arena, loc, body_tokens, token_count);
+}
+
 static KalidousVisibility parse_visibility(Parser *p, KalidousVisibility *current_vis) {
     KalidousVisibility vis = *current_vis;
     if (parser_check(p, KALIDOUS_TOKEN_MODIFIER)) {
@@ -203,8 +234,12 @@ static KalidousNode *parse_fn_decl(Parser *p, KalidousSourceLoc loc, KalidousVis
 
     KalidousNode *body = nullptr;
     if (p->mode == KALIDOUS_MODE_SCAN) {
-        if (!parser_match(p, KALIDOUS_TOKEN_COLON)) skip_block(p);
+        // SCAN mode: captura o corpo como UNBODY em vez de pular completamente
+        if (!parser_match(p, KALIDOUS_TOKEN_COLON)) {
+            body = capture_unbody(p);
+        }
     } else {
+        // PARSE mode: parseia o corpo normalmente
         if (!parser_check(p, KALIDOUS_TOKEN_COLON)) body = parse_body(p);
         else parser_advance(p);
     }
