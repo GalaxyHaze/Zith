@@ -14,7 +14,6 @@ extern const KalidousToken *parser_expect(Parser *p, KalidousTokenType type, con
 extern void parser_error(Parser *p, const KalidousSourceLoc loc, const char *msg);
 extern void parser_synchronize(Parser *p);
 extern bool check_kw(const Parser *p, const char *kw);
-extern void skip_block(Parser *p);
 
 extern KalidousNode *parser_parse_type(Parser *p);
 extern KalidousNode *parser_parse_expression(Parser *p);
@@ -108,7 +107,8 @@ static KalidousNode *parse_var_decl(Parser *p, KalidousBindingKind binding) {
     KalidousNode *init = nullptr;
     if (parser_match(p, KALIDOUS_TOKEN_ASSIGNMENT) || parser_match(p, KALIDOUS_TOKEN_DECLARATION)) {
         if (p->mode == KALIDOUS_MODE_SCAN) {
-             while (!parser_check(p, KALIDOUS_TOKEN_SEMICOLON) && !parser_is_at_end(p)) parser_advance(p);
+             // SCAN mode: skip the expression to avoid parsing dependencies
+             while (!parser_check(p, KALIDOUS_TOKEN_SEMICOLON) && !parser_check(p, KALIDOUS_TOKEN_COMMA) && !parser_is_at_end(p)) parser_advance(p);
         } else {
              init = parser_parse_expression(p);
         }
@@ -308,11 +308,9 @@ static KalidousNode *parse_struct_decl(Parser *p, KalidousVisibility struct_vis)
                 }
             }
         
-            // CHANGED: Use parser_match instead of parser_expect
-            // This allows the last field to omit the comma before '}' without causing an error,
-            // or it simply consumes the comma if present.
+            // Use comma as separator, but allow last field to omit it before '}'
             if (parser_peek(p)->type != KALIDOUS_TOKEN_RBRACE)
-                parser_expect(p, KALIDOUS_TOKEN_COMMA, "-shall use ';'");
+                parser_expect(p, KALIDOUS_TOKEN_COMMA, "expected ',' or ';'");
 
             fields_b.push(p->arena, kalidous_ast_make_field(p->arena, floc, {fname->lexeme.data, fname->lexeme.len, own, item_vis, ftype, fdef}));
             continue;

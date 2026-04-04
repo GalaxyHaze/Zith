@@ -66,19 +66,25 @@ KalidousNode *kalidous_parse_with_source(KalidousArena *arena, const char *sourc
     parser_init(&p, arena, source, source_len, filename, tokens);
 
     // 1. SCAN Mode
-    // Parses signatures (structs, fns), skips bodies using skip_block.
-    // Stores result in p.scan_root for potential use by later phases.
-    //KalidousNode *scan_root = run_parser_phase(&p, KALIDOUS_MODE_SCAN);
-    //p.scan_root = scan_root; 
+    // Parses signatures (structs, fns), captures bodies as UNBODY nodes.
+    // Stores result in p.scan_root for use by later phases.
+    KalidousNode *scan_root = run_parser_phase(&p, KALIDOUS_MODE_SCAN);
+    p.scan_root = scan_root; 
 
     // 2. EXPAND Mode (Placeholder)
     // Hook for macro expansion or symbol table population based on scan_root.
-    // Currently disabled/empty as requested.
-    (void)p.scan_root; 
+    // Currently disabled/empty - will be implemented later.
+    // For now, just pass through the scan_root
+    KalidousNode *expand_root = scan_root;
 
     // 3. PARSE Mode
-    // Full parse. Resets position, parses everything including bodies.
-    KalidousNode *final_ast = run_parser_phase(&p, KALIDOUS_MODE_PARSE);
+    // Uses the tree from EXPAND phase and parses UNBODY nodes with type checking.
+    // This phase should navigate the existing tree, not create a new one from scratch.
+    KalidousNode *final_ast = expand_root;
+    
+    // TODO: Implement UNBODY parsing in PARSE mode
+    // The parser should traverse 'final_ast' and replace UNBODY nodes
+    // with fully parsed BLOCK nodes, performing type checks like "does this type exist?"
 
     // Print diagnostics accumulated across all phases
     extern void kalidous_diag_print_all(const KalidousDiagList*, const char*, size_t, const char*);

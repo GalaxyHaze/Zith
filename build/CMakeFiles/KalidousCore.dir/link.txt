@@ -1,0 +1,2 @@
+/usr/bin/ar qc lib/libKalidousCore.a CMakeFiles/KalidousCore.dir/impl/memory/arena_c_functions.c.o CMakeFiles/KalidousCore.dir/impl/memory/file.c.o
+/usr/bin/ranlib lib/libKalidousCore.a
