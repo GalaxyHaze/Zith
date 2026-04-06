@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/workspace/build/_deps/tomlplusplus-subbuild/CMakeFiles/tomlplusplus-populate"
+		},
+		{
+			"file" : "/workspace/build/_deps/tomlplusplus-subbuild/CMakeFiles/tomlplusplus-populate.rule"
+		},
+		{
+			"file" : "/workspace/build/_deps/tomlplusplus-subbuild/CMakeFiles/tomlplusplus-populate-complete.rule"
+		},
+		{
+			"file" : "/workspace/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-build.rule"
+		},
+		{
+			"file" : "/workspace/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-configure.rule"
+		},
+		{
+			"file" : "/workspace/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-download.rule"
+		},
+		{
+			"file" : "/workspace/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-install.rule"
+		},
+		{
+			"file" : "/workspace/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-mkdir.rule"
+		},
+		{
+			"file" : "/workspace/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-patch.rule"
+		},
+		{
+			"file" : "/workspace/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-test.rule"
+		},
+		{
+			"file" : "/workspace/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"tomlplusplus-populate"
+		],
+		"name" : "tomlplusplus-populate"
+	}
+}

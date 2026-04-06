@@ -227,6 +227,7 @@ enum {
     KALIDOUS_NODE_FOR = 302, // unifica for e while
     KALIDOUS_NODE_RETURN = 303,
     KALIDOUS_NODE_EXPR_STMT = 304,
+    KALIDOUS_NODE_UNBODY = 305, // corpo não parseado (entre { e }) - scanner mode
 
     KALIDOUS_NODE_TYPE_REF = 400,
     KALIDOUS_NODE_TYPE_FUNC = 401,

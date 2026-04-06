@@ -1,0 +1,2 @@
+/usr/bin/ar qc lib/libKalidousParse.a CMakeFiles/KalidousParse.dir/impl/ast/ast.cpp.o CMakeFiles/KalidousParse.dir/impl/lexer/keywords.cpp.o CMakeFiles/KalidousParse.dir/impl/lexer/tokenizer.cpp.o CMakeFiles/KalidousParse.dir/impl/parser/parser.cpp.o CMakeFiles/KalidousParse.dir/impl/parser/parser_decl.cpp.o CMakeFiles/KalidousParse.dir/impl/parser/parser_expr.cpp.o CMakeFiles/KalidousParse.dir/impl/parser/parser_utils.cpp.o
+/usr/bin/ranlib lib/libKalidousParse.a

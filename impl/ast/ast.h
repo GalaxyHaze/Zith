@@ -393,6 +393,11 @@ KalidousNode *kalidous_ast_make_param(KalidousArena *a, KalidousSourceLoc loc, K
 
 KalidousNode *kalidous_ast_make_block(KalidousArena *a, KalidousSourceLoc loc, KalidousNode **stmts, size_t count);
 
+// Cria um nó UNBODY que armazena o token stream bruto entre { e }
+// tokens aponta para o primeiro token após '{', token_count é o número de tokens até '}'
+KalidousNode *kalidous_ast_make_unbody(KalidousArena *a, KalidousSourceLoc loc, 
+                                        const KalidousToken *tokens, size_t token_count);
+
 KalidousNode *kalidous_ast_make_if(KalidousArena *a, KalidousSourceLoc loc, KalidousNode *cond, KalidousNode *then_br,
                                    KalidousNode *else_br);
 

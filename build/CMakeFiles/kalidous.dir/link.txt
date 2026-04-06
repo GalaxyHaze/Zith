@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/kalidous.dir/impl/main.cpp.o CMakeFiles/kalidous.dir/impl/cli/CLI.cpp.o -o bin/kalidous  lib/libKalidousParse.a lib/libKalidousCore.a 

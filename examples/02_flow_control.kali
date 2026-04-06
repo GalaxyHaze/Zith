@@ -1,0 +1,250 @@
+// ============================================================================
+// 02_flow_control.kali
+// Controle de Fluxo: if, else, for, operadores lógicos e escopo
+// ============================================================================
+
+import std.io.println as println;
+
+// ----------------------------------------------------------------------------
+// 1. Operadores Lógicos
+// and (&&), or (||), not (!)
+// ----------------------------------------------------------------------------
+fn logical_operators() {
+    let a = true;
+    let b = false;
+
+    // Uso básico
+    if a and b {
+        println("Ambos verdadeiros");
+    }
+
+    if a or b {
+        println("Pelo menos um verdadeiro");
+    }
+
+    if not a {
+        println("A é falso");
+    } else {
+        println("A é verdadeiro (not a é falso)");
+    }
+
+    // Combinação complexa
+    if (a and not b) or (not a and b) {
+        println("XOR lógico: exatamente um é verdadeiro");
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 2. Condicionais If / Else
+// - Parênteses na condição são recomendados para legibilidade
+// - Pode declarar variáveis dentro da condição
+// - Variáveis 'lend' podem ser criadas nos ()
+// ----------------------------------------------------------------------------
+fn basic_if_else() {
+    let x: i32 = 10;
+
+    // If simples
+    if (x > 5) {
+        println("x é maior que 5");
+    }
+
+    // If com else
+    if (x < 5) {
+        println("x é menor que 5");
+    } else {
+        println("x é 5 ou maior");
+    }
+
+    // Else if (sintaxe: else (condição))
+    if (x == 5) {
+        println("x é exatamente 5");
+    } else (x > 5) {
+        println("x é maior que 5 (else if)");
+    } else {
+        println("x é menor que 5");
+    }
+
+    // Declaração de variável dentro da condição
+    // A variável 'y' existe apenas dentro do bloco if/else
+    if (let y = x * 2; y > 15) {
+        println("O dobro de x é maior que 15");
+        println(y);
+    }
+
+    // Múltiplas condições sem parênteses internos (válido, mas menos legível)
+    if x > 5 and x < 20 {
+        println("x está entre 5 e 20");
+    }
+
+    // Múltiplas condições com parênteses internos (recomendado)
+    if (x > 5) and (x < 20) {
+        println("x está entre 5 e 20 (sintaxe recomendada)");
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 3. Loop For (Estilo Odin)
+// - Sintaxe unificada: serve como 'for' tradicional e 'while'
+// - Parênteses são obrigatórios
+// - Suporta inicialização, condição e incremento
+// - Suporta declaração de variáveis no escopo do loop
+// ----------------------------------------------------------------------------
+fn basic_for_loop() {
+    // For tradicional: inicialização; condição; incremento
+    for (let i: i32 = 0; i < 5; i += 1) {
+        println("Iteração tradicional:");
+        println(i);
+    }
+
+    // For como while: apenas condição
+    var counter: i32 = 0;
+    for (counter < 3) {
+        println("Loop estilo while:");
+        println(counter);
+        counter += 1;
+    }
+
+    // For com múltiplas variáveis declaradas
+    for (let i = 0, var j = 10; i < j; i += 1, j -= 1) {
+        println("i e j aproximando-se:");
+        println(i);
+        println(j);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 4. Variáveis Lend em Condições
+// 'lend' cria uma referência mutável temporária
+// Útil para modificar dados sem mover ownership
+// ----------------------------------------------------------------------------
+fn lend_in_conditions() {
+    struct Buffer {
+        data: []u8,
+        len: usize
+    }
+
+    var buf = Buffer {
+        data = [1, 2, 3],
+        len = 3
+    };
+
+    // Criação de lend dentro da condição do if
+    // 'data_ref' é uma referência mutável temporária a buf.data
+    if (let data_ref: lend = buf.data) {
+        // Pode modificar através do lend
+        data_ref[0] = 99;
+        println("Primeiro byte modificado via lend:");
+        println(data_ref[0]);
+    }
+
+    // Lend em loop for
+    var items: []i32 = [10, 20, 30];
+    for (let i = 0; i < items.len; i += 1) {
+        if (let item_ref: lend = items[i]) {
+            *item_ref *= 2; // Dobra o valor
+        }
+    }
+    
+    println("Items após modificação via lend:");
+    for (let i = 0; i < items.len; i += 1) {
+        println(items[i]);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 5. Escopo e Shadowing
+// Variáveis declaradas em blocos internos shadowam as externas
+// ----------------------------------------------------------------------------
+fn scope_and_shadowing() {
+    let x: i32 = 100;
+    println("x externo:");
+    println(x);
+
+    if (true) {
+        let x = 200; // Shadowing: novo x no escopo interno
+        println("x interno (if):");
+        println(x);
+    }
+
+    println("x externo novamente (não foi alterado):");
+    println(x);
+
+    for (let x = 0; x < 3; x += 1) {
+        // Este x é específico do loop
+        println("x no loop:");
+        println(x);
+    }
+
+    // x do loop não existe mais aqui
+    println("x após o loop (ainda 100):");
+    println(x);
+}
+
+// ----------------------------------------------------------------------------
+// 6. Exemplos Práticos Combinados
+// ----------------------------------------------------------------------------
+fn practical_examples() {
+    // Filtro com condições complexas
+    let numbers: []i32 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    
+    println("Números pares maiores que 4:");
+    for (let i = 0; i < numbers.len; i += 1) {
+        let n = numbers[i];
+        if (n > 4) and (n % 2 == 0) {
+            println(n);
+        }
+    }
+
+    // Busca com early return simulado via flag
+    var found = false;
+    for (let i = 0; i < numbers.len; i += 1) {
+        if numbers[i] == 7 {
+            found = true;
+            break; // Break é suportado em loops
+        }
+    }
+
+    if found {
+        println("Número 7 encontrado!");
+    }
+
+    // Modificação in-place com lend
+    var values: []f32 = [1.5, 2.5, 3.5];
+    for (let i = 0; i < values.len; i += 1) {
+        if (let v: lend = values[i]) {
+            *v += 10.0;
+        }
+    }
+
+    println("Valores após adição de 10:");
+    for (let i = 0; i < values.len; i += 1) {
+        println(values[i]);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Main
+// ----------------------------------------------------------------------------
+fn main() {
+    println("=== Controle de Fluxo em Kalidous ===\n");
+
+    println("--- Operadores Lógicos ---");
+    logical_operators();
+
+    println("\n--- If / Else Básico ---");
+    basic_if_else();
+
+    println("\n--- Loop For ---");
+    basic_for_loop();
+
+    println("\n--- Lend em Condições ---");
+    lend_in_conditions();
+
+    println("\n--- Escopo e Shadowing ---");
+    scope_and_shadowing();
+
+    println("\n--- Exemplos Práticos ---");
+    practical_examples();
+
+    println("\n=== Fim dos Exemplos de Controle de Fluxo ===");
+}

@@ -1,0 +1,143 @@
+// ============================================================================
+// 01_basics.kali
+// Demonstração dos fundamentos da linguagem Kalidous:
+// - Controle de binding (let/var/auto)
+// - Mutabilidade explícita
+// - Sistema de Ownership (unique, share, view, lend)
+// - Tipos Opcionais (?)
+// - Structs e Trait de Extension
+// ============================================================================
+
+import std.io.println as println;
+
+// ----------------------------------------------------------------------------
+// 1. Variáveis, Binding e Mutabilidade
+// ----------------------------------------------------------------------------
+fn demo_binding() {
+    // let: Imutável por padrão (não permite reatribuição)
+    let x = 10; 
+    // x = 20;  // ERRO: let não permite reatribuição
+
+    // var: Permite reatribuição
+    var y = 5;
+    y = 15; // OK
+
+    // auto: Açúcar sintático. Começa como let, se reatribuído vira var.
+    auto z = 100;
+    // Se houvesse uma reatribuição aqui, o compilador trataria 'z' como var.
+    
+    // Estado inicial 'void': Variáveis declaradas sem valor são 'nothing' até atribuição.
+    let a: i32; 
+    a = 42; // Agora 'a' é i32. Antes disso, era nothing/void.
+
+    // Mutabilidade de conteúdo (explícita com 'mut')
+    // let não permite trocar o que aponta, mas se for 'mut', permite alterar o conteúdo.
+    let counter: mut i32 = 0;
+    counter += 1; // OK: altera o conteúdo
+    // counter = 5; // ERRO: let não permite reatribuição (trocar o binding)
+
+    var mutable_val: mut i32 = 10;
+    mutable_val += 5; // OK
+    mutable_val = 20; // OK (var permite reatribuição)
+
+    // Type Hints com inferência parcial
+    // O compilador infere o tipo base (i32) pela direita, mas aplica o modificador 'mut'
+    let hint_mut: mut = 50; 
+    hint_mut += 10;
+}
+
+// ----------------------------------------------------------------------------
+// 2. Ownership e Borrowing
+// ----------------------------------------------------------------------------
+fn demo_ownership() {
+    // Unique: Posse exclusiva. Apenas este identificador pode modificar.
+    let data: unique i32 = 100;
+    
+    // View: Referência imutável. Pode haver múltiplas views.
+    let view_data: view i32 = data; 
+    // *view_data = 200; // ERRO: view é imutável
+
+    // Share: Promoção por move. O original é invalidado.
+    // Ao mover 'data' para um contexto 'share', ele se torna compartilhado.
+    // Nota: Em código real, isso geralmente envolve uma mudança de escopo ou função.
+    let shared_data: share i32 = data; // Move 'data' para 'shared_data'
+    // 'data' não é mais válido aqui.
+    
+    // Opcional (?)
+    // '?' vem antes de qualquer outro modificador.
+    let maybe_val: ?unique i32 = null;
+    let maybe_mut: ?mut i32 = null;
+    
+    if maybe_val != null {
+        // Uso seguro do opcional
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 3. Funções e Lend
+// ----------------------------------------------------------------------------
+
+// lend: Referência mutável temporária. Não pode ser armazenada, apenas usada no escopo.
+// Ideal para recursos que não devem escapar da função.
+fn process_buffer(buf: lend Buffer) {
+    // Modifica o buffer temporariamente
+    // buf.write(...); 
+}
+
+// Parâmetro auto: Comporta-se como 'let' (não reatribuível) por padrão.
+// Se o corpo da função tentar reatribuir, deve ser declarado explicitamente como var ou auto com permissão.
+fn generic_process(input: auto T) {
+    // input = ...; // Se tentar reatribuir aqui sem ser 'var', gera erro dependendo da flag do parâmetro.
+    println("Processing generic item");
+}
+
+// ----------------------------------------------------------------------------
+// 4. Structs e Extension (Lista Duplamente Ligada)
+// ----------------------------------------------------------------------------
+
+// Definição da Struct herdando de Extension
+struct DoubleLink<T>: Extension {
+    prev: ?Self,          // Ponteiro opcional para o anterior
+    next: ?unique Self,   // Posse única do próximo nó
+    val: T
+}
+
+// Implementação do método construtor/extensor
+implement DoubleLink {
+    // 'self' aqui refere-se ao contexto de extensão
+    fn insert(self, content: T) -> Self {
+        // Cria uma nova instância estendendo o atual
+        Self {
+            prev = extension self, // Marca o pai como extensão
+            next = null,
+            val = content
+        }
+    }
+}
+
+// Exemplo de uso de Weak (placeholder runtime para listas circulares ou casos complexos)
+struct NodeWeak<T> {
+    data: T,
+    back_ref: ?weak NodeWeak<T> // Referência fraca, resolvida em runtime
+}
+
+// ----------------------------------------------------------------------------
+// 5. Main
+// ----------------------------------------------------------------------------
+fn main() {
+    println("--- Demo Binding ---");
+    demo_binding();
+
+    println("\n--- Demo Ownership ---");
+    demo_ownership();
+
+    println("\n--- Demo Extension ---");
+    // Criando o nó raiz (conceitual)
+    let root: unique DoubleLink<i32> = DoubleLink<i32> { prev = null, next = null, val = 0 };
+    
+    // Inserindo um novo nó que estende a lógica
+    // A sintaxe exata de chamada depende de como o compiler resolve o 'extends'
+    let new_node = root.insert(42);
+
+    println("\n--- Done ---");
+}
