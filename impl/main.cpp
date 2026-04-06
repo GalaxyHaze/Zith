@@ -10,7 +10,7 @@ int main() {
 #else
 #include <kalidous/kalidous.hpp>
 
-int main(int argc, const char** argv) {
-    return kalidous_run(argc, argv);
+int main(int argc, const char** string) {
+    return kalidous_run(argc, string);
 }
 #endif

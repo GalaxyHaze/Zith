@@ -78,13 +78,15 @@ endif ()
 # Sources
 # =============================================================================
 file(GLOB_RECURSE CORE_C_SOURCES "impl/memory/*.c")
-file(GLOB_RECURSE PARSER_CPP_SOURCES 
+file(GLOB_RECURSE DIAGNOSTICS_SOURCES "impl/diagnostics/*.cpp")
+file(GLOB_RECURSE PARSER_CPP_SOURCES
     "impl/lexer/*.cpp"
     "impl/parser/*.cpp"
     "impl/ast/*.cpp"
+    ${DIAGNOSTICS_SOURCES}
 )
 
-file(GLOB_RECURSE CLI_SOURCES 
+file(GLOB_RECURSE CLI_SOURCES
     "impl/cli/*.cpp"
     "impl/memory/*.h"      # se quiser headers no target
     "impl/lexer/*.h"

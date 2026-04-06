@@ -1,135 +1,26 @@
-// impl/parser/kalidous_parser.h — Parser interface for Kalidous
+// impl/parser/parser.h — Parser interface for Kalidous
+//
+// Refactored to use centralized modules:
+//   - diagnostics.hpp for error reporting
+//   - parser_context.hpp for parser state
+//   - types.hpp for enums
+//
+// The Parser struct and diagnostic types are now defined in
+// parser_context.hpp — this file re-exports them for compatibility
+// and declares sub-parser functions.
 #pragma once
 
-#include <kalidous/kalidous.hpp>
-#include "../ast/ast.h"
+#include "parser_context.hpp"
+
+// Re-export for compatibility — all types live in parser_context.hpp
+// Old code that includes parser.h will continue to work.
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 // ============================================================================
-// Diagnostics
-// ============================================================================
-
-typedef enum KalidousDiagSeverity {
-    KALIDOUS_DIAG_ERROR = 0,
-    KALIDOUS_DIAG_WARNING = 1,
-    KALIDOUS_DIAG_NOTE = 2,
-} KalidousDiagSeverity;
-
-    typedef enum KalidousParserMode{
-        KALIDOUS_MODE_SCAN = 0,
-        KALIDOUS_MODE_PARSE = 1,
-        KALIDOUS_MODE_EXPAND = 2
-    } KalidousParserMode;
-
-typedef struct KalidousDiagnostic {
-    const char *message; // interned in arena
-    KalidousSourceLoc loc;
-    KalidousDiagSeverity severity;
-} KalidousDiagnostic;
-
-// List of diagnostics produced during parsing.
-// Owned by the arena — lives as long as the parse arena.
-typedef struct KalidousDiagList {
-    KalidousDiagnostic *items;
-    size_t count;
-    size_t capacity;
-} KalidousDiagList;
-
-// Print all diagnostics with source context to stderr.
-// source / source_len are the original file bytes (already in arena).
-void kalidous_diag_print_all(const KalidousDiagList *diags,
-                             const char *source, size_t source_len,
-                             const char *filename);
-
-// ============================================================================
-// Parser state
-// ============================================================================
-
-typedef struct KalidousSymbolTable KalidousSymbolTable;
-
-typedef struct KalidousScope{
-        KalidousSymbolTable* parent = nullptr;
-        KalidousSymbolTable* symbols = nullptr;
-}KalidousScope;
-
-typedef struct Parser {
-    KalidousArena *arena;
-    const KalidousToken *tokens;
-    size_t count;
-    size_t pos;
-
-    // Original source — needed to print the error line
-    const char *source;
-    size_t source_len;
-    const char *filename;
-    KalidousSymbolTable* currentScope;
-
-    // Accumulated diagnostics
-    KalidousDiagList diags;
-
-    // had_error: true if any ERROR was emitted
-    bool had_error;
-
-    // panic: set when parser_expect fails — cleared after synchronizing at a
-    // statement/declaration boundary. While in panic mode, parser_expect
-    // suppresses further errors to avoid cascades.
-    bool panic;
-
-    // Current function context
-    KalidousFnKind fn_kind;
-    bool inside_fn;
-
-    // Active group visibility modifier (default: private)
-    KalidousVisibility current_visibility;
-    KalidousParserMode mode;
-    KalidousNode* scan_root;
-} Parser;
-
-// ============================================================================
-// Parser init
-// ============================================================================
-
-// source / source_len are the original file bytes.
-// filename is used in diagnostic output — may be NULL.
-void parser_init(Parser *p, KalidousArena *arena,
-                 const char *source, size_t source_len,
-                 const char *filename,
-                 KalidousTokenStream tokens);
-
-// ============================================================================
-// Diagnostic emission
-// ============================================================================
-
-void parser_error(Parser *p, KalidousSourceLoc loc, const char *msg);
-
-void parser_warning(Parser *p, KalidousSourceLoc loc, const char *msg);
-
-void parser_note(Parser *p, KalidousSourceLoc loc, const char *msg);
-
-// ============================================================================
-// Token navigation
-// ============================================================================
-
-const KalidousToken *parser_peek(const Parser *p);
-
-const KalidousToken *parser_peek_ahead(const Parser *p, size_t offset);
-
-const KalidousToken *parser_advance(Parser *p);
-
-bool parser_check(const Parser *p, KalidousTokenType type);
-
-bool parser_match(Parser *p, KalidousTokenType type);
-
-const KalidousToken *parser_expect(Parser *p, KalidousTokenType type,
-                                   const char *msg);
-
-bool parser_is_at_end(const Parser *p);
-
-// ============================================================================
-// Sub-parsers
+// Sub-parsers — declared here, implemented in parser_decl.cpp, parser_expr.cpp
 // ============================================================================
 
 KalidousNode *parser_parse_declaration(Parser *p);
@@ -142,7 +33,17 @@ KalidousNode *parser_parse_type(Parser *p);
 
 KalidousNode *parser_parse_block(Parser *p);
 
-void skip_block(Parser *p);
+// ============================================================================
+// Legacy aliases — removed in favor of centralized functions
+// ============================================================================
+
+// Old code may call these — redirect to parser_context.hpp versions
+// These are now implemented in parser_utils.cpp via parser_emit_diag
+
+static inline void parser_emit(Parser *p, KalidousSourceLoc loc,
+                               KalidousDiagSeverity severity, const char *msg) {
+    parser_emit_diag(p, loc, severity, msg);
+}
 
 #ifdef __cplusplus
 }

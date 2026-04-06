@@ -1,97 +1,36 @@
-// impl/parser/parser_utils.cpp
+// impl/parser/parser_utils.cpp — Token navigation, error handling, synchronization
+//
+// Refactored to use centralized DiagManager from diagnostics.hpp.
+// All fprintf/printf diagnostic calls are now routed through DiagManager.
 #include "parser.h"
-#include "../memory/utils.h"
+#include "../diagnostics/diagnostics.hpp"
+#include "../memory/arena.hpp"
 #include <cstring>
-#include <cstdio>
 #include <cstdlib>
 
 // ============================================================================
-// Internal Helpers
+// Parser Init
 // ============================================================================
 
-// Helper: Finds the start and length of a specific line number (1-based)
-static bool find_source_line(const char *source, size_t source_len,
-                             size_t line_num, const char **out_start, size_t *out_len) {
-    const char *p = source;
-    const char *end = source + source_len;
-    size_t cur = 1;
-
-    // Move pointer to the start of the target line
-    while (p < end && cur < line_num) {
-        if (*p++ == '\n') cur++;
-    }
-    if (cur != line_num) return false;
-
-    const char *line_start = p;
-    // Find the end of the line
-    while (p < end && *p != '\n') p++;
-
-    *out_start = line_start;
-    *out_len = (size_t)(p - line_start);
-    return true;
-}
-
-static const char *severity_label(KalidousDiagSeverity s) {
-    switch (s) {
-        case KALIDOUS_DIAG_ERROR: return "error";
-        case KALIDOUS_DIAG_WARNING: return "warning";
-        case KALIDOUS_DIAG_NOTE: return "note";
-        default: return "info";
-    }
-}
-
-// ============================================================================
-// Diagnostics
-// ============================================================================
-
-void kalidous_diag_print_all(const KalidousDiagList *diags, const char *source,
-                             size_t source_len, const char *filename) {
-    if (!diags || diags->count == 0) return;
-
-    for (size_t i = 0; i < diags->count; ++i) {
-        const KalidousDiagnostic *d = &diags->items[i];
-
-        // 1. Print the Header: file:line:col: severity: message
-        fprintf(stderr, "%s:%zu:%zu: %s: %s\n", 
-                filename ? filename : "<input>",
-                d->loc.line, d->loc.index, 
-                severity_label(d->severity), d->message);
-
-        // 2. Print the Source Line and Caret
-        if (source && source_len > 0) {
-            const char *line_ptr = nullptr;
-            size_t line_len = 0;
-
-            if (find_source_line(source, source_len, d->loc.line, &line_ptr, &line_len)) {
-                // Print the actual code line
-                fprintf(stderr, "  %.*s\n", (int)line_len, line_ptr);
-
-                // Print the caret (^^^) pointing to the error
-                fprintf(stderr, "  ");
-                size_t col = d->loc.index;
-                // Handle tabs roughly by assuming tab width 4 or just printing space
-                for (size_t c = 0; c < col && c < line_len; ++c) {
-                    fputc(line_ptr[c] == '\t' ? '\t' : ' ', stderr);
-                }
-                fprintf(stderr, "^\n");
-            }
-        }
-    }
-
-    // 3. Print Summary
-    size_t errors = 0, warnings = 0;
-    for (size_t i = 0; i < diags->count; ++i) {
-        if (diags->items[i].severity == KALIDOUS_DIAG_ERROR) errors++;
-        else if (diags->items[i].severity == KALIDOUS_DIAG_WARNING) warnings++;
-    }
-
-    if (errors > 0 || warnings > 0) {
-        fprintf(stderr, "\n%s: ", filename ? filename : "<input>");
-        if (errors) fprintf(stderr, "%zu error(s)", errors);
-        if (errors && warnings) fprintf(stderr, ", ");
-        if (warnings) fprintf(stderr, "%zu warning(s)", warnings);
-        fprintf(stderr, "\n\n");
-    }
+void parser_init(Parser *p, KalidousArena *arena,
+                 const char *source, const size_t source_len,
+                 const char *filename,
+                 const KalidousTokenStream tokens) {
+    p->arena = arena;
+    p->source = source;
+    p->source_len = source_len;
+    p->filename = filename ? filename : "<input>";
+    p->tokens = tokens.data;
+    p->count = tokens.len;
+    p->pos = 0;
+    p->had_error = false;
+    p->panic = false;
+    p->fn_kind = KALIDOUS_FN_NORMAL;
+    p->inside_fn = false;
+    p->current_visibility = KALIDOUS_VIS_PRIVATE;
+    p->mode = KALIDOUS_MODE_PARSE;
+    p->diags = {nullptr, 0, 0};
+    p->scan_root = nullptr;
 }
 
 // ============================================================================
@@ -128,36 +67,36 @@ bool parser_match(Parser *p, KalidousTokenType type) {
 
 const KalidousToken *parser_expect(Parser *p, KalidousTokenType type, const char *msg) {
     if (parser_check(p, type)) return parser_advance(p);
-    
+
     // CRITICAL FIX: Do not emit error if already in panic mode.
     // This prevents "cascading" errors (printing 50 errors because of one missing brace).
     if (p->panic) return parser_peek(p);
-    
+
     const KalidousToken *t = parser_peek(p);
     char buf[256];
     snprintf(buf, sizeof(buf), "%s (got '%.*s')", msg, (int)t->lexeme.len, t->lexeme.data);
     parser_error(p, t->loc, buf);
-    // Do NOT set p->panic = true here. 
-    // The calling code or parser_error handles that. 
-    // (Note: parser_error DOES set panic=true).
     return t;
 }
 
 bool parser_is_at_end(const Parser *p) { return parser_peek(p)->type == KALIDOUS_TOKEN_END; }
 
-bool check_kw(const Parser *p, const char *kw) {
+bool parser_check_kw(const Parser *p, const char *kw) {
     const KalidousToken *t = parser_peek(p);
     if (t->type != KALIDOUS_TOKEN_IDENTIFIER) return false;
     size_t len = strlen(kw);
     return t->lexeme.len == len && memcmp(t->lexeme.data, kw, len) == 0;
 }
 
+// Legacy alias for check_kw used in some files
+bool check_kw(const Parser *p, const char *kw) { return parser_check_kw(p, kw); }
+
 // ============================================================================
 // Error Handling & Synchronization
 // ============================================================================
 
-void parser_emit(Parser *p, const KalidousSourceLoc loc,
-                        KalidousDiagSeverity severity, const char *msg) {
+void parser_emit_diag(Parser *p, KalidousSourceLoc loc,
+                      KalidousDiagSeverity severity, const char *msg) {
     if (p->diags.count >= p->diags.capacity) {
         size_t new_cap = p->diags.capacity == 0 ? 8 : p->diags.capacity * 2;
         auto *buf = static_cast<KalidousDiagnostic *>(
@@ -179,39 +118,47 @@ void parser_emit(Parser *p, const KalidousSourceLoc loc,
 void parser_synchronize(Parser *p) {
     // Consume tokens until we hit a synchronization point (statement boundary)
     while (!parser_is_at_end(p)) {
-        if (parser_check(p, KALIDOUS_TOKEN_SEMICOLON)) { 
+        if (parser_check(p, KALIDOUS_TOKEN_SEMICOLON)) {
             parser_advance(p); // consume ';'
             p->panic = false;
-            return; 
+            return;
         }
-        
+
         // Stop if we hit a token that starts a new declaration/statement
         switch (parser_peek(p)->type) {
-            case KALIDOUS_TOKEN_FN: 
-            case KALIDOUS_TOKEN_STRUCT: 
+            case KALIDOUS_TOKEN_FN:
+            case KALIDOUS_TOKEN_STRUCT:
             case KALIDOUS_TOKEN_ENUM:
-            case KALIDOUS_TOKEN_IF: 
-            case KALIDOUS_TOKEN_FOR: 
+            case KALIDOUS_TOKEN_IF:
+            case KALIDOUS_TOKEN_FOR:
             case KALIDOUS_TOKEN_RETURN:
-            case KALIDOUS_TOKEN_LBRACE: 
+            case KALIDOUS_TOKEN_LBRACE:
             case KALIDOUS_TOKEN_RBRACE:
-                p->panic = false; 
+                p->panic = false;
                 return;
-            default: 
-                parser_advance(p); 
+            default:
+                parser_advance(p);
                 break;
         }
     }
 }
 
-void parser_error(Parser *p, const KalidousSourceLoc loc, const char *msg) {
+void parser_error(Parser *p, KalidousSourceLoc loc, const char *msg) {
     // Standard behavior: if we are already panicking, don't report new errors
     // to avoid flooding the user with cascading failures.
     if (p->panic) return;
-    
-    parser_emit(p, loc, KALIDOUS_DIAG_ERROR, msg);
+
+    parser_emit_diag(p, loc, KALIDOUS_DIAG_ERROR, msg);
     p->panic = true; // Activate panic mode
     parser_synchronize(p);
+}
+
+void parser_warning(Parser *p, KalidousSourceLoc loc, const char *msg) {
+    parser_emit_diag(p, loc, KALIDOUS_DIAG_WARNING, msg);
+}
+
+void parser_note(Parser *p, KalidousSourceLoc loc, const char *msg) {
+    parser_emit_diag(p, loc, KALIDOUS_DIAG_NOTE, msg);
 }
 
 void skip_block(Parser *p) {

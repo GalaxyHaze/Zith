@@ -1,10 +1,15 @@
 // kalidous_ast.h — Extended AST node IDs, payloads, constructors, and visitors
 //
+// Refactored to use centralized modules:
+//   - types/types.hpp for enums (KalidousFnKind, KalidousBindingKind, etc.)
+//   - memory/arena.hpp for allocation
+//
 // All IDs below KALIDOUS_NODE_CUSTOM_START (1000) are defined in kalidous.h.
 // Extended nodes live at 1000+ as required by the base header contract.
 #pragma once
 
 #include <kalidous/kalidous.hpp>
+#include "../types/types.hpp"
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,110 +33,8 @@ extern "C" {
 // count (e.g. param_count).
 // ============================================================================
 
-// ============================================================================
-// Extended node IDs (>= KALIDOUS_NODE_CUSTOM_START = 1000)
-// ============================================================================
-
-enum NodeTypes: unsigned short{
-    // -- Expressions ---------------------------------------------------------
-    KALIDOUS_NODE_ARROW_CALL = 1000, // a->b(...)   receiver + call node
-    KALIDOUS_NODE_CAST = 1001, // expr as Type
-    KALIDOUS_NODE_OPTIONAL_EXPR = 1002, // expr?
-    KALIDOUS_NODE_UNWRAP = 1003, // expr!
-    KALIDOUS_NODE_RANGE = 1004, // a..b  or  a...b
-    KALIDOUS_NODE_LAMBDA = 1005, // |params| -> expr
-    KALIDOUS_NODE_SPAWN_EXPR = 1006, // spawn expr
-    KALIDOUS_NODE_RECURSE = 1007, // recurse(args) → CPS transform
-
-    // -- Literals composite --------------------------------------------------
-    KALIDOUS_NODE_ARRAY_LIT = 1020, // [a, b, c]
-    KALIDOUS_NODE_STRUCT_LIT = 1021, // Point { x: 1, y: 2 }
-    KALIDOUS_NODE_TUPLE_LIT = 1022, // (a, b, c)
-
-    // -- Declarations --------------------------------------------------------
-    KALIDOUS_NODE_PROGRAM = 1030, // root — list of top-level decls
-    KALIDOUS_NODE_CONST_DECL = 1031, // const X = ...
-    KALIDOUS_NODE_STRUCT_DECL = 1032, // struct Foo { ... }
-    KALIDOUS_NODE_ENUM_DECL = 1033, // enum Color { ... }
-    KALIDOUS_NODE_TRAIT_DECL = 1034, // trait Drawable { ... }
-    KALIDOUS_NODE_IMPL_DECL = 1035, // implement Drawable for Foo { ... }
-    KALIDOUS_NODE_TYPE_ALIAS = 1036, // using NewName = OldType
-    KALIDOUS_NODE_COMPONENT_DECL = 1037,
-    KALIDOUS_NODE_UNION_DECL = 1038,
-    KALIDOUS_NODE_FAMILY_DECL = 1039,
-    KALIDOUS_NODE_ENTITY_DECL = 1040,
-    KALIDOUS_NODE_MODULE_DECL = 1041,
-    KALIDOUS_NODE_IMPORT = 1042, // use foo::bar,
-
-    // -- Statements ----------------------------------------------------------
-    KALIDOUS_NODE_SWITCH = 1050, // switch expr { ... }
-    KALIDOUS_NODE_CASE = 1051, // case pattern:
-    KALIDOUS_NODE_BREAK = 1052, // break [label]
-    KALIDOUS_NODE_CONTINUE = 1053, // continue [label]
-    KALIDOUS_NODE_GOTO = 1054, // goto label  /  goto scene
-    KALIDOUS_NODE_MARKER = 1055, // marker name(params) { body }
-    KALIDOUS_NODE_ENTRY = 1056, // entry [name(params)] { body }
-    KALIDOUS_NODE_SCENE = 1057, // scene { ... }
-    KALIDOUS_NODE_TRY_CATCH = 1058, // try { } catch e { }
-    KALIDOUS_NODE_SPAWN_STMT = 1059, // spawn { ... }
-    KALIDOUS_NODE_AWAIT_STMT = 1060, // await expr
-    KALIDOUS_NODE_YIELD = 1061, // yield expr  (async fn only)
-    KALIDOUS_NODE_JOINED = 1062, // joined { ... }
-
-    // -- Types ---------------------------------------------------------------
-    KALIDOUS_NODE_TYPE_OPTIONAL = 1070, // Type?
-    KALIDOUS_NODE_TYPE_RESULT = 1071, // Type!
-    KALIDOUS_NODE_TYPE_ARRAY = 1072, // [N]Type  or  []Type
-    KALIDOUS_NODE_TYPE_TUPLE = 1073, // (A, B, C)
-    KALIDOUS_NODE_TYPE_POINTER = 1074, // *Type
-    KALIDOUS_NODE_TYPE_UNIQUE = 1075, // unique Type
-    KALIDOUS_NODE_TYPE_SHARED = 1076, // shared Type
-    KALIDOUS_NODE_TYPE_VIEW = 1077, // view Type
-    KALIDOUS_NODE_TYPE_LEND = 1078, // lend Type
-    KALIDOUS_NODE_TYPE_PACK = 1079, // pack Type
-
-    // -- Auxiliary -----------------------------------------------------------
-    KALIDOUS_NODE_FIELD = 1090, // field of struct/component/entity
-    KALIDOUS_NODE_ENUM_VARIANT = 1091, // enum/family variant
-    KALIDOUS_NODE_MATCH_ARM = 1092, // switch/match arm
-};
-
-// ============================================================================
-// Enums
-// ============================================================================
-
-typedef enum KalidousFnKind {
-    KALIDOUS_FN_NORMAL = 0, // fn          — synchronous
-    KALIDOUS_FN_ASYNC = 1, // async fn    — coroutine; may yield
-    KALIDOUS_FN_NORETURN = 2, // noreturn fn — uses goto/marker; no return
-    KALIDOUS_FN_FLOWING = 3, // flowing fn  — may use goto; has return
-} KalidousFnKind;
-
-typedef enum KalidousBindingKind {
-    KALIDOUS_BINDING_LET = 0,
-    KALIDOUS_BINDING_VAR = 1,
-    KALIDOUS_BINDING_CONST = 2,
-    KALIDOUS_BINDING_AUTO = 3,
-    KALIDOUS_BINDING_GLOBAL = 4,
-    KALIDOUS_BINDING_PERSISTENT = 5,
-    KALIDOUS_BINDING_LOCAL = 6,
-} KalidousBindingKind;
-
-typedef enum KalidousOwnership {
-    KALIDOUS_OWN_DEFAULT = 0,
-    KALIDOUS_OWN_VIEW = 1,
-    KALIDOUS_OWN_LEND = 2,
-    KALIDOUS_OWN_UNIQUE = 3,
-    KALIDOUS_OWN_SHARED = 4,
-    KALIDOUS_OWN_PACK = 5,
-} KalidousOwnership;
-
-// Default is private — explicit declaration required to expose
-typedef enum KalidousVisibility {
-    KALIDOUS_VIS_PRIVATE = 0,
-    KALIDOUS_VIS_PUBLIC = 1,
-    KALIDOUS_VIS_PROTECTED = 2,
-} KalidousVisibility;
+// Extended node IDs are defined in types/types.hpp as KalidousNodeExtendedId
+// Use those values directly — no local redefinition needed.
 
 // ============================================================================
 // Arena-allocated payload structs
@@ -287,16 +190,9 @@ typedef struct {
 
 // ============================================================================
 // Literal value — unified variant for all scalar literals
+// KalidousLiteralKind is defined in types/types.hpp — included above
 // Stored via list.ptr (arena-allocated KalidousLiteral payload)
 // ============================================================================
-
-typedef enum KalidousLiteralKind {
-    KALIDOUS_LIT_INT, // signed decimal integer:  42, -7
-    KALIDOUS_LIT_UINT, // unsigned (hex/bin/oct):  0xFF, 0b1010, 0o77
-    KALIDOUS_LIT_FLOAT, // floating point:          3.14, 0.5
-    KALIDOUS_LIT_STRING, // string literal:          "hello"
-    KALIDOUS_LIT_BOOL, // boolean literal:         true, false
-} KalidousLiteralKind;
 
 typedef struct {
     KalidousLiteralKind kind;
@@ -464,5 +360,8 @@ const char *kalidous_ast_literal_kind_name(KalidousLiteralKind kind);
 const char *kalidous_ast_visibility_name(KalidousVisibility vis);
 
 #ifdef __cplusplus
-}
+} // extern "C"
+
+// C++ alias for NodeTypes enum
+using NodeTypes = KalidousNodeExtendedId;
 #endif

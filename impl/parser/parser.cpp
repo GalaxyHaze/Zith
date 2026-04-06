@@ -1,6 +1,11 @@
-// impl/parser/parser.cpp
+// impl/parser/parser.cpp — Parser entry point and pipeline orchestration
+//
+// Refactored to use centralized modules:
+//   - parser_context.hpp for parser state
+//   - diagnostics.hpp for error reporting
+//   - arena.hpp for memory management
 #include "parser.h"
-#include "../memory/utils.h"
+#include "../memory/arena.hpp"
 #include <cstdio>
 #include <cstring>
 
@@ -8,31 +13,13 @@
 // In a real project, these would be in a header like "parser_internals.h"
 extern KalidousNode *parser_parse_declaration(Parser *p);
 extern void skip_block(Parser *p);
+extern void parser_init(Parser *p, KalidousArena *arena,
+                        const char *source, size_t source_len,
+                        const char *filename,
+                        const KalidousTokenStream tokens);
 
-// ============================================================================
-// Parser Init
-// ============================================================================
-
-void parser_init(Parser *p, KalidousArena *arena,
-                 const char *source, const size_t source_len,
-                 const char *filename,
-                 const KalidousTokenStream tokens) {
-    p->arena = arena;
-    p->source = source;
-    p->source_len = source_len;
-    p->filename = filename ? filename : "<input>";
-    p->tokens = tokens.data;
-    p->count = tokens.len;
-    p->pos = 0;
-    p->had_error = false;
-    p->panic = false;
-    p->fn_kind = KALIDOUS_FN_NORMAL;
-    p->inside_fn = false;
-    p->current_visibility = KALIDOUS_VIS_PRIVATE;
-    p->mode = KALIDOUS_MODE_PARSE;
-    p->diags = {nullptr, 0, 0};
-    p->scan_root = nullptr; 
-}
+// Use the kalidous::ArenaList template
+using kalidous::ArenaList;
 
 // ============================================================================
 // Pipeline Orchestration

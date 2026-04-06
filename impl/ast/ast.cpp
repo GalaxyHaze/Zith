@@ -1,23 +1,12 @@
-// impl/parse
-// r/kalidous_ast.cpp — AST constructors, walker, and debug
+// impl/ast/ast.cpp — AST constructors, walker, and debug
 //
-// Uses the actual KalidousNode layout from kalidous.h:
-//
-//   struct KalidousNode {
-//       KalidousNodeId    type;
-//       KalidousSourceLoc loc;
-//       union {
-//           struct { KalidousNode* a; KalidousNode* b; KalidousNode* c; } kids;
-//           struct { void* ptr; size_t len; }                             list;
-//           struct { const char* str; size_t len; }                       ident;
-//           struct { double num; }                                         number;
-//           struct { bool value; }                                         boolean;
-//           uint64_t                                                        custom;
-//       } data;
-//   };
-
+// Refactored to use centralized modules:
+//   - types/types.hpp for enums
+//   - memory/arena.hpp for allocation
 #include "ast.h"
 #include "../lexer/debug.h"
+#include "../types/types.hpp"
+#include "../memory/arena.hpp"
 #include <cstdint>
 #include <cstring>
 #include <cstdio>

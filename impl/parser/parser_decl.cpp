@@ -1,18 +1,25 @@
-// impl/parser/parser_decl.cpp
+// impl/parser/parser_decl.cpp — Top-level declarations, statements, blocks
+//
+// Refactored to use centralized modules and proper SCAN/PARSE separation.
+// In SCAN mode, function bodies and blocks are captured as UNBODY nodes
+// without parsing their contents — the parser does NOT analyze block content.
 #include "kalidous/kalidous.hpp"
 #include "parser.h"
-#include "../memory/utils.h"
+#include "../memory/arena.hpp"
 #include <cstring>
 
-// Forward declarations for utils and expr
+using kalidous::ArenaList;
+
+// Forward declarations — parser utils
 extern const KalidousToken *parser_peek(const Parser *p);
 extern const KalidousToken *parser_peek_ahead(const Parser *p, size_t offset);
 extern const KalidousToken *parser_advance(Parser *p);
 extern bool parser_check(const Parser *p, KalidousTokenType type);
 extern bool parser_match(Parser *p, KalidousTokenType type);
 extern const KalidousToken *parser_expect(Parser *p, KalidousTokenType type, const char *msg);
-extern void parser_error(Parser *p, const KalidousSourceLoc loc, const char *msg);
+extern void parser_error(Parser *p, KalidousSourceLoc loc, const char *msg);
 extern void parser_synchronize(Parser *p);
+extern bool parser_check_kw(const Parser *p, const char *kw);
 extern bool check_kw(const Parser *p, const char *kw);
 
 extern KalidousNode *parser_parse_type(Parser *p);
