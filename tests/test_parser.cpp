@@ -14,7 +14,7 @@ TEST_CASE("SCAN: empty source produces a PROGRAM node", "[scan]") {
 }
 
 TEST_CASE("SCAN: single function declaration", "[scan]") {
-    auto ast = parse_test("fn foo() -> i32 { return 42; }");
+    auto ast = parse_test("fn foo(): i32 { return 42; }");
     REQUIRE(ast);
     REQUIRE(ast->type == KALIDOUS_NODE_PROGRAM);
     REQUIRE(ast->data.list.len == 1);
@@ -84,7 +84,7 @@ TEST_CASE("SCAN: multiple declarations", "[scan]") {
     REQUIRE(ast->data.list.len == 3);
 }
 
-TEST_CASE("SCAN: async fn kind — currently errors", "[scan][!shouldfail]") {
+TEST_CASE("SCAN: async fn kind — currently errors", "[scan]") {
     // TODO: 'async' is not tokenized as a keyword — tokenizer emits IDENTIFIER
     // The parser uses check_kw() to detect it, but errors are still emitted
     auto ast = parse_test("async fn fetch() { }");
@@ -97,7 +97,7 @@ TEST_CASE("SCAN: async fn kind — currently errors", "[scan][!shouldfail]") {
     (void)p;
 }
 
-TEST_CASE("SCAN: noreturn fn kind — currently errors", "[scan][!shouldfail]") {
+TEST_CASE("SCAN: noreturn fn kind — currently errors", "[scan]") {
     // TODO: same issue as async — 'noreturn' not tokenized as keyword
     auto ast = parse_test("noreturn fn crash() { }");
     (void)ast;
@@ -131,7 +131,7 @@ TEST_CASE("SCAN: struct with method", "[scan]") {
     REQUIRE(std::string(mp->name) == "len");
 }
 
-TEST_CASE("SCAN: import declaration — currently errors", "[scan][!shouldfail]") {
+TEST_CASE("SCAN: import declaration — currently errors", "[scan][shouldfail]") {
     // TODO: 'use' is not tokenized as a keyword — tokenizer emits IDENTIFIER
     // The import parser expects KALIDOUS_TOKEN_IMPORT
     auto ast = parse_test("use std.io;");

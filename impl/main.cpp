@@ -1,5 +1,7 @@
+#include "parser/parser.h"
 #ifdef KALIDOUS_WASM
 #include <iostream>
+#include <assert>
 
 int main() {
     std::cout << "Thank you for installing Kalidous." << std::endl;

@@ -363,7 +363,7 @@ KalidousNode *parser_parse_declaration(Parser *p) {
     const KalidousToken *t = parser_peek(p);
     const KalidousSourceLoc loc = t->loc;
 
-    if (t->type == KALIDOUS_TOKEN_FN || check_kw(p, "async") || check_kw(p, "flowing") || check_kw(p, "noreturn"))
+    if (t->type == KALIDOUS_TOKEN_FN || t->type == KALIDOUS_TOKEN_ASYNC || t->type == KALIDOUS_TOKEN_FLOWING || t->type == KALIDOUS_TOKEN_NORETURN)
         return parse_fn_decl(p, loc, vis, false);
     
     if (t->type == KALIDOUS_TOKEN_STRUCT) return parse_struct_decl(p, vis);
