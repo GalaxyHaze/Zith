@@ -9,15 +9,6 @@
 #include <cstdio>
 #include <cstring>
 
-// Forward declarations of functions in other files
-// In a real project, these would be in a header like "parser_internals.h"
-extern KalidousNode *parser_parse_declaration(Parser *p);
-extern void skip_block(Parser *p);
-extern void parser_init(Parser *p, KalidousArena *arena,
-                        const char *source, size_t source_len,
-                        const char *filename,
-                        const KalidousTokenStream tokens);
-
 // Use the kalidous::ArenaList template
 using kalidous::ArenaList;
 
@@ -52,30 +43,77 @@ KalidousNode *kalidous_parse_with_source(KalidousArena *arena, const char *sourc
     Parser p;
     parser_init(&p, arena, source, source_len, filename, tokens);
 
-    // 1. SCAN Mode
-    // Parses signatures (structs, fns), captures bodies as UNBODY nodes.
-    // Stores result in p.scan_root for use by later phases.
+    // ─── Phase 1: SCAN ──────────────────────────────────────────────────
+    // Parse declarations at signature level. Function bodies are captured
+    // as UNBODY nodes (raw token streams) — the parser does NOT descend
+    // into block contents. Structs, imports, and top-level expressions are
+    // fully parsed.
     KalidousNode *scan_root = run_parser_phase(&p, KALIDOUS_MODE_SCAN);
-    p.scan_root = scan_root; 
+    p.scan_root = scan_root;
 
-    // 2. EXPAND Mode (Placeholder)
-    // Hook for macro expansion or symbol table population based on scan_root.
-    // Currently disabled/empty - will be implemented later.
-    // For now, just pass through the scan_root
-    KalidousNode *expand_root = scan_root;
+    // ─── Phase 2: EXPAND ────────────────────────────────────────────────
+    // Walk the tree and replace UNBODY nodes with fully parsed BLOCK nodes.
+    // This is where statement-level parsing happens inside function bodies.
+    // TODO: implement UNBODY → BLOCK expansion
+    KalidousNode *expanded = scan_root; // pass-through for now
 
-    // 3. PARSE Mode
-    // Uses the tree from EXPAND phase and parses UNBODY nodes with type checking.
-    // This phase should navigate the existing tree, not create a new one from scratch.
-    KalidousNode *final_ast = expand_root;
-    
-    // TODO: Implement UNBODY parsing in PARSE mode
-    // The parser should traverse 'final_ast' and replace UNBODY nodes
-    // with fully parsed BLOCK nodes, performing type checks like "does this type exist?"
+    // ─── Phase 3: SEMA ──────────────────────────────────────────────────
+    // Semantic analysis: name resolution, type checking, borrow checker,
+    // control-flow analysis. Produces an annotated AST.
+    // TODO: implement semantic analysis
+    KalidousNode *sema_result = expanded; // pass-through for now
 
     // Print diagnostics accumulated across all phases
     extern void kalidous_diag_print_all(const KalidousDiagList*, const char*, size_t, const char*);
     kalidous_diag_print_all(&p.diags, source, source_len, filename);
-    
-    return final_ast;
+
+    return sema_result;
 }
+
+// ============================================================================
+// Test API — global arena + RAII
+// ============================================================================
+
+// Shared arena for all test calls — lazily created, reset between calls.
+static KalidousArena *g_test_arena = nullptr;
+
+static KalidousArena *test_arena_or_init() {
+    if (!g_test_arena) g_test_arena = kalidous_arena_create(1 << 20); // 1 MB
+    else kalidous_arena_reset(g_test_arena);
+    return g_test_arena;
+}
+
+KalidousNode *kalidous_parse_test(const char *source) {
+    if (!source) return nullptr;
+
+    const size_t len = strlen(source);
+    KalidousArena *arena = test_arena_or_init();
+    if (!arena) return nullptr;
+
+    KalidousTokenStream tokens = kalidous_tokenize(arena, source, len);
+    if (!tokens.data) return nullptr;
+
+    Parser p;
+    parser_init(&p, arena, source, len, "<test>", tokens);
+
+    KalidousNode *root = run_parser_phase(&p, KALIDOUS_MODE_SCAN);
+
+    kalidous_diag_print_all(&p.diags, source, len, "<test>");
+    return root;
+}
+
+void kalidous_test_arena_destroy(void) {
+    if (g_test_arena) { kalidous_arena_destroy(g_test_arena); g_test_arena = nullptr; }
+}
+
+// ParseResult C++ methods
+#ifdef __cplusplus
+void ParseResult::reset() {
+    if (node) {
+        // Arena is reset so it's clean for the next call.
+        // We don't destroy it — it's reused across tests.
+        if (g_test_arena) kalidous_arena_reset(g_test_arena);
+        node = nullptr;
+    }
+}
+#endif

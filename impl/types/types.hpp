@@ -150,8 +150,8 @@ typedef enum KalidousLiteralKind {
 
 typedef enum KalidousParserMode {
     KALIDOUS_MODE_SCAN  = 0,  // Signature-only, bodies captured as UNBODY
-    KALIDOUS_MODE_PARSE = 1,  // Full parse with type checking
-    KALIDOUS_MODE_EXPAND = 2, // Macro expansion / symbol table population
+    KALIDOUS_MODE_EXPAND = 1, // Parse UNBODY blocks into full BLOCK nodes
+    KALIDOUS_MODE_SEMA  = 2,  // Semantic analysis (name resolution, types, borrow check)
 } KalidousParserMode;
 
 #ifdef __cplusplus

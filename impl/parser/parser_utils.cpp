@@ -28,7 +28,7 @@ void parser_init(Parser *p, KalidousArena *arena,
     p->fn_kind = KALIDOUS_FN_NORMAL;
     p->inside_fn = false;
     p->current_visibility = KALIDOUS_VIS_PRIVATE;
-    p->mode = KALIDOUS_MODE_PARSE;
+    p->mode = KALIDOUS_MODE_SCAN;
     p->diags = {nullptr, 0, 0};
     p->scan_root = nullptr;
 }

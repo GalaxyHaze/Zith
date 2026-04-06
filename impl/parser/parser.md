@@ -1,6 +1,6 @@
 # Kalidous Parser Architecture Documentation
 
-This document outlines the architecture of the Kalidous Parser, which has been modularized into four distinct files. The design follows a **Three-Pass Pipeline** strategy (Scan, Expand, Parse) to handle declarations, macros, and full body parsing efficiently.
+This document outlines the architecture of the Kalidous Parser, which has been modularized into four distinct files. The design follows a **Three-Pass Pipeline** strategy (Scan, Expand, Sema) to handle declarations, macro expansion, and semantic analysis efficiently.
 
 ## File Structure Overview
 
@@ -22,15 +22,16 @@ This file acts as the entry point for the parsing system. It does not contain lo
 ### Responsibilities
 *   **Initialization:** Sets up the `Parser` struct, configures the memory arena, and loads the source tokens.
 *   **Pipeline Orchestration:** Implements the `kalidous_parse_with_source` function which drives the three phases:
-    1.  **Scan Phase:** Runs the parser to collect signatures (functions, structs) while skipping bodies.
-    2.  **Expand Phase:** A placeholder hook for future macro expansion or symbol table operations.
-    3.  **Parse Phase:** Resets the token stream and parses the full AST, including all bodies.
+    1.  **SCAN Phase:** Runs the parser to collect signatures (functions, structs) while capturing function bodies as UNBODY nodes (raw token streams). No type information is needed at this stage.
+    2.  **EXPAND Phase:** Walks the tree and replaces UNBODY nodes with fully parsed BLOCK nodes. This is where statement-level parsing happens inside function bodies.
+    3.  **SEMA Phase:** Semantic analysis — name resolution, type checking, borrow checker, control-flow analysis. Produces an annotated AST.
 *   **Top-Level Loop:** Manages the loop that calls `parser_parse_declaration` until the end of the file is reached.
 
 ### Key Functions
 *   `parser_init(Parser*, ...)`: Initializes the parser state.
 *   `kalidous_parse_with_source(...)`: The main public API called by the compiler driver.
-*   `run_parser_phase(Parser*, KalidousParserMode)`: Internal helper to execute a specific mode (Scan/Parse).
+*   `kalidous_parse_test(const char*)`: Convenience API for tests (uses a shared global arena).
+*   `run_parser_phase(Parser*, KalidousParserMode)`: Internal helper to execute a specific mode (Scan/Expand/Sema).
 
 ---
 
@@ -43,7 +44,7 @@ This file contains the fundamental building blocks used by all other parser file
 *   **Token Navigation:** Provides functions to inspect (`peek`), consume (`advance`), and validate (`expect`) tokens.
 *   **Error Management:** Handles the `DiagList` (diagnostics buffer). It formats errors, emits warnings, and prevents cascading error messages.
 *   **Recovery:** Implements **Panic Mode Synchronization**. If the parser encounters a syntax error, this logic helps it find a safe "sync point" (like a semicolon or closing brace) to continue parsing.
-*   **Skipping:** Provides `skip_block`, which is critical for the **Scan Mode**. It blindly consumes tokens until a block is closed without parsing them, allowing the Scan phase to run very fast.
+*   **Skipping:** Provides `skip_block`, which blindly consumes tokens until a block is closed. Used in error recovery and struct body parsing.
 
 ### Key Functions
 *   `parser_peek(Parser*)`, `parser_advance(Parser*)`: Token stream accessors.
@@ -51,7 +52,7 @@ This file contains the fundamental building blocks used by all other parser file
 *   `parser_expect(Parser*, TokenType, msg)`: Consumes a token or emits an error if missing.
 *   `parser_error(Parser*, ...)`: Emits a diagnostic and sets the panic flag.
 *   `parser_synchronize(Parser*)`: Resumes parsing after an error.
-*   `skip_block(Parser*)`: Used during Scan mode to ignore function bodies.
+*   `skip_block(Parser*)`: Used for error recovery and struct body parsing.
 *   `parse_lit_number(...)`: Converts raw token strings into integer/float values.
 
 ---
@@ -83,29 +84,32 @@ This is the largest and most complex file. It handles the "high level" grammar: 
 
 ### Responsibilities
 *   **Top-Level Declarations:** Parses `fn`, `struct`, `enum`, `import`, and global variable declarations.
-*   **Statements:** Parses control flow structures (`if`, `for`, `while`, `return`) and blocks `{ ... }`.
+*   **Statements:** Parses control flow structures (`if`, `for`, `return`) and blocks `{ ... }`.
 *   **Function/Struct Internals:** Parses parameter lists, function bodies, and struct fields.
-*   **Mode Logic:** This file contains the logic that decides **what to do** based on the current `Parser->mode`. It checks if we are in `SCAN` mode and calls `skip_block` (from utils), or if we are in `PARSE` mode and calls `parse_body` to recursively parse statements.
+*   **Mode Logic:** This file contains the logic that decides **what to do** based on the current `Parser->mode`. In `SCAN` mode, function bodies are captured as UNBODY via `capture_unbody`. In `EXPAND` mode (TODO), UNBODY nodes will be replaced with fully parsed BLOCKs.
 
 ### Key Functions
 *   `parser_parse_declaration(Parser*)`: The main loop for the top level. Dispatches to specific parsers (fn, struct, etc.).
 *   `parser_parse_statement(Parser*)`: The main loop for inside functions/blocks. Dispatches to `if`, `return`, etc.
-*   `parse_fn_decl(...)`: Parses function signatures and decides whether to skip or parse the body.
+*   `parse_fn_decl(...)`: Parses function signatures and decides whether to capture the body as UNBODY (SCAN) or parse it fully (EXPAND — TODO).
 *   `parse_struct_decl(...)`: Parses struct definitions, including visibility modifiers and fields.
 *   `parse_body(Parser*)`: Handles single-statement bodies vs. block bodies `{ ... }`.
+*   `capture_unbody(...)`: Captures raw tokens between `{` and `}` as an UNBODY node (SCAN mode only).
 
 ---
 
 ## Data Flow
 
 1.  **Entry:** `parser.cpp` initializes the `Parser` struct.
-2.  **Scan Phase:**
+2.  **SCAN Phase:**
     *   `parser.cpp` calls `parser_parse_declaration` (defined in `parser_decl.cpp`).
     *   `parser_decl.cpp` parses a `fn` signature using `parser_parse_type` (from `parser_expr.cpp`) and `parser_expect` (from `parser_utils.cpp`).
-    *   When the body `{ ... }` is reached, `parser_decl.cpp` calls `skip_block` (from `parser_utils.cpp`) to ignore it.
-3.  **Parse Phase:**
-    *   `parser.cpp` resets the token position.
-    *   `parser_decl.cpp` encounters the same `fn`.
-    *   Instead of skipping, it calls `parser_parse_statement` recursively.
-    *   `parser_parse_statement` calls `parser_parse_expression` (from `parser_expr.cpp`) to handle logic inside the function.
-    *   If an error occurs, `parser_error` (from `parser_utils.cpp`) is called, and `parser_synchronize` attempts recovery.
+    *   When the body `{ ... }` is reached, `parser_decl.cpp` calls `capture_unbody` to store the raw token stream as an UNBODY node — no parsing of the body content happens here.
+    *   Structs, imports, and top-level expressions are fully parsed.
+3.  **EXPAND Phase (TODO):**
+    *   Walks the AST from SCAN. For each UNBODY node, creates a sub-parser and fully parses the token stream into a BLOCK node.
+    *   This is where `parser_parse_statement` and `parser_parse_expression` are called recursively on the captured bodies.
+4.  **SEMA Phase (TODO):**
+    *   Traverses the fully parsed AST for semantic analysis.
+    *   Name resolution, type checking, borrow checker, control-flow analysis.
+    *   Produces an annotated AST ready for code generation.
