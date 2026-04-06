@@ -4,8 +4,8 @@
 //   - parser_context.hpp for parser state
 //   - diagnostics.hpp for error reporting
 //   - arena.hpp for memory management
-#include "parser.h"
 #include "../memory/arena.hpp"
+#include "parser.h"
 #include <cstdio>
 #include <cstring>
 

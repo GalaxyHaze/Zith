@@ -44,11 +44,12 @@ void kalidous_diag_print_all(const KalidousDiagList *diags,
                              const char *source, size_t source_len,
                              const char *filename);
 
+#ifdef __cplusplus
+} // extern "C"
+
 // ============================================================================
 // C++ DiagManager — replaces direct fprintf/printf calls
 // ============================================================================
-
-#ifdef __cplusplus
 
 class DiagManager {
 public:
@@ -103,6 +104,31 @@ private:
 #define DIAG_INFO(dm, msg)         (dm).info(msg)
 
 #endif // __cplusplus
+
+// ============================================================================
+// Debug output helpers — unified printf replacements for debug utilities
+// These route through a single point so they can be disabled in release builds
+// ============================================================================
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#ifndef KALIDOUS_NO_DEBUG
+void debug_print(const char *fmt, ...);
+void debug_println(const char *fmt, ...);
+void debug_error(const char *fmt, ...);  // debug errors go to stderr
+#else
+static inline void debug_print(const char *fmt, ...) { (void)fmt; }
+static inline void debug_println(const char *fmt, ...) { (void)fmt; }
+static inline void debug_error(const char *fmt, ...) { (void)fmt; }
+#endif
+
+// ============================================================================
+// I/O error reporting — used by file.c
+// ============================================================================
+
+void kalidous_io_error(const char *fmt, ...);
 
 #ifdef __cplusplus
 } // extern "C"

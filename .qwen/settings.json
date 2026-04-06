@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(./build/bin/kalidous *)"
+      "Bash(./build/bin/kalidous *)",
+      "Bash(./build/bin/kalidous_tests)"
     ]
-  }
+  },
+  "$version": 3
 }

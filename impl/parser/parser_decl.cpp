@@ -3,9 +3,9 @@
 // Refactored to use centralized modules and proper SCAN/PARSE separation.
 // In SCAN mode, function bodies and blocks are captured as UNBODY nodes
 // without parsing their contents — the parser does NOT analyze block content.
+#include "../memory/arena.hpp"
 #include "kalidous/kalidous.hpp"
 #include "parser.h"
-#include "../memory/arena.hpp"
 #include <cstring>
 
 using kalidous::ArenaList;

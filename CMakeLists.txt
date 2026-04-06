@@ -83,7 +83,6 @@ file(GLOB_RECURSE PARSER_CPP_SOURCES
     "impl/lexer/*.cpp"
     "impl/parser/*.cpp"
     "impl/ast/*.cpp"
-    ${DIAGNOSTICS_SOURCES}
 )
 
 file(GLOB_RECURSE CLI_SOURCES
@@ -96,7 +95,7 @@ file(GLOB_RECURSE CLI_SOURCES
 # Targets
 # ───────────────────────────────────────────────
 
-add_library(KalidousCore STATIC ${CORE_C_SOURCES})
+add_library(KalidousCore STATIC ${CORE_C_SOURCES} ${DIAGNOSTICS_SOURCES})
 target_include_directories(KalidousCore
         PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -148,12 +147,54 @@ install(TARGETS kalidous KalidousParse KalidousCore
 )
 
 # =============================================================================
+# Tests
+# =============================================================================
+option(BUILD_TESTS "Build unit tests" ON)
+
+if(BUILD_TESTS)
+    # --- Catch2 ---
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG v3.7.1
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(Catch2)
+
+    # Collect all test source files
+    file(GLOB_RECURSE TEST_SOURCES "tests/*.cpp")
+
+    if(TEST_SOURCES)
+        add_executable(kalidous_tests ${TEST_SOURCES})
+
+        target_include_directories(kalidous_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+        )
+
+        target_link_libraries(kalidous_tests PRIVATE
+            KalidousParse
+            Catch2::Catch2WithMain
+        )
+
+        # Enable CTest integration
+        include(CTest)
+        include(Catch)
+        catch_discover_tests(kalidous_tests)
+
+        message(STATUS "💡 Tests target 'kalidous_tests' configured.")
+    endif()
+endif()
+
+# =============================================================================
 # Final Info
 # =============================================================================
 message("")
 message(STATUS "💡 Build Summary")
 if (TARGET kalidous)
     message(STATUS "   Executable 'kalidous' target configured.")
+endif()
+if (TARGET kalidous_tests)
+    message(STATUS "   Tests executable 'kalidous_tests' configured.")
 endif()
 message("")
 

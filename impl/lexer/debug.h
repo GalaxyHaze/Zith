@@ -1,8 +1,7 @@
-// impl/parser/token_debug.cpp — Debug utilities for KalidousToken
+// impl/lexer/debug.h — Debug utilities for KalidousToken
 #pragma once
 #include <kalidous/kalidous.hpp>
-#include <cstdio>
-#include <cstring>
+#include "../diagnostics/diagnostics.hpp"
 
 // ============================================================================
 // Nome de cada token
@@ -206,12 +205,12 @@ static void format_lexeme(char *out, size_t out_size,
 
 inline void kalidous_debug_tokens(const KalidousToken *tokens, size_t count) {
     if (!tokens) {
-        fprintf(stderr, "[kalidous_debug_tokens] null token array\n");
+        debug_error("[kalidous_debug_tokens] null token array\n");
         return;
     }
 
     // ── Header ───────────────────────────────────────────────────────────────
-    printf(
+    debug_print(
             "\n"
             " %-5s  %-4s  %-4s  %-12s  %-13s  %s\n"
             " %-5s  %-4s  %-4s  %-12s  %-13s  %s\n",
@@ -226,7 +225,7 @@ inline void kalidous_debug_tokens(const KalidousToken *tokens, size_t count) {
         char lexeme_buf[32];
         format_lexeme(lexeme_buf, sizeof(lexeme_buf), t.lexeme.data, t.lexeme.len);
 
-        printf(
+        debug_print(
                 " %-5zu  %-4zu  %-4zu  %-12s  %-13s  %s\n",
                 i,
                 t.loc.line,
@@ -238,5 +237,5 @@ inline void kalidous_debug_tokens(const KalidousToken *tokens, size_t count) {
     }
 
     // ── Footer ───────────────────────────────────────────────────────────────
-    printf( "\n Total: %zu token%s\n\n", count, count == 1 ? "" : "s");
+    debug_print("\n Total: %zu token%s\n\n", count, count == 1 ? "" : "s");
 }

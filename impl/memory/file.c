@@ -24,6 +24,8 @@
 #pragma warning(disable: 4200)
 #endif
 
+// Diagnostics — only I/O error reporting needed
+extern void kalidous_io_error(const char *fmt, ...);
 
 // Extensão canónica dos ficheiros fonte Kalidous
 #define KALIDOUS_SOURCE_EXT ".kali"
@@ -92,22 +94,21 @@ char *kalidous_load_file_to_arena(struct KalidousArena *arena,
 
     // Verificação de extensão — rejeita antes de abrir o ficheiro
     if (!kalidous_is_source_file(path)) {
-        fprintf(stderr,
-                "[kalidous] '%s' is not a Kalidous source file (expected '%s')\n",
+        kalidous_io_error("'%s' is not a Kalidous source file (expected '%s')",
                 path, KALIDOUS_SOURCE_EXT);
         *out_size = 0;
         return NULL;
     }
 
     if (!is_regular_file(path)) {
-        fprintf(stderr, "[kalidous] '%s' is not a regular file\n", path);
+        kalidous_io_error("'%s' is not a regular file", path);
         *out_size = 0;
         return NULL;
     }
 
     FILE *f = fopen(path, "rb");
     if (!f) {
-        fprintf(stderr, "[kalidous] Failed to open '%s'\n", path);
+        kalidous_io_error("Failed to open '%s'", path);
         *out_size = 0;
         return NULL;
     }
@@ -134,7 +135,7 @@ char *kalidous_load_file_to_arena(struct KalidousArena *arena,
         fclose(f);
 
         if (read != (size_t) size) {
-            fprintf(stderr, "[kalidous] Failed to read '%s' (read %zu of %ld bytes)\n",
+            kalidous_io_error("Failed to read '%s' (read %zu of %ld bytes)",
                     path, read, size);
             *out_size = 0;
             return NULL;
@@ -146,7 +147,7 @@ char *kalidous_load_file_to_arena(struct KalidousArena *arena,
 
 error:
     fclose(f);
-    fprintf(stderr, "[kalidous] I/O error while loading '%s'\n", path);
+    kalidous_io_error("I/O error while loading '%s'", path);
     *out_size = 0;
     return NULL;
 }

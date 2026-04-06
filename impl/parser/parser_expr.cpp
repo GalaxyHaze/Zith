@@ -1,8 +1,8 @@
 // impl/parser/parser_expr.cpp — Pratt parser for expressions
 //
 // Refactored to use centralized modules.
-#include "parser.h"
 #include "../memory/arena.hpp"
+#include "parser.h"
 #include <cstring>
 
 using kalidous::ArenaList;

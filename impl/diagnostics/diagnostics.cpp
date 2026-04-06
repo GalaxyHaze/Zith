@@ -167,3 +167,48 @@ void DiagManager::print_summary(const char *filename) const {
         fprintf(stderr, "\n\n");
     }
 }
+
+// ============================================================================
+// Debug output helpers
+// ============================================================================
+
+#ifndef KALIDOUS_NO_DEBUG
+
+#include <cstdarg>
+
+void debug_print(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    vprintf(fmt, args);
+    va_end(args);
+}
+
+void debug_println(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    vprintf(fmt, args);
+    printf("\n");
+    va_end(args);
+}
+
+void debug_error(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(stderr, fmt, args);
+    va_end(args);
+}
+
+#endif // KALIDOUS_NO_DEBUG
+
+// ============================================================================
+// I/O error reporting
+// ============================================================================
+
+void kalidous_io_error(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    fprintf(stderr, "[kalidous] ");
+    vfprintf(stderr, fmt, args);
+    fprintf(stderr, "\n");
+    va_end(args);
+}

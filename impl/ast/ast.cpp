@@ -3,10 +3,12 @@
 // Refactored to use centralized modules:
 //   - types/types.hpp for enums
 //   - memory/arena.hpp for allocation
+//   - diagnostics/diagnostics.hpp for debug output
+#include "../memory/arena.hpp"
 #include "ast.h"
 #include "../lexer/debug.h"
 #include "../types/types.hpp"
-#include "../memory/arena.hpp"
+#include "../diagnostics/diagnostics.hpp"
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
@@ -753,20 +755,20 @@ const char *kalidous_ast_fn_kind_name(KalidousFnKind kind) {
 }
 
 static void print_indent(int d) {
-    for (int i = 0; i < d; ++i) printf( "  ");
+    for (int i = 0; i < d; ++i) debug_print("  ");
 }
 
 void kalidous_ast_print(const KalidousNode *node, int indent) {
     if (!node) return;
 
     print_indent(indent);
-    printf("[%s] line %zu\n",
+    debug_print("[%s] line %zu\n",
             kalidous_ast_node_name(node->type), node->loc.line);
 
     switch (node->type) {
         case KALIDOUS_NODE_IDENTIFIER:
             print_indent(indent + 1);
-            printf("name: %.*s\n",
+            debug_print("name: %.*s\n",
                     (int) node->data.ident.len, node->data.ident.str);
             break;
 
@@ -774,25 +776,19 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
             auto *lit = static_cast<const KalidousLiteral *>(node->data.list.ptr);
             if (!lit) {
                 print_indent(indent + 1);
-                fprintf(stderr, "(null payload)\n"); // Mantido como erro
+                debug_error("(null payload)\n");
                 break;
             }
             print_indent(indent + 1);
-            printf("kind: %s  ", kalidous_ast_literal_kind_name(lit->kind));
+            debug_print("kind: %s  ", kalidous_ast_literal_kind_name(lit->kind));
             switch (lit->kind) {
-                case KALIDOUS_LIT_INT: printf("value: %lld\n", (long long) lit->value.i64);
-                    break;
-                case KALIDOUS_LIT_UINT: printf("value: %llu\n", (unsigned long long) lit->value.u64);
-                    break;
-                case KALIDOUS_LIT_FLOAT: printf("value: %g\n", lit->value.f64);
-                    break;
-                case KALIDOUS_LIT_BOOL: printf("value: %s\n", lit->value.boolean ? "true" : "false");
-                    break;
-                case KALIDOUS_LIT_STRING: printf("value: \"%.*s\"\n",
-                                                  (int) lit->value.string.len, lit->value.string.ptr);
-                    break;
-                default: printf("value: ?\n");
-                    break;
+                case KALIDOUS_LIT_INT: debug_print("value: %lld\n", (long long) lit->value.i64); break;
+                case KALIDOUS_LIT_UINT: debug_print("value: %llu\n", (unsigned long long) lit->value.u64); break;
+                case KALIDOUS_LIT_FLOAT: debug_print("value: %g\n", lit->value.f64); break;
+                case KALIDOUS_LIT_BOOL: debug_print("value: %s\n", lit->value.boolean ? "true" : "false"); break;
+                case KALIDOUS_LIT_STRING: debug_print("value: \"%.*s\"\n",
+                                                  (int) lit->value.string.len, lit->value.string.ptr); break;
+                default: debug_print("value: ?\n"); break;
             }
             break;
         }
@@ -800,9 +796,9 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
         case KALIDOUS_NODE_BINARY_OP: {
             const auto op = static_cast<KalidousTokenType>(node->data.list.len);
             print_indent(indent + 1);
-            printf("op: %s (%d)\n", kalidous_token_type_name(op), (int) op);
-            if (node->data.kids.a) kalidous_ast_print(node->data.kids.a, indent + 2); // left
-            if (node->data.kids.c) kalidous_ast_print(node->data.kids.c, indent + 2); // right
+            debug_print("op: %s (%d)\n", kalidous_token_type_name(op), (int) op);
+            if (node->data.kids.a) kalidous_ast_print(node->data.kids.a, indent + 2);
+            if (node->data.kids.c) kalidous_ast_print(node->data.kids.c, indent + 2);
             break;
         }
 
@@ -810,7 +806,7 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
             const auto op = static_cast<KalidousTokenType>(node->data.list.len & 0xFFFF);
             const bool is_postfix = (node->data.list.len >> 16) != 0;
             print_indent(indent + 1);
-            printf("op: %s  postfix: %d\n",
+            debug_print("op: %s  postfix: %d\n",
                     kalidous_token_type_name(op), (int) is_postfix);
             if (node->data.kids.a) kalidous_ast_print(node->data.kids.a, indent + 2);
             break;
@@ -820,7 +816,7 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
             auto *p = static_cast<const KalidousFuncPayload *>(node->data.list.ptr);
             if (!p) break;
             print_indent(indent + 1);
-            printf("%s %s  params: %zu  visibility: %s\n",
+            debug_print("%s %s  params: %zu  visibility: %s\n",
                     kalidous_ast_fn_kind_name(p->kind), p->name,
                     p->param_count,
                     kalidous_ast_visibility_name(p->visibility));
@@ -835,7 +831,7 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
             auto *p = static_cast<const KalidousVarPayload *>(node->data.list.ptr);
             if (!p) break;
             print_indent(indent + 1);
-            printf("name: %s  binding: %d  own: %d\n",
+            debug_print("name: %s  binding: %d  own: %d\n",
                     p->name, (int) p->binding, (int) p->ownership);
             kalidous_ast_print(p->type_node, indent + 2);
             kalidous_ast_print(p->initializer, indent + 2);
@@ -847,7 +843,7 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
             auto **stmts = static_cast<KalidousNode **>(node->data.list.ptr);
             const size_t count = node->data.list.len;
             print_indent(indent + 1);
-            printf("children: %zu\n", count);
+            debug_print("children: %zu\n", count);
             for (size_t i = 0; i < count; ++i)
                 kalidous_ast_print(stmts[i], indent + 2);
             break;
@@ -855,14 +851,14 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
 
         case KALIDOUS_NODE_IF:
             print_indent(indent + 1);
-            printf("condition:\n");
+            debug_print("condition:\n");
             if (node->data.kids.a) kalidous_ast_print(node->data.kids.a, indent + 2);
             print_indent(indent + 1);
-            printf("then:\n");
+            debug_print("then:\n");
             if (node->data.kids.b) kalidous_ast_print(node->data.kids.b, indent + 2);
             if (node->data.kids.c) {
                 print_indent(indent + 1);
-                printf("else:\n");
+                debug_print("else:\n");
                 kalidous_ast_print(node->data.kids.c, indent + 2);
             }
             break;
@@ -872,12 +868,12 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
             if (!p) break;
             print_indent(indent + 1);
             if (p->is_scene)
-                printf("target: scene (special)");
+                debug_print("target: scene (special)");
             else
-                printf("target: %.*s", (int) p->target_len, p->target);
+                debug_print("target: %.*s", (int) p->target_len, p->target);
             if (p->arg_count)
-                printf("  args: %zu", p->arg_count);
-            printf("\n");
+                debug_print("  args: %zu", p->arg_count);
+            debug_print("\n");
             for (size_t i = 0; i < p->arg_count; ++i)
                 kalidous_ast_print(p->args[i], indent + 2);
             break;
@@ -887,7 +883,7 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
             auto *p = static_cast<const KalidousEnumVariantPayload *>(node->data.list.ptr);
             if (!p) break;
             print_indent(indent + 1);
-            printf("name: %.*s\n", (int) p->name_len, p->name);
+            debug_print("name: %.*s\n", (int) p->name_len, p->name);
             if (p->value) kalidous_ast_print(p->value, indent + 2);
             break;
         }
@@ -898,10 +894,10 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
             if (!p) break;
             print_indent(indent + 1);
             if (p->name)
-                printf("name: %.*s  params: %zu\n",
+                debug_print("name: %.*s  params: %zu\n",
                         (int) p->name_len, p->name, p->param_count);
             else
-                printf("(anonymous)  params: %zu\n", p->param_count);
+                debug_print("(anonymous)  params: %zu\n", p->param_count);
             for (size_t i = 0; i < p->param_count; ++i)
                 kalidous_ast_print(p->params[i], indent + 2);
             kalidous_ast_print(p->body, indent + 2);
@@ -912,7 +908,7 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
             auto *p = static_cast<const KalidousStructPayload *>(node->data.list.ptr);
             if (!p) break;
             print_indent(indent + 1);
-            printf("name: %s  vis: %s  fields: %zu  methods: %zu\n",
+            debug_print("name: %s  vis: %s  fields: %zu  methods: %zu\n",
                     p->name, kalidous_ast_visibility_name(p->visibility),
                     p->field_count, p->method_count);
             for (size_t i = 0; i < p->field_count; ++i) kalidous_ast_print(p->fields[i], indent + 2);
@@ -924,7 +920,7 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
             auto *p = static_cast<const KalidousUnionPayload *>(node->data.list.ptr);
             if (!p) break;
             print_indent(indent + 1);
-            printf("name: %s  vis: %s  types: %zu  raw: %d\n",
+            debug_print("name: %s  vis: %s  types: %zu  raw: %d\n",
                     p->name,
                     kalidous_ast_visibility_name(p->visibility),
                     p->type_count,
@@ -938,7 +934,7 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
             auto *p = static_cast<const KalidousEnumPayload *>(node->data.list.ptr);
             if (!p) break;
             print_indent(indent + 1);
-            printf("name: %s  vis: %s  variants: %zu\n",
+            debug_print("name: %s  vis: %s  variants: %zu\n",
                     p->name, kalidous_ast_visibility_name(p->visibility),
                     p->variant_count);
             for (size_t i = 0; i < p->variant_count; ++i)
@@ -950,7 +946,7 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
             auto *p = static_cast<const KalidousFieldPayload *>(node->data.list.ptr);
             if (!p) break;
             print_indent(indent + 1);
-            printf("name: %.*s  vis: %s  own: %d\n",
+            debug_print("name: %.*s  vis: %s  own: %d\n",
                     (int) p->name_len, p->name,
                     kalidous_ast_visibility_name(p->visibility),
                     (int) p->ownership);
@@ -963,7 +959,7 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
         case KALIDOUS_NODE_ARRAY_LIT: {
             auto **items = static_cast<KalidousNode **>(node->data.list.ptr);
             print_indent(indent + 1);
-            printf("items: %zu\n", node->data.list.len);
+            debug_print("items: %zu\n", node->data.list.len);
             for (size_t i = 0; i < node->data.list.len; ++i)
                 kalidous_ast_print(items[i], indent + 2);
             break;
@@ -972,13 +968,13 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
         case KALIDOUS_NODE_IMPORT: {
             const auto import = static_cast<KalidousImportPayload *>(node->data.list.ptr);
             print_indent(indent + 1);
-            printf("module import path: %s\n", import->path);
+            debug_print("module import path: %s\n", import->path);
             break;
         }
 
         case KALIDOUS_NODE_ERROR:
             print_indent(indent + 1);
-            fprintf(stderr, "msg: %s\n", node->data.ident.str ? node->data.ident.str : "(null)"); // Mantido como erro
+            debug_error("msg: %s\n", node->data.ident.str ? node->data.ident.str : "(null)");
             break;
 
         default:
