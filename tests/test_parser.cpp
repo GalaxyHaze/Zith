@@ -86,15 +86,9 @@ TEST_CASE("SCAN: multiple declarations", "[scan]") {
 }
 
 TEST_CASE("SCAN: async fn kind — currently errors", "[scan]") {
-    // TODO: 'async' is not tokenized as a keyword — tokenizer emits IDENTIFIER
-    // The parser uses check_kw() to detect it, but errors are still emitted
     auto ast = parse_test("async fn fetch() { }");
-    // Parser does recognize 'async' via check_kw, but also emits an error
-    // This test documents the current broken behavior
     auto *decl = static_cast<KalidousNode **>(ast->data.list.ptr)[0];
     auto *p = static_cast<KalidousFuncPayload *>(decl->data.list.ptr);
-    // Even with error, the fn_kind should ideally be ASYNC
-    // Currently it's not — this is a known bug
     (void)p;
 }
 

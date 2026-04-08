@@ -5,6 +5,7 @@
 //   - diagnostics.hpp for error reporting
 //   - arena.hpp for memory management
 #include "../memory/arena.hpp"
+#include "../lexer/debug.h"
 #include "parser.h"
 #include <cstdio>
 #include <cstring>
@@ -93,11 +94,14 @@ KalidousNode *kalidous_parse_test(const char *source) {
     KalidousTokenStream tokens = kalidous_tokenize(arena, source, len);
     if (!tokens.data) return nullptr;
 
+    kalidous_debug_tokens(tokens.data, tokens.len);
+
     Parser p;
     parser_init(&p, arena, source, len, "<test>", tokens);
 
     KalidousNode *root = run_parser_phase(&p, KALIDOUS_MODE_SCAN);
 
+    kalidous_ast_print(root, 0);
     kalidous_diag_print_all(&p.diags, source, len, "<test>");
     return root;
 }
