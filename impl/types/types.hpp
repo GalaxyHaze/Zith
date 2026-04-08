@@ -66,6 +66,7 @@ enum KalidousNodeExtendedId: uint16_t {
     KALIDOUS_NODE_ENTITY_DECL  = 1040,
     KALIDOUS_NODE_MODULE_DECL  = 1041,
     KALIDOUS_NODE_IMPORT       = 1042,
+    KALIDOUS_NODE_EXPORT       = 1043,
 
     // -- Statements ----------------------------------------------------------
     KALIDOUS_NODE_SWITCH       = 1050,

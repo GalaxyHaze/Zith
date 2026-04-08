@@ -170,10 +170,16 @@ typedef struct {
 } KalidousForPayload;
 
 // KALIDOUS_NODE_IMPORT (1042) — list.ptr, list.len = path_len
+// KALIDOUS_NODE_EXPORT (1043) — list.ptr, list.len = path_len
+// Para sintaxe 'from': path = módulo base, alias = itens importados
 typedef struct {
     const char *path;
     size_t path_len;
     KalidousVisibility vis;
+    const char *alias;      // para "as alias" (NULL se não tiver)
+    size_t alias_len;
+    bool is_export;         // true = export, false = import
+    bool is_from;           // true = sintaxe "from x import y"
 } KalidousImportPayload;
 
 // KALIDOUS_NODE_MARKER (1055) — named jump target with body

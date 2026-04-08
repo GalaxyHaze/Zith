@@ -66,6 +66,9 @@ static constexpr auto TokenTable = std::to_array<std::pair<std::string_view, Kal
     {"use", KALIDOUS_TOKEN_USE},
     {"context", KALIDOUS_TOKEN_CONTEXT},
     {"macro", KALIDOUS_TOKEN_MACRO},
+    {"export", KALIDOUS_TOKEN_EXPORT},
+    {"from", KALIDOUS_TOKEN_FROM},
+    {"as", KALIDOUS_TOKEN_AS},
 
     // --- Bindings / modificadores de ownership ------------------------------
     {"let", KALIDOUS_TOKEN_LET},

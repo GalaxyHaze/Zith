@@ -330,15 +330,19 @@ KalidousNode *kalidous_ast_make_try_catch(KalidousArena *a, KalidousSourceLoc lo
 }
 
 // list → KalidousImportPayload, list.len = path_len
+// Usado para IMPORT e EXPORT
 KalidousNode *kalidous_ast_make_import(KalidousArena *a, KalidousSourceLoc loc,
                                        KalidousImportPayload data) {
-    KalidousNode *n = alloc_node(a, KALIDOUS_NODE_IMPORT, loc);
+    KalidousNodeId node_type = data.is_export ? KALIDOUS_NODE_EXPORT : KALIDOUS_NODE_IMPORT;
+    KalidousNode *n = alloc_node(a, node_type, loc);
     if (!n) return nullptr;
     auto *p = alloc_payload<KalidousImportPayload>(a, n);
     if (!p) return n;
     *p = data;
     if (data.path)
         p->path = kalidous_arena_str(a, data.path, data.path_len);
+    if (data.alias && data.alias_len)
+        p->alias = kalidous_arena_str(a, data.alias, data.alias_len);
     n->data.list.len = data.path_len;
     return n;
 }
@@ -617,6 +621,7 @@ static void walk_children(KalidousNode * n,
         case KALIDOUS_NODE_BREAK:
         case KALIDOUS_NODE_CONTINUE:
         case KALIDOUS_NODE_IMPORT:
+        case KALIDOUS_NODE_EXPORT:
         case KALIDOUS_NODE_ERROR:
             break;
 
@@ -969,6 +974,25 @@ void kalidous_ast_print(const KalidousNode *node, int indent) {
             const auto import = static_cast<KalidousImportPayload *>(node->data.list.ptr);
             print_indent(indent + 1);
             debug_print("module import path: %s\n", import->path);
+            if (import->is_from) {
+                print_indent(indent + 2);
+                debug_print("(from syntax)\n");
+            }
+            if (import->alias) {
+                print_indent(indent + 2);
+                debug_print("alias: %.*s\n", (int)import->alias_len, import->alias);
+            }
+            break;
+        }
+
+        case KALIDOUS_NODE_EXPORT: {
+            const auto export_decl = static_cast<KalidousImportPayload *>(node->data.list.ptr);
+            print_indent(indent + 1);
+            debug_print("module export path: %s\n", export_decl->path);
+            if (export_decl->alias) {
+                print_indent(indent + 2);
+                debug_print("alias: %.*s\n", (int)export_decl->alias_len, export_decl->alias);
+            }
             break;
         }
 

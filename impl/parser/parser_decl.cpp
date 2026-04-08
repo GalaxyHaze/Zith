@@ -338,10 +338,14 @@ static KalidousNode *parse_struct_decl(Parser *p, KalidousVisibility struct_vis)
 
 static KalidousNode *parse_import_decl(Parser *p) {
     const KalidousSourceLoc loc = parser_peek(p)->loc;
-    parser_advance(p);
+    parser_advance(p);  // consome 'import'
     char buf[256]; size_t buf_len = 0;
+    
+    // Primeiro segmento (espera IDENTIFIER)
     const KalidousToken *seg = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected module name");
     if (seg->lexeme.len < sizeof(buf)) { memcpy(buf, seg->lexeme.data, seg->lexeme.len); buf_len = seg->lexeme.len; }
+    
+    // Segmentos adicionais separados por '.'
     while (parser_match(p, KALIDOUS_TOKEN_DOT)) {
         if (buf_len < sizeof(buf) - 1) buf[buf_len++] = '.';
         seg = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected identifier after '.'");
@@ -350,8 +354,93 @@ static KalidousNode *parse_import_decl(Parser *p) {
             buf_len += seg->lexeme.len;
         }
     }
+    
+    // Suporte a alias: import x as y
+    const char *alias = nullptr;
+    size_t alias_len = 0;
+    if (parser_match(p, KALIDOUS_TOKEN_AS)) {
+        const KalidousToken *alias_tok = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected alias name");
+        alias = alias_tok->lexeme.data;
+        alias_len = alias_tok->lexeme.len;
+    }
+    
     parser_expect(p, KALIDOUS_TOKEN_SEMICOLON, "expected ';'");
-    return kalidous_ast_make_import(p->arena, loc, {kalidous_arena_str(p->arena, buf, buf_len), buf_len, KALIDOUS_VIS_PRIVATE});
+    KalidousImportPayload payload = {kalidous_arena_str(p->arena, buf, buf_len), buf_len, KALIDOUS_VIS_PRIVATE, alias, alias_len, false, false};
+    return kalidous_ast_make_import(p->arena, loc, payload);
+}
+
+static KalidousNode *parse_from_import_decl(Parser *p) {
+    const KalidousSourceLoc loc = parser_peek(p)->loc;
+    parser_advance(p);  // consome 'from'
+    
+    // Parse do módulo base (ex: std.io.console)
+    char module_buf[256]; size_t module_len = 0;
+    const KalidousToken *seg = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected module name");
+    if (seg->lexeme.len < sizeof(module_buf)) { memcpy(module_buf, seg->lexeme.data, seg->lexeme.len); module_len = seg->lexeme.len; }
+    
+    while (parser_match(p, KALIDOUS_TOKEN_DOT)) {
+        if (module_len < sizeof(module_buf) - 1) module_buf[module_len++] = '.';
+        seg = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected identifier after '.'");
+        if (module_len + seg->lexeme.len < sizeof(module_buf)) {
+            memcpy(module_buf + module_len, seg->lexeme.data, seg->lexeme.len);
+            module_len += seg->lexeme.len;
+        }
+    }
+    
+    // Espera keyword 'import'
+    parser_expect(p, KALIDOUS_TOKEN_IMPORT, "expected 'import' after 'from <module>'");
+    
+    // Parse dos itens importados (ex: println, println as log)
+    char items_buf[256]; size_t items_len = 0;
+    const KalidousToken *item = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected item name");
+    if (item->lexeme.len < sizeof(items_buf)) { memcpy(items_buf, item->lexeme.data, item->lexeme.len); items_len = item->lexeme.len; }
+    
+    // Suporte a alias: import x as y
+    const char *alias = nullptr;
+    size_t alias_len = 0;
+    if (parser_match(p, KALIDOUS_TOKEN_AS)) {
+        const KalidousToken *alias_tok = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected alias name");
+        alias = alias_tok->lexeme.data;
+        alias_len = alias_tok->lexeme.len;
+    }
+    
+    parser_expect(p, KALIDOUS_TOKEN_SEMICOLON, "expected ';'");
+    
+    // Path = módulo base, alias = itens importados
+    KalidousImportPayload payload = {
+        kalidous_arena_str(p->arena, module_buf, module_len), 
+        module_len, 
+        KALIDOUS_VIS_PRIVATE, 
+        alias, 
+        alias_len, 
+        false,  // is_export = false
+        true    // is_from = true
+    };
+    return kalidous_ast_make_import(p->arena, loc, payload);
+}
+
+static KalidousNode *parse_export_decl(Parser *p) {
+    const KalidousSourceLoc loc = parser_peek(p)->loc;
+    parser_advance(p);  // consome 'export'
+    char buf[256]; size_t buf_len = 0;
+    
+    // Primeiro segmento (espera IDENTIFIER)
+    const KalidousToken *seg = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected module name");
+    if (seg->lexeme.len < sizeof(buf)) { memcpy(buf, seg->lexeme.data, seg->lexeme.len); buf_len = seg->lexeme.len; }
+    
+    // Segmentos adicionais separados por '.'
+    while (parser_match(p, KALIDOUS_TOKEN_DOT)) {
+        if (buf_len < sizeof(buf) - 1) buf[buf_len++] = '.';
+        seg = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected identifier after '.'");
+        if (buf_len + seg->lexeme.len < sizeof(buf)) {
+            memcpy(buf + buf_len, seg->lexeme.data, seg->lexeme.len);
+            buf_len += seg->lexeme.len;
+        }
+    }
+    
+    parser_expect(p, KALIDOUS_TOKEN_SEMICOLON, "expected ';'");
+    KalidousImportPayload payload = {kalidous_arena_str(p->arena, buf, buf_len), buf_len, KALIDOUS_VIS_PUBLIC, nullptr, 0, true, false};
+    return kalidous_ast_make_import(p->arena, loc, payload);
 }
 
 KalidousNode *parser_parse_declaration(Parser *p) {
@@ -365,9 +454,11 @@ KalidousNode *parser_parse_declaration(Parser *p) {
 
     if (t->type == KALIDOUS_TOKEN_FN || t->type == KALIDOUS_TOKEN_ASYNC || t->type == KALIDOUS_TOKEN_FLOWING || t->type == KALIDOUS_TOKEN_NORETURN)
         return parse_fn_decl(p, loc, vis, false);
-    
+
     if (t->type == KALIDOUS_TOKEN_STRUCT) return parse_struct_decl(p, vis);
     if (t->type == KALIDOUS_TOKEN_IMPORT) return parse_import_decl(p);
+    if (t->type == KALIDOUS_TOKEN_FROM) return parse_from_import_decl(p);
+    if (t->type == KALIDOUS_TOKEN_EXPORT) return parse_export_decl(p);
     if (t->type == KALIDOUS_TOKEN_CONST) { parser_advance(p); return parse_var_decl(p, KALIDOUS_BINDING_CONST); }
     
     KalidousNode *expr = parser_parse_expression(p);
