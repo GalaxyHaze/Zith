@@ -57,18 +57,18 @@ jobs:
             ### Installation
             **Linux / macOS:**
 
-            curl -fsSL https://raw.githubusercontent.com/GalaxyHaze/Zith-Lang/main/install.sh | bash
+            curl -fsSL https://raw.githubusercontent.com/GalaxyHaze/Zith/main/install.sh | bash
 
             **Linux / macOS (musl static):**
 
-            curl -fsSL https://raw.githubusercontent.com/GalaxyHaze/Zith-Lang/main/install.sh | bash -s -- --musl
+            curl -fsSL https://raw.githubusercontent.com/GalaxyHaze/Zith/main/install.sh | bash -s -- --musl
 
             **Windows:**
-            irm https://raw.githubusercontent.com/GalaxyHaze/Zith-Lang/main/install.ps1 | iex
+            irm https://raw.githubusercontent.com/GalaxyHaze/Zith/main/install.ps1 | iex
 
             **WebAssembly:**
 
-            curl -fsSL https://raw.githubusercontent.com/GalaxyHaze/Zith-Lang/main/install-wasm.sh | bash
+            curl -fsSL https://raw.githubusercontent.com/GalaxyHaze/Zith/main/install-wasm.sh | bash
 
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

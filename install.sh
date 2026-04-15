@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 1. Setup Global Variables
-REPO="GalaxyHaze/Zith-Lang"
+REPO="GalaxyHaze/Zith"
 VERSION=""
 OUTPUT_NAME="zith"
 

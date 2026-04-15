@@ -4,7 +4,7 @@
 
 ## Documentation
 
-**[Read the Complete Documentation](https://galaxyhaze.github.io/Zith-Lang/docs/index.html?page=intro)** | [View on GitHub](https://github.com/GalaxyHaze/Zith-Lang/)
+**[Read the Complete Documentation](https://galaxyhaze.github.io/Zith/docs/index.html?page=intro)** | [View on GitHub](https://github.com/GalaxyHaze/Zith/)
 
 The documentation includes:
 *   **Getting Started:** Installation and quick start tutorials.
@@ -21,7 +21,7 @@ Zith is a statically-typed systems programming language designed to provide safe
 Unlike traditional backends, Zith implements a complete custom toolchain:
 *   **Custom Parser:** Parses Zith source code into a rich Abstract Syntax Tree (AST).
 *   **Type System:** Static type checking with type inference.
-*   **Bytecode Generation:** Compiles to KBC (Zith Bytecode) format.
+*   **Bytecode Generation:** Compiles to ZBC (Zith Bytecode) format.
 *   **Multi-Execution Model:** Run via the Zith VM or compile to native binaries.
 
 ---
@@ -37,9 +37,9 @@ Zith Source Code (.zith)
         ↓
     Type Checker
         ↓
-  KBC Bytecode Generator
+  ZBC Bytecode Generator
         ↓
-  KBC File (.kbc)
+  ZBC File (.zbc)
         ↙        ↘
    VM Execution  LLVM Backend
    (Current)     (Planned)
@@ -49,7 +49,7 @@ Zith Source Code (.zith)
 
 1.  **Parsing & Import Resolution:** Source files are parsed into an AST with module/import support.
 2.  **Type Checking:** Full static type analysis and inference.
-3.  **Bytecode Generation:** Generate portable KBC bytecode.
+3.  **Bytecode Generation:** Generate portable ZBC bytecode.
 4.  **Execution:** Run bytecode via the Zith Virtual Machine (current) or LLVM Backend (planned).
 
 ---
@@ -59,12 +59,12 @@ Zith Source Code (.zith)
 ### Current
 *   Custom Parser for Zith syntax.
 *   Module/Import System for multi-file organization.
-*   KBC Bytecode (portable, versioned format).
+*   ZBC Bytecode (portable, versioned format).
 *   Static Type System with inference.
 *   CLI Tooling (`build`, `check`, `compile`, `execute`, `run`).
 
 ### In Progress
-*   Zith Virtual Machine for KBC bytecode execution.
+*   Zith Virtual Machine for ZBC bytecode execution.
 *   Standard Library (core functionality for math, strings, I/O, collections).
 
 ### Planned
@@ -81,12 +81,12 @@ Zith Source Code (.zith)
 
 **Linux / macOS**
 ```bash
-curl -sSL https://raw.githubusercontent.com/GalaxyHaze/Zith-Lang/master/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/GalaxyHaze/Zith/master/install.sh | bash
 ```
 
 **Windows**
 ```powershell
-irm https://raw.githubusercontent.com/GalaxyHaze/Zith-Lang/master/install.ps1 | iex
+irm https://raw.githubusercontent.com/GalaxyHaze/Zith/master/install.ps1 | iex
 ```
 
 **Verify Installation**
@@ -542,8 +542,8 @@ zith check
 ### Compile
 
 ```bash
-# Compile to KBC bytecode
-zith compile src/main.zith -o main.kbc
+# Compile to ZBC bytecode
+zith compile src/main.zith -o main.zbc
 
 # Compile to assembly (planned)
 zith compile src/main.zith --emit asm -o main.s
@@ -552,8 +552,8 @@ zith compile src/main.zith --emit asm -o main.s
 ### Execute
 
 ```bash
-# Run a compiled KBC file using the VM
-zith execute bin/app.kbc
+# Run a compiled ZBC file using the VM
+zith execute bin/app.zbc
 
 # Build and run in one command
 zith run
@@ -568,7 +568,7 @@ zith run
 - [x] AST Construction
 - [x] Type System
 - [x] Module System
-- [x] KBC Generation
+- [x] ZBC Generation
 - [x] CLI Tools
 - [x] Documentation Site
 
@@ -597,8 +597,8 @@ zith run
 ### Build Steps
 
 ```bash
-git clone https://github.com/GalaxyHaze/Zith-Lang.git
-cd Zith-Lang
+git clone https://github.com/GalaxyHaze/Zith.git
+cd Zith
 mkdir build && cd build
 cmake ..
 make
@@ -635,10 +635,10 @@ Please open an issue with a clear description, steps to reproduce, and environme
 
 ## Resources
 
-*   [Documentation](https://galaxyhaze.github.io/Zith-Lang/docs/index.html?page=intro)
-*   [Issue Tracker](https://github.com/GalaxyHaze/Zith-Lang/issues)
-*   [Discussions](https://github.com/GalaxyHaze/Zith-Lang/discussions)
-*   [GitHub Repository](https://github.com/GalaxyHaze/Zith-Lang)
+*   [Documentation](https://galaxyhaze.github.io/Zith/docs/index.html?page=intro)
+*   [Issue Tracker](https://github.com/GalaxyHaze/Zith/issues)
+*   [Discussions](https://github.com/GalaxyHaze/Zith/discussions)
+*   [GitHub Repository](https://github.com/GalaxyHaze/Zith)
 
 ---
 
@@ -647,8 +647,8 @@ Please open an issue with a clear description, steps to reproduce, and environme
 **Q: When will Zith be production-ready?**  
 A: The project is currently under active development. Focus is on the VM and standard library.
 
-**Q: What is the difference between KBC and native compilation?**  
-A: KBC bytecode runs in the Zith VM for portability. Native compilation via LLVM produces machine code for maximum performance.
+**Q: What is the difference between ZBC and native compilation?**  
+A: ZBC bytecode runs in the Zith VM for portability. Native compilation via LLVM produces machine code for maximum performance.
 
 **Q: How does Zith achieve memory safety without a garbage collector?**  
 A: Through compile-time ownership tracking. The five ownership keywords (`unique`, `share`, `view`, `lend`, `extension`) give the compiler enough information to verify all memory accesses statically. No runtime checks, no reference counting.

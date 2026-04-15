@@ -457,8 +457,8 @@ EXAMPLES:
     zith run --interpreted main.zith
 
 LEARN MORE:
-    Source: https://github.com/GalaxyHaze/Zith-lang
-    Docs:   https://galaxyhaze.github.io/Zith-Lang/docs/index.html
+    Source: https://github.com/GalaxyHaze/Zith
+    Docs:   https://galaxyhaze.github.io/Zith/docs/index.html
 )";
     return 0;
 }

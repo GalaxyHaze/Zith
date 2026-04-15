@@ -30,7 +30,7 @@ function getBasePath() {
     }
 
     if (window.location.hostname === 'galaxyhaze.github.io') {
-        return '/Zith-Lang/docs/';
+        return '/Zith/docs/';
     }
 
     const path = window.location.pathname;

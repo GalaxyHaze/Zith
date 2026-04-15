@@ -42,7 +42,7 @@ jobs:
           echo "amd64=$AMD64" >> $GITHUB_OUTPUT
           echo "arm64=$ARM64" >> $GITHUB_OUTPUT
 
-      - name: Checkout Zith-Lang
+      - name: Checkout Zith
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.RELEASE_PAT }}
@@ -57,9 +57,9 @@ jobs:
             '
               .version = $version |
               .architecture["64bit"].hash = $amd64 |
-              .architecture["64bit"].url = "https://github.com/GalaxyHaze/Zith-Lang/releases/download/v\($version)/zith-windows-amd64.exe" |
+              .architecture["64bit"].url = "https://github.com/GalaxyHaze/Zith/releases/download/v\($version)/zith-windows-amd64.exe" |
               .architecture.arm64.hash = $arm64 |
-              .architecture.arm64.url = "https://github.com/GalaxyHaze/Zith-Lang/releases/download/v\($version)/zith-windows-arm64.exe"
+              .architecture.arm64.url = "https://github.com/GalaxyHaze/Zith/releases/download/v\($version)/zith-windows-arm64.exe"
             ' .github/scoop/bucket/zith.json > tmp.json && mv tmp.json .github/scoop/bucket/zith.json
       
       - name: Commit and push
