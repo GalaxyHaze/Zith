@@ -50,6 +50,8 @@ htmlcov/
 # Gradle
 .gradle/
 .cache/
+build
+build-test
 
 # Compressed files
 *.zip

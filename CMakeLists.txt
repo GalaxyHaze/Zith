@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(kalidous LANGUAGES C CXX)
+project(zith LANGUAGES C CXX)
 
 # =============================================================================
 # Standards & Policies
@@ -95,30 +95,30 @@ file(GLOB_RECURSE CLI_SOURCES
 # Targets
 # ───────────────────────────────────────────────
 
-add_library(KalidousCore STATIC ${CORE_C_SOURCES} ${DIAGNOSTICS_SOURCES})
-target_include_directories(KalidousCore
+add_library(ZithCore STATIC ${CORE_C_SOURCES} ${DIAGNOSTICS_SOURCES})
+target_include_directories(ZithCore
         PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
 )
-option(KALIDOUS_VERSION "Project version" "v0.0.1")
+option(ZITH_VERSION "Project version" "v0.0.1")
 # Agora o tomlplusplus::tomlplusplus deve ser encontrado com segurança
-target_link_libraries(KalidousCore PUBLIC tomlplusplus::tomlplusplus)
+target_link_libraries(ZithCore PUBLIC tomlplusplus::tomlplusplus)
 
 # ────────
-add_library(KalidousParse STATIC ${PARSER_CPP_SOURCES})
-target_include_directories(KalidousParse
+add_library(ZithParse STATIC ${PARSER_CPP_SOURCES})
+target_include_directories(ZithParse
         PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-target_link_libraries(KalidousParse
+target_link_libraries(ZithParse
         PUBLIC
-        KalidousCore
+        ZithCore
         unordered_dense::unordered_dense
 )
-target_compile_definitions(KalidousParse PRIVATE KALIDOUS_VERSION="${KALIDOUS_VERSION}")
+target_compile_definitions(ZithParse PRIVATE ZITH_VERSION="${ZITH_VERSION}")
 
-set_target_properties(KalidousParse PROPERTIES
+set_target_properties(ZithParse PROPERTIES
         VERSION 0.0.1
         SOVERSION 0
         CXX_VISIBILITY_PRESET hidden
@@ -126,21 +126,21 @@ set_target_properties(KalidousParse PROPERTIES
 )
 
 # ────────
-add_executable(kalidous impl/main.cpp ${CLI_SOURCES})
+add_executable(zith impl/main.cpp ${CLI_SOURCES})
 
-target_include_directories(kalidous PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(zith PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-target_link_libraries(kalidous
+target_link_libraries(zith
         PRIVATE
-        KalidousParse
+        ZithParse
         CLI11::CLI11
 )
-target_compile_definitions(kalidous PRIVATE KALIDOUS_VERSION="${KALIDOUS_VERSION}" KALIDOUS_EXECUTABLE)
+target_compile_definitions(zith PRIVATE ZITH_VERSION="${ZITH_VERSION}" ZITH_EXECUTABLE)
 
 # ───────────────────────────────────────────────
 # Install
 # ───────────────────────────────────────────────
-install(TARGETS kalidous KalidousParse KalidousCore
+install(TARGETS zith ZithParse ZithCore
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -165,23 +165,23 @@ if(BUILD_TESTS)
     file(GLOB_RECURSE TEST_SOURCES "tests/*.cpp")
 
     if(TEST_SOURCES)
-        add_executable(kalidous_tests ${TEST_SOURCES})
+        add_executable(zith_tests ${TEST_SOURCES})
 
-        target_include_directories(kalidous_tests PRIVATE
+        target_include_directories(zith_tests PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/include
         )
 
-        target_link_libraries(kalidous_tests PRIVATE
-            KalidousParse
+        target_link_libraries(zith_tests PRIVATE
+            ZithParse
             Catch2::Catch2WithMain
         )
 
         # Enable CTest integration
         include(CTest)
         include(Catch)
-        catch_discover_tests(kalidous_tests)
+        catch_discover_tests(zith_tests)
 
-        message(STATUS "💡 Tests target 'kalidous_tests' configured.")
+        message(STATUS "💡 Tests target 'zith_tests' configured.")
     endif()
 endif()
 
@@ -190,11 +190,11 @@ endif()
 # =============================================================================
 message("")
 message(STATUS "💡 Build Summary")
-if (TARGET kalidous)
-    message(STATUS "   Executable 'kalidous' target configured.")
+if (TARGET zith)
+    message(STATUS "   Executable 'zith' target configured.")
 endif()
-if (TARGET kalidous_tests)
-    message(STATUS "   Tests executable 'kalidous_tests' configured.")
+if (TARGET zith_tests)
+    message(STATUS "   Tests executable 'zith_tests' configured.")
 endif()
 message("")
 
@@ -202,24 +202,24 @@ message("")
 # WebAssembly (Emscripten)
 # =============================================================================
 if(EMSCRIPTEN)
-    add_executable(kalidous-wasm impl/main.cpp)
+    add_executable(zith-wasm impl/main.cpp)
 
-    target_include_directories(kalidous-wasm PRIVATE
+    target_include_directories(zith-wasm PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
 
-    target_link_libraries(kalidous-wasm PRIVATE KalidousParse)
+    target_link_libraries(zith-wasm PRIVATE ZithParse)
 
-    target_compile_definitions(kalidous-wasm PRIVATE
-        KALIDOUS_VERSION="${KALIDOUS_VERSION}"
-        KALIDOUS_EXECUTABLE
-        KALIDOUS_WASM
+    target_compile_definitions(zith-wasm PRIVATE
+        ZITH_VERSION="${ZITH_VERSION}"
+        ZITH_EXECUTABLE
+        ZITH_WASM
     )
 
     # LINK_FLAGS passa como string única — evita o CMake splittar os -s flags
-    set_target_properties(kalidous-wasm PROPERTIES
+    set_target_properties(zith-wasm PROPERTIES
         SUFFIX ".html"
-        OUTPUT_NAME "kalidous"
+        OUTPUT_NAME "zith"
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
         LINK_FLAGS "-O3 -flto --closure 1 -s WASM=1 -s FILESYSTEM=1 -s ENVIRONMENT=web,node -s EXPORTED_RUNTIME_METHODS=['ccall','cwrap'] -s ALLOW_MEMORY_GROWTH=1"
     )

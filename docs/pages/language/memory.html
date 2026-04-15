@@ -7,13 +7,13 @@
 </div>
 <div class="page-eyebrow animate-in">Language Guide</div>
 <h1 class="animate-in">Memory Management</h1>
-<p class="lead animate-in">Kalidous provides memory safety through compile-time analysis and explicit ownership semantics.</p>
+<p class="lead animate-in">Zith provides memory safety through compile-time analysis and explicit ownership semantics.</p>
 
 <h2>Ownership</h2>
-<p>Every value in Kalidous has one owner. When the owner goes out of scope, the value is dropped:</p>
+<p>Every value in Zith has one owner. When the owner goes out of scope, the value is dropped:</p>
 
 <div class="code-block">
-  <div class="code-block-header"><span class="code-block-lang">kalidous</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <div class="code-block-header"><span class="code-block-lang">zith</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
   <pre><span class="tok-kw">fn</span> <span class="tok-fn">main</span>() {
   <span class="tok-kw">let</span> s = "hello";  <span class="tok-cmt">// s owns the string</span>
 }  <span class="tok-cmt">// s goes out of scope, memory freed</span></pre>
@@ -22,7 +22,7 @@
 <h2>Move Semantics</h2>
 <p>Assigning a value transfers ownership:</p>
 <div class="code-block">
-  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <div class="code-block-header"><span class="code-block-lang">zith</span></div>
   <pre><span class="tok-kw">let</span> s1 = "hello";
 <span class="tok-kw">let</span> s2 = s1;  <span class="tok-cmt">// Ownership moved to s2</span>
 <span class="tok-cmt">// println(s1);  // Error! s1 no longer owns</span></pre>
@@ -31,7 +31,7 @@
 <h2>Borrowing</h2>
 <p>Borrow a value without taking ownership using <code>&</code>:</p>
 <div class="code-block">
-  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <div class="code-block-header"><span class="code-block-lang">zith</span></div>
   <pre><span class="tok-kw">fn</span> <span class="tok-fn">len</span>(s: &<span class="tok-type">str</span>) -> <span class="tok-type">i32</span> {
   <span class="tok-cmt">// Borrows s, doesn't own it</span>
 }
@@ -44,7 +44,7 @@
 <h2>Mutable Borrows</h2>
 <p>Borrow mutably with <code>&mut</code>:</p>
 <div class="code-block">
-  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <div class="code-block-header"><span class="code-block-lang">zith</span></div>
   <pre><span class="tok-kw">fn</span> <span class="tok-fn">modify</span>(s: &<span class="tok-kw">mut</span> <span class="tok-type">str</span>) {
   <span class="tok-cmt">// Can modify s</span>
 }
@@ -63,7 +63,7 @@
 <h2>Lifetimes</h2>
 <p>Explicit lifetimes for complex borrowing scenarios:</p>
 <div class="code-block">
-  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <div class="code-block-header"><span class="code-block-lang">zith</span></div>
   <pre><span class="tok-kw">fn</span> <span class="tok-fn">longest</span><'a>(s1: &'a <span class="tok-type">str</span>, s2: &'a <span class="tok-type">str</span>) -> &'a <span class="tok-type">str</span> {
   <span class="tok-cmt">// Returns reference valid for lifetime 'a</span>
   <span class="tok-kw">if</span> <span class="tok-fn">len</span>(s1) > <span class="tok-fn">len</span>(s2) { s1 } <span class="tok-kw">else</span> { s2 }
@@ -102,7 +102,7 @@
 
 <div class="callout callout-note">
   <span class="callout-icon">ℹ</span>
-  <div class="callout-body">Kalidous's memory model prevents data races and use-after-free errors at compile time.</div>
+  <div class="callout-body">Zith's memory model prevents data races and use-after-free errors at compile time.</div>
 </div>
 
 <h2>See Also</h2>

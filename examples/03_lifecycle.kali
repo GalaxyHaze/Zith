@@ -1,6 +1,6 @@
 // ============================================================================
 // 03_lifecycle.kali
-// Demonstrates Kalidous lifecycle blocks: do / error / drop
+// Demonstrates Zith lifecycle blocks: do / error / drop
 // ============================================================================
 
 import std.io.println;
@@ -263,7 +263,7 @@ fn demo_raii() {
 // ----------------------------------------------------------------------------
 
 fn main() {
-    println("Kalidous Lifecycle Blocks Demo\n");
+    println("Zith Lifecycle Blocks Demo\n");
     println("==============================\n");
 
     demo_lifecycle_order();

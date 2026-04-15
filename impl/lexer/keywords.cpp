@@ -1,5 +1,5 @@
 // impl/parser/keywords.cpp
-#include "kalidous/kalidous.hpp"
+#include "zith/zith.hpp"
 #include <string_view>
 #include <array>
 
@@ -29,127 +29,127 @@ static constexpr uint64_t hash64(std::string_view sv) {
 // Keyword + operator table
 // ============================================================================
 
-static constexpr auto TokenTable = std::to_array<std::pair<std::string_view, KalidousTokenType> >({
+static constexpr auto TokenTable = std::to_array<std::pair<std::string_view, ZithTokenType> >({
 
     // --- Inteiros com sinal -------------------------------------------------
-    {"i8", KALIDOUS_TOKEN_TYPE}, {"i16", KALIDOUS_TOKEN_TYPE},
-    {"i32", KALIDOUS_TOKEN_TYPE}, {"i64", KALIDOUS_TOKEN_TYPE},
-    {"i128", KALIDOUS_TOKEN_TYPE}, {"i256", KALIDOUS_TOKEN_TYPE},
+    {"i8", ZITH_TOKEN_TYPE}, {"i16", ZITH_TOKEN_TYPE},
+    {"i32", ZITH_TOKEN_TYPE}, {"i64", ZITH_TOKEN_TYPE},
+    {"i128", ZITH_TOKEN_TYPE}, {"i256", ZITH_TOKEN_TYPE},
 
     // --- Inteiros sem sinal -------------------------------------------------
-    {"u8", KALIDOUS_TOKEN_TYPE}, {"u16", KALIDOUS_TOKEN_TYPE},
-    {"u32", KALIDOUS_TOKEN_TYPE}, {"u64", KALIDOUS_TOKEN_TYPE},
-    {"u128", KALIDOUS_TOKEN_TYPE}, {"u256", KALIDOUS_TOKEN_TYPE},
+    {"u8", ZITH_TOKEN_TYPE}, {"u16", ZITH_TOKEN_TYPE},
+    {"u32", ZITH_TOKEN_TYPE}, {"u64", ZITH_TOKEN_TYPE},
+    {"u128", ZITH_TOKEN_TYPE}, {"u256", ZITH_TOKEN_TYPE},
 
     // --- Ponto flutuante ----------------------------------------------------
-    {"f32", KALIDOUS_TOKEN_TYPE}, {"f64", KALIDOUS_TOKEN_TYPE},
-    {"f128", KALIDOUS_TOKEN_TYPE},
+    {"f32", ZITH_TOKEN_TYPE}, {"f64", ZITH_TOKEN_TYPE},
+    {"f128", ZITH_TOKEN_TYPE},
 
     // --- Primitivos gerais --------------------------------------------------
-    {"bool", KALIDOUS_TOKEN_TYPE}, {"void", KALIDOUS_TOKEN_TYPE},
-    {"null", KALIDOUS_TOKEN_NULL},
+    {"bool", ZITH_TOKEN_TYPE}, {"void", ZITH_TOKEN_TYPE},
+    {"null", ZITH_TOKEN_NULL},
 
     // --- Declarações de tipo ------------------------------------------------
-    {"type", KALIDOUS_TOKEN_TYPE},
-    {"struct", KALIDOUS_TOKEN_STRUCT},
-    {"component", KALIDOUS_TOKEN_COMPONENT},
-    {"enum", KALIDOUS_TOKEN_ENUM},
-    {"raw", KALIDOUS_TOKEN_RAW},
-    {"union", KALIDOUS_TOKEN_UNION},
-    {"family", KALIDOUS_TOKEN_FAMILY},
-    {"entity", KALIDOUS_TOKEN_ENTITY},
-    {"trait", KALIDOUS_TOKEN_TRAIT},
-    {"type", KALIDOUS_TOKEN_TYPEDEF},
-    {"implement", KALIDOUS_TOKEN_IMPLEMENT},
-    {"fn", KALIDOUS_TOKEN_FN},
-    {"import", KALIDOUS_TOKEN_IMPORT},
-    {"use", KALIDOUS_TOKEN_USE},
-    {"context", KALIDOUS_TOKEN_CONTEXT},
-    {"macro", KALIDOUS_TOKEN_MACRO},
-    {"export", KALIDOUS_TOKEN_EXPORT},
-    {"from", KALIDOUS_TOKEN_FROM},
-    {"as", KALIDOUS_TOKEN_AS},
+    {"type", ZITH_TOKEN_TYPE},
+    {"struct", ZITH_TOKEN_STRUCT},
+    {"component", ZITH_TOKEN_COMPONENT},
+    {"enum", ZITH_TOKEN_ENUM},
+    {"raw", ZITH_TOKEN_RAW},
+    {"union", ZITH_TOKEN_UNION},
+    {"family", ZITH_TOKEN_FAMILY},
+    {"entity", ZITH_TOKEN_ENTITY},
+    {"trait", ZITH_TOKEN_TRAIT},
+    {"type", ZITH_TOKEN_TYPEDEF},
+    {"implement", ZITH_TOKEN_IMPLEMENT},
+    {"fn", ZITH_TOKEN_FN},
+    {"import", ZITH_TOKEN_IMPORT},
+    {"use", ZITH_TOKEN_USE},
+    {"context", ZITH_TOKEN_CONTEXT},
+    {"macro", ZITH_TOKEN_MACRO},
+    {"export", ZITH_TOKEN_EXPORT},
+    {"from", ZITH_TOKEN_FROM},
+    {"as", ZITH_TOKEN_AS},
 
     // --- Bindings / modificadores de ownership ------------------------------
-    {"let", KALIDOUS_TOKEN_LET},
-    {"var", KALIDOUS_TOKEN_VAR},
-    {"auto", KALIDOUS_TOKEN_AUTO},
-    {"const", KALIDOUS_TOKEN_CONST},
-    {"mut", KALIDOUS_TOKEN_MUTABLE},
-    {"global", KALIDOUS_TOKEN_GLOBAL},
-    {"persistent", KALIDOUS_TOKEN_PERSISTENT},
-    {"local", KALIDOUS_TOKEN_LOCAL},
-    {"lend", KALIDOUS_TOKEN_LEND},
-    {"shared", KALIDOUS_TOKEN_SHARED},
-    {"view", KALIDOUS_TOKEN_VIEW},
-    {"unique", KALIDOUS_TOKEN_UNIQUE},
-    {"yield", KALIDOUS_TOKEN_YIELD},
-    {"async", KALIDOUS_TOKEN_ASYNC},
-    {"flowing", KALIDOUS_TOKEN_FLOWING},
-    {"entry", KALIDOUS_TOKEN_ENTRY},
-    {"noreturn", KALIDOUS_TOKEN_NORETURN},
+    {"let", ZITH_TOKEN_LET},
+    {"var", ZITH_TOKEN_VAR},
+    {"auto", ZITH_TOKEN_AUTO},
+    {"const", ZITH_TOKEN_CONST},
+    {"mut", ZITH_TOKEN_MUTABLE},
+    {"global", ZITH_TOKEN_GLOBAL},
+    {"persistent", ZITH_TOKEN_PERSISTENT},
+    {"local", ZITH_TOKEN_LOCAL},
+    {"lend", ZITH_TOKEN_LEND},
+    {"shared", ZITH_TOKEN_SHARED},
+    {"view", ZITH_TOKEN_VIEW},
+    {"unique", ZITH_TOKEN_UNIQUE},
+    {"yield", ZITH_TOKEN_YIELD},
+    {"async", ZITH_TOKEN_ASYNC},
+    {"flowing", ZITH_TOKEN_FLOWING},
+    {"entry", ZITH_TOKEN_ENTRY},
+    {"noreturn", ZITH_TOKEN_NORETURN},
 
     // --- Modificadores de acesso --------------------------------------------
-    {"public", KALIDOUS_TOKEN_MODIFIER},
-    {"private", KALIDOUS_TOKEN_MODIFIER},
-    {"protected", KALIDOUS_TOKEN_MODIFIER},
+    {"public", ZITH_TOKEN_MODIFIER},
+    {"private", ZITH_TOKEN_MODIFIER},
+    {"protected", ZITH_TOKEN_MODIFIER},
 
     // --- Controle de fluxo --------------------------------------------------
-    {"if", KALIDOUS_TOKEN_IF},
-    {"else", KALIDOUS_TOKEN_ELSE},
-    {"for", KALIDOUS_TOKEN_FOR},
-    {"in", KALIDOUS_TOKEN_IN},
-    {"switch", KALIDOUS_TOKEN_SWITCH},
-    {"return", KALIDOUS_TOKEN_RETURN},
-    {"break", KALIDOUS_TOKEN_BREAK},
-    {"continue", KALIDOUS_TOKEN_CONTINUE},
-    {"goto", KALIDOUS_TOKEN_GOTO},
-    {"marker", KALIDOUS_TOKEN_MARKER},
-    {"scene", KALIDOUS_TOKEN_SCENE},
-    {"end", KALIDOUS_TOKEN_END},
+    {"if", ZITH_TOKEN_IF},
+    {"else", ZITH_TOKEN_ELSE},
+    {"for", ZITH_TOKEN_FOR},
+    {"in", ZITH_TOKEN_IN},
+    {"switch", ZITH_TOKEN_SWITCH},
+    {"return", ZITH_TOKEN_RETURN},
+    {"break", ZITH_TOKEN_BREAK},
+    {"continue", ZITH_TOKEN_CONTINUE},
+    {"goto", ZITH_TOKEN_GOTO},
+    {"marker", ZITH_TOKEN_MARKER},
+    {"scene", ZITH_TOKEN_SCENE},
+    {"end", ZITH_TOKEN_END},
 
     // --- Concorrência -------------------------------------------------------
-    {"spawn", KALIDOUS_TOKEN_SPAWN},
-    {"await", KALIDOUS_TOKEN_AWAIT},
+    {"spawn", ZITH_TOKEN_SPAWN},
+    {"await", ZITH_TOKEN_AWAIT},
 
     // --- Tratamento de erros ------------------------------------------------
-    {"try", KALIDOUS_TOKEN_TRY},
-    {"catch", KALIDOUS_TOKEN_CATCH},
-    {"must", KALIDOUS_TOKEN_MUST},
+    {"try", ZITH_TOKEN_TRY},
+    {"catch", ZITH_TOKEN_CATCH},
+    {"must", ZITH_TOKEN_MUST},
 
     // --- Operadores multi-caractere -----------------------------------------
-    {"and", KALIDOUS_TOKEN_AND},
-    {"or", KALIDOUS_TOKEN_OR},
-    {"not", KALIDOUS_TOKEN_NOT_EQUAL},
-    {"==", KALIDOUS_TOKEN_EQUAL},
-    {">=", KALIDOUS_TOKEN_GREATER_THAN_OR_EQUAL},
-    {"<=", KALIDOUS_TOKEN_LESS_THAN_OR_EQUAL},
-    {"->", KALIDOUS_TOKEN_ARROW},
-    {"+=", KALIDOUS_TOKEN_PLUS_EQUAL},
-    {"-=", KALIDOUS_TOKEN_MINUS_EQUAL},
-    {"*=", KALIDOUS_TOKEN_MULTIPLY_EQUAL},
-    {"/=", KALIDOUS_TOKEN_DIVIDE_EQUAL},
-    {":=", KALIDOUS_TOKEN_DECLARATION},
-    {"...", KALIDOUS_TOKEN_DOTS},
+    {"and", ZITH_TOKEN_AND},
+    {"or", ZITH_TOKEN_OR},
+    {"not", ZITH_TOKEN_NOT_EQUAL},
+    {"==", ZITH_TOKEN_EQUAL},
+    {">=", ZITH_TOKEN_GREATER_THAN_OR_EQUAL},
+    {"<=", ZITH_TOKEN_LESS_THAN_OR_EQUAL},
+    {"->", ZITH_TOKEN_ARROW},
+    {"+=", ZITH_TOKEN_PLUS_EQUAL},
+    {"-=", ZITH_TOKEN_MINUS_EQUAL},
+    {"*=", ZITH_TOKEN_MULTIPLY_EQUAL},
+    {"/=", ZITH_TOKEN_DIVIDE_EQUAL},
+    {":=", ZITH_TOKEN_DECLARATION},
+    {"...", ZITH_TOKEN_DOTS},
 
     // --- Operadores simples -------------------------------------------------
-    {"+", KALIDOUS_TOKEN_PLUS},
-    {"-", KALIDOUS_TOKEN_MINUS},
-    {"*", KALIDOUS_TOKEN_MULTIPLY},
-    {"/", KALIDOUS_TOKEN_DIVIDE},
-    {"%", KALIDOUS_TOKEN_MOD},
-    {"=", KALIDOUS_TOKEN_ASSIGNMENT},
-    {"<", KALIDOUS_TOKEN_LESS_THAN},
-    {">", KALIDOUS_TOKEN_GREATER_THAN},
-    {"!", KALIDOUS_TOKEN_BANG},
-    {"?", KALIDOUS_TOKEN_QUESTION},
+    {"+", ZITH_TOKEN_PLUS},
+    {"-", ZITH_TOKEN_MINUS},
+    {"*", ZITH_TOKEN_MULTIPLY},
+    {"/", ZITH_TOKEN_DIVIDE},
+    {"%", ZITH_TOKEN_MOD},
+    {"=", ZITH_TOKEN_ASSIGNMENT},
+    {"<", ZITH_TOKEN_LESS_THAN},
+    {">", ZITH_TOKEN_GREATER_THAN},
+    {"!", ZITH_TOKEN_BANG},
+    {"?", ZITH_TOKEN_QUESTION},
 
     // --- Delimitadores ------------------------------------------------------
-    {"(", KALIDOUS_TOKEN_LPAREN}, {")", KALIDOUS_TOKEN_RPAREN},
-    {"{", KALIDOUS_TOKEN_LBRACE}, {"}", KALIDOUS_TOKEN_RBRACE},
-    {"[", KALIDOUS_TOKEN_LBRACKET}, {"]", KALIDOUS_TOKEN_RBRACKET},
-    {",", KALIDOUS_TOKEN_COMMA}, {";", KALIDOUS_TOKEN_SEMICOLON},
-    {":", KALIDOUS_TOKEN_COLON}, {".", KALIDOUS_TOKEN_DOT},
+    {"(", ZITH_TOKEN_LPAREN}, {")", ZITH_TOKEN_RPAREN},
+    {"{", ZITH_TOKEN_LBRACE}, {"}", ZITH_TOKEN_RBRACE},
+    {"[", ZITH_TOKEN_LBRACKET}, {"]", ZITH_TOKEN_RBRACKET},
+    {",", ZITH_TOKEN_COMMA}, {";", ZITH_TOKEN_SEMICOLON},
+    {":", ZITH_TOKEN_COLON}, {".", ZITH_TOKEN_DOT},
 });
 
 // ============================================================================
@@ -227,18 +227,18 @@ namespace {
             }
         }
 
-        [[nodiscard]] constexpr KalidousTokenType lookup(std::string_view sv) const {
-            if (sv.empty()) return KALIDOUS_TOKEN_IDENTIFIER;
+        [[nodiscard]] constexpr ZithTokenType lookup(std::string_view sv) const {
+            if (sv.empty()) return ZITH_TOKEN_IDENTIFIER;
 
             const uint64_t h = hash64(sv);
             const size_t b = h % BucketCount;
             const size_t idx = mix64(h ^ bucketSeed[b]) % TableSize;
             const int16_t id = table[idx];
 
-            if (id < 0) return KALIDOUS_TOKEN_IDENTIFIER;
+            if (id < 0) return ZITH_TOKEN_IDENTIFIER;
             return (TokenTable[id].first == sv)
                        ? TokenTable[id].second
-                       : KALIDOUS_TOKEN_IDENTIFIER;
+                       : ZITH_TOKEN_IDENTIFIER;
         }
     };
 
@@ -249,7 +249,7 @@ namespace {
 // C API
 // ============================================================================
 
-extern "C" KalidousTokenType kalidous_lookup_keyword(const char *str, const size_t len) {
-    if (!str || len == 0) return KALIDOUS_TOKEN_IDENTIFIER;
+extern "C" ZithTokenType zith_lookup_keyword(const char *str, const size_t len) {
+    if (!str || len == 0) return ZITH_TOKEN_IDENTIFIER;
     return g_hasher.lookup(std::string_view(str, len));
 }

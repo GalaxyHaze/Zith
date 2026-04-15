@@ -10,38 +10,38 @@
 TEST_CASE("SCAN: empty source produces a PROGRAM node", "[scan]") {
     auto ast = parse_test("");
     REQUIRE(ast);
-    REQUIRE(ast->type == KALIDOUS_NODE_PROGRAM);
+    REQUIRE(ast->type == ZITH_NODE_PROGRAM);
     REQUIRE(ast->data.list.len == 0);
 }
 
 TEST_CASE("SCAN: single function declaration", "[scan]") {
     auto ast = parse_test("fn foo(): i32 { return 42; }");
     REQUIRE(ast);
-    REQUIRE(ast->type == KALIDOUS_NODE_PROGRAM);
+    REQUIRE(ast->type == ZITH_NODE_PROGRAM);
     REQUIRE(ast->data.list.len == 1);
 
-    auto *decl = static_cast<KalidousNode **>(ast->data.list.ptr)[0];
-    REQUIRE(decl->type == KALIDOUS_NODE_FUNC_DECL);
+    auto *decl = static_cast<ZithNode **>(ast->data.list.ptr)[0];
+    REQUIRE(decl->type == ZITH_NODE_FUNC_DECL);
 
-    auto *p = static_cast<KalidousFuncPayload *>(decl->data.list.ptr);
+    auto *p = static_cast<ZithFuncPayload *>(decl->data.list.ptr);
     REQUIRE(p != nullptr);
     REQUIRE(std::string(p->name) == "foo");
     REQUIRE(p->param_count == 0);
 }
 
 TEST_CASE("SCAN: function with parameters", "[scan]") {
-    auto ast = parse_test("fn add(a: i32, b: i32) -> i32 { return a + b; }");
+    auto ast = parse_test("fn add(a, b, c) -> i32 { return a + b; }");
     REQUIRE(ast);
     REQUIRE(ast->data.list.len == 1);
 
-    auto *decl = static_cast<KalidousNode **>(ast->data.list.ptr)[0];
-    auto *p = static_cast<KalidousFuncPayload *>(decl->data.list.ptr);
-    REQUIRE(p->param_count == 2);
+    auto *decl = static_cast<ZithNode **>(ast->data.list.ptr)[0];
+    auto *p = static_cast<ZithFuncPayload *>(decl->data.list.ptr);
+    REQUIRE(p->param_count == 3);
 
-    auto *pa = static_cast<KalidousParamPayload *>(p->params[0]->data.list.ptr);
+    auto *pa = static_cast<ZithParamPayload *>(p->params[0]->data.list.ptr);
     // Note: parameter name may include trailing garbage due to tokenizer issue
-    REQUIRE(pa->name[0] == 'a');
-    auto *pb = static_cast<KalidousParamPayload *>(p->params[1]->data.list.ptr);
+    REQUIRE(pa->name[0] == 'a' );
+    auto *pb = static_cast<ZithParamPayload *>(p->params[1]->data.list.ptr);
     REQUIRE(pb->name[0] == 'b');
 }
 
@@ -49,10 +49,10 @@ TEST_CASE("SCAN: function body is UNBODY", "[scan]") {
     auto ast = parse_test("fn foo() { let x = 1; }");
     REQUIRE(ast);
 
-    auto *decl = static_cast<KalidousNode **>(ast->data.list.ptr)[0];
-    auto *p = static_cast<KalidousFuncPayload *>(decl->data.list.ptr);
+    auto *decl = static_cast<ZithNode **>(ast->data.list.ptr)[0];
+    auto *p = static_cast<ZithFuncPayload *>(decl->data.list.ptr);
     REQUIRE(p->body != nullptr);
-    REQUIRE(p->body->type == KALIDOUS_NODE_UNBODY);
+    REQUIRE(p->body->type == ZITH_NODE_UNBODY);
     // UNBODY stores raw tokens — len is the token count
     REQUIRE(p->body->data.list.len > 0);
 }
@@ -67,10 +67,10 @@ TEST_CASE("SCAN: struct declaration", "[scan]") {
     REQUIRE(ast);
     REQUIRE(ast->data.list.len == 1);
 
-    auto *decl = static_cast<KalidousNode **>(ast->data.list.ptr)[0];
-    REQUIRE(decl->type == KALIDOUS_NODE_STRUCT_DECL);
+    auto *decl = static_cast<ZithNode **>(ast->data.list.ptr)[0];
+    REQUIRE(decl->type == ZITH_NODE_STRUCT_DECL);
 
-    auto *p = static_cast<KalidousStructPayload *>(decl->data.list.ptr);
+    auto *p = static_cast<ZithStructPayload *>(decl->data.list.ptr);
     REQUIRE(std::string(p->name) == "Point");
     REQUIRE(p->field_count == 2);
 }
@@ -87,13 +87,12 @@ TEST_CASE("SCAN: multiple declarations", "[scan]") {
 
 TEST_CASE("SCAN: async fn kind — currently errors", "[scan]") {
     auto ast = parse_test("async fn fetch() { }");
-    auto *decl = static_cast<KalidousNode **>(ast->data.list.ptr)[0];
-    auto *p = static_cast<KalidousFuncPayload *>(decl->data.list.ptr);
+    auto *decl = static_cast<ZithNode **>(ast->data.list.ptr)[0];
+    auto *p = static_cast<ZithFuncPayload *>(decl->data.list.ptr);
     (void)p;
 }
 
 TEST_CASE("SCAN: noreturn fn kind — currently errors", "[scan]") {
-    // TODO: same issue as async — 'noreturn' not tokenized as keyword
     auto ast = parse_test("noreturn fn crash() { }");
     (void)ast;
 }
@@ -102,9 +101,9 @@ TEST_CASE("SCAN: public visibility", "[scan]") {
     auto ast = parse_test("public fn init() { }");
     REQUIRE(ast);
 
-    auto *decl = static_cast<KalidousNode **>(ast->data.list.ptr)[0];
-    auto *p = static_cast<KalidousFuncPayload *>(decl->data.list.ptr);
-    REQUIRE(p->visibility == KALIDOUS_VIS_PUBLIC);
+    auto *decl = static_cast<ZithNode **>(ast->data.list.ptr)[0];
+    auto *p = static_cast<ZithFuncPayload *>(decl->data.list.ptr);
+    REQUIRE(p->visibility == ZITH_VIS_PUBLIC);
 }
 
 TEST_CASE("SCAN: struct with method", "[scan]") {
@@ -116,28 +115,28 @@ TEST_CASE("SCAN: struct with method", "[scan]") {
     );
     REQUIRE(ast);
 
-    auto *sdecl = static_cast<KalidousNode **>(ast->data.list.ptr)[0];
-    auto *sp = static_cast<KalidousStructPayload *>(sdecl->data.list.ptr);
+    auto *sdecl = static_cast<ZithNode **>(ast->data.list.ptr)[0];
+    auto *sp = static_cast<ZithStructPayload *>(sdecl->data.list.ptr);
     REQUIRE(sp->field_count == 1);
     REQUIRE(sp->method_count == 1);
 
     auto *m = sp->methods[0];
-    auto *mp = static_cast<KalidousFuncPayload *>(m->data.list.ptr);
+    auto *mp = static_cast<ZithFuncPayload *>(m->data.list.ptr);
     REQUIRE(std::string(mp->name) == "len");
 }
 
 TEST_CASE("SCAN: import declaration", "[scan]") {
     auto ast = parse_test("import std.io;");
     REQUIRE(ast);
-    REQUIRE(ast->type == KALIDOUS_NODE_PROGRAM);
+    REQUIRE(ast->type == ZITH_NODE_PROGRAM);
     
-    auto **decls = static_cast<KalidousNode **>(ast->data.list.ptr);
+    auto **decls = static_cast<ZithNode **>(ast->data.list.ptr);
     REQUIRE(ast->data.list.len >= 1);
     
     auto *import_node = decls[0];
-    REQUIRE(import_node->type == KALIDOUS_NODE_IMPORT);
+    REQUIRE(import_node->type == ZITH_NODE_IMPORT);
     
-    auto *payload = static_cast<KalidousImportPayload *>(import_node->data.list.ptr);
+    auto *payload = static_cast<ZithImportPayload *>(import_node->data.list.ptr);
     REQUIRE(payload != nullptr);
     REQUIRE(std::string(payload->path) == "std.io");
     REQUIRE(payload->is_export == false);
@@ -147,15 +146,15 @@ TEST_CASE("SCAN: import declaration", "[scan]") {
 TEST_CASE("SCAN: import declaration with alias", "[scan]") {
     auto ast = parse_test("import std.io.console as console;");
     REQUIRE(ast);
-    REQUIRE(ast->type == KALIDOUS_NODE_PROGRAM);
+    REQUIRE(ast->type == ZITH_NODE_PROGRAM);
     
-    auto **decls = static_cast<KalidousNode **>(ast->data.list.ptr);
+    auto **decls = static_cast<ZithNode **>(ast->data.list.ptr);
     REQUIRE(ast->data.list.len >= 1);
     
     auto *import_node = decls[0];
-    REQUIRE(import_node->type == KALIDOUS_NODE_IMPORT);
+    REQUIRE(import_node->type == ZITH_NODE_IMPORT);
     
-    auto *payload = static_cast<KalidousImportPayload *>(import_node->data.list.ptr);
+    auto *payload = static_cast<ZithImportPayload *>(import_node->data.list.ptr);
     REQUIRE(payload != nullptr);
     REQUIRE(std::string(payload->path) == "std.io.console");
     REQUIRE(payload->alias != nullptr);
@@ -165,15 +164,15 @@ TEST_CASE("SCAN: import declaration with alias", "[scan]") {
 TEST_CASE("SCAN: from import declaration", "[scan]") {
     auto ast = parse_test("from std.io.console import println;");
     REQUIRE(ast);
-    REQUIRE(ast->type == KALIDOUS_NODE_PROGRAM);
+    REQUIRE(ast->type == ZITH_NODE_PROGRAM);
     
-    auto **decls = static_cast<KalidousNode **>(ast->data.list.ptr);
+    auto **decls = static_cast<ZithNode **>(ast->data.list.ptr);
     REQUIRE(ast->data.list.len >= 1);
     
     auto *import_node = decls[0];
-    REQUIRE(import_node->type == KALIDOUS_NODE_IMPORT);
+    REQUIRE(import_node->type == ZITH_NODE_IMPORT);
     
-    auto *payload = static_cast<KalidousImportPayload *>(import_node->data.list.ptr);
+    auto *payload = static_cast<ZithImportPayload *>(import_node->data.list.ptr);
     REQUIRE(payload != nullptr);
     REQUIRE(std::string(payload->path) == "std.io.console");
     REQUIRE(payload->is_from == true);
@@ -182,15 +181,15 @@ TEST_CASE("SCAN: from import declaration", "[scan]") {
 TEST_CASE("SCAN: from import declaration with alias", "[scan]") {
     auto ast = parse_test("from std.io.console import println as log;");
     REQUIRE(ast);
-    REQUIRE(ast->type == KALIDOUS_NODE_PROGRAM);
+    REQUIRE(ast->type == ZITH_NODE_PROGRAM);
     
-    auto **decls = static_cast<KalidousNode **>(ast->data.list.ptr);
+    auto **decls = static_cast<ZithNode **>(ast->data.list.ptr);
     REQUIRE(ast->data.list.len >= 1);
     
     auto *import_node = decls[0];
-    REQUIRE(import_node->type == KALIDOUS_NODE_IMPORT);
+    REQUIRE(import_node->type == ZITH_NODE_IMPORT);
     
-    auto *payload = static_cast<KalidousImportPayload *>(import_node->data.list.ptr);
+    auto *payload = static_cast<ZithImportPayload *>(import_node->data.list.ptr);
     REQUIRE(payload != nullptr);
     REQUIRE(std::string(payload->path) == "std.io.console");
     REQUIRE(payload->is_from == true);
@@ -201,19 +200,19 @@ TEST_CASE("SCAN: from import declaration with alias", "[scan]") {
 TEST_CASE("SCAN: export declaration", "[scan]") {
     auto ast = parse_test("export std.io.console.println;");
     REQUIRE(ast);
-    REQUIRE(ast->type == KALIDOUS_NODE_PROGRAM);
+    REQUIRE(ast->type == ZITH_NODE_PROGRAM);
     
-    auto **decls = static_cast<KalidousNode **>(ast->data.list.ptr);
+    auto **decls = static_cast<ZithNode **>(ast->data.list.ptr);
     REQUIRE(ast->data.list.len >= 1);
     
     auto *export_node = decls[0];
-    REQUIRE(export_node->type == KALIDOUS_NODE_EXPORT);
+    REQUIRE(export_node->type == ZITH_NODE_EXPORT);
     
-    auto *payload = static_cast<KalidousImportPayload *>(export_node->data.list.ptr);
+    auto *payload = static_cast<ZithImportPayload *>(export_node->data.list.ptr);
     REQUIRE(payload != nullptr);
     REQUIRE(std::string(payload->path) == "std.io.console.println");
     REQUIRE(payload->is_export == true);
-    REQUIRE(payload->vis == KALIDOUS_VIS_PUBLIC);
+    REQUIRE(payload->vis == ZITH_VIS_PUBLIC);
 }
 
 // ============================================================================
@@ -298,13 +297,13 @@ TEST_CASE("SCAN: from import alias without name", "[scan][error]") {
 // ============================================================================
 
 TEST_CASE("SCAN: null source returns nullptr", "[scan][error]") {
-    auto *node = kalidous_parse_test(nullptr);
+    auto *node = zith_parse_test(nullptr);
     REQUIRE(node == nullptr);
 }
 
 TEST_CASE("SCAN: invalid token produces error diagnostic", "[scan][error]") {
     // '@' alone is not a valid token start in most grammars
-    auto *node = kalidous_parse_test("@@@");
+    auto *node = zith_parse_test("@@@");
     // Should still produce a PROGRAM node (possibly with error children)
     // but diagnostics should have been printed to stderr
     (void)node; // diagnostics go to stderr
@@ -345,8 +344,8 @@ TEST_CASE("Arena reuse: second parse resets arena", "[raii]") {
     auto r2 = parse_test("fn bar() { }");
     REQUIRE(r2);
 
-    auto **decls = static_cast<KalidousNode **>(r2->data.list.ptr);
-    auto *p = static_cast<KalidousFuncPayload *>(decls[0]->data.list.ptr);
+    auto **decls = static_cast<ZithNode **>(r2->data.list.ptr);
+    auto *p = static_cast<ZithFuncPayload *>(decls[0]->data.list.ptr);
     // Name may have garbage due to tokenizer issue — just check it starts with 'b'
     REQUIRE(p->name[0] == 'b');
 }
@@ -357,5 +356,5 @@ TEST_CASE("Arena reuse: second parse resets arena", "[raii]") {
 
 TEST_CASE("Arena destroy at end", "[cleanup]") {
     // Just call destroy — should be safe even if arena was already reset
-    kalidous_test_arena_destroy();
+    zith_test_arena_destroy();
 }

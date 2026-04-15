@@ -1,6 +1,6 @@
 // ============================================================================
 // 04_error_handling.kali
-// Demonstrates Kalidous error handling: navigation modifiers, fallback chains,
+// Demonstrates Zith error handling: navigation modifiers, fallback chains,
 // and try/catch blocks.
 // ============================================================================
 
@@ -343,7 +343,7 @@ fn demo_pattern_selection() {
 // ----------------------------------------------------------------------------
 
 fn main() {
-    println("Kalidous Error Handling Demo\n");
+    println("Zith Error Handling Demo\n");
     println("===========================\n");
 
     demo_navigation_modifiers();

@@ -1,4 +1,4 @@
-// impl/parser/parser.h — Parser interface for Kalidous
+// impl/parser/parser.h — Parser interface for Zith
 //
 // Refactored to use centralized modules:
 //   - diagnostics.hpp for error reporting
@@ -23,15 +23,15 @@ extern "C" {
 // Sub-parsers — declared here, implemented in parser_decl.cpp, parser_expr.cpp
 // ============================================================================
 
-KalidousNode *parser_parse_declaration(Parser *p);
+ZithNode *parser_parse_declaration(Parser *p);
 
-KalidousNode *parser_parse_statement(Parser *p);
+ZithNode *parser_parse_statement(Parser *p);
 
-KalidousNode *parser_parse_expression(Parser *p);
+ZithNode *parser_parse_expression(Parser *p);
 
-KalidousNode *parser_parse_type(Parser *p);
+ZithNode *parser_parse_type(Parser *p);
 
-KalidousNode *parser_parse_block(Parser *p);
+ZithNode *parser_parse_block(Parser *p);
 
 // ============================================================================
 // Convenience API for tests
@@ -41,10 +41,10 @@ KalidousNode *parser_parse_block(Parser *p);
 // The arena is reset on each call — the previous result becomes invalid.
 // For C++ users, prefer the RAII wrapper `ParseResult` below.
 // Diagnostics are printed to stderr; returns nullptr on lex error.
-KalidousNode *kalidous_parse_test(const char *source);
+ZithNode *zith_parse_test(const char *source);
 
 // Cleanup the global test arena (call once at end of test suite).
-void kalidous_test_arena_destroy(void);
+void zith_test_arena_destroy(void);
 
 #ifdef __cplusplus
 } // extern "C"
@@ -54,10 +54,10 @@ void kalidous_test_arena_destroy(void);
 // ============================================================================
 
 struct ParseResult {
-    KalidousNode *node = nullptr;
+    ZithNode *node = nullptr;
 
     ParseResult() = default;
-    explicit ParseResult(KalidousNode *n) : node(n) {}
+    explicit ParseResult(ZithNode *n) : node(n) {}
 
     ~ParseResult() { reset(); }
 
@@ -73,8 +73,8 @@ struct ParseResult {
     }
 
     // Access
-    KalidousNode *get() const { return node; }
-    KalidousNode *operator->() const { return node; }
+    ZithNode *get() const { return node; }
+    ZithNode *operator->() const { return node; }
     explicit operator bool() const { return node != nullptr; }
 
     // Reset the global arena, invalidating this result.
@@ -84,7 +84,7 @@ struct ParseResult {
 
 // C++ convenience — returns RAII wrapper.
 inline ParseResult parse_test(const char *source) {
-    return ParseResult(kalidous_parse_test(source));
+    return ParseResult(zith_parse_test(source));
 }
 #endif // __cplusplus
 
@@ -92,7 +92,7 @@ inline ParseResult parse_test(const char *source) {
 // Legacy alias — available in both C and C++
 // ============================================================================
 
-static inline void parser_emit(Parser *p, KalidousSourceLoc loc,
-                               KalidousDiagSeverity severity, const char *msg) {
+static inline void parser_emit(Parser *p, ZithSourceLoc loc,
+                               ZithDiagSeverity severity, const char *msg) {
     parser_emit_diag(p, loc, severity, msg);
 }

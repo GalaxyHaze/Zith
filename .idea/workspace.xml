@@ -20,10 +20,10 @@
   </component>
   <component name="CMakeRunConfigurationManager">
     <generated>
-      <config projectName="kalidous" targetName="KalidousParse" />
-      <config projectName="kalidous" targetName="kalidous" />
-      <config projectName="kalidous" targetName="CLI11" />
-      <config projectName="kalidous" targetName="KalidousCore" />
+      <config projectName="zith" targetName="ZithParse" />
+      <config projectName="zith" targetName="zith" />
+      <config projectName="zith" targetName="CLI11" />
+      <config projectName="zith" targetName="ZithCore" />
     </generated>
   </component>
   <component name="CMakeSettings">
@@ -66,7 +66,7 @@
 }</component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
-    &quot;url&quot;: &quot;https://github.com/GalaxyHaze/Kalidous-Lang.git&quot;,
+    &quot;url&quot;: &quot;https://github.com/GalaxyHaze/Zith-Lang.git&quot;,
     &quot;accountId&quot;: &quot;7924b62b-ab4a-4473-a106-26e4bc834b7c&quot;
   }
 }</component>
@@ -92,12 +92,12 @@
   </component>
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
-    "CMake Application.Kalidous.executor": "Run",
-    "CMake Application.KalidousCore.executor": "Run",
-    "CMake Application.kalidous.executor": "Run",
+    "CMake Application.Zith.executor": "Run",
+    "CMake Application.ZithCore.executor": "Run",
+    "CMake Application.zith.executor": "Run",
     "DefaultHtmlFileTemplate": "HTML File",
     "JavaScript Debug.index.html.executor": "Coverage",
-    "JavaScript Debug.kalidous doc.html.executor": "Run",
+    "JavaScript Debug.zith doc.html.executor": "Run",
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "RunOnceActivity.RadMigrateCodeStyle": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
@@ -117,7 +117,7 @@
     "node.js.selected.package.eslint": "(autodetect)",
     "node.js.selected.package.tslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
-    "onboarding.tips.debug.path": "/home/diogo/CLionProjects/Kalidous-Implementation/main.cpp",
+    "onboarding.tips.debug.path": "/home/diogo/CLionProjects/Zith-Implementation/main.cpp",
     "org.rust.first.attach.projects": "true",
     "run.code.analysis.last.selected.profile": "pProject Default",
     "settings.editor.selected.configurable": "terminal",
@@ -137,27 +137,27 @@
       <recent name="$PROJECT_DIR$/docs/assets/pages/cli" />
     </key>
   </component>
-  <component name="RunManager" selected="CMake Application.Kalidous">
-    <configuration name="Kalidous" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="kalidous" TARGET_NAME="kalidous" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="kalidous" RUN_TARGET_NAME="kalidous">
+  <component name="RunManager" selected="CMake Application.Zith">
+    <configuration name="Zith" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="zith" TARGET_NAME="zith" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="zith" RUN_TARGET_NAME="zith">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
-    <configuration name="index.html" type="JavascriptDebugType" temporary="true" nameIsGenerated="true" engineId="98ca6316-2f89-46d9-a9e5-fa9e2b0625b3" uri="http://localhost:63342/Kalidous/docs/index.html" useBuiltInWebServerPort="true">
+    <configuration name="index.html" type="JavascriptDebugType" temporary="true" nameIsGenerated="true" engineId="98ca6316-2f89-46d9-a9e5-fa9e2b0625b3" uri="http://localhost:63342/Zith/docs/index.html" useBuiltInWebServerPort="true">
       <method v="2" />
     </configuration>
-    <configuration name="kalidous doc.html" type="JavascriptDebugType" temporary="true" nameIsGenerated="true" uri="http://localhost:63342/Kalidous/kalidous doc.html" useBuiltInWebServerPort="true">
+    <configuration name="zith doc.html" type="JavascriptDebugType" temporary="true" nameIsGenerated="true" uri="http://localhost:63342/Zith/zith doc.html" useBuiltInWebServerPort="true">
       <method v="2" />
     </configuration>
     <list>
-      <item itemvalue="CMake Application.Kalidous" />
+      <item itemvalue="CMake Application.Zith" />
       <item itemvalue="JavaScript Debug.index.html" />
-      <item itemvalue="JavaScript Debug.kalidous doc.html" />
+      <item itemvalue="JavaScript Debug.zith doc.html" />
     </list>
     <recent_temporary>
       <list>
         <item itemvalue="JavaScript Debug.index.html" />
-        <item itemvalue="JavaScript Debug.kalidous doc.html" />
+        <item itemvalue="JavaScript Debug.zith doc.html" />
       </list>
     </recent_temporary>
   </component>
@@ -195,7 +195,7 @@
       <workItem from="1774822356894" duration="260000" />
       <workItem from="1775064276694" duration="40000" />
     </task>
-    <task id="LOCAL-00001" summary="Migration: to Kalidous-Lang">
+    <task id="LOCAL-00001" summary="Migration: to Zith-Lang">
       <option name="closed" value="true" />
       <created>1772097537799</created>
       <option name="number" value="00001" />
@@ -314,7 +314,7 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Migration: to Kalidous-Lang" />
+    <MESSAGE value="Migration: to Zith-Lang" />
     <MESSAGE value="Open-source" />
     <MESSAGE value=".ignore" />
     <MESSAGE value="shikai" />

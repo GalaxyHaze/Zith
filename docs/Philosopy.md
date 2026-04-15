@@ -4,7 +4,7 @@
 
 > **"What if C++ had been designed thoughtfully from the start?"**
 
-Kalidous addresses this question. It starts simple, scales gracefully, and avoids forcing unnecessary abstractions.
+Zith addresses this question. It starts simple, scales gracefully, and avoids forcing unnecessary abstractions.
 
 ---
 
@@ -14,7 +14,7 @@ Kalidous addresses this question. It starts simple, scales gracefully, and avoid
 
 Every language construct communicates intent clearly and uniquely.
 
-```kalidous
+```zith
 // Explicit: you know the exact contract
 fn process(mut self: Health, dmg: view u16) { }
          // ^explicit ownership: view = read-only
@@ -23,7 +23,7 @@ fn process(mut self: Health, dmg: view u16) { }
 **Comparison with alternatives:**
 - C: No ownership semantics (is it an `int*`?)
 - Rust: Verbose lifetime annotations (`'a`, `'b`)
-- Kalidous: Simple keywords (`view`, `lend`, `unique`)
+- Zith: Simple keywords (`view`, `lend`, `unique`)
 
 ---
 
@@ -31,7 +31,7 @@ fn process(mut self: Health, dmg: view u16) { }
 
 The compiler handles the heavy lifting by **detecting errors** through rigorous semantics, rather than relying on runtime checks or garbage collection.
 
-```kalidous
+```zith
 let health: unique u16 = alloc.new(100);
 let ref: view u16 = health;
 
@@ -44,7 +44,7 @@ ref += 10;  // Compile Error: view does not allow writing
 
 It starts with simple C-like syntax. Components are added when necessary.
 
-```kalidous
+```zith
 // Basic: functions like C
 fn add(a: i32, b: i32): i32 { a + b }
 
@@ -59,7 +59,7 @@ entity Player { Position, ... }
 
 Define domain-specific languages **without strings**, **without injection**, and **without namespace pollution**.
 
-```kalidous
+```zith
 context SQL {
     use infix = SQL.operators;
     infix operator SELECT(cols);
@@ -77,7 +77,7 @@ use context SQL {
 
 Each scene is an isolated resource container. There is no state leakage between levels, pages, or subsystems.
 
-```kalidous
+```zith
 scene MainMenu { /* isolated resources */ }
 scene GameLevel { /* isolated resources */ }
 scene PauseMenu { /* isolated resources */ }
@@ -89,7 +89,7 @@ scene PauseMenu { /* isolated resources */ }
 
 ## Comparison with Alternatives
 
-| Aspect | C | C++ | Rust | Zig | Kalidous |
+| Aspect | C | C++ | Rust | Zig | Zith |
 |--------|---|-----|------|-----|----------|
 | **Initial Simplicity** | Yes | No | No | Yes | Yes |
 | **Explicit Ownership** | No | Partial | Yes | Partial | Yes |
@@ -127,7 +127,7 @@ For complex behavior, use `entity` or `struct`.
 
 ---
 
-## What Kalidous Is Not
+## What Zith Is Not
 
 - A direct replacement for Rust (Rust offers stronger safety guarantees)
 - A "better C++" (C++ has a massive ecosystem)
@@ -136,7 +136,7 @@ For complex behavior, use `entity` or `struct`.
 
 ---
 
-## What Kalidous Is
+## What Zith Is
 
 - A systems language with a deliberate design philosophy
 - Suitable for beginners learning low-level programming

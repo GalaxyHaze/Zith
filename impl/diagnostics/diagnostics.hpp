@@ -4,7 +4,7 @@
 // that tracks errors, warnings, and notes with source context.
 #pragma once
 
-#include <kalidous/kalidous.hpp>
+#include <zith/zith.hpp>
 #include <cstddef>
 #include <cstdio>
 
@@ -16,31 +16,31 @@ extern "C" {
 // Diagnostic severity and structure
 // ============================================================================
 
-typedef enum KalidousDiagSeverity {
-    KALIDOUS_DIAG_ERROR   = 0,
-    KALIDOUS_DIAG_WARNING = 1,
-    KALIDOUS_DIAG_NOTE    = 2,
-    KALIDOUS_DIAG_INFO    = 3,
-} KalidousDiagSeverity;
+typedef enum ZithDiagSeverity {
+    ZITH_DIAG_ERROR   = 0,
+    ZITH_DIAG_WARNING = 1,
+    ZITH_DIAG_NOTE    = 2,
+    ZITH_DIAG_INFO    = 3,
+} ZithDiagSeverity;
 
-typedef struct KalidousDiagnostic {
+typedef struct ZithDiagnostic {
     const char *message;           // interned in arena
-    KalidousSourceLoc loc;
-    KalidousDiagSeverity severity;
-} KalidousDiagnostic;
+    ZithSourceLoc loc;
+    ZithDiagSeverity severity;
+} ZithDiagnostic;
 
-typedef struct KalidousDiagList {
-    KalidousDiagnostic *items;
+typedef struct ZithDiagList {
+    ZithDiagnostic *items;
     size_t count;
     size_t capacity;
-} KalidousDiagList;
+} ZithDiagList;
 
 // ============================================================================
 // C API — diagnostic emission and printing
 // ============================================================================
 
 // Print all diagnostics with source context to stderr
-void kalidous_diag_print_all(const KalidousDiagList *diags,
+void zith_diag_print_all(const ZithDiagList *diags,
                              const char *source, size_t source_len,
                              const char *filename);
 
@@ -56,13 +56,13 @@ public:
     DiagManager() : diags_{nullptr, 0, 0}, had_error_(false) {}
 
     // Emit an error at the given location
-    void error(KalidousSourceLoc loc, const char *msg);
+    void error(ZithSourceLoc loc, const char *msg);
 
     // Emit a warning at the given location
-    void warning(KalidousSourceLoc loc, const char *msg);
+    void warning(ZithSourceLoc loc, const char *msg);
 
     // Emit a note at the given location
-    void note(KalidousSourceLoc loc, const char *msg);
+    void note(ZithSourceLoc loc, const char *msg);
 
     // Emit a generic info message (no source location)
     void info(const char *msg);
@@ -78,18 +78,18 @@ public:
     bool had_error() const { return had_error_; }
 
     // Access to raw list (for C API compatibility)
-    const KalidousDiagList &list() const { return diags_; }
+    const ZithDiagList &list() const { return diags_; }
 
     // Arena-backed storage — diagnostics live as long as the arena
-    void set_arena(KalidousArena *arena) { arena_ = arena; }
+    void set_arena(ZithArena *arena) { arena_ = arena; }
 
 private:
-    KalidousDiagList diags_;
-    KalidousArena *arena_ = nullptr;
+    ZithDiagList diags_;
+    ZithArena *arena_ = nullptr;
     bool had_error_;
 
     // Internal: emit a single diagnostic with arena-backed message
-    void emit(KalidousSourceLoc loc, KalidousDiagSeverity severity, const char *msg);
+    void emit(ZithSourceLoc loc, ZithDiagSeverity severity, const char *msg);
 };
 
 // ============================================================================
@@ -114,7 +114,7 @@ private:
 extern "C" {
 #endif
 
-#ifndef KALIDOUS_NO_DEBUG
+#ifndef ZITH_NO_DEBUG
 void debug_print(const char *fmt, ...);
 void debug_println(const char *fmt, ...);
 void debug_error(const char *fmt, ...);  // debug errors go to stderr
@@ -128,7 +128,7 @@ static inline void debug_error(const char *fmt, ...) { (void)fmt; }
 // I/O error reporting — used by file.c
 // ============================================================================
 
-void kalidous_io_error(const char *fmt, ...);
+void zith_io_error(const char *fmt, ...);
 
 #ifdef __cplusplus
 } // extern "C"

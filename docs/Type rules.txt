@@ -1,4 +1,4 @@
-In Kalidous, types are write just like you would spell it
+In Zith, types are write just like you would spell it
 
 [] / [N] -> array / slice of:
 mutable /  : mutable -> the content is mutable, ' ' -> default immutable

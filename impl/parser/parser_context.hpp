@@ -4,7 +4,7 @@
 // Extracted from parser.h/parser_utils.cpp to reduce coupling.
 #pragma once
 
-#include <kalidous/kalidous.hpp>
+#include <zith/zith.hpp>
 #include "../ast/ast.h"
 #include "../diagnostics/diagnostics.hpp"
 #include "../memory/arena.hpp"
@@ -18,20 +18,20 @@ extern "C" {
 // Symbol table (forward declaration — full implementation later)
 // ============================================================================
 
-typedef struct KalidousSymbolTable KalidousSymbolTable;
+typedef struct ZithSymbolTable ZithSymbolTable;
 
-typedef struct KalidousScope {
-    KalidousSymbolTable *parent;
-    KalidousSymbolTable *symbols;
-} KalidousScope;
+typedef struct ZithScope {
+    ZithSymbolTable *parent;
+    ZithSymbolTable *symbols;
+} ZithScope;
 
 // ============================================================================
 // Parser state
 // ============================================================================
 
 typedef struct Parser {
-    KalidousArena *arena;
-    const KalidousToken *tokens;
+    ZithArena *arena;
+    const ZithToken *tokens;
     size_t count;
     size_t pos;
 
@@ -39,10 +39,10 @@ typedef struct Parser {
     const char *source;
     size_t source_len;
     const char *filename;
-    KalidousSymbolTable *currentScope;
+    ZithSymbolTable *currentScope;
 
     // Accumulated diagnostics
-    KalidousDiagList diags;
+    ZithDiagList diags;
 
     // had_error: true if any ERROR was emitted
     bool had_error;
@@ -51,39 +51,39 @@ typedef struct Parser {
     bool panic;
 
     // Current function context
-    KalidousFnKind fn_kind;
+    ZithFnKind fn_kind;
     bool inside_fn;
 
     // Active group visibility modifier (default: private)
-    KalidousVisibility current_visibility;
-    KalidousParserMode mode;
-    KalidousNode *scan_root;
+    ZithVisibility current_visibility;
+    ZithParserMode mode;
+    ZithNode *scan_root;
 } Parser;
 
 // ============================================================================
 // Parser init
 // ============================================================================
 
-void parser_init(Parser *p, KalidousArena *arena,
+void parser_init(Parser *p, ZithArena *arena,
                  const char *source, size_t source_len,
                  const char *filename,
-                 KalidousTokenStream tokens);
+                 ZithTokenStream tokens);
 
 // ============================================================================
 // Token navigation
 // ============================================================================
 
-const KalidousToken *parser_peek(const Parser *p);
+const ZithToken *parser_peek(const Parser *p);
 
-const KalidousToken *parser_peek_ahead(const Parser *p, size_t offset);
+const ZithToken *parser_peek_ahead(const Parser *p, size_t offset);
 
-const KalidousToken *parser_advance(Parser *p);
+const ZithToken *parser_advance(Parser *p);
 
-bool parser_check(const Parser *p, KalidousTokenType type);
+bool parser_check(const Parser *p, ZithTokenType type);
 
-bool parser_match(Parser *p, KalidousTokenType type);
+bool parser_match(Parser *p, ZithTokenType type);
 
-const KalidousToken *parser_expect(Parser *p, KalidousTokenType type,
+const ZithToken *parser_expect(Parser *p, ZithTokenType type,
                                    const char *msg);
 
 bool parser_is_at_end(const Parser *p);
@@ -96,20 +96,20 @@ bool parser_check_kw(const Parser *p, const char *kw);
 // ============================================================================
 
 // Emit a diagnostic and potentially enter panic mode
-void parser_emit_diag(Parser *p, KalidousSourceLoc loc,
-                      KalidousDiagSeverity severity, const char *msg);
+void parser_emit_diag(Parser *p, ZithSourceLoc loc,
+                      ZithDiagSeverity severity, const char *msg);
 
 // Enter panic mode and synchronize to the next statement boundary
 void parser_synchronize(Parser *p);
 
 // Emit an error — sets panic mode
-void parser_error(Parser *p, KalidousSourceLoc loc, const char *msg);
+void parser_error(Parser *p, ZithSourceLoc loc, const char *msg);
 
 // Emit a warning — does NOT set panic mode
-void parser_warning(Parser *p, KalidousSourceLoc loc, const char *msg);
+void parser_warning(Parser *p, ZithSourceLoc loc, const char *msg);
 
 // Emit a note — does NOT set panic mode
-void parser_note(Parser *p, KalidousSourceLoc loc, const char *msg);
+void parser_note(Parser *p, ZithSourceLoc loc, const char *msg);
 
 // ============================================================================
 // Scanner mode helpers
@@ -133,8 +133,8 @@ public:
     ParserContext() : parser_{} {}
 
     // Initialize the parser with source and tokens
-    void init(KALIDOUS::Arena &arena, const char *source, size_t source_len,
-              const char *filename, KalidousTokenStream tokens) {
+    void init(ZITH::Arena &arena, const char *source, size_t source_len,
+              const char *filename, ZithTokenStream tokens) {
         arena_ = &arena;
         diag_.set_arena(arena.get());
         parser_init(&parser_, arena.get(), source, source_len, filename, tokens);
@@ -149,13 +149,13 @@ public:
     const DiagManager &diag() const { return diag_; }
 
     // Arena access
-    KALIDOUS::Arena *arena() { return arena_; }
-    const KALIDOUS::Arena *arena() const { return arena_; }
+    ZITH::Arena *arena() { return arena_; }
+    const ZITH::Arena *arena() const { return arena_; }
 
 private:
     Parser parser_;
     DiagManager diag_;
-    KALIDOUS::Arena *arena_ = nullptr;
+    ZITH::Arena *arena_ = nullptr;
 };
 
 #endif // __cplusplus

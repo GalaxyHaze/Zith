@@ -4,36 +4,36 @@
 // In SCAN mode, function bodies and blocks are captured as UNBODY nodes
 // without parsing their contents — the parser does NOT analyze block content.
 #include "../memory/arena.hpp"
-#include "kalidous/kalidous.hpp"
+#include "zith/zith.hpp"
 #include "parser.h"
 #include <cstring>
 
-using kalidous::ArenaList;
+using zith::ArenaList;
 
 // Forward declarations — parser utils
-extern const KalidousToken *parser_peek(const Parser *p);
-extern const KalidousToken *parser_peek_ahead(const Parser *p, size_t offset);
-extern const KalidousToken *parser_advance(Parser *p);
-extern bool parser_check(const Parser *p, KalidousTokenType type);
-extern bool parser_match(Parser *p, KalidousTokenType type);
-extern const KalidousToken *parser_expect(Parser *p, KalidousTokenType type, const char *msg);
-extern void parser_error(Parser *p, KalidousSourceLoc loc, const char *msg);
+extern const ZithToken *parser_peek(const Parser *p);
+extern const ZithToken *parser_peek_ahead(const Parser *p, size_t offset);
+extern const ZithToken *parser_advance(Parser *p);
+extern bool parser_check(const Parser *p, ZithTokenType type);
+extern bool parser_match(Parser *p, ZithTokenType type);
+extern const ZithToken *parser_expect(Parser *p, ZithTokenType type, const char *msg);
+extern void parser_error(Parser *p, ZithSourceLoc loc, const char *msg);
 extern void parser_synchronize(Parser *p);
 extern bool parser_check_kw(const Parser *p, const char *kw);
 extern bool check_kw(const Parser *p, const char *kw);
 
-extern KalidousNode *parser_parse_type(Parser *p);
-extern KalidousNode *parser_parse_expression(Parser *p);
+extern ZithNode *parser_parse_type(Parser *p);
+extern ZithNode *parser_parse_expression(Parser *p);
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
 // Captura tokens entre { e } para criar um nó UNBODY
-static KalidousNode *capture_unbody(Parser *p) {
-    const KalidousSourceLoc loc = parser_peek(p)->loc;
+static ZithNode *capture_unbody(Parser *p) {
+    const ZithSourceLoc loc = parser_peek(p)->loc;
     
-    if (!parser_match(p, KALIDOUS_TOKEN_LBRACE)) {
+    if (!parser_match(p, ZITH_TOKEN_LBRACE)) {
         // Se não tem '{', retorna nullptr (não é um bloco)
         return nullptr;
     }
@@ -44,9 +44,9 @@ static KalidousNode *capture_unbody(Parser *p) {
     
     // Avança até encontrar o '}' correspondente
     while (!parser_is_at_end(p) && depth > 0) {
-        const KalidousToken *t = parser_advance(p);
-        if (t->type == KALIDOUS_TOKEN_LBRACE) depth++;
-        else if (t->type == KALIDOUS_TOKEN_RBRACE) depth--;
+        const ZithToken *t = parser_advance(p);
+        if (t->type == ZITH_TOKEN_LBRACE) depth++;
+        else if (t->type == ZITH_TOKEN_RBRACE) depth--;
     }
     
     // Calcula quantos tokens estão no corpo (excluindo '{' e '}')
@@ -55,24 +55,24 @@ static KalidousNode *capture_unbody(Parser *p) {
     const size_t token_count = p->pos - start_pos - 1; // -1 para excluir o '}'
     
     // Os tokens do corpo começam em start_pos
-    const KalidousToken *body_tokens = &p->tokens[start_pos];
+    const ZithToken *body_tokens = &p->tokens[start_pos];
     
-    return kalidous_ast_make_unbody(p->arena, loc, body_tokens, token_count);
+    return zith_ast_make_unbody(p->arena, loc, body_tokens, token_count);
 }
 
-static KalidousVisibility parse_visibility(Parser *p, KalidousVisibility *current_vis) {
-    KalidousVisibility vis = *current_vis;
-    if (parser_check(p, KALIDOUS_TOKEN_MODIFIER)) {
+static ZithVisibility parse_visibility(Parser *p, ZithVisibility *current_vis) {
+    ZithVisibility vis = *current_vis;
+    if (parser_check(p, ZITH_TOKEN_MODIFIER)) {
         const char *d = parser_peek(p)->lexeme.data;
         size_t l = parser_peek(p)->lexeme.len;
-        if (l == 6 && strncmp(d, "public", 6) == 0) vis = KALIDOUS_VIS_PUBLIC;
-        else if (l == 9 && strncmp(d, "protected", 9) == 0) vis = KALIDOUS_VIS_PROTECTED;
-        else if (l == 7 && strncmp(d, "private", 7) == 0) vis = KALIDOUS_VIS_PRIVATE;
+        if (l == 6 && strncmp(d, "public", 6) == 0) vis = ZITH_VIS_PUBLIC;
+        else if (l == 9 && strncmp(d, "protected", 9) == 0) vis = ZITH_VIS_PROTECTED;
+        else if (l == 7 && strncmp(d, "private", 7) == 0) vis = ZITH_VIS_PRIVATE;
         
-        if (parser_peek_ahead(p, 1)->type == KALIDOUS_TOKEN_COLON) {
+        if (parser_peek_ahead(p, 1)->type == ZITH_TOKEN_COLON) {
             parser_advance(p); parser_advance(p); // modifier :
             *current_vis = vis;
-            return (KalidousVisibility)-1; 
+            return (ZithVisibility)-1; 
         }
         parser_advance(p);
     }
@@ -83,76 +83,80 @@ static KalidousVisibility parse_visibility(Parser *p, KalidousVisibility *curren
 // Params & Vars
 // ============================================================================
 
-static KalidousNode *parse_param(Parser *p) {
-    const KalidousSourceLoc loc = parser_peek(p)->loc;
-    KalidousOwnership own = KALIDOUS_OWN_DEFAULT;
+static ZithNode *parse_param(Parser *p) {
+    const ZithSourceLoc loc = parser_peek(p)->loc;
+    ZithOwnership own = ZITH_OWN_DEFAULT;
     bool is_mutable = false;
-    if (parser_match(p, KALIDOUS_TOKEN_UNIQUE)) own = KALIDOUS_OWN_UNIQUE;
-    else if (parser_match(p, KALIDOUS_TOKEN_SHARED)) own = KALIDOUS_OWN_SHARED;
-    else if (parser_match(p, KALIDOUS_TOKEN_VIEW)) own = KALIDOUS_OWN_VIEW;
-    else if (parser_match(p, KALIDOUS_TOKEN_LEND)) { own = KALIDOUS_OWN_LEND; is_mutable = true; }
+    if (parser_match(p, ZITH_TOKEN_UNIQUE)) own = ZITH_OWN_UNIQUE;
+    else if (parser_match(p, ZITH_TOKEN_SHARED)) own = ZITH_OWN_SHARED;
+    else if (parser_match(p, ZITH_TOKEN_VIEW)) own = ZITH_OWN_VIEW;
+    else if (parser_match(p, ZITH_TOKEN_LEND)) { own = ZITH_OWN_LEND; is_mutable = true; }
     
-    const KalidousToken *name = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected param name");
-    parser_expect(p, KALIDOUS_TOKEN_COLON, "expected ':'");
-    KalidousNode *type_node = parser_parse_type(p);
-    KalidousNode *def_val = parser_match(p, KALIDOUS_TOKEN_ASSIGNMENT) ? parser_parse_expression(p) : nullptr;
+    const ZithToken *name = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected param name");
+    ZithNode *type_node = nullptr;
+    if (parser_check(p, ZITH_TOKEN_COLON)){
+        type_node = parser_parse_type(p);
+    }
+    //parser_expect(p, ZITH_TOKEN_COLON, "expected ':'");
     
-    return kalidous_ast_make_param(p->arena, loc, {name->lexeme.data, name->lexeme.len, own, type_node, def_val, is_mutable});
+    ZithNode *def_val = parser_match(p, ZITH_TOKEN_ASSIGNMENT) ? parser_parse_expression(p) : nullptr;
+    
+    return zith_ast_make_param(p->arena, loc, {name->lexeme.data, name->lexeme.len, own, type_node, def_val, is_mutable});
 }
 
-static KalidousNode *parse_var_decl(Parser *p, KalidousBindingKind binding) {
-    const KalidousSourceLoc loc = parser_peek(p)->loc;
-    KalidousOwnership own = KALIDOUS_OWN_DEFAULT;
-    if (parser_match(p, KALIDOUS_TOKEN_UNIQUE)) own = KALIDOUS_OWN_UNIQUE;
-    else if (parser_match(p, KALIDOUS_TOKEN_SHARED)) own = KALIDOUS_OWN_SHARED;
-    else if (parser_match(p, KALIDOUS_TOKEN_VIEW)) own = KALIDOUS_OWN_VIEW;
-    else if (parser_match(p, KALIDOUS_TOKEN_LEND)) own = KALIDOUS_OWN_LEND;
+static ZithNode *parse_var_decl(Parser *p, ZithBindingKind binding) {
+    const ZithSourceLoc loc = parser_peek(p)->loc;
+    ZithOwnership own = ZITH_OWN_DEFAULT;
+    if (parser_match(p, ZITH_TOKEN_UNIQUE)) own = ZITH_OWN_UNIQUE;
+    else if (parser_match(p, ZITH_TOKEN_SHARED)) own = ZITH_OWN_SHARED;
+    else if (parser_match(p, ZITH_TOKEN_VIEW)) own = ZITH_OWN_VIEW;
+    else if (parser_match(p, ZITH_TOKEN_LEND)) own = ZITH_OWN_LEND;
     
-    const KalidousToken *name = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected variable name");
-    KalidousNode *type_node = parser_match(p, KALIDOUS_TOKEN_COLON) ? parser_parse_type(p) : nullptr;
+    const ZithToken *name = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected variable name");
+    ZithNode *type_node = parser_match(p, ZITH_TOKEN_COLON) ? parser_parse_type(p) : nullptr;
     
-    KalidousNode *init = nullptr;
-    if (parser_match(p, KALIDOUS_TOKEN_ASSIGNMENT) || parser_match(p, KALIDOUS_TOKEN_DECLARATION)) {
-        if (p->mode == KALIDOUS_MODE_SCAN) {
+    ZithNode *init = nullptr;
+    if (parser_match(p, ZITH_TOKEN_ASSIGNMENT) || parser_match(p, ZITH_TOKEN_DECLARATION)) {
+        if (p->mode == ZITH_MODE_SCAN) {
              // SCAN mode: skip the expression to avoid parsing dependencies
-             while (!parser_check(p, KALIDOUS_TOKEN_SEMICOLON) && !parser_check(p, KALIDOUS_TOKEN_COMMA) && !parser_is_at_end(p)) parser_advance(p);
+             while (!parser_check(p, ZITH_TOKEN_SEMICOLON) && !parser_check(p, ZITH_TOKEN_COMMA) && !parser_is_at_end(p)) parser_advance(p);
         } else {
              init = parser_parse_expression(p);
         }
     }
-    parser_expect(p, KALIDOUS_TOKEN_SEMICOLON, "expected ';'");
-    return kalidous_ast_make_var_decl(p->arena, loc, {name->lexeme.data, name->lexeme.len, binding, own, KALIDOUS_VIS_PRIVATE, type_node, init});
+    parser_expect(p, ZITH_TOKEN_SEMICOLON, "expected ';'");
+    return zith_ast_make_var_decl(p->arena, loc, {name->lexeme.data, name->lexeme.len, binding, own, ZITH_VIS_PRIVATE, type_node, init});
 }
 
 // ============================================================================
 // Bodies & Statements
 // ============================================================================
 
-static KalidousNode *parse_body(Parser *p);
+static ZithNode *parse_body(Parser *p);
 
-KalidousNode *parser_parse_statement(Parser *p) {
+ZithNode *parser_parse_statement(Parser *p) {
     if (p->panic) { parser_synchronize(p); p->panic = false; if (parser_is_at_end(p)) return nullptr; }
 
-    KalidousVisibility vis = KALIDOUS_VIS_PRIVATE;
-    if (check_kw(p, "public")) vis = KALIDOUS_VIS_PUBLIC; else if (check_kw(p, "protected")) vis = KALIDOUS_VIS_PROTECTED;
-    if (parser_peek(p)->type == KALIDOUS_TOKEN_MODIFIER) parser_advance(p);
+    ZithVisibility vis = ZITH_VIS_PRIVATE;
+    if (check_kw(p, "public")) vis = ZITH_VIS_PUBLIC; else if (check_kw(p, "protected")) vis = ZITH_VIS_PROTECTED;
+    if (parser_peek(p)->type == ZITH_TOKEN_MODIFIER) parser_advance(p);
 
-    const KalidousSourceLoc loc = parser_peek(p)->loc;
+    const ZithSourceLoc loc = parser_peek(p)->loc;
     switch (parser_peek(p)->type) {
-        case KALIDOUS_TOKEN_LET: parser_advance(p); return parse_var_decl(p, KALIDOUS_BINDING_LET);
-        case KALIDOUS_TOKEN_VAR: parser_advance(p); return parse_var_decl(p, KALIDOUS_BINDING_VAR);
-        case KALIDOUS_TOKEN_CONST: parser_advance(p); return parse_var_decl(p, KALIDOUS_BINDING_CONST);
-        case KALIDOUS_TOKEN_IF: {
+        case ZITH_TOKEN_LET: parser_advance(p); return parse_var_decl(p, ZITH_BINDING_LET);
+        case ZITH_TOKEN_VAR: parser_advance(p); return parse_var_decl(p, ZITH_BINDING_VAR);
+        case ZITH_TOKEN_CONST: parser_advance(p); return parse_var_decl(p, ZITH_BINDING_CONST);
+        case ZITH_TOKEN_IF: {
             parser_advance(p);
-            KalidousNode *cond = parser_parse_expression(p);
-            KalidousNode *then_b = parse_body(p);
-            KalidousNode *else_b = parser_match(p, KALIDOUS_TOKEN_ELSE) ? (parser_check(p, KALIDOUS_TOKEN_IF) ? parser_parse_statement(p) : parse_body(p)) : nullptr;
-            return kalidous_ast_make_if(p->arena, loc, cond, then_b, else_b);
+            ZithNode *cond = parser_parse_expression(p);
+            ZithNode *then_b = parse_body(p);
+            ZithNode *else_b = parser_match(p, ZITH_TOKEN_ELSE) ? (parser_check(p, ZITH_TOKEN_IF) ? parser_parse_statement(p) : parse_body(p)) : nullptr;
+            return zith_ast_make_if(p->arena, loc, cond, then_b, else_b);
         }
-        case KALIDOUS_TOKEN_FOR: {
+        case ZITH_TOKEN_FOR: {
             parser_advance(p);
-            KalidousForPayload data = {};
-            if (parser_check(p, KALIDOUS_TOKEN_IDENTIFIER) && parser_peek_ahead(p, 1)->type == KALIDOUS_TOKEN_IN) {
+            ZithForPayload data = {};
+            if (parser_check(p, ZITH_TOKEN_IDENTIFIER) && parser_peek_ahead(p, 1)->type == ZITH_TOKEN_IN) {
                 data.is_for_in = true; data.iterator_var = parser_parse_expression(p);
                 parser_advance(p); // 'in'
                 data.iterable = parser_parse_expression(p);
@@ -161,153 +165,155 @@ KalidousNode *parser_parse_statement(Parser *p) {
                 data.condition = parser_parse_expression(p);
                 data.body = parse_body(p);
             }
-            return kalidous_ast_make_for(p->arena, loc, data);
+            return zith_ast_make_for(p->arena, loc, data);
         }
-        case KALIDOUS_TOKEN_RETURN: {
+        case ZITH_TOKEN_RETURN: {
             parser_advance(p);
-            KalidousNode *val = (!parser_check(p, KALIDOUS_TOKEN_SEMICOLON) && !parser_is_at_end(p)) ? parser_parse_expression(p) : nullptr;
-            parser_expect(p, KALIDOUS_TOKEN_SEMICOLON, "expected ';'");
-            return kalidous_ast_make_return(p->arena, loc, val);
+            ZithNode *val = (!parser_check(p, ZITH_TOKEN_SEMICOLON) && !parser_is_at_end(p)) ? parser_parse_expression(p) : nullptr;
+            parser_expect(p, ZITH_TOKEN_SEMICOLON, "expected ';'");
+            return zith_ast_make_return(p->arena, loc, val);
         }
         // Nested functions handled by parser_parse_declaration usually, but here for stmt-position
-        case KALIDOUS_TOKEN_FN: case KALIDOUS_TOKEN_ASYNC: 
+        case ZITH_TOKEN_FN: case ZITH_TOKEN_ASYNC: 
             return parser_parse_declaration(p);
-        case KALIDOUS_TOKEN_LBRACE: return parser_parse_block(p);
+        case ZITH_TOKEN_LBRACE: return parser_parse_block(p);
         default: {
-            KalidousNode *expr = parser_parse_expression(p);
-            if (parser_match(p, KALIDOUS_TOKEN_ASSIGNMENT) || parser_match(p, KALIDOUS_TOKEN_PLUS_EQUAL) || 
-                parser_match(p, KALIDOUS_TOKEN_MINUS_EQUAL)) {
-                const KalidousSourceLoc aloc = parser_peek(p)->loc;
-                KalidousToken op_t = *parser_peek(p); parser_advance(p);
-                expr = kalidous_ast_make_binary_op(p->arena, aloc, op_t.type, expr, parser_parse_expression(p));
+            ZithNode *expr = parser_parse_expression(p);
+            if (parser_match(p, ZITH_TOKEN_ASSIGNMENT) || parser_match(p, ZITH_TOKEN_PLUS_EQUAL) || 
+                parser_match(p, ZITH_TOKEN_MINUS_EQUAL)) {
+                const ZithSourceLoc aloc = parser_peek(p)->loc;
+                ZithToken op_t = *parser_peek(p); parser_advance(p);
+                expr = zith_ast_make_binary_op(p->arena, aloc, op_t.type, expr, parser_parse_expression(p));
             }
-            parser_expect(p, KALIDOUS_TOKEN_SEMICOLON, "expected ';'");
+            parser_expect(p, ZITH_TOKEN_SEMICOLON, "expected ';'");
             return expr;
         }
     }
 }
 
-KalidousNode *parser_parse_block(Parser *p) {
-    const KalidousSourceLoc loc = parser_peek(p)->loc;
-    parser_expect(p, KALIDOUS_TOKEN_LBRACE, "expected '{'");
-    ArenaList<KalidousNode *> stmts_b; stmts_b.init(p->arena, 16);
-    while (!parser_check(p, KALIDOUS_TOKEN_RBRACE) && !parser_is_at_end(p))
+ZithNode *parser_parse_block(Parser *p) {
+    const ZithSourceLoc loc = parser_peek(p)->loc;
+    parser_expect(p, ZITH_TOKEN_LBRACE, "expected '{'");
+    ArenaList<ZithNode *> stmts_b; stmts_b.init(p->arena, 16);
+    while (!parser_check(p, ZITH_TOKEN_RBRACE) && !parser_is_at_end(p))
         stmts_b.push(p->arena, parser_parse_statement(p));
-    parser_expect(p, KALIDOUS_TOKEN_RBRACE, "expected '}'");
-    size_t count = 0; KalidousNode **stmts = stmts_b.flatten(p->arena, &count);
-    return kalidous_ast_make_block(p->arena, loc, stmts, count);
+    parser_expect(p, ZITH_TOKEN_RBRACE, "expected '}'");
+    size_t count = 0; ZithNode **stmts = stmts_b.flatten(p->arena, &count);
+    return zith_ast_make_block(p->arena, loc, stmts, count);
 }
 
-static KalidousNode *parse_body(Parser *p) {
-    if (parser_match(p, KALIDOUS_TOKEN_LBRACE)) {
-        ArenaList<KalidousNode *> stmts_b; stmts_b.init(p->arena, 16);
-        while (!parser_check(p, KALIDOUS_TOKEN_RBRACE) && !parser_is_at_end(p))
+static ZithNode *parse_body(Parser *p) {
+    if (parser_match(p, ZITH_TOKEN_LBRACE)) {
+        ArenaList<ZithNode *> stmts_b; stmts_b.init(p->arena, 16);
+        while (!parser_check(p, ZITH_TOKEN_RBRACE) && !parser_is_at_end(p))
             stmts_b.push(p->arena, parser_parse_statement(p));
-        parser_expect(p, KALIDOUS_TOKEN_RBRACE, "expected '}'");
-        size_t count = 0; KalidousNode **stmts = stmts_b.flatten(p->arena, &count);
-        return kalidous_ast_make_block(p->arena, parser_peek(p)->loc, stmts, count);
+        parser_expect(p, ZITH_TOKEN_RBRACE, "expected '}'");
+        size_t count = 0; ZithNode **stmts = stmts_b.flatten(p->arena, &count);
+        return zith_ast_make_block(p->arena, parser_peek(p)->loc, stmts, count);
     }
-    KalidousNode *stmt = parser_parse_statement(p);
-    if (!stmt) return kalidous_ast_make_block(p->arena, parser_peek(p)->loc, nullptr, 0);
-    KalidousNode **arr = (KalidousNode**)kalidous_arena_alloc(p->arena, sizeof(KalidousNode*));
+    ZithNode *stmt = parser_parse_statement(p);
+    if (!stmt) return zith_ast_make_block(p->arena, parser_peek(p)->loc, nullptr, 0);
+    ZithNode **arr = (ZithNode**)zith_arena_alloc(p->arena, sizeof(ZithNode*));
     if(arr) *arr = stmt;
-    return kalidous_ast_make_block(p->arena, parser_peek(p)->loc, arr, arr ? 1 : 0);
+    return zith_ast_make_block(p->arena, parser_peek(p)->loc, arr, arr ? 1 : 0);
 }
 
 // ============================================================================
 // Top-Level Declarations
 // ============================================================================
 
-static KalidousNode *parse_fn_decl(Parser *p, KalidousSourceLoc loc, KalidousVisibility vis, bool is_method) {
-    KalidousFnKind kind = KALIDOUS_FN_NORMAL;
-    if (parser_match(p, KALIDOUS_TOKEN_ASYNC)) {  kind = KALIDOUS_FN_ASYNC; }
-    else if (parser_match(p, KALIDOUS_TOKEN_FLOWING)) { kind = KALIDOUS_FN_FLOWING; }
-    else if (parser_match(p, KALIDOUS_TOKEN_NORETURN)) { kind = KALIDOUS_FN_NORETURN; }
+static ZithNode *parse_fn_decl(Parser *p, ZithSourceLoc loc, ZithVisibility vis, bool is_method) {
+    ZithFnKind kind = ZITH_FN_NORMAL;
+    if (parser_match(p, ZITH_TOKEN_ASYNC)) {  kind = ZITH_FN_ASYNC; }
+    else if (parser_match(p, ZITH_TOKEN_FLOWING)) { kind = ZITH_FN_FLOWING; }
+    else if (parser_match(p, ZITH_TOKEN_NORETURN)) { kind = ZITH_FN_NORETURN; }
     
-    parser_expect(p, KALIDOUS_TOKEN_FN, "expected 'fn' keyword");
-    const KalidousToken *name = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected function name");
+    parser_expect(p, ZITH_TOKEN_FN, "expected 'fn' keyword");
+    const ZithToken *name = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected function name");
     
-    parser_expect(p, KALIDOUS_TOKEN_LPAREN, "expected '('");
-    ArenaList<KalidousNode *> params_b; params_b.init(p->arena, 8);
-    while (!parser_check(p, KALIDOUS_TOKEN_RPAREN) && !parser_is_at_end(p)) {
+    parser_expect(p, ZITH_TOKEN_LPAREN, "expected '('");
+    ArenaList<ZithNode *> params_b; 
+    params_b.init(p->arena, 8);
+
+    while (!parser_check(p, ZITH_TOKEN_RPAREN) && !parser_is_at_end(p)) {
         params_b.push(p->arena, parse_param(p));
-        if (!parser_match(p, KALIDOUS_TOKEN_COMMA)) break;
+        if (!parser_match(p, ZITH_TOKEN_COMMA)) break;
     }
-    parser_expect(p, KALIDOUS_TOKEN_RPAREN, "expected ')'");
+    parser_expect(p, ZITH_TOKEN_RPAREN, "expected ')'");
     
-    KalidousNode *ret_type = nullptr;
-    if (kind != KALIDOUS_FN_NORETURN && (parser_match(p, KALIDOUS_TOKEN_ARROW) || parser_match(p, KALIDOUS_TOKEN_COLON)))
+    ZithNode *ret_type = nullptr;
+    if (kind != ZITH_FN_NORETURN && (parser_match(p, ZITH_TOKEN_ARROW) || parser_match(p, ZITH_TOKEN_COLON)))
         ret_type = parser_parse_type(p);
 
-    KalidousNode *body = nullptr;
-    if (p->mode == KALIDOUS_MODE_SCAN) {
+    ZithNode *body = nullptr;
+    if (p->mode == ZITH_MODE_SCAN) {
         // SCAN mode: captura o corpo como UNBODY em vez de pular completamente
-        if (!parser_match(p, KALIDOUS_TOKEN_COLON)) {
+        if (!parser_match(p, ZITH_TOKEN_COLON)) {
             body = capture_unbody(p);
         }
     } else {
         // PARSE mode: parseia o corpo normalmente
-        if (!parser_check(p, KALIDOUS_TOKEN_COLON)) body = parse_body(p);
+        if (!parser_check(p, ZITH_TOKEN_COLON)) body = parse_body(p);
         else parser_advance(p);
     }
     
-    size_t pcount = 0; KalidousNode **params = params_b.flatten(p->arena, &pcount);
-    return kalidous_ast_make_func_decl(p->arena, loc, {name->lexeme.data, name->lexeme.len, kind, params, pcount, ret_type, body, vis, is_method});
+    size_t pcount = 0; ZithNode **params = params_b.flatten(p->arena, &pcount);
+    return zith_ast_make_func_decl(p->arena, loc, {name->lexeme.data, name->lexeme.len, kind, params, pcount, ret_type, body, vis, is_method});
 }
 
-static KalidousNode *parse_struct_decl(Parser *p, KalidousVisibility struct_vis) {
-    const KalidousSourceLoc loc = parser_peek(p)->loc;
+static ZithNode *parse_struct_decl(Parser *p, ZithVisibility struct_vis) {
+    const ZithSourceLoc loc = parser_peek(p)->loc;
     parser_advance(p); // consume 'struct'
-    const KalidousToken *name = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected struct name");
-    parser_expect(p, KALIDOUS_TOKEN_LBRACE, "expected '{'");
+    const ZithToken *name = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected struct name");
+    parser_expect(p, ZITH_TOKEN_LBRACE, "expected '{'");
 
-    ArenaList<KalidousNode *> fields_b, methods_b;
+    ArenaList<ZithNode *> fields_b, methods_b;
     fields_b.init(p->arena, 8); 
     methods_b.init(p->arena, 4);
-    KalidousVisibility current_vis = struct_vis;
+    ZithVisibility current_vis = struct_vis;
 
-    while (!parser_check(p, KALIDOUS_TOKEN_RBRACE) && !parser_is_at_end(p)) {
+    while (!parser_check(p, ZITH_TOKEN_RBRACE) && !parser_is_at_end(p)) {
         // 1. Parse Visibility (public/private/protected)
-        KalidousVisibility item_vis = parse_visibility(p, &current_vis);
+        ZithVisibility item_vis = parse_visibility(p, &current_vis);
         if ((int)item_vis == -1) continue;
 
         // 2. Check for Methods (fn, async, etc)
-        if (parser_check(p, KALIDOUS_TOKEN_FN) || parser_check(p, KALIDOUS_TOKEN_ASYNC) || parser_check(p, KALIDOUS_TOKEN_FLOWING) || parser_check(p, KALIDOUS_TOKEN_NORETURN)) {
+        if (parser_check(p, ZITH_TOKEN_FN) || parser_check(p, ZITH_TOKEN_ASYNC) || parser_check(p, ZITH_TOKEN_FLOWING) || parser_check(p, ZITH_TOKEN_NORETURN)) {
             methods_b.push(p->arena, parse_fn_decl(p, parser_peek(p)->loc, item_vis, true));
             continue;
         }
         
         // 3. Check for Fields
         // Matches: x: i32,  or  unique x: i32,  or  let x: i32,
-        if (parser_check(p, KALIDOUS_TOKEN_LET) || parser_check(p, KALIDOUS_TOKEN_VAR) ||
-            parser_check(p, KALIDOUS_TOKEN_IDENTIFIER) || 
-            parser_check(p, KALIDOUS_TOKEN_UNIQUE) || parser_check(p, KALIDOUS_TOKEN_SHARED)) {
+        if (parser_check(p, ZITH_TOKEN_LET) || parser_check(p, ZITH_TOKEN_VAR) ||
+            parser_check(p, ZITH_TOKEN_IDENTIFIER) || 
+            parser_check(p, ZITH_TOKEN_UNIQUE) || parser_check(p, ZITH_TOKEN_SHARED)) {
             
             // Consume 'let' or 'var' if present (optional in your new syntax)
-            if (parser_match(p, KALIDOUS_TOKEN_LET) || parser_match(p, KALIDOUS_TOKEN_VAR)) {}
+            if (parser_match(p, ZITH_TOKEN_LET) || parser_match(p, ZITH_TOKEN_VAR)) {}
             
-            const KalidousSourceLoc floc = parser_peek(p)->loc;
-            KalidousOwnership own = KALIDOUS_OWN_DEFAULT;
+            const ZithSourceLoc floc = parser_peek(p)->loc;
+            ZithOwnership own = ZITH_OWN_DEFAULT;
             
             // Parse Ownership (unique/shared)
-            if (parser_match(p, KALIDOUS_TOKEN_UNIQUE)) own = KALIDOUS_OWN_UNIQUE;
-            else if (parser_match(p, KALIDOUS_TOKEN_SHARED)) own = KALIDOUS_OWN_SHARED;
+            if (parser_match(p, ZITH_TOKEN_UNIQUE)) own = ZITH_OWN_UNIQUE;
+            else if (parser_match(p, ZITH_TOKEN_SHARED)) own = ZITH_OWN_SHARED;
             
             // Parse Name
-            const KalidousToken *fname = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected field name");
+            const ZithToken *fname = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected field name");
             
             // Parse Type (Optional: x: i32)
-            KalidousNode *ftype = nullptr;
-            if (parser_match(p, KALIDOUS_TOKEN_COLON)) {
+            ZithNode *ftype = nullptr;
+            if (parser_match(p, ZITH_TOKEN_COLON)) {
                 ftype = parser_parse_type(p);
             }
 
             // Parse Default Value (Optional: x: i32 = 10)
-            KalidousNode *fdef = nullptr;
-            if (parser_match(p, KALIDOUS_TOKEN_ASSIGNMENT)) {
-                if (p->mode == KALIDOUS_MODE_SCAN) {
+            ZithNode *fdef = nullptr;
+            if (parser_match(p, ZITH_TOKEN_ASSIGNMENT)) {
+                if (p->mode == ZITH_MODE_SCAN) {
                     // In scan mode, skip the expression to avoid parsing dependencies
-                    while(!parser_check(p, KALIDOUS_TOKEN_COMMA) && !parser_check(p, KALIDOUS_TOKEN_RBRACE) && !parser_is_at_end(p)) {
+                    while(!parser_check(p, ZITH_TOKEN_COMMA) && !parser_check(p, ZITH_TOKEN_RBRACE) && !parser_is_at_end(p)) {
                         parser_advance(p);
                     }
                 } else {
@@ -316,10 +322,10 @@ static KalidousNode *parse_struct_decl(Parser *p, KalidousVisibility struct_vis)
             }
         
             // Use comma as separator, but allow last field to omit it before '}'
-            if (parser_peek(p)->type != KALIDOUS_TOKEN_RBRACE)
-                parser_expect(p, KALIDOUS_TOKEN_COMMA, "expected ',' or ';'");
+            if (parser_peek(p)->type != ZITH_TOKEN_RBRACE)
+                parser_expect(p, ZITH_TOKEN_COMMA, "expected ',' or ';'");
 
-            fields_b.push(p->arena, kalidous_ast_make_field(p->arena, floc, {fname->lexeme.data, fname->lexeme.len, own, item_vis, ftype, fdef}));
+            fields_b.push(p->arena, zith_ast_make_field(p->arena, floc, {fname->lexeme.data, fname->lexeme.len, own, item_vis, ftype, fdef}));
             continue;
         }
 
@@ -328,27 +334,27 @@ static KalidousNode *parse_struct_decl(Parser *p, KalidousVisibility struct_vis)
         parser_advance(p); // Skip it to avoid infinite loop
     }
     
-    parser_expect(p, KALIDOUS_TOKEN_RBRACE, "expected '}'");
+    parser_expect(p, ZITH_TOKEN_RBRACE, "expected '}'");
 
     size_t fc = 0, mc = 0;
-    KalidousNode **fields = fields_b.flatten(p->arena, &fc);
-    KalidousNode **methods = methods_b.flatten(p->arena, &mc);
-    return kalidous_ast_make_struct(p->arena, loc, {name->lexeme.data, name->lexeme.len, fields, fc, methods, mc, struct_vis});
+    ZithNode **fields = fields_b.flatten(p->arena, &fc);
+    ZithNode **methods = methods_b.flatten(p->arena, &mc);
+    return zith_ast_make_struct(p->arena, loc, {name->lexeme.data, name->lexeme.len, fields, fc, methods, mc, struct_vis});
 }
 
-static KalidousNode *parse_import_decl(Parser *p) {
-    const KalidousSourceLoc loc = parser_peek(p)->loc;
+static ZithNode *parse_import_decl(Parser *p) {
+    const ZithSourceLoc loc = parser_peek(p)->loc;
     parser_advance(p);  // consome 'import'
     char buf[256]; size_t buf_len = 0;
     
     // Primeiro segmento (espera IDENTIFIER)
-    const KalidousToken *seg = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected module name");
+    const ZithToken *seg = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected module name");
     if (seg->lexeme.len < sizeof(buf)) { memcpy(buf, seg->lexeme.data, seg->lexeme.len); buf_len = seg->lexeme.len; }
     
     // Segmentos adicionais separados por '.'
-    while (parser_match(p, KALIDOUS_TOKEN_DOT)) {
+    while (parser_match(p, ZITH_TOKEN_DOT)) {
         if (buf_len < sizeof(buf) - 1) buf[buf_len++] = '.';
-        seg = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected identifier after '.'");
+        seg = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected identifier after '.'");
         if (buf_len + seg->lexeme.len < sizeof(buf)) {
             memcpy(buf + buf_len, seg->lexeme.data, seg->lexeme.len);
             buf_len += seg->lexeme.len;
@@ -358,29 +364,29 @@ static KalidousNode *parse_import_decl(Parser *p) {
     // Suporte a alias: import x as y
     const char *alias = nullptr;
     size_t alias_len = 0;
-    if (parser_match(p, KALIDOUS_TOKEN_AS)) {
-        const KalidousToken *alias_tok = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected alias name");
+    if (parser_match(p, ZITH_TOKEN_AS)) {
+        const ZithToken *alias_tok = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected alias name");
         alias = alias_tok->lexeme.data;
         alias_len = alias_tok->lexeme.len;
     }
     
-    parser_expect(p, KALIDOUS_TOKEN_SEMICOLON, "expected ';'");
-    KalidousImportPayload payload = {kalidous_arena_str(p->arena, buf, buf_len), buf_len, KALIDOUS_VIS_PRIVATE, alias, alias_len, false, false};
-    return kalidous_ast_make_import(p->arena, loc, payload);
+    parser_expect(p, ZITH_TOKEN_SEMICOLON, "expected ';'");
+    ZithImportPayload payload = {zith_arena_str(p->arena, buf, buf_len), buf_len, ZITH_VIS_PRIVATE, alias, alias_len, false, false};
+    return zith_ast_make_import(p->arena, loc, payload);
 }
 
-static KalidousNode *parse_from_import_decl(Parser *p) {
-    const KalidousSourceLoc loc = parser_peek(p)->loc;
+static ZithNode *parse_from_import_decl(Parser *p) {
+    const ZithSourceLoc loc = parser_peek(p)->loc;
     parser_advance(p);  // consome 'from'
     
     // Parse do módulo base (ex: std.io.console)
     char module_buf[256]; size_t module_len = 0;
-    const KalidousToken *seg = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected module name");
+    const ZithToken *seg = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected module name");
     if (seg->lexeme.len < sizeof(module_buf)) { memcpy(module_buf, seg->lexeme.data, seg->lexeme.len); module_len = seg->lexeme.len; }
     
-    while (parser_match(p, KALIDOUS_TOKEN_DOT)) {
+    while (parser_match(p, ZITH_TOKEN_DOT)) {
         if (module_len < sizeof(module_buf) - 1) module_buf[module_len++] = '.';
-        seg = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected identifier after '.'");
+        seg = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected identifier after '.'");
         if (module_len + seg->lexeme.len < sizeof(module_buf)) {
             memcpy(module_buf + module_len, seg->lexeme.data, seg->lexeme.len);
             module_len += seg->lexeme.len;
@@ -388,80 +394,80 @@ static KalidousNode *parse_from_import_decl(Parser *p) {
     }
     
     // Espera keyword 'import'
-    parser_expect(p, KALIDOUS_TOKEN_IMPORT, "expected 'import' after 'from <module>'");
+    parser_expect(p, ZITH_TOKEN_IMPORT, "expected 'import' after 'from <module>'");
     
     // Parse dos itens importados (ex: println, println as log)
     char items_buf[256]; size_t items_len = 0;
-    const KalidousToken *item = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected item name");
+    const ZithToken *item = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected item name");
     if (item->lexeme.len < sizeof(items_buf)) { memcpy(items_buf, item->lexeme.data, item->lexeme.len); items_len = item->lexeme.len; }
     
     // Suporte a alias: import x as y
     const char *alias = nullptr;
     size_t alias_len = 0;
-    if (parser_match(p, KALIDOUS_TOKEN_AS)) {
-        const KalidousToken *alias_tok = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected alias name");
+    if (parser_match(p, ZITH_TOKEN_AS)) {
+        const ZithToken *alias_tok = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected alias name");
         alias = alias_tok->lexeme.data;
         alias_len = alias_tok->lexeme.len;
     }
     
-    parser_expect(p, KALIDOUS_TOKEN_SEMICOLON, "expected ';'");
+    parser_expect(p, ZITH_TOKEN_SEMICOLON, "expected ';'");
     
     // Path = módulo base, alias = itens importados
-    KalidousImportPayload payload = {
-        kalidous_arena_str(p->arena, module_buf, module_len), 
+    ZithImportPayload payload = {
+        zith_arena_str(p->arena, module_buf, module_len), 
         module_len, 
-        KALIDOUS_VIS_PRIVATE, 
+        ZITH_VIS_PRIVATE, 
         alias, 
         alias_len, 
         false,  // is_export = false
         true    // is_from = true
     };
-    return kalidous_ast_make_import(p->arena, loc, payload);
+    return zith_ast_make_import(p->arena, loc, payload);
 }
 
-static KalidousNode *parse_export_decl(Parser *p) {
-    const KalidousSourceLoc loc = parser_peek(p)->loc;
+static ZithNode *parse_export_decl(Parser *p) {
+    const ZithSourceLoc loc = parser_peek(p)->loc;
     parser_advance(p);  // consome 'export'
     char buf[256]; size_t buf_len = 0;
     
     // Primeiro segmento (espera IDENTIFIER)
-    const KalidousToken *seg = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected module name");
+    const ZithToken *seg = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected module name");
     if (seg->lexeme.len < sizeof(buf)) { memcpy(buf, seg->lexeme.data, seg->lexeme.len); buf_len = seg->lexeme.len; }
     
     // Segmentos adicionais separados por '.'
-    while (parser_match(p, KALIDOUS_TOKEN_DOT)) {
+    while (parser_match(p, ZITH_TOKEN_DOT)) {
         if (buf_len < sizeof(buf) - 1) buf[buf_len++] = '.';
-        seg = parser_expect(p, KALIDOUS_TOKEN_IDENTIFIER, "expected identifier after '.'");
+        seg = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected identifier after '.'");
         if (buf_len + seg->lexeme.len < sizeof(buf)) {
             memcpy(buf + buf_len, seg->lexeme.data, seg->lexeme.len);
             buf_len += seg->lexeme.len;
         }
     }
     
-    parser_expect(p, KALIDOUS_TOKEN_SEMICOLON, "expected ';'");
-    KalidousImportPayload payload = {kalidous_arena_str(p->arena, buf, buf_len), buf_len, KALIDOUS_VIS_PUBLIC, nullptr, 0, true, false};
-    return kalidous_ast_make_import(p->arena, loc, payload);
+    parser_expect(p, ZITH_TOKEN_SEMICOLON, "expected ';'");
+    ZithImportPayload payload = {zith_arena_str(p->arena, buf, buf_len), buf_len, ZITH_VIS_PUBLIC, nullptr, 0, true, false};
+    return zith_ast_make_import(p->arena, loc, payload);
 }
 
-KalidousNode *parser_parse_declaration(Parser *p) {
+ZithNode *parser_parse_declaration(Parser *p) {
     if (p->panic) { parser_synchronize(p); p->panic = false; if (parser_is_at_end(p)) return nullptr; }
 
-    KalidousVisibility vis = parse_visibility(p, &p->current_visibility);
+    ZithVisibility vis = parse_visibility(p, &p->current_visibility);
     if ((int)vis == -1) return nullptr;
 
-    const KalidousToken *t = parser_peek(p);
-    const KalidousSourceLoc loc = t->loc;
+    const ZithToken *t = parser_peek(p);
+    const ZithSourceLoc loc = t->loc;
 
-    if (t->type == KALIDOUS_TOKEN_FN || t->type == KALIDOUS_TOKEN_ASYNC || t->type == KALIDOUS_TOKEN_FLOWING || t->type == KALIDOUS_TOKEN_NORETURN)
+    if (t->type == ZITH_TOKEN_FN || t->type == ZITH_TOKEN_ASYNC || t->type == ZITH_TOKEN_FLOWING || t->type == ZITH_TOKEN_NORETURN)
         return parse_fn_decl(p, loc, vis, false);
 
-    if (t->type == KALIDOUS_TOKEN_STRUCT) return parse_struct_decl(p, vis);
-    if (t->type == KALIDOUS_TOKEN_IMPORT) return parse_import_decl(p);
-    if (t->type == KALIDOUS_TOKEN_FROM) return parse_from_import_decl(p);
-    if (t->type == KALIDOUS_TOKEN_EXPORT) return parse_export_decl(p);
-    if (t->type == KALIDOUS_TOKEN_CONST) { parser_advance(p); return parse_var_decl(p, KALIDOUS_BINDING_CONST); }
+    if (t->type == ZITH_TOKEN_STRUCT) return parse_struct_decl(p, vis);
+    if (t->type == ZITH_TOKEN_IMPORT) return parse_import_decl(p);
+    if (t->type == ZITH_TOKEN_FROM) return parse_from_import_decl(p);
+    if (t->type == ZITH_TOKEN_EXPORT) return parse_export_decl(p);
+    if (t->type == ZITH_TOKEN_CONST) { parser_advance(p); return parse_var_decl(p, ZITH_BINDING_CONST); }
     
-    KalidousNode *expr = parser_parse_expression(p);
-    parser_match(p, KALIDOUS_TOKEN_SEMICOLON);
+    ZithNode *expr = parser_parse_expression(p);
+    parser_match(p, ZITH_TOKEN_SEMICOLON);
     return expr;
 }

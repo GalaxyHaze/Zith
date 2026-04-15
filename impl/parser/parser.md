@@ -1,6 +1,6 @@
-# Kalidous Parser Architecture Documentation
+# Zith Parser Architecture Documentation
 
-This document outlines the architecture of the Kalidous Parser, which has been modularized into four distinct files. The design follows a **Three-Pass Pipeline** strategy (Scan, Expand, Sema) to handle declarations, macro expansion, and semantic analysis efficiently.
+This document outlines the architecture of the Zith Parser, which has been modularized into four distinct files. The design follows a **Three-Pass Pipeline** strategy (Scan, Expand, Sema) to handle declarations, macro expansion, and semantic analysis efficiently.
 
 ## File Structure Overview
 
@@ -21,7 +21,7 @@ This file acts as the entry point for the parsing system. It does not contain lo
 
 ### Responsibilities
 *   **Initialization:** Sets up the `Parser` struct, configures the memory arena, and loads the source tokens.
-*   **Pipeline Orchestration:** Implements the `kalidous_parse_with_source` function which drives the three phases:
+*   **Pipeline Orchestration:** Implements the `zith_parse_with_source` function which drives the three phases:
     1.  **SCAN Phase:** Runs the parser to collect signatures (functions, structs) while capturing function bodies as UNBODY nodes (raw token streams). No type information is needed at this stage.
     2.  **EXPAND Phase:** Walks the tree and replaces UNBODY nodes with fully parsed BLOCK nodes. This is where statement-level parsing happens inside function bodies.
     3.  **SEMA Phase:** Semantic analysis — name resolution, type checking, borrow checker, control-flow analysis. Produces an annotated AST.
@@ -29,9 +29,9 @@ This file acts as the entry point for the parsing system. It does not contain lo
 
 ### Key Functions
 *   `parser_init(Parser*, ...)`: Initializes the parser state.
-*   `kalidous_parse_with_source(...)`: The main public API called by the compiler driver.
-*   `kalidous_parse_test(const char*)`: Convenience API for tests (uses a shared global arena).
-*   `run_parser_phase(Parser*, KalidousParserMode)`: Internal helper to execute a specific mode (Scan/Expand/Sema).
+*   `zith_parse_with_source(...)`: The main public API called by the compiler driver.
+*   `zith_parse_test(const char*)`: Convenience API for tests (uses a shared global arena).
+*   `run_parser_phase(Parser*, ZithParserMode)`: Internal helper to execute a specific mode (Scan/Expand/Sema).
 
 ---
 

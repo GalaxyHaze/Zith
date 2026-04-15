@@ -226,7 +226,7 @@ fn practical_examples() {
 // Main
 // ----------------------------------------------------------------------------
 fn main() {
-    println("=== Controle de Fluxo em Kalidous ===\n");
+    println("=== Controle de Fluxo em Zith ===\n");
 
     println("--- Operadores Lógicos ---");
     logical_operators();

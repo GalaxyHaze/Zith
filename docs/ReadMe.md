@@ -1,35 +1,35 @@
-# Kalidous Language
+# Zith Language
 
-**Status:** Work in Progress. Kalidous is currently under active development. The project is not yet stable or ready for production use, but community feedback and contributions are welcome.
+**Status:** Work in Progress. Zith is currently under active development. The project is not yet stable or ready for production use, but community feedback and contributions are welcome.
 
 ## Documentation
 
-**[Read the Complete Documentation](https://galaxyhaze.github.io/Kalidous-Lang/docs/index.html?page=intro)** | [View on GitHub](https://github.com/GalaxyHaze/Kalidous-Lang/)
+**[Read the Complete Documentation](https://galaxyhaze.github.io/Zith-Lang/docs/index.html?page=intro)** | [View on GitHub](https://github.com/GalaxyHaze/Zith-Lang/)
 
 The documentation includes:
 *   **Getting Started:** Installation and quick start tutorials.
 *   **CLI Reference:** Complete command reference (`build`, `check`, `compile`, `execute`, `run`).
 *   **Language Guide:** Comprehensive documentation on syntax, types, control flow, functions, and memory management.
-*   **Project Configuration:** Reference for `KalidousProject.toml`.
+*   **Project Configuration:** Reference for `ZithProject.toml`.
 
 ---
 
-## About Kalidous
+## About Zith
 
-Kalidous is a statically-typed systems programming language designed to provide safe, explicit control over code while maintaining high performance and modern ergonomics.
+Zith is a statically-typed systems programming language designed to provide safe, explicit control over code while maintaining high performance and modern ergonomics.
 
-Unlike traditional backends, Kalidous implements a complete custom toolchain:
-*   **Custom Parser:** Parses Kalidous source code into a rich Abstract Syntax Tree (AST).
+Unlike traditional backends, Zith implements a complete custom toolchain:
+*   **Custom Parser:** Parses Zith source code into a rich Abstract Syntax Tree (AST).
 *   **Type System:** Static type checking with type inference.
-*   **Bytecode Generation:** Compiles to KBC (Kalidous Bytecode) format.
-*   **Multi-Execution Model:** Run via the Kalidous VM or compile to native binaries.
+*   **Bytecode Generation:** Compiles to KBC (Zith Bytecode) format.
+*   **Multi-Execution Model:** Run via the Zith VM or compile to native binaries.
 
 ---
 
 ## Architecture Overview
 
 ```
-Kalidous Source Code (.kali)
+Zith Source Code (.kali)
         ↓
     Parser & Lexer
         ↓
@@ -50,21 +50,21 @@ Kalidous Source Code (.kali)
 1.  **Parsing & Import Resolution:** Source files are parsed into an AST with module/import support.
 2.  **Type Checking:** Full static type analysis and inference.
 3.  **Bytecode Generation:** Generate portable KBC bytecode.
-4.  **Execution:** Run bytecode via the Kalidous Virtual Machine (current) or LLVM Backend (planned).
+4.  **Execution:** Run bytecode via the Zith Virtual Machine (current) or LLVM Backend (planned).
 
 ---
 
 ## Key Features
 
 ### Current
-*   Custom Parser for Kalidous syntax.
+*   Custom Parser for Zith syntax.
 *   Module/Import System for multi-file organization.
 *   KBC Bytecode (portable, versioned format).
 *   Static Type System with inference.
 *   CLI Tooling (`build`, `check`, `compile`, `execute`, `run`).
 
 ### In Progress
-*   Kalidous Virtual Machine for KBC bytecode execution.
+*   Zith Virtual Machine for KBC bytecode execution.
 *   Standard Library (core functionality for math, strings, I/O, collections).
 
 ### Planned
@@ -81,31 +81,31 @@ Kalidous Source Code (.kali)
 
 **Linux / macOS**
 ```bash
-curl -sSL https://raw.githubusercontent.com/GalaxyHaze/Kalidous-Lang/master/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/GalaxyHaze/Zith-Lang/master/install.sh | bash
 ```
 
 **Windows**
 ```powershell
-irm https://raw.githubusercontent.com/GalaxyHaze/Kalidous-Lang/master/install.ps1 | iex
+irm https://raw.githubusercontent.com/GalaxyHaze/Zith-Lang/master/install.ps1 | iex
 ```
 
 **Verify Installation**
 ```bash
-kalidous --version
+zith --version
 ```
 
 ### Create Your First Project
 
 ```bash
 # Create a new project
-kalidous new hello-world
+zith new hello-world
 cd hello-world
 
 # Build the project
-kalidous build
+zith build
 
 # Run the application
-kalidous run
+zith run
 ```
 
 ### Project Structure
@@ -114,7 +114,7 @@ kalidous run
 hello-world/
 ├── src/
 │   └── main.kali          # Entry point
-├── KalidousProject.toml   # Project metadata
+├── ZithProject.toml   # Project metadata
 └── README.md
 ```
 
@@ -124,15 +124,15 @@ hello-world/
 
 ### Hello World
 
-```kalidous
+```zith
 fn main() {
-    println("Hello, Kalidous!");
+    println("Hello, Zith!");
 }
 ```
 
 ### Variables and Types
 
-```kalidous
+```zith
 fn main() {
     let x = 42;           // immutable, type inferred
     var y = 10;           // mutable
@@ -145,7 +145,7 @@ fn main() {
 
 ### Functions
 
-```kalidous
+```zith
 // return type uses ':'
 fn add(a: i32, b: i32): i32 {
     a + b   // implicit return — last expression without ';'
@@ -159,7 +159,7 @@ fn main() {
 
 ### Control Flow
 
-```kalidous
+```zith
 fn main() {
     let x = 15;
 
@@ -187,7 +187,7 @@ fn main() {
 
 ### Error Handling
 
-```kalidous
+```zith
 fn divide(a: i32, b: i32): i32! {   // '!' means may fail
     if b == 0
         throw DivisionByZero;
@@ -218,7 +218,7 @@ fn main() {
 
 ## Memory Model
 
-Kalidous uses a **compile-time ownership system** — memory safety is enforced without a garbage collector and without runtime overhead. Every value has a clear owner, and the compiler tracks ownership through the entire program.
+Zith uses a **compile-time ownership system** — memory safety is enforced without a garbage collector and without runtime overhead. Every value has a clear owner, and the compiler tracks ownership through the entire program.
 
 There are five ownership keywords. Each has exactly one purpose.
 
@@ -228,7 +228,7 @@ There are five ownership keywords. Each has exactly one purpose.
 
 A `unique` value has exactly one owner. When it is assigned to another variable, the original is invalidated — this is called a *move*.
 
-```kalidous
+```zith
 let a = unique Resource.new();  // 'a' owns the resource
 let b = a;                      // ownership moves to 'b'
 a.read();                       // ❌ error — 'a' is no longer valid
@@ -243,7 +243,7 @@ b.read();                       // ✓ only 'b' is valid
 
 A `share` value can have multiple owners simultaneously. Ownership is promoted from `unique` — this decision is **irreversible**. All shares are tracked by the compiler at compile-time, with no reference counting at runtime.
 
-```kalidous
+```zith
 let data = Resource.new();      // unique by default
 
 // promote to share — 'data' is now invalid
@@ -264,7 +264,7 @@ Because there is no reference counting, `share` has zero runtime overhead. The c
 
 A `view` does not own the value — it only observes it. The compiler guarantees at compile-time that the original owner exists for the entire duration of the `view`.
 
-```kalidous
+```zith
 fn print_info(data: view Resource) {
     // 'data' is guaranteed to exist here
     // cannot modify, cannot own
@@ -283,7 +283,7 @@ print_info(view res);   // 'res' is still valid after the call
 
 A `lend` allows temporary mutable access without transferring ownership. The compiler guarantees that the original owner exists and that no other mutable access occurs simultaneously.
 
-```kalidous
+```zith
 fn increment(counter: lend i32) {
     counter += 1;
 }
@@ -299,11 +299,11 @@ println("{}", x);    // x is still valid — prints 1
 
 ### `extension` — Hierarchical Ownership
 
-`extension` is a unique Kalidous concept. It expresses that object B is a **structural part** of object A — B cannot outlive A, cannot free A, and can only access A temporarily. The compiler verifies the hierarchy statically.
+`extension` is a unique Zith concept. It expresses that object B is a **structural part** of object A — B cannot outlive A, cannot free A, and can only access A temporarily. The compiler verifies the hierarchy statically.
 
 This solves a fundamental problem: doubly-linked lists, trees with parent pointers, and component systems — all without weak pointers or runtime checks.
 
-```kalidous
+```zith
 struct Engine {
     cylinders: []Cylinder,
     power:     u32
@@ -322,7 +322,7 @@ The compiler knows:
 
 **Doubly-linked list with `extension`:**
 
-```kalidous
+```zith
 struct Node<T> {
     value: T,
     next:  share Node<T>?,    // owns the next node
@@ -336,7 +336,7 @@ No weak pointers. No runtime checks. No reference counting. The compiler proves 
 
 If you need to move a child out of its parent temporarily, use `split` and `connect` from the `Extension` trait:
 
-```kalidous
+```zith
 struct Parent {
     child: extension Child?   // '?' means the child may be absent
 }
@@ -371,9 +371,9 @@ All five keywords are verified entirely at compile-time. There is no garbage col
 
 ### Function Kinds
 
-Kalidous distinguishes four kinds of functions at the type level. Each kind has explicit rules enforced by the compiler.
+Zith distinguishes four kinds of functions at the type level. Each kind has explicit rules enforced by the compiler.
 
-```kalidous
+```zith
 fn normal() { ... }           // standard function
 async fn coroutine() { ... }  // may yield — cooperative multitasking
 noreturn fn machine() { ... } // never returns — uses markers and goto
@@ -388,7 +388,7 @@ This is not just documentation — the compiler rejects `yield` outside `async f
 
 `noreturn fn` and `flowing fn` use **markers** as named jump targets with bodies and parameters. This is not the dangerous `goto` of C — markers are structured, scoped, and verified by the compiler.
 
-```kalidous
+```zith
 noreturn fn game_loop(state: lend GameState) {
     marker update(dt: f32) {
         state.physics.step(dt);
@@ -410,9 +410,9 @@ This replaces ad-hoc state machines, manual loop unwinding, and unsafe goto patt
 
 ### Named Operators
 
-Kalidous allows user-defined operators with names instead of symbols. Named operators must be explicitly activated with `use infix` before use — the parser cannot recognise them otherwise, and this makes every active operator visible at the top of the file.
+Zith allows user-defined operators with names instead of symbols. Named operators must be explicitly activated with `use infix` before use — the parser cannot recognise them otherwise, and this makes every active operator visible at the top of the file.
 
-```kalidous
+```zith
 import std.math.vector as vector;
 
 use infix = vector { dot, cross };  // activate named operators
@@ -435,7 +435,7 @@ This avoids the classic problem of operator overloading — `*` meaning multipli
 
 A `context` defines a self-contained environment with its own operators, constants, and macros. Activating a context with `use context` injects that environment into a block without polluting the surrounding scope.
 
-```kalidous
+```zith
 context Math {
     const PI          = 3.141592653589793;
     const GoldenRatio = 1.618033988749895;
@@ -461,7 +461,7 @@ This enables embedded DSLs that are scoped, composable, and leave no trace outsi
 
 Every scope can define three lifecycle blocks. Together they provide structured resource management with full error context — without exceptions, without hidden destructors.
 
-```kalidous
+```zith
 do (let file = open("data.txt")!, let db = connect()!) {
     // main work — file and db available here
     process(file, db)!;
@@ -490,9 +490,9 @@ This pattern is especially powerful for scenes, transactions, and any resource t
 
 ### The Anchor Pattern
 
-For data structures with cyclic references (graphs, doubly-linked lists), Kalidous recommends the **Anchor pattern** — a centralised owner that holds all nodes, with navigation done via opaque generational IDs instead of pointers.
+For data structures with cyclic references (graphs, doubly-linked lists), Zith recommends the **Anchor pattern** — a centralised owner that holds all nodes, with navigation done via opaque generational IDs instead of pointers.
 
-```kalidous
+```zith
 struct Anchor<T> {
     slots:     []Slot<T>,
     allocator: Allocator,
@@ -509,7 +509,7 @@ struct NodeId<T> {
 
 Because `NodeId` is opaque and generational, using a stale ID (one whose slot was freed and reused) safely returns `null` instead of accessing wrong data. There are no dangling pointers, no ownership cycles, and no runtime cost beyond a single generation check.
 
-```kalidous
+```zith
 let anchor = Anchor<City>.new(allocator);
 let lisbon = anchor.insert(City { name: "Lisbon" });
 let porto  = anchor.insert(City { name: "Porto"  });
@@ -526,37 +526,37 @@ let city = anchor.get(lisbon);  // view City? — null if stale
 
 ```bash
 # Debug build
-kalidous build
+zith build
 
 # Release build
-kalidous build -m release
+zith build -m release
 ```
 
 ### Check
 
 ```bash
 # Syntax and type checking without compilation
-kalidous check
+zith check
 ```
 
 ### Compile
 
 ```bash
 # Compile to KBC bytecode
-kalidous compile src/main.kali -o main.kbc
+zith compile src/main.kali -o main.kbc
 
 # Compile to assembly (planned)
-kalidous compile src/main.kali --emit asm -o main.s
+zith compile src/main.kali --emit asm -o main.s
 ```
 
 ### Execute
 
 ```bash
 # Run a compiled KBC file using the VM
-kalidous execute bin/app.kbc
+zith execute bin/app.kbc
 
 # Build and run in one command
-kalidous run
+zith run
 ```
 
 ---
@@ -573,7 +573,7 @@ kalidous run
 - [x] Documentation Site
 
 ### In Progress
-- [ ] Kalidous Virtual Machine
+- [ ] Zith Virtual Machine
 - [ ] Standard Library
 - [ ] Performance Optimization
 
@@ -597,8 +597,8 @@ kalidous run
 ### Build Steps
 
 ```bash
-git clone https://github.com/GalaxyHaze/Kalidous-Lang.git
-cd Kalidous-Lang
+git clone https://github.com/GalaxyHaze/Zith-Lang.git
+cd Zith-Lang
 mkdir build && cd build
 cmake ..
 make
@@ -618,7 +618,7 @@ make
 
 ## Contributing
 
-Kalidous welcomes community contributions.
+Zith welcomes community contributions.
 
 ### Reporting Issues
 Please open an issue with a clear description, steps to reproduce, and environment details.
@@ -635,29 +635,29 @@ Please open an issue with a clear description, steps to reproduce, and environme
 
 ## Resources
 
-*   [Documentation](https://galaxyhaze.github.io/Kalidous-Lang/docs/index.html?page=intro)
-*   [Issue Tracker](https://github.com/GalaxyHaze/Kalidous-Lang/issues)
-*   [Discussions](https://github.com/GalaxyHaze/Kalidous-Lang/discussions)
-*   [GitHub Repository](https://github.com/GalaxyHaze/Kalidous-Lang)
+*   [Documentation](https://galaxyhaze.github.io/Zith-Lang/docs/index.html?page=intro)
+*   [Issue Tracker](https://github.com/GalaxyHaze/Zith-Lang/issues)
+*   [Discussions](https://github.com/GalaxyHaze/Zith-Lang/discussions)
+*   [GitHub Repository](https://github.com/GalaxyHaze/Zith-Lang)
 
 ---
 
 ## FAQ
 
-**Q: When will Kalidous be production-ready?**  
+**Q: When will Zith be production-ready?**  
 A: The project is currently under active development. Focus is on the VM and standard library.
 
 **Q: What is the difference between KBC and native compilation?**  
-A: KBC bytecode runs in the Kalidous VM for portability. Native compilation via LLVM produces machine code for maximum performance.
+A: KBC bytecode runs in the Zith VM for portability. Native compilation via LLVM produces machine code for maximum performance.
 
-**Q: How does Kalidous achieve memory safety without a garbage collector?**  
+**Q: How does Zith achieve memory safety without a garbage collector?**  
 A: Through compile-time ownership tracking. The five ownership keywords (`unique`, `share`, `view`, `lend`, `extension`) give the compiler enough information to verify all memory accesses statically. No runtime checks, no reference counting.
 
-**Q: Is Kalidous suitable for kernel and embedded development?**  
+**Q: Is Zith suitable for kernel and embedded development?**  
 A: Yes. The `raw` keyword provides an explicit escape hatch for hardware-level programming, direct memory access, and FFI with C. The ownership system and `raw` are deliberately separate — safe code and unsafe code are always visually distinct.
 
 ---
 
 ## License
 
-Kalidous is licensed under the [MIT License](./license).
+Zith is licensed under the [MIT License](./license).

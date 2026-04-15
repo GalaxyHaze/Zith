@@ -7,7 +7,7 @@
 </div>
 <div class="page-eyebrow animate-in">CLI Reference</div>
 <h1 class="animate-in">Global Flags</h1>
-<p class="lead animate-in">Universal command-line options available with all Kalidous commands.</p>
+<p class="lead animate-in">Universal command-line options available with all Zith commands.</p>
 
 <h2>Help & Version</h2>
 <div class="table-wrap">
@@ -23,12 +23,12 @@
       <tr>
         <td><code>-h, --help</code></td>
         <td>Show help message</td>
-        <td><code>kalidous build --help</code></td>
+        <td><code>zith build --help</code></td>
       </tr>
       <tr>
         <td><code>--version</code></td>
         <td>Show version info</td>
-        <td><code>kalidous --version</code></td>
+        <td><code>zith --version</code></td>
       </tr>
     </tbody>
   </table>
@@ -48,17 +48,17 @@
       <tr>
         <td><code>-v, --verbose</code></td>
         <td>Show detailed output</td>
-        <td><code>kalidous build -v</code></td>
+        <td><code>zith build -v</code></td>
       </tr>
       <tr>
         <td><code>-q, --quiet</code></td>
         <td>Suppress non-error output</td>
-        <td><code>kalidous build -q</code></td>
+        <td><code>zith build -q</code></td>
       </tr>
       <tr>
         <td><code>--color auto|on|off</code></td>
         <td>Control colored output</td>
-        <td><code>kalidous build --color off</code></td>
+        <td><code>zith build --color off</code></td>
       </tr>
     </tbody>
   </table>
@@ -126,25 +126,25 @@
 <h3>Development Build (Fast)</h3>
 <div class="code-block">
   <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
-  <pre>kalidous run <span class="tok-flag">-m</span> debug</pre>
+  <pre>zith run <span class="tok-flag">-m</span> debug</pre>
 </div>
 
 <h3>Release Build (Optimized)</h3>
 <div class="code-block">
   <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
-  <pre>kalidous build <span class="tok-flag">-m</span> release <span class="tok-flag">-O3</span></pre>
+  <pre>zith build <span class="tok-flag">-m</span> release <span class="tok-flag">-O3</span></pre>
 </div>
 
 <h3>Parallel Build</h3>
 <div class="code-block">
   <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
-  <pre>kalidous build <span class="tok-flag">-j</span> 8</pre>
+  <pre>zith build <span class="tok-flag">-j</span> 8</pre>
 </div>
 
 <h3>Quiet Mode (CI/CD)</h3>
 <div class="code-block">
   <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
-  <pre>kalidous build <span class="tok-flag">-q</span></pre>
+  <pre>zith build <span class="tok-flag">-q</span></pre>
 </div>
 
 <h2>Environment Variables</h2>
@@ -158,15 +158,15 @@
     </thead>
     <tbody>
       <tr>
-        <td><code>KALIDOUS_MODE</code></td>
+        <td><code>ZITH_MODE</code></td>
         <td>Default build mode</td>
       </tr>
       <tr>
-        <td><code>KALIDOUS_JOBS</code></td>
+        <td><code>ZITH_JOBS</code></td>
         <td>Default parallel jobs</td>
       </tr>
       <tr>
-        <td><code>KALIDOUS_HOME</code></td>
+        <td><code>ZITH_HOME</code></td>
         <td>Config directory</td>
       </tr>
     </tbody>

@@ -10,37 +10,37 @@
 #include <cstdio>
 #include <cstring>
 
-// Use the kalidous::ArenaList template
-using kalidous::ArenaList;
+// Use the zith::ArenaList template
+using zith::ArenaList;
 
 // ============================================================================
 // Pipeline Orchestration
 // ============================================================================
 
-static KalidousNode *run_parser_phase(Parser *p, KalidousParserMode mode) {
+static ZithNode *run_parser_phase(Parser *p, ZithParserMode mode) {
     p->pos = 0;
     p->panic = false;
     p->had_error = false;
     p->mode = mode;
 
-    ArenaList<KalidousNode *> decls_b; 
+    ArenaList<ZithNode *> decls_b; 
     decls_b.init(p->arena, 16);
     
     while (!parser_is_at_end(p)) {
         size_t pos_before = p->pos;
-        KalidousNode *decl = parser_parse_declaration(p);
+        ZithNode *decl = parser_parse_declaration(p);
         if (decl) decls_b.push(p->arena, decl);
         // Anti-stall: if we didn't consume a token and aren't at end, force advance
         if (p->pos == pos_before && !parser_is_at_end(p)) parser_advance(p);
     }
     
     size_t count = 0;
-    KalidousNode **decls = decls_b.flatten(p->arena, &count);
-    return kalidous_ast_make_program(p->arena, decls, count);
+    ZithNode **decls = decls_b.flatten(p->arena, &count);
+    return zith_ast_make_program(p->arena, decls, count);
 }
 
-KalidousNode *kalidous_parse_with_source(KalidousArena *arena, const char *source, size_t source_len,
-                                         const char *filename, KalidousTokenStream tokens) {
+ZithNode *zith_parse_with_source(ZithArena *arena, const char *source, size_t source_len,
+                                         const char *filename, ZithTokenStream tokens) {
     Parser p;
     parser_init(&p, arena, source, source_len, filename, tokens);
 
@@ -49,24 +49,24 @@ KalidousNode *kalidous_parse_with_source(KalidousArena *arena, const char *sourc
     // as UNBODY nodes (raw token streams) — the parser does NOT descend
     // into block contents. Structs, imports, and top-level expressions are
     // fully parsed.
-    KalidousNode *scan_root = run_parser_phase(&p, KALIDOUS_MODE_SCAN);
+    ZithNode *scan_root = run_parser_phase(&p, ZITH_MODE_SCAN);
     p.scan_root = scan_root;
 
     // ─── Phase 2: EXPAND ────────────────────────────────────────────────
     // Walk the tree and replace UNBODY nodes with fully parsed BLOCK nodes.
     // This is where statement-level parsing happens inside function bodies.
     // TODO: implement UNBODY → BLOCK expansion
-    KalidousNode *expanded = scan_root; // pass-through for now
+    ZithNode *expanded = scan_root; // pass-through for now
 
     // ─── Phase 3: SEMA ──────────────────────────────────────────────────
     // Semantic analysis: name resolution, type checking, borrow checker,
     // control-flow analysis. Produces an annotated AST.
     // TODO: implement semantic analysis
-    KalidousNode *sema_result = expanded; // pass-through for now
+    ZithNode *sema_result = expanded; // pass-through for now
 
     // Print diagnostics accumulated across all phases
-    extern void kalidous_diag_print_all(const KalidousDiagList*, const char*, size_t, const char*);
-    kalidous_diag_print_all(&p.diags, source, source_len, filename);
+    extern void zith_diag_print_all(const ZithDiagList*, const char*, size_t, const char*);
+    zith_diag_print_all(&p.diags, source, source_len, filename);
 
     return sema_result;
 }
@@ -76,38 +76,38 @@ KalidousNode *kalidous_parse_with_source(KalidousArena *arena, const char *sourc
 // ============================================================================
 
 // Shared arena for all test calls — lazily created, reset between calls.
-static KalidousArena *g_test_arena = nullptr;
+static ZithArena *g_test_arena = nullptr;
 
-static KalidousArena *test_arena_or_init() {
-    if (!g_test_arena) g_test_arena = kalidous_arena_create(1 << 20); // 1 MB
-    else kalidous_arena_reset(g_test_arena);
+static ZithArena *test_arena_or_init() {
+    if (!g_test_arena) g_test_arena = zith_arena_create(1 << 20); // 1 MB
+    else zith_arena_reset(g_test_arena);
     return g_test_arena;
 }
 
-KalidousNode *kalidous_parse_test(const char *source) {
+ZithNode *zith_parse_test(const char *source) {
     if (!source) return nullptr;
 
     const size_t len = strlen(source);
-    KalidousArena *arena = test_arena_or_init();
+    ZithArena *arena = test_arena_or_init();
     if (!arena) return nullptr;
 
-    KalidousTokenStream tokens = kalidous_tokenize(arena, source, len);
+    ZithTokenStream tokens = zith_tokenize(arena, source, len);
     if (!tokens.data) return nullptr;
 
-    kalidous_debug_tokens(tokens.data, tokens.len);
+    zith_debug_tokens(tokens.data, tokens.len);
 
     Parser p;
     parser_init(&p, arena, source, len, "<test>", tokens);
 
-    KalidousNode *root = run_parser_phase(&p, KALIDOUS_MODE_SCAN);
+    ZithNode *root = run_parser_phase(&p, ZITH_MODE_SCAN);
 
-    kalidous_ast_print(root, 0);
-    kalidous_diag_print_all(&p.diags, source, len, "<test>");
+    zith_ast_print(root, 0);
+    zith_diag_print_all(&p.diags, source, len, "<test>");
     return root;
 }
 
-void kalidous_test_arena_destroy(void) {
-    if (g_test_arena) { kalidous_arena_destroy(g_test_arena); g_test_arena = nullptr; }
+void zith_test_arena_destroy(void) {
+    if (g_test_arena) { zith_arena_destroy(g_test_arena); g_test_arena = nullptr; }
 }
 
 // ParseResult C++ methods
@@ -116,7 +116,7 @@ void ParseResult::reset() {
     if (node) {
         // Arena is reset so it's clean for the next call.
         // We don't destroy it — it's reused across tests.
-        if (g_test_arena) kalidous_arena_reset(g_test_arena);
+        if (g_test_arena) zith_arena_reset(g_test_arena);
         node = nullptr;
     }
 }

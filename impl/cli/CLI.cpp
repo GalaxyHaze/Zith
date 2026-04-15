@@ -1,11 +1,11 @@
-// kalidous_cli.cpp — CLI entry point for the Kalidous compiler
+// zith_cli.cpp — CLI entry point for the Zith compiler
 //
 // Requires C++17 (structured bindings, if-initializers).
-// Depends on: CLI11, Kalidous/kalidous.h
+// Depends on: CLI11, Zith/zith.h
 
 #include <CLI/CLI.hpp>
 #include <chrono>
-#include <kalidous/kalidous.hpp>
+#include <zith/zith.hpp>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -13,7 +13,7 @@
 #include "../lexer/debug.h"
 #include "../ast/ast.h"
 
-static const char *kalidous_version = KALIDOUS_VERSION;
+static const char *zith_version = ZITH_VERSION;
 
 // ============================================================================
 // Output helpers
@@ -33,15 +33,15 @@ static void print_success(const std::string &action, const std::string &target) 
 
 static void print_not_implemented(const std::string &command) {
     std::cerr << "\n[!] Command '" << command << "' is not implemented yet.\n"
-            << "    This feature will be available in a future version of Kalidous.\n"
-            << "    Track progress at: https://github.com/GalaxyHaze/Kalidous\n\n";
+            << "    This feature will be available in a future version of Zith.\n"
+            << "    Track progress at: https://github.com/GalaxyHaze/Zith\n\n";
 }
 
 // ============================================================================
-// KalidousProject — representa o KalidousProject.toml
+// ZithProject — representa o ZithProject.toml
 // ============================================================================
 
-struct KalidousProject {
+struct ZithProject {
     // -- Identidade --
     std::string name = "project";
     std::string version = "0.1.0";
@@ -51,7 +51,7 @@ struct KalidousProject {
     std::string homepage;
 
     // -- Compilação --
-    std::string entry = "src/main.kalidous";
+    std::string entry = "src/main.zith";
     std::string output = "bin/project";
     std::string mode = "debug";
     std::string target_triple;
@@ -63,7 +63,7 @@ struct KalidousProject {
     std::string lib_dir = "lib";
     std::string docs_dir = "docs";
     std::string test_dir = "examples";
-    std::string cache_dir = ".kalidous_cache";
+    std::string cache_dir = ".zith_cache";
 
     // -- Includes & Links --
     std::vector<std::string> include_dirs;
@@ -84,10 +84,10 @@ struct KalidousProject {
     int debug_level = 2; // 0–3, mapeado para DWARF debug info
 };
 
-// Retorna false se KalidousProject.toml não existir ou falhar ao ler.
+// Retorna false se ZithProject.toml não existir ou falhar ao ler.
 // Preenche 'proj' com defaults enquanto o parser TOML não está implementado.
-static bool try_load_project(KalidousProject &proj) {
-    if (!kalidous_file_exists("KalidousProject.toml")) return false;
+static bool try_load_project(ZithProject &proj) {
+    if (!zith_file_exists("ZithProject.toml")) return false;
 
     // TODO: integrar toml++ (https://github.com/marzer/tomlplusplus)
     // TODO: validar campos obrigatórios: name, version, entry
@@ -96,7 +96,7 @@ static bool try_load_project(KalidousProject &proj) {
     // TODO: suportar array de targets para cross-compilation
     // TODO: resolver paths relativos à localização do .toml
 
-    proj = KalidousProject{}; // garante defaults mesmo que a leitura seja parcial
+    proj = ZithProject{}; // garante defaults mesmo que a leitura seja parcial
     return true;
 }
 
@@ -108,28 +108,28 @@ static bool try_load_project(KalidousProject &proj) {
 // Preenche 'out_stream', 'out_source' e 'out_source_len' — o source fica na
 // arena para ser reutilizado pelo parser sem second load.
 // Retorna a arena (o chamador destrói); nullptr em caso de erro.
-static KalidousArena *tokenize_file(const std::string &src_path,
-                                    KalidousTokenStream &out_stream,
+static ZithArena *tokenize_file(const std::string &src_path,
+                                    ZithTokenStream &out_stream,
                                     const char **out_source,
                                     size_t *out_source_len,
                                     bool verbose) {
-    KalidousArena *arena = kalidous_arena_create(64 * 1024);
+    ZithArena *arena = zith_arena_create(64 * 1024);
     if (!arena) {
         print_error("Failed to create memory arena");
         return nullptr;
     }
 
     size_t file_size = 0;
-    const char *source = kalidous_load_file_to_arena(arena, src_path.c_str(), &file_size);
+    const char *source = zith_load_file_to_arena(arena, src_path.c_str(), &file_size);
     if (!source) {
         print_error("Failed to load file: " + src_path);
-        kalidous_arena_destroy(arena);
+        zith_arena_destroy(arena);
         return nullptr;
     }
 
-    out_stream = kalidous_tokenize(arena, source, file_size);
+    out_stream = zith_tokenize(arena, source, file_size);
     if (!out_stream.data) {
-        kalidous_arena_destroy(arena);
+        zith_arena_destroy(arena);
         return nullptr;
     }
 
@@ -153,9 +153,9 @@ static int cmd_check(const std::string &input_file,
     std::string src = input_file;
 
     if (src.empty()) {
-        KalidousProject proj;
+        ZithProject proj;
         if (!try_load_project(proj)) {
-            print_error("No input file and no KalidousProject.toml found");
+            print_error("No input file and no ZithProject.toml found");
             return 1;
         }
         src = proj.entry;
@@ -163,15 +163,15 @@ static int cmd_check(const std::string &input_file,
 
     if (verbose) print_info("Checking '" + src + "' in " + mode_str + " mode...");
 
-    KalidousTokenStream stream{};
+    ZithTokenStream stream{};
     const char *source = nullptr;
     size_t src_size = 0;
-    KalidousArena *arena = tokenize_file(src, stream, &source, &src_size, verbose);
+    ZithArena *arena = tokenize_file(src, stream, &source, &src_size, verbose);
     if (!arena) return 1;
 
-    kalidous_debug_tokens(stream.data, stream.len);
+    zith_debug_tokens(stream.data, stream.len);
 
-    KalidousNode *ast = kalidous_parse_with_source(arena,
+    ZithNode *ast = zith_parse_with_source(arena,
                                                    source, src_size,
                                                    src.c_str(), stream);
 
@@ -180,19 +180,19 @@ static int cmd_check(const std::string &input_file,
         if (ast) {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             printf("-Starting AST\n");
-            kalidous_ast_print(ast, 0);
+            zith_ast_print(ast, 0);
             printf("Ending AST\n");
         } else {
             print_error("Parse failed — null AST");
-            kalidous_arena_destroy(arena);
+            zith_arena_destroy(arena);
             return 1;
         }
 }
 
-    // TODO: kalidous_sema(arena, ast) — name resolution, types, borrow checker
+    // TODO: zith_sema(arena, ast) — name resolution, types, borrow checker
     // TODO: report errors/warnings with full span (line:col start+end)
 
-    kalidous_arena_destroy(arena);
+    zith_arena_destroy(arena);
     print_success("Check passed", src);
     return 0;
 }
@@ -210,14 +210,14 @@ static int cmd_compile(const std::string &input_file,
         print_info("Compiling '" + input_file + "' → " + kind + " (" + mode_str + ")");
     }
 
-    KalidousTokenStream stream{};
+    ZithTokenStream stream{};
     const char *source = nullptr;
     size_t src_size = 0;
-    KalidousArena *arena = tokenize_file(input_file, stream, &source, &src_size, verbose);
+    ZithArena *arena = tokenize_file(input_file, stream, &source, &src_size, verbose);
     if (!arena) return 1;
 
-    // TODO: kalidous_parse(arena, stream)  → AST
-    // TODO: kalidous_sema(arena, ast)       → AST anotada
+    // TODO: zith_parse(arena, stream)  → AST
+    // TODO: zith_sema(arena, ast)       → AST anotada
 
     // TODO [LLVM — caminho nativo]:
     //   - Inicializar LLVMContext + LLVMModule + LLVMBuilder
@@ -232,12 +232,12 @@ static int cmd_compile(const std::string &input_file,
     //       header: magic + versão + nº de constantes + nº de instruções
     //       pool de constantes (strings, números)
     //       array de instruções (opcode 1 byte + operandos variáveis)
-    //   - kalidous_bytecode_emit(arena, ast) → KalidousBytecode*
+    //   - zith_bytecode_emit(arena, ast) → ZithBytecode*
     //   - Serializar para ficheiro .nbc
 
     // TODO: usar include_dirs para resolver imports no parse/sema
 
-    kalidous_arena_destroy(arena);
+    zith_arena_destroy(arena);
 
     const std::string out = !output_file.empty()
                                 ? output_file
@@ -258,9 +258,9 @@ static int cmd_build(const std::string &input_file,
     std::vector<std::string> extra_includes = include_dirs;
 
     if (src.empty()) {
-        KalidousProject proj;
+        ZithProject proj;
         if (!try_load_project(proj)) {
-            print_error("No input file and no KalidousProject.toml found");
+            print_error("No input file and no ZithProject.toml found");
             return 1;
         }
         src = proj.entry;
@@ -300,18 +300,18 @@ static int cmd_execute(const std::string &target, bool interpreted, bool verbose
     std::string bin = target;
 
     if (bin.empty()) {
-        KalidousProject proj;
+        ZithProject proj;
         if (!try_load_project(proj)) {
-            print_error("No target specified and no KalidousProject.toml found");
+            print_error("No target specified and no ZithProject.toml found");
             return 1;
         }
         bin = interpreted ? (proj.output + ".nbc") : proj.output;
     }
 
-    if (!kalidous_file_exists(bin.c_str())) {
+    if (!zith_file_exists(bin.c_str())) {
         const std::string hint = interpreted ? "compile --interpreted" : "build";
         print_error("Target not found: '" + bin +
-                    "' -- did you run 'kalidous " + hint + "' first?");
+                    "' -- did you run 'zith " + hint + "' first?");
         return 1;
     }
 
@@ -323,10 +323,10 @@ static int cmd_execute(const std::string &target, bool interpreted, bool verbose
     //   - retornar exit code do processo filho
 
     // TODO [interpretado / .nbc]:
-    //   - kalidous_vm_create() → KalidousVM*
-    //   - kalidous_vm_load(vm, bin)
-    //   - kalidous_vm_run(vm) → int exit_code
-    //   - kalidous_vm_destroy(vm)
+    //   - zith_vm_create() → ZithVM*
+    //   - zith_vm_load(vm, bin)
+    //   - zith_vm_run(vm) → int exit_code
+    //   - zith_vm_destroy(vm)
 
     print_not_implemented("execute");
     return 1;
@@ -357,10 +357,10 @@ static int cmd_run(const std::string &input_file,
 
 static int cmd_test(const std::string & /*input_file*/, bool /*verbose*/) {
     // TODO: sintaxe de testes: #[test] fn my_test() { ... }
-    // TODO: descobrir automaticamente ficheiros *_test.kalidous em test_dir
+    // TODO: descobrir automaticamente ficheiros *_test.zith em test_dir
     // TODO: compilar e executar cada teste isoladamente
     // TODO: reportar: passed / failed / ignored com tempo de execução
-    // TODO: filtro por nome: kalidous test foo::bar
+    // TODO: filtro por nome: zith test foo::bar
     print_not_implemented("test");
     return 1;
 }
@@ -369,7 +369,7 @@ static int cmd_fmt(const std::string & /*input_file*/, bool /*check_only*/, bool
     // TODO: pretty-printer sobre a AST (canonical form)
     // TODO: suporte a ficheiro único ou directório recursivo
     // TODO: --check → não modifica, retorna 1 se algum ficheiro difere (CI)
-    // TODO: .kalidous_fmt para config de estilo
+    // TODO: .zith_fmt para config de estilo
     print_not_implemented("fmt");
     return 1;
 }
@@ -402,8 +402,8 @@ static int cmd_repl(bool /*verbose*/) {
 #endif
 
 static int cmd_version() {
-    std::cout << "Kalidous Programming Language\n"
-            << "Version:  " << kalidous_version << "\n"
+    std::cout << "Zith Programming Language\n"
+            << "Version:  " << zith_version << "\n"
             << "Compiler: " << compiler << "\n";
     // TODO: LLVMGetVersion() quando o backend estiver linkado
     // TODO: LLVMGetDefaultTargetTriple() para mostrar o host target
@@ -411,17 +411,17 @@ static int cmd_version() {
 }
 
 static int cmd_help() {
-    std::cout << R"(Kalidous - A low-level general-purpose language
+    std::cout << R"(Zith - A low-level general-purpose language
 
 USAGE:
-    kalidous [OPTIONS] <COMMAND> [ARGS]
+    zith [OPTIONS] <COMMAND> [ARGS]
 
 COMMANDS:
     check      Parse and type-check; report errors only, no output
     compile    Compile to object file or bytecode, no linking
-    build      Compile and link to native binary  (reads KalidousProject.toml)
-    execute    Run an existing binary or bytecode (reads KalidousProject.toml)
-    run        Build then execute                 (reads KalidousProject.toml)
+    build      Compile and link to native binary  (reads ZithProject.toml)
+    execute    Run an existing binary or bytecode (reads ZithProject.toml)
+    run        Build then execute                 (reads ZithProject.toml)
     test       Run examples defined in source
     fmt        Format source code
     docs       Generate documentation
@@ -445,20 +445,20 @@ PIPELINE:
     run --interpreted  =  compile --interpreted + execute --interpreted
 
 EXAMPLES:
-    kalidous check main.kalidous
-    kalidous compile main.kalidous -o main.o
-    kalidous compile --interpreted main.kalidous -o main.nbc
-    kalidous build
-    kalidous build main.kalidous -o bin/app -m release
-    kalidous execute
-    kalidous execute --interpreted
-    kalidous run
-    kalidous run main.kalidous -m release
-    kalidous run --interpreted main.kalidous
+    zith check main.zith
+    zith compile main.zith -o main.o
+    zith compile --interpreted main.zith -o main.nbc
+    zith build
+    zith build main.zith -o bin/app -m release
+    zith execute
+    zith execute --interpreted
+    zith run
+    zith run main.zith -m release
+    zith run --interpreted main.zith
 
 LEARN MORE:
-    Source: https://github.com/GalaxyHaze/Kalidous-lang
-    Docs:   https://galaxyhaze.github.io/Kalidous-Lang/docs/index.html
+    Source: https://github.com/GalaxyHaze/Zith-lang
+    Docs:   https://galaxyhaze.github.io/Zith-Lang/docs/index.html
 )";
     return 0;
 }
@@ -467,8 +467,8 @@ LEARN MORE:
 // Entry point (C API)
 // ============================================================================
 
-extern "C" int kalidous_run(int argc, const char *const argv[]) {
-    CLI::App app{"Kalidous - A low-level general-purpose language"};
+extern "C" int zith_run(int argc, const char *const argv[]) {
+    CLI::App app{"Zith - A low-level general-purpose language"};
     app.require_subcommand(0, 1);
 
     // -- Opções globais -------------------------------------------------------
@@ -502,7 +502,7 @@ extern "C" int kalidous_run(int argc, const char *const argv[]) {
             ->check(CLI::ExistingFile);
 
     auto *compile_cmd = app.add_subcommand("compile", "Compile to object/bytecode, no linking");
-    compile_cmd->add_option("input", input_file, "Source file (.kalidous)")
+    compile_cmd->add_option("input", input_file, "Source file (.zith)")
             ->required()->check(CLI::ExistingFile);
     compile_cmd->add_flag("--interpreted", interpreted, "Compile to bytecode instead of native");
 
@@ -520,14 +520,14 @@ extern "C" int kalidous_run(int argc, const char *const argv[]) {
     run_cmd->add_flag("--interpreted", interpreted, "Compile to bytecode and run interpreted");
 
     auto *test_cmd = app.add_subcommand("test", "Run examples in source");
-    test_cmd->add_option("input", input_file, "Source file (.kalidous)")->check(CLI::ExistingFile);
+    test_cmd->add_option("input", input_file, "Source file (.zith)")->check(CLI::ExistingFile);
 
     auto *fmt_cmd = app.add_subcommand("fmt", "Format source code");
     fmt_cmd->add_option("input", input_file, "Source file or directory")->required();
     fmt_cmd->add_flag("--check", fmt_check, "Check formatting only, do not modify files");
 
     auto *docs_cmd = app.add_subcommand("docs", "Generate documentation");
-    docs_cmd->add_option("input", input_file, "Source file (.kalidous)")->check(CLI::ExistingFile);
+    docs_cmd->add_option("input", input_file, "Source file (.zith)")->check(CLI::ExistingFile);
     docs_cmd->add_option("-o,--output", docs_output, "Output directory")->default_str("docs");
 
     auto *repl_cmd = app.add_subcommand("repl", "Start interactive REPL");
@@ -568,7 +568,7 @@ extern "C" int kalidous_run(int argc, const char *const argv[]) {
                        interpreted, verbose, include_dirs);
 
     // Sem subcomando: tenta build via toml, senão mostra ajuda
-    KalidousProject proj;
+    ZithProject proj;
     if (try_load_project(proj))
         return cmd_build("", "", mode_str, verbose, include_dirs);
 

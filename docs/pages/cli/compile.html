@@ -6,13 +6,13 @@
   <span>compile</span>
 </div>
 <div class="page-eyebrow animate-in">CLI Reference</div>
-<h1 class="animate-in">kalidous compile</h1>
-<p class="lead animate-in">Compile Kalidous source files directly to machine code or intermediate bytecode.</p>
+<h1 class="animate-in">zith compile</h1>
+<p class="lead animate-in">Compile Zith source files directly to machine code or intermediate bytecode.</p>
 
 <h2>Synopsis</h2>
 <div class="code-block">
   <div class="code-block-header"><span class="code-block-lang">shell</span></div>
-  <pre><span class="tok-fn">kalidous</span> compile &lt;source&gt; [<span class="tok-flag">-o</span> output] [<span class="tok-flag">--target</span> triple] [<span class="tok-flag">--emit</span> type]</pre>
+  <pre><span class="tok-fn">zith</span> compile &lt;source&gt; [<span class="tok-flag">-o</span> output] [<span class="tok-flag">--target</span> triple] [<span class="tok-flag">--emit</span> type]</pre>
 </div>
 
 <h2>Description</h2>
@@ -86,16 +86,16 @@
 <div class="code-block">
   <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
   <pre><span class="tok-cmt"># Compile to assembly</span>
-<span class="tok-fn">kalidous</span> compile main.kali <span class="tok-flag">--emit</span> asm <span class="tok-flag">-o</span> <span class="tok-path">main.s</span>
+<span class="tok-fn">zith</span> compile main.kali <span class="tok-flag">--emit</span> asm <span class="tok-flag">-o</span> <span class="tok-path">main.s</span>
 
 <span class="tok-cmt"># Compile to object file</span>
-<span class="tok-fn">kalidous</span> compile app.kali <span class="tok-flag">--emit</span> obj <span class="tok-flag">-o</span> <span class="tok-path">app.o</span>
+<span class="tok-fn">zith</span> compile app.kali <span class="tok-flag">--emit</span> obj <span class="tok-flag">-o</span> <span class="tok-path">app.o</span>
 
 <span class="tok-cmt"># With optimization</span>
-<span class="tok-fn">kalidous</span> compile fast.kali <span class="tok-flag">-O3</span> <span class="tok-flag">-o</span> <span class="tok-path">fast</span>
+<span class="tok-fn">zith</span> compile fast.kali <span class="tok-flag">-O3</span> <span class="tok-flag">-o</span> <span class="tok-path">fast</span>
 
 <span class="tok-cmt"># Cross-compile</span>
-<span class="tok-fn">kalidous</span> compile app.kali <span class="tok-flag">--target</span> aarch64-linux-gnu</pre>
+<span class="tok-fn">zith</span> compile app.kali <span class="tok-flag">--target</span> aarch64-linux-gnu</pre>
 </div>
 
 <h2>Optimization Levels</h2>
@@ -140,7 +140,7 @@
 
 <div class="callout callout-note">
   <span class="callout-icon">ℹ</span>
-  <div class="callout-body">For most development, use <code>kalidous build</code> instead. Use <code>compile</code> only when you need low-level control.</div>
+  <div class="callout-body">For most development, use <code>zith build</code> instead. Use <code>compile</code> only when you need low-level control.</div>
 </div>
 
 <h2>See Also</h2>

@@ -1,26 +1,26 @@
 // impl/parser/tokenizer.cpp
-#include "kalidous/kalidous.hpp"
+#include "zith/zith.hpp"
 #include "../memory/utils.h"
 #include <string_view>
 #include <vector>
 #include <cstring>
 #include <iostream>
 
-#define KALIDOUS_NEWLINE(loc) do { \
+#define ZITH_NEWLINE(loc) do { \
     (loc)->line++;             \
     (loc)->index = 0;          \
 } while(0)
 
 #define MAX_ERRORS 50
 
-namespace kalidous::detail {
+namespace zith::detail {
     struct LexError {
         const char *msg;
-        KalidousSourceLoc info;
+        ZithSourceLoc info;
     };
 
     // Tipo específico para o Tokenizer
-    using TokenList = ArenaList<KalidousToken>;
+    using TokenList = ArenaList<ZithToken>;
 
 
     // ============================================================================
@@ -48,7 +48,7 @@ namespace kalidous::detail {
         *out_len = out_len_val;
     }
 
-    static const char *make_error_msg(KalidousArena *arena, const char *prefix, const uint64_t line) {
+    static const char *make_error_msg(ZithArena *arena, const char *prefix, const uint64_t line) {
         char stack_buf[128];
         size_t pos = 0;
         for (const char *p = prefix; *p && pos < sizeof(stack_buf) - 22;)
@@ -58,17 +58,17 @@ namespace kalidous::detail {
         uint_to_str(stack_buf + pos, sizeof(stack_buf) - pos, line, &num_len);
         pos += num_len;
 
-        char *msg = static_cast<char *>(kalidous_arena_alloc(arena, pos + 1));
+        char *msg = static_cast<char *>(zith_arena_alloc(arena, pos + 1));
         if (msg) std::memcpy(msg, stack_buf, pos + 1);
         return msg;
     }
 
-    static KalidousToken make_token(KalidousArena *arena, KalidousTokenType type,
-                                    std::string_view lexeme, KalidousSourceLoc info) {
-        auto *buf = static_cast<char *>(kalidous_arena_alloc(arena, lexeme.size()));
+    static ZithToken make_token(ZithArena *arena, ZithTokenType type,
+                                    std::string_view lexeme, ZithSourceLoc info) {
+        auto *buf = static_cast<char *>(zith_arena_alloc(arena, lexeme.size()));
         if (buf && !lexeme.empty())
             std::memcpy(buf, lexeme.data(), lexeme.size());
-        return KalidousToken{
+        return ZithToken{
             .lexeme = {buf, lexeme.size()},
             .loc = info,
             .type = type,
@@ -104,31 +104,31 @@ namespace kalidous::detail {
 
     static void processIdentifier(const char *&current, const char *end,
                                   TokenList &tokens,
-                                  KalidousSourceLoc &info, KalidousArena *arena);
+                                  ZithSourceLoc &info, ZithArena *arena);
 
     static void processString(const char *&current, const char *end,
                               TokenList &tokens, std::vector<LexError> &error_list,
-                              KalidousSourceLoc &info, KalidousArena *arena);
+                              ZithSourceLoc &info, ZithArena *arena);
 
     static void processNumber(const char *&current, const char *end,
                               TokenList &tokens, std::vector<LexError> &error_list,
-                              KalidousSourceLoc &info, KalidousArena *arena);
+                              ZithSourceLoc &info, ZithArena *arena);
 
     static bool punctuation(const char *&current, const char *end,
                             TokenList &tokens,
-                            KalidousSourceLoc &info, KalidousArena *arena);
+                            ZithSourceLoc &info, ZithArena *arena);
 
     // ── Comments ─────────────────────────────────────────────────────────────────
 
-    static void skipSingleLine(KalidousSourceLoc &info, const char *&current, const char *end) {
+    static void skipSingleLine(ZithSourceLoc &info, const char *&current, const char *end) {
         while (current < end && *current != '\n') {
             ++current;
             ++info.index;
         }
     }
 
-    static void skipMultiLine(KalidousSourceLoc &info, const char *&current, const char *end,
-                              std::vector<LexError> &error_list, KalidousArena *arena) {
+    static void skipMultiLine(ZithSourceLoc &info, const char *&current, const char *end,
+                              std::vector<LexError> &error_list, ZithArena *arena) {
         const auto start = info;
         current += 2;
         info.index += 2;
@@ -140,7 +140,7 @@ namespace kalidous::detail {
                 return;
             }
             if (*current == '\n')
-                KALIDOUS_NEWLINE(&info);
+                ZITH_NEWLINE(&info);
             ++current;
             ++info.index;
         }
@@ -153,7 +153,7 @@ namespace kalidous::detail {
     // ── Errors ───────────────────────────────────────────────────────────────────
 
     static void addCharError(std::vector<LexError> &error_list, const char *base_msg,
-                             const char c, const KalidousSourceLoc info, KalidousArena *arena) {
+                             const char c, const ZithSourceLoc info, ZithArena *arena) {
         if (error_list.size() >= MAX_ERRORS) return;
 
         char stack_buf[64];
@@ -167,12 +167,12 @@ namespace kalidous::detail {
         error_list.push_back({make_error_msg(arena, stack_buf, info.line), info});
     }
 
-    static void addMsgError(std::vector<LexError> &error_list, KalidousArena *arena,
-                            const char *msg, const KalidousSourceLoc info) {
+    static void addMsgError(std::vector<LexError> &error_list, ZithArena *arena,
+                            const char *msg, const ZithSourceLoc info) {
         if (error_list.size() >= MAX_ERRORS) return;
 
         const size_t len = strlen(msg);
-        char *copy = static_cast<char *>(kalidous_arena_alloc(arena, len + 1));
+        char *copy = static_cast<char *>(zith_arena_alloc(arena, len + 1));
         if (copy) std::memcpy(copy, msg, len + 1);
         error_list.push_back({copy, info});
     }
@@ -181,8 +181,8 @@ namespace kalidous::detail {
 
     static void processIdentifier(const char *&current, const char *end,
                                   TokenList &tokens,
-                                  KalidousSourceLoc &info, KalidousArena *arena) {
-        const KalidousSourceLoc startInfo = info;
+                                  ZithSourceLoc &info, ZithArena *arena) {
+        const ZithSourceLoc startInfo = info;
         const char *start = current;
 
         while (current < end && (isAlphaNum(static_cast<unsigned char>(*current)) || *current == '_')) {
@@ -190,14 +190,14 @@ namespace kalidous::detail {
             ++info.index;
         }
         const std::string_view lexeme(start, current - start);
-        const KalidousTokenType type = kalidous_lookup_keyword(start, current - start);
+        const ZithTokenType type = zith_lookup_keyword(start, current - start);
         tokens.push(arena, make_token(arena, type, lexeme, startInfo));
     }
 
     static void processString(const char *&current, const char *end,
                               TokenList &tokens, std::vector<LexError> &error_list,
-                              KalidousSourceLoc &info, KalidousArena *arena) {
-        const KalidousSourceLoc startInfo = info;
+                              ZithSourceLoc &info, ZithArena *arena) {
+        const ZithSourceLoc startInfo = info;
         const char *start = current;
         ++current;
         ++info.index;
@@ -206,13 +206,13 @@ namespace kalidous::detail {
             if (*current == '"') {
                 ++current;
                 ++info.index;
-                tokens.push(arena, make_token(arena, KALIDOUS_TOKEN_STRING,
+                tokens.push(arena, make_token(arena, ZITH_TOKEN_STRING,
                                               std::string_view(start, current - start), startInfo));
                 return;
             }
 
             if (*current == '\\') {
-                const KalidousSourceLoc escapeLoc = info;
+                const ZithSourceLoc escapeLoc = info;
                 ++current;
                 ++info.index;
 
@@ -242,7 +242,7 @@ namespace kalidous::detail {
             }
 
             if (*current == '\n')
-                KALIDOUS_NEWLINE(&info);
+                ZITH_NEWLINE(&info);
             ++current;
             ++info.index;
         }
@@ -252,15 +252,15 @@ namespace kalidous::detail {
             make_error_msg(arena, "Unterminated string literal starting at line ", startInfo.line),
             startInfo
         });
-        tokens.push(arena, make_token(arena, KALIDOUS_TOKEN_STRING,
+        tokens.push(arena, make_token(arena, ZITH_TOKEN_STRING,
                                       std::string_view(start, current - start), startInfo));
     }
 
     static void processNumber(const char *&current, const char *end,
                               TokenList &tokens, std::vector<LexError> &error_list,
-                              KalidousSourceLoc &info, KalidousArena *arena) {
+                              ZithSourceLoc &info, ZithArena *arena) {
         const char *start = current;
-        const KalidousSourceLoc startInfo = info;
+        const ZithSourceLoc startInfo = info;
 
         enum class Base { Decimal, Hex, Binary, Octal } base = Base::Decimal;
 
@@ -277,7 +277,7 @@ namespace kalidous::detail {
                         make_error_msg(arena, "Hex literal '0x' has no digits at line ", startInfo.line),
                         startInfo
                     });
-                    tokens.push(arena, make_token(arena, KALIDOUS_TOKEN_HEXADECIMAL,
+                    tokens.push(arena, make_token(arena, ZITH_TOKEN_HEXADECIMAL,
                                                   std::string_view(start, current - start), startInfo));
                     return;
                 }
@@ -290,7 +290,7 @@ namespace kalidous::detail {
                         make_error_msg(arena, "Binary literal '0b' has no digits at line ", startInfo.line),
                         startInfo
                     });
-                    tokens.push(arena, make_token(arena, KALIDOUS_TOKEN_BINARY,
+                    tokens.push(arena, make_token(arena, ZITH_TOKEN_BINARY,
                                                   std::string_view(start, current - start), startInfo));
                     return;
                 }
@@ -303,7 +303,7 @@ namespace kalidous::detail {
                         make_error_msg(arena, "Octal literal '0o' has no digits at line ", startInfo.line),
                         startInfo
                     });
-                    tokens.push(arena, make_token(arena, KALIDOUS_TOKEN_OCTAL,
+                    tokens.push(arena, make_token(arena, ZITH_TOKEN_OCTAL,
                                                   std::string_view(start, current - start), startInfo));
                     return;
                 }
@@ -381,7 +381,7 @@ namespace kalidous::detail {
         // Detect invalid suffix (e.g. 123abc)
         if (current < end && (isAlpha(static_cast<unsigned char>(*current)) || *current == '_')) {
             const char *suffixStart = current;
-            const KalidousSourceLoc suffixLoc = info;
+            const ZithSourceLoc suffixLoc = info;
 
             while (current < end && (isAlphaNum(static_cast<unsigned char>(*current)) || *current == '_')) {
                 ++current;
@@ -402,15 +402,15 @@ namespace kalidous::detail {
             });
         }
 
-        KalidousTokenType type = KALIDOUS_TOKEN_NUMBER;
+        ZithTokenType type = ZITH_TOKEN_NUMBER;
         switch (base) {
-            case Base::Hex: type = KALIDOUS_TOKEN_HEXADECIMAL;
+            case Base::Hex: type = ZITH_TOKEN_HEXADECIMAL;
                 break;
-            case Base::Binary: type = KALIDOUS_TOKEN_BINARY;
+            case Base::Binary: type = ZITH_TOKEN_BINARY;
                 break;
-            case Base::Octal: type = KALIDOUS_TOKEN_OCTAL;
+            case Base::Octal: type = ZITH_TOKEN_OCTAL;
                 break;
-            case Base::Decimal: type = isFloat ? KALIDOUS_TOKEN_FLOAT : KALIDOUS_TOKEN_NUMBER;
+            case Base::Decimal: type = isFloat ? ZITH_TOKEN_FLOAT : ZITH_TOKEN_NUMBER;
                 break;
         }
 
@@ -420,7 +420,7 @@ namespace kalidous::detail {
 
     static bool punctuation(const char *&current, const char *end,
                             TokenList &tokens,
-                            KalidousSourceLoc &info, KalidousArena *arena) {
+                            ZithSourceLoc &info, ZithArena *arena) {
         const char c = *current;
 
         // Single-character tokens — no lookahead needed
@@ -438,7 +438,7 @@ namespace kalidous::detail {
             case '@':
             case '#':
             case '~':
-                tokens.push(arena, make_token(arena, kalidous_lookup_keyword(&c, 1),
+                tokens.push(arena, make_token(arena, zith_lookup_keyword(&c, 1),
                                               std::string_view(&c, 1), info));
                 ++current;
                 ++info.index;
@@ -464,12 +464,12 @@ namespace kalidous::detail {
         }
 
         // FIX: capture loc *before* advancing so the stored position is correct
-        const KalidousSourceLoc startInfo = info;
+        const ZithSourceLoc startInfo = info;
 
         for (const int len: {3, 2, 1}) {
             if (current + len > end) continue;
-            const auto t = kalidous_lookup_keyword(current, static_cast<size_t>(len));
-            if (t != KALIDOUS_TOKEN_IDENTIFIER) {
+            const auto t = zith_lookup_keyword(current, static_cast<size_t>(len));
+            if (t != ZITH_TOKEN_IDENTIFIER) {
                 const std::string_view view(current, static_cast<size_t>(len));
                 current += len;
                 info.index += static_cast<size_t>(len);
@@ -482,11 +482,11 @@ namespace kalidous::detail {
 
     // ── Main Loop ───────────────────────────────────────────────────────────────
 
-    static void tokenize(std::string_view src, KalidousArena *arena,
+    static void tokenize(std::string_view src, ZithArena *arena,
                          TokenList &tokens, std::vector<LexError> &error_list) {
         tokens.init(arena, 64);
 
-        KalidousSourceLoc info{0, 1};
+        ZithSourceLoc info{0, 1};
         const char *current = src.data();
         const char *end = src.data() + src.size();
 
@@ -495,7 +495,7 @@ namespace kalidous::detail {
 
             if (isSpace(c)) {
                 if (*current == '\n')
-                    KALIDOUS_NEWLINE(&info);
+                    ZITH_NEWLINE(&info);
                 ++current;
                 ++info.index;
                 continue;
@@ -532,7 +532,7 @@ namespace kalidous::detail {
                 continue;
 
             addCharError(error_list, "Unknown character ", *current, info, arena);
-            tokens.push(arena, make_token(arena, KALIDOUS_TOKEN_UNKNOWN,
+            tokens.push(arena, make_token(arena, ZITH_TOKEN_UNKNOWN,
                                           std::string_view(current, 1), info));
             ++current;
             ++info.index;
@@ -540,22 +540,22 @@ namespace kalidous::detail {
             if (error_list.size() >= MAX_ERRORS) break;
         }
 
-        tokens.push(arena, make_token(arena, KALIDOUS_TOKEN_END, std::string_view{}, info));
+        tokens.push(arena, make_token(arena, ZITH_TOKEN_END, std::string_view{}, info));
     }
-} // namespace kalidous::detail
+} // namespace zith::detail
 
 
 // ============================================================================
 // C API
 // ============================================================================
 
-KalidousTokenStream kalidous_tokenize(KalidousArena *arena, const char *source, const size_t source_len) {
+ZithTokenStream zith_tokenize(ZithArena *arena, const char *source, const size_t source_len) {
     if (!arena || !source) return {nullptr, 0};
 
-    std::vector<kalidous::detail::LexError> error_list;
-    kalidous::detail::TokenList tokens;
+    std::vector<zith::detail::LexError> error_list;
+    zith::detail::TokenList tokens;
 
-    kalidous::detail::tokenize(std::string_view(source, source_len), arena, tokens, error_list);
+    zith::detail::tokenize(std::string_view(source, source_len), arena, tokens, error_list);
 
     if (!error_list.empty()) {
         for (const auto &err: error_list)
@@ -565,7 +565,7 @@ KalidousTokenStream kalidous_tokenize(KalidousArena *arena, const char *source, 
     }
 
     size_t count = 0;
-    KalidousToken *flat_data = tokens.flatten(arena, &count);
+    ZithToken *flat_data = tokens.flatten(arena, &count);
 
     return {flat_data, count};
 }
@@ -575,44 +575,44 @@ KalidousTokenStream kalidous_tokenize(KalidousArena *arena, const char *source, 
 // Debug
 // ============================================================================
 
-static const char *token_type_name(KalidousTokenType type) {
+static const char *token_type_name(ZithTokenType type) {
     switch (type) {
-        case KALIDOUS_TOKEN_IDENTIFIER: return "IDENTIFIER";
-        case KALIDOUS_TOKEN_STRING: return "STRING";
-        case KALIDOUS_TOKEN_NUMBER: return "NUMBER";
-        case KALIDOUS_TOKEN_FLOAT: return "FLOAT";
-        case KALIDOUS_TOKEN_HEXADECIMAL: return "HEX";
-        case KALIDOUS_TOKEN_BINARY: return "BINARY";
-        case KALIDOUS_TOKEN_OCTAL: return "OCTAL";
-        case KALIDOUS_TOKEN_UNKNOWN: return "UNKNOWN";
-        case KALIDOUS_TOKEN_END: return "END";
+        case ZITH_TOKEN_IDENTIFIER: return "IDENTIFIER";
+        case ZITH_TOKEN_STRING: return "STRING";
+        case ZITH_TOKEN_NUMBER: return "NUMBER";
+        case ZITH_TOKEN_FLOAT: return "FLOAT";
+        case ZITH_TOKEN_HEXADECIMAL: return "HEX";
+        case ZITH_TOKEN_BINARY: return "BINARY";
+        case ZITH_TOKEN_OCTAL: return "OCTAL";
+        case ZITH_TOKEN_UNKNOWN: return "UNKNOWN";
+        case ZITH_TOKEN_END: return "END";
         default: return "KEYWORD/OP";
     }
 }
 
-void kalidous_debug_tokens(KalidousArena *arena, const char *source, const size_t source_len) {
+void zith_debug_tokens(ZithArena *arena, const char *source, const size_t source_len) {
     if (!arena || !source) {
-        std::cerr << "[kalidous_debug_tokens] null arena or source\n";
+        std::cerr << "[zith_debug_tokens] null arena or source\n";
         return;
     }
 
-    std::vector<kalidous::detail::LexError> error_list;
-    kalidous::detail::TokenList tokens;
-    kalidous::detail::tokenize(std::string_view(source, source_len), arena, tokens, error_list);
+    std::vector<zith::detail::LexError> error_list;
+    zith::detail::TokenList tokens;
+    zith::detail::tokenize(std::string_view(source, source_len), arena, tokens, error_list);
 
     size_t count = 0;
-    KalidousToken *flat = tokens.flatten(arena, &count);
+    ZithToken *flat = tokens.flatten(arena, &count);
 
     // ── Header ───────────────────────────────────────────────────────────────
     std::cerr << "\n╔══════════════════════════════════════════════════════════╗\n";
-    std::cerr << "║            Kalidous Tokenizer — Debug Dump              ║\n";
+    std::cerr << "║            Zith Tokenizer — Debug Dump              ║\n";
     std::cerr << "╠═══╦══════╦══════╦══════════════╦════════════════════════╣\n";
     std::cerr << "║ # ║ Line ║ Col  ║ Type         ║ Lexeme                 ║\n";
     std::cerr << "╠═══╩══════╩══════╩══════════════╩════════════════════════╣\n";
 
     // ── Rows ─────────────────────────────────────────────────────────────────
     for (size_t i = 0; i < count; ++i) {
-        const KalidousToken &tok = flat[i];
+        const ZithToken &tok = flat[i];
 
         // Truncate long lexemes for display
         char lexeme_buf[25];
@@ -665,4 +665,4 @@ void kalidous_debug_tokens(KalidousArena *arena, const char *source, const size_
     std::cerr << '\n';
 }
 
-#undef KALIDOUS_NEWLINE
+#undef ZITH_NEWLINE

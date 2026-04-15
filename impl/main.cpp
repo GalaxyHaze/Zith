@@ -1,18 +1,18 @@
 #include "parser/parser.h"
-#ifdef KALIDOUS_WASM
+#ifdef ZITH_WASM
 #include <iostream>
 #include <assert>
 
 int main() {
-    std::cout << "Thank you for installing Kalidous." << std::endl;
+    std::cout << "Thank you for installing Zith." << std::endl;
     std::cout << "The WASM version is currently under development and opaque." << std::endl;
     std::cout << "I'm doing my best to bring you new features soon. Stay tuned!" << std::endl;
     return 0; // Retorno 0 é geralmente melhor para "successo visual" mesmo que não faça nada
 }
 #else
-#include <kalidous/kalidous.hpp>
+#include <zith/zith.hpp>
 
 int main(int argc, const char** string) {
-    return kalidous_run(argc, string);
+    return zith_run(argc, string);
 }
 #endif

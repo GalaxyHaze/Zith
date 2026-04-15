@@ -7,11 +7,11 @@
 
 #include <cstddef>
 #include <cstring>
-#include <kalidous/kalidous.hpp>
+#include <zith/zith.hpp>
 
 #ifdef __cplusplus
 
-namespace kalidous {
+namespace zith {
 
 // ArenaList<T> — Chunked list backed by arena allocation
 // Originally from impl/memory/utils.h — moved here for centralization.
@@ -36,7 +36,7 @@ public:
     ArenaList() = default;
 
     // Initialize or reset the list for reuse
-    void init(KalidousArena *arena, size_t chunk_capacity = 16) {
+    void init(ZithArena *arena, size_t chunk_capacity = 16) {
         head_ = nullptr;
         tail_ = nullptr;
         total_ = 0;
@@ -47,7 +47,7 @@ public:
     [[nodiscard]] bool empty() const { return total_ == 0; }
 
     // Append an element — allocates a new chunk if needed
-    void push(KalidousArena *arena, const T &value) {
+    void push(ZithArena *arena, const T &value) {
         if (!tail_ || tail_->len == tail_->capacity) {
             alloc_chunk(arena);
         }
@@ -57,11 +57,11 @@ public:
     }
 
     // Flatten all chunks into a contiguous arena-backed array
-    T *flatten(KalidousArena *arena, size_t *out_count) const {
+    T *flatten(ZithArena *arena, size_t *out_count) const {
         *out_count = total_;
         if (total_ == 0) return nullptr;
 
-        T *arr = static_cast<T *>(kalidous_arena_alloc(arena, total_ * sizeof(T)));
+        T *arr = static_cast<T *>(zith_arena_alloc(arena, total_ * sizeof(T)));
         if (!arr) { *out_count = 0; return nullptr; }
 
         size_t i = 0;
@@ -114,9 +114,9 @@ public:
     Iterator end() const { return {nullptr, 0}; }
 
 private:
-    void alloc_chunk(KalidousArena *arena) {
+    void alloc_chunk(ZithArena *arena) {
         const size_t sz = sizeof(Chunk) + chunk_cap_ * sizeof(T);
-        auto *c = static_cast<Chunk *>(kalidous_arena_alloc(arena, sz));
+        auto *c = static_cast<Chunk *>(zith_arena_alloc(arena, sz));
         if (!c) return;
         c->next = nullptr; c->len = 0; c->capacity = chunk_cap_;
         if (tail_) tail_->next = c; else head_ = c;
@@ -124,7 +124,7 @@ private:
     }
 };
 
-} // namespace kalidous
+} // namespace zith
 
 #endif // __cplusplus
 
@@ -137,7 +137,7 @@ private:
 extern "C" {
 #endif
 
-// C users should use the template above via kalidous::ArenaList<T>
+// C users should use the template above via zith::ArenaList<T>
 // or include utils.h directly for the raw struct version.
 
 #ifdef __cplusplus

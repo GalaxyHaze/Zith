@@ -31,6 +31,6 @@ int main(int argc, char *argv[]) {
 // Placeholder test
 // ============================================================================
 
-TEST_CASE("Kalidous language tests placeholder", "[placeholder]") {
+TEST_CASE("Zith language tests placeholder", "[placeholder]") {
     REQUIRE(true);
 }

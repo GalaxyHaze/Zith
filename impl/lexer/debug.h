@@ -1,137 +1,137 @@
-// impl/lexer/debug.h — Debug utilities for KalidousToken
+// impl/lexer/debug.h — Debug utilities for ZithToken
 #pragma once
-#include <kalidous/kalidous.hpp>
+#include <zith/zith.hpp>
 #include "../diagnostics/diagnostics.hpp"
 
 // ============================================================================
 // Nome de cada token
 // ============================================================================
 
-inline const char *kalidous_token_type_name(KalidousTokenType type) {
+inline const char *zith_token_type_name(ZithTokenType type) {
     switch (type) {
         // -- Literais e identificadores ---------------------------------------
-        case KALIDOUS_TOKEN_STRING: return "STRING";
-        case KALIDOUS_TOKEN_NUMBER: return "NUMBER";
-        case KALIDOUS_TOKEN_HEXADECIMAL: return "HEX";
-        case KALIDOUS_TOKEN_OCTAL: return "OCTAL";
-        case KALIDOUS_TOKEN_BINARY: return "BINARY";
-        case KALIDOUS_TOKEN_FLOAT: return "FLOAT";
-        case KALIDOUS_TOKEN_IDENTIFIER: return "IDENTIFIER";
+        case ZITH_TOKEN_STRING: return "STRING";
+        case ZITH_TOKEN_NUMBER: return "NUMBER";
+        case ZITH_TOKEN_HEXADECIMAL: return "HEX";
+        case ZITH_TOKEN_OCTAL: return "OCTAL";
+        case ZITH_TOKEN_BINARY: return "BINARY";
+        case ZITH_TOKEN_FLOAT: return "FLOAT";
+        case ZITH_TOKEN_IDENTIFIER: return "IDENTIFIER";
 
         // -- Aritméticos e lógicos --------------------------------------------
-        case KALIDOUS_TOKEN_PLUS: return "PLUS";
-        case KALIDOUS_TOKEN_MINUS: return "MINUS";
-        case KALIDOUS_TOKEN_MULTIPLY: return "MULTIPLY";
-        case KALIDOUS_TOKEN_DIVIDE: return "DIVIDE";
-        case KALIDOUS_TOKEN_MOD: return "MOD";
-        case KALIDOUS_TOKEN_AND: return "AND";
-        case KALIDOUS_TOKEN_OR: return "OR";
-        case KALIDOUS_TOKEN_NOT: return "NOT";
+        case ZITH_TOKEN_PLUS: return "PLUS";
+        case ZITH_TOKEN_MINUS: return "MINUS";
+        case ZITH_TOKEN_MULTIPLY: return "MULTIPLY";
+        case ZITH_TOKEN_DIVIDE: return "DIVIDE";
+        case ZITH_TOKEN_MOD: return "MOD";
+        case ZITH_TOKEN_AND: return "AND";
+        case ZITH_TOKEN_OR: return "OR";
+        case ZITH_TOKEN_NOT: return "NOT";
 
         // -- Comparação -------------------------------------------------------
-        case KALIDOUS_TOKEN_EQUAL: return "EQUAL";
-        case KALIDOUS_TOKEN_NOT_EQUAL: return "NOT_EQUAL";
-        case KALIDOUS_TOKEN_LESS_THAN: return "LESS_THAN";
-        case KALIDOUS_TOKEN_GREATER_THAN: return "GREATER_THAN";
-        case KALIDOUS_TOKEN_LESS_THAN_OR_EQUAL: return "LESS_THAN_OR_EQUAL";
-        case KALIDOUS_TOKEN_GREATER_THAN_OR_EQUAL: return "GREATER_THAN_OR_EQUAL";
+        case ZITH_TOKEN_EQUAL: return "EQUAL";
+        case ZITH_TOKEN_NOT_EQUAL: return "NOT_EQUAL";
+        case ZITH_TOKEN_LESS_THAN: return "LESS_THAN";
+        case ZITH_TOKEN_GREATER_THAN: return "GREATER_THAN";
+        case ZITH_TOKEN_LESS_THAN_OR_EQUAL: return "LESS_THAN_OR_EQUAL";
+        case ZITH_TOKEN_GREATER_THAN_OR_EQUAL: return "GREATER_THAN_OR_EQUAL";
 
         // -- Atribuição -------------------------------------------------------
-        case KALIDOUS_TOKEN_ASSIGNMENT: return "ASSIGNMENT";
-        case KALIDOUS_TOKEN_DECLARATION: return "DECLARATION";
-        case KALIDOUS_TOKEN_PLUS_EQUAL: return "PLUS_EQUAL";
-        case KALIDOUS_TOKEN_MINUS_EQUAL: return "MINUS_EQUAL";
-        case KALIDOUS_TOKEN_MULTIPLY_EQUAL: return "MULTIPLY_EQUAL";
-        case KALIDOUS_TOKEN_DIVIDE_EQUAL: return "DIVIDE_EQUAL";
+        case ZITH_TOKEN_ASSIGNMENT: return "ASSIGNMENT";
+        case ZITH_TOKEN_DECLARATION: return "DECLARATION";
+        case ZITH_TOKEN_PLUS_EQUAL: return "PLUS_EQUAL";
+        case ZITH_TOKEN_MINUS_EQUAL: return "MINUS_EQUAL";
+        case ZITH_TOKEN_MULTIPLY_EQUAL: return "MULTIPLY_EQUAL";
+        case ZITH_TOKEN_DIVIDE_EQUAL: return "DIVIDE_EQUAL";
 
         // -- Especiais --------------------------------------------------------
-        case KALIDOUS_TOKEN_QUESTION: return "QUESTION";
-        case KALIDOUS_TOKEN_BANG: return "BANG";
-        case KALIDOUS_TOKEN_ARROW: return "ARROW";
+        case ZITH_TOKEN_QUESTION: return "QUESTION";
+        case ZITH_TOKEN_BANG: return "BANG";
+        case ZITH_TOKEN_ARROW: return "ARROW";
 
         // -- Delimitadores ----------------------------------------------------
-        case KALIDOUS_TOKEN_LPAREN: return "LPAREN";
-        case KALIDOUS_TOKEN_RPAREN: return "RPAREN";
-        case KALIDOUS_TOKEN_LBRACE: return "LBRACE";
-        case KALIDOUS_TOKEN_RBRACE: return "RBRACE";
-        case KALIDOUS_TOKEN_LBRACKET: return "LBRACKET";
-        case KALIDOUS_TOKEN_RBRACKET: return "RBRACKET";
-        case KALIDOUS_TOKEN_DOT: return "DOT";
-        case KALIDOUS_TOKEN_DOTS: return "DOTS";
-        case KALIDOUS_TOKEN_COMMA: return "COMMA";
-        case KALIDOUS_TOKEN_COLON: return "COLON";
-        case KALIDOUS_TOKEN_SEMICOLON: return "SEMICOLON";
+        case ZITH_TOKEN_LPAREN: return "LPAREN";
+        case ZITH_TOKEN_RPAREN: return "RPAREN";
+        case ZITH_TOKEN_LBRACE: return "LBRACE";
+        case ZITH_TOKEN_RBRACE: return "RBRACE";
+        case ZITH_TOKEN_LBRACKET: return "LBRACKET";
+        case ZITH_TOKEN_RBRACKET: return "RBRACKET";
+        case ZITH_TOKEN_DOT: return "DOT";
+        case ZITH_TOKEN_DOTS: return "DOTS";
+        case ZITH_TOKEN_COMMA: return "COMMA";
+        case ZITH_TOKEN_COLON: return "COLON";
+        case ZITH_TOKEN_SEMICOLON: return "SEMICOLON";
 
         // -- Controle de fluxo ------------------------------------------------
-        case KALIDOUS_TOKEN_IF: return "IF";
-        case KALIDOUS_TOKEN_ELSE: return "ELSE";
-        case KALIDOUS_TOKEN_FOR: return "FOR";
-        case KALIDOUS_TOKEN_IN: return "IN";
-        case KALIDOUS_TOKEN_WHILE: return "WHILE";
-        case KALIDOUS_TOKEN_SWITCH: return "SWITCH";
-        case KALIDOUS_TOKEN_RETURN: return "RETURN";
-        case KALIDOUS_TOKEN_BREAK: return "BREAK";
-        case KALIDOUS_TOKEN_CONTINUE: return "CONTINUE";
-        case KALIDOUS_TOKEN_GOTO: return "GOTO";
-        case KALIDOUS_TOKEN_MARKER: return "MARKER";
-        case KALIDOUS_TOKEN_SCENE: return "SCENE";
-        case KALIDOUS_TOKEN_IMPORT: return "IMPORT";
-        case KALIDOUS_TOKEN_EXPORT: return "EXPORT";
-        case KALIDOUS_TOKEN_FROM: return "FROM";
-        case KALIDOUS_TOKEN_AS: return "AS";
+        case ZITH_TOKEN_IF: return "IF";
+        case ZITH_TOKEN_ELSE: return "ELSE";
+        case ZITH_TOKEN_FOR: return "FOR";
+        case ZITH_TOKEN_IN: return "IN";
+        case ZITH_TOKEN_WHILE: return "WHILE";
+        case ZITH_TOKEN_SWITCH: return "SWITCH";
+        case ZITH_TOKEN_RETURN: return "RETURN";
+        case ZITH_TOKEN_BREAK: return "BREAK";
+        case ZITH_TOKEN_CONTINUE: return "CONTINUE";
+        case ZITH_TOKEN_GOTO: return "GOTO";
+        case ZITH_TOKEN_MARKER: return "MARKER";
+        case ZITH_TOKEN_SCENE: return "SCENE";
+        case ZITH_TOKEN_IMPORT: return "IMPORT";
+        case ZITH_TOKEN_EXPORT: return "EXPORT";
+        case ZITH_TOKEN_FROM: return "FROM";
+        case ZITH_TOKEN_AS: return "AS";
 
         // -- Concorrência -----------------------------------------------------
-        case KALIDOUS_TOKEN_SPAWN: return "SPAWN";
-        case KALIDOUS_TOKEN_JOINED: return "JOINED";
-        case KALIDOUS_TOKEN_AWAIT: return "AWAIT";
+        case ZITH_TOKEN_SPAWN: return "SPAWN";
+        case ZITH_TOKEN_JOINED: return "JOINED";
+        case ZITH_TOKEN_AWAIT: return "AWAIT";
 
         // -- Erros ------------------------------------------------------------
-        case KALIDOUS_TOKEN_TRY: return "TRY";
-        case KALIDOUS_TOKEN_CATCH: return "CATCH";
-        case KALIDOUS_TOKEN_MUST: return "MUST";
+        case ZITH_TOKEN_TRY: return "TRY";
+        case ZITH_TOKEN_CATCH: return "CATCH";
+        case ZITH_TOKEN_MUST: return "MUST";
 
         // -- Modificadores de propriedade / escopo ----------------------------
-        case KALIDOUS_TOKEN_CONST: return "CONST";
-        case KALIDOUS_TOKEN_MUTABLE: return "MUTABLE";
-        case KALIDOUS_TOKEN_VAR: return "VAR";
-        case KALIDOUS_TOKEN_LET: return "LET";
-        case KALIDOUS_TOKEN_AUTO: return "AUTO";
-        case KALIDOUS_TOKEN_GLOBAL: return "GLOBAL";
-        case KALIDOUS_TOKEN_PERSISTENT: return "PERSISTENT";
-        case KALIDOUS_TOKEN_LOCAL: return "LOCAL";
-        case KALIDOUS_TOKEN_LEND: return "LEND";
-        case KALIDOUS_TOKEN_SHARED: return "SHARED";
-        case KALIDOUS_TOKEN_VIEW: return "VIEW";
-        case KALIDOUS_TOKEN_UNIQUE: return "UNIQUE";
-        case KALIDOUS_TOKEN_PACK: return "PACK";
+        case ZITH_TOKEN_CONST: return "CONST";
+        case ZITH_TOKEN_MUTABLE: return "MUTABLE";
+        case ZITH_TOKEN_VAR: return "VAR";
+        case ZITH_TOKEN_LET: return "LET";
+        case ZITH_TOKEN_AUTO: return "AUTO";
+        case ZITH_TOKEN_GLOBAL: return "GLOBAL";
+        case ZITH_TOKEN_PERSISTENT: return "PERSISTENT";
+        case ZITH_TOKEN_LOCAL: return "LOCAL";
+        case ZITH_TOKEN_LEND: return "LEND";
+        case ZITH_TOKEN_SHARED: return "SHARED";
+        case ZITH_TOKEN_VIEW: return "VIEW";
+        case ZITH_TOKEN_UNIQUE: return "UNIQUE";
+        case ZITH_TOKEN_PACK: return "PACK";
 
         // -- Modificadores de acesso ------------------------------------------
-        case KALIDOUS_TOKEN_MODIFIER: return "MODIFIER";
+        case ZITH_TOKEN_MODIFIER: return "MODIFIER";
 
         // -- Declarações de tipo ----------------------------------------------
-        case KALIDOUS_TOKEN_TYPE: return "TYPE";
-        case KALIDOUS_TOKEN_STRUCT: return "STRUCT";
-        case KALIDOUS_TOKEN_COMPONENT: return "COMPONENT";
-        case KALIDOUS_TOKEN_ENUM: return "ENUM";
-        case KALIDOUS_TOKEN_UNION: return "UNION";
-        case KALIDOUS_TOKEN_FAMILY: return "FAMILY";
-        case KALIDOUS_TOKEN_ENTITY: return "ENTITY";
-        case KALIDOUS_TOKEN_TRAIT: return "TRAIT";
-        case KALIDOUS_TOKEN_TYPEDEF: return "TYPEDEF";
-        case KALIDOUS_TOKEN_IMPLEMENT: return "IMPLEMENT";
+        case ZITH_TOKEN_TYPE: return "TYPE";
+        case ZITH_TOKEN_STRUCT: return "STRUCT";
+        case ZITH_TOKEN_COMPONENT: return "COMPONENT";
+        case ZITH_TOKEN_ENUM: return "ENUM";
+        case ZITH_TOKEN_UNION: return "UNION";
+        case ZITH_TOKEN_FAMILY: return "FAMILY";
+        case ZITH_TOKEN_ENTITY: return "ENTITY";
+        case ZITH_TOKEN_TRAIT: return "TRAIT";
+        case ZITH_TOKEN_TYPEDEF: return "TYPEDEF";
+        case ZITH_TOKEN_IMPLEMENT: return "IMPLEMENT";
 
         // -- Funções ----------------------------------------------------------
-        case KALIDOUS_TOKEN_FN: return "FN";
-        case KALIDOUS_TOKEN_ASYNC: return "ASYNC";
-        case KALIDOUS_TOKEN_RECURSE: return "RECURSE";
-        case KALIDOUS_TOKEN_YIELD: return "YIELD";
-        case KALIDOUS_TOKEN_ENTRY: return "ENTRY";
-        case KALIDOUS_TOKEN_NORETURN: return "NORETURN";
-        case KALIDOUS_TOKEN_FLOWING: return "FLOWING";
+        case ZITH_TOKEN_FN: return "FN";
+        case ZITH_TOKEN_ASYNC: return "ASYNC";
+        case ZITH_TOKEN_RECURSE: return "RECURSE";
+        case ZITH_TOKEN_YIELD: return "YIELD";
+        case ZITH_TOKEN_ENTRY: return "ENTRY";
+        case ZITH_TOKEN_NORETURN: return "NORETURN";
+        case ZITH_TOKEN_FLOWING: return "FLOWING";
 
         // -- Controle interno -------------------------------------------------
-        case KALIDOUS_TOKEN_END: return "END";
-        case KALIDOUS_TOKEN_UNKNOWN: return "UNKNOWN";
+        case ZITH_TOKEN_END: return "END";
+        case ZITH_TOKEN_UNKNOWN: return "UNKNOWN";
 
         default: return "<?>";
     }
@@ -141,33 +141,33 @@ inline const char *kalidous_token_type_name(KalidousTokenType type) {
 // Usa casos explícitos para os tokens cujo valor numérico não segue
 // a ordem lógica das categorias (END, UNKNOWN, RECURSE, YIELD, ASYNC, FN
 // foram adicionados no fim do enum após tokens de controlo).
-static const char *token_category(KalidousTokenType type) {
+static const char *token_category(ZithTokenType type) {
     switch (type) {
-        case KALIDOUS_TOKEN_END:
-        case KALIDOUS_TOKEN_UNKNOWN: return "control";
-        case KALIDOUS_TOKEN_FN:
-        case KALIDOUS_TOKEN_ASYNC:
-        case KALIDOUS_TOKEN_RECURSE:
-        case KALIDOUS_TOKEN_YIELD:
-        case KALIDOUS_TOKEN_ENTRY:
-        case KALIDOUS_TOKEN_NORETURN:
-        case KALIDOUS_TOKEN_FLOWING: return "function";
+        case ZITH_TOKEN_END:
+        case ZITH_TOKEN_UNKNOWN: return "control";
+        case ZITH_TOKEN_FN:
+        case ZITH_TOKEN_ASYNC:
+        case ZITH_TOKEN_RECURSE:
+        case ZITH_TOKEN_YIELD:
+        case ZITH_TOKEN_ENTRY:
+        case ZITH_TOKEN_NORETURN:
+        case ZITH_TOKEN_FLOWING: return "function";
         default: break;
     }
-    if (type <= KALIDOUS_TOKEN_IDENTIFIER) return "literal";
-    if (type <= KALIDOUS_TOKEN_NOT) return "operator";
-    if (type <= KALIDOUS_TOKEN_GREATER_THAN_OR_EQUAL) return "comparison";
-    if (type <= KALIDOUS_TOKEN_DIVIDE_EQUAL) return "assignment";
-    if (type <= KALIDOUS_TOKEN_ARROW) return "special";
-    if (type <= KALIDOUS_TOKEN_SEMICOLON) return "delimiter";
-    if (type <= KALIDOUS_TOKEN_SCENE) return "flow";
-    if (type <= KALIDOUS_TOKEN_AWAIT) return "concurrency";
-    if (type <= KALIDOUS_TOKEN_MUST) return "error";
-    if (type <= KALIDOUS_TOKEN_PACK) return "binding";
-    if (type == KALIDOUS_TOKEN_MODIFIER) return "access";
-    if (type == KALIDOUS_TOKEN_IMPORT || type == KALIDOUS_TOKEN_EXPORT || type == KALIDOUS_TOKEN_FROM) return "module";
-    if (type == KALIDOUS_TOKEN_AS) return "module";
-    if (type <= KALIDOUS_TOKEN_IMPLEMENT) return "type-decl";
+    if (type <= ZITH_TOKEN_IDENTIFIER) return "literal";
+    if (type <= ZITH_TOKEN_NOT) return "operator";
+    if (type <= ZITH_TOKEN_GREATER_THAN_OR_EQUAL) return "comparison";
+    if (type <= ZITH_TOKEN_DIVIDE_EQUAL) return "assignment";
+    if (type <= ZITH_TOKEN_ARROW) return "special";
+    if (type <= ZITH_TOKEN_SEMICOLON) return "delimiter";
+    if (type <= ZITH_TOKEN_SCENE) return "flow";
+    if (type <= ZITH_TOKEN_AWAIT) return "concurrency";
+    if (type <= ZITH_TOKEN_MUST) return "error";
+    if (type <= ZITH_TOKEN_PACK) return "binding";
+    if (type == ZITH_TOKEN_MODIFIER) return "access";
+    if (type == ZITH_TOKEN_IMPORT || type == ZITH_TOKEN_EXPORT || type == ZITH_TOKEN_FROM) return "module";
+    if (type == ZITH_TOKEN_AS) return "module";
+    if (type <= ZITH_TOKEN_IMPLEMENT) return "type-decl";
     return "control";
 }
 
@@ -204,12 +204,12 @@ static void format_lexeme(char *out, size_t out_size,
 }
 
 // ============================================================================
-// kalidous_debug_tokens
+// zith_debug_tokens
 // ============================================================================
 
-inline void kalidous_debug_tokens(const KalidousToken *tokens, size_t count) {
+inline void zith_debug_tokens(const ZithToken *tokens, size_t count) {
     if (!tokens) {
-        debug_error("[kalidous_debug_tokens] null token array\n");
+        debug_error("[zith_debug_tokens] null token array\n");
         return;
     }
 
@@ -224,7 +224,7 @@ inline void kalidous_debug_tokens(const KalidousToken *tokens, size_t count) {
 
     // ── Rows ─────────────────────────────────────────────────────────────────
     for (size_t i = 0; i < count; ++i) {
-        const KalidousToken &t = tokens[i];
+        const ZithToken &t = tokens[i];
 
         char lexeme_buf[32];
         format_lexeme(lexeme_buf, sizeof(lexeme_buf), t.lexeme.data, t.lexeme.len);
@@ -234,7 +234,7 @@ inline void kalidous_debug_tokens(const KalidousToken *tokens, size_t count) {
                 i,
                 t.loc.line,
                 t.loc.index,
-                kalidous_token_type_name(t.type),
+                zith_token_type_name(t.type),
                 token_category(t.type),
                 lexeme_buf
         );

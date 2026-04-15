@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # 1. Setup Global Variables
-REPO="GalaxyHaze/Kalidous-Lang"
+REPO="GalaxyHaze/Zith-Lang"
 VERSION=""
-OUTPUT_NAME="kalidous"
+OUTPUT_NAME="zith"
 
 # 2. Determine Version
 if [ -n "$1" ]; then
@@ -36,22 +36,22 @@ FILE_NAME=""
 case "$OS" in
   Linux*)  
       case "$ARCH" in
-          x86_64) FILE_NAME="kalidous-linux-amd64" ;;
-          aarch64|arm64) FILE_NAME="kalidous-linux-arm64" ;;
+          x86_64) FILE_NAME="zith-linux-amd64" ;;
+          aarch64|arm64) FILE_NAME="zith-linux-arm64" ;;
           *) echo "Architecture not supported on Linux: $ARCH"; exit 1 ;;
       esac
       ;;
   Darwin*) 
       case "$ARCH" in
-          x86_64) FILE_NAME="kalidous-macos-amd64" ;;
-          arm64) FILE_NAME="kalidous-macos-arm64" ;;
+          x86_64) FILE_NAME="zith-macos-amd64" ;;
+          arm64) FILE_NAME="zith-macos-arm64" ;;
           *) echo "Architecture not supported on macOS: $ARCH"; exit 1 ;;
       esac
       ;;
   # Covers Git Bash, MinGW, and MSYS on Windows
   MINGW*|MSYS*|CYGWIN*)
-      FILE_NAME="kalidous-windows-amd64.exe"
-      OUTPUT_NAME="kalidous.exe"
+      FILE_NAME="zith-windows-amd64.exe"
+      OUTPUT_NAME="zith.exe"
       ;;
   *)      echo "OS not supported: $OS"; exit 1 ;;
 esac
@@ -83,11 +83,11 @@ if [[ "$OS" == MINGW* ]] || [[ "$OS" == MSYS* ]] || [[ "$OS" == CYGWIN* ]]; then
     echo "Please move '$OUTPUT_NAME' to a folder in your PATH."
 else
     # Linux / macOS
-    echo "Installing Kalidous to /usr/local/bin/..."
+    echo "Installing Zith to /usr/local/bin/..."
     
     # Using 'sudo -v' checks if we have sudo rights nicely
-    if sudo mv "$OUTPUT_NAME" /usr/local/bin/kalidous; then
-        echo "Installation complete! Run 'kalidous --help' to get started."
+    if sudo mv "$OUTPUT_NAME" /usr/local/bin/zith; then
+        echo "Installation complete! Run 'zith --help' to get started."
     else
         echo "Installation failed. Please check your sudo permissions or try manually moving the file."
         exit 1

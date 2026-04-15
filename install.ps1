@@ -3,7 +3,7 @@ param(
 )
 
 # 1. Setup Global Variables
-$Repo = "GalaxyHaze/Kalidous"
+$Repo = "GalaxyHaze/Zith"
 $ApiUrl = "https://api.github.com/repos/$Repo/releases/latest"
 
 # 2. Determine Version
@@ -34,7 +34,7 @@ $IsWindow = $true
 
 if ($IsWindow)
 {
-    $FileName = "kalidous-windows-amd64.exe"
+    $FileName = "zith-windows-amd64.exe"
 }
 else
 {
@@ -46,7 +46,7 @@ else
 # 4. Setup Download URL and Destination
 $DownloadUrl = "https://github.com/$Repo/releases/download/$Version/$FileName"
 # We download to the temp folder first to avoid permission issues
-$TempPath = "$env:TEMP\kalidous-installer.exe"
+$TempPath = "$env:TEMP\zith-installer.exe"
 # Final destination (e.g. C:\Users\You\AppData\Local\Microsoft\WindowsApps)
 # Note: Sometimes WindowsApps is write-protected. ProgramData is often safer for tools,
 # but we'll try CurrentUser AppData first.
@@ -67,7 +67,7 @@ catch
 }
 
 # 6. Install
-Write-Host "Installing Kalidous to $InstallDir..."
+Write-Host "Installing Zith to $InstallDir..."
 
 try
 {
@@ -78,11 +78,11 @@ try
     }
 
     # Move the file
-    Move-Item -Path $TempPath -Destination "$InstallDir\kalidous.exe" -Force
+    Move-Item -Path $TempPath -Destination "$InstallDir\zith.exe" -Force
 
     Write-Host "--------------------------------------------------"
     Write-Host "Installation Complete!" -ForegroundColor Green
-    Write-Host "Run 'kalidous --help' in a NEW terminal window to get started."
+    Write-Host "Run 'zith --help' in a NEW terminal window to get started."
     Write-Host "--------------------------------------------------"
 }
 catch

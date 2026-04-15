@@ -13,7 +13,7 @@
 <p>Create modules to group related functionality:</p>
 
 <div class="code-block">
-  <div class="code-block-header"><span class="code-block-lang">kalidous</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <div class="code-block-header"><span class="code-block-lang">zith</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
   <pre><span class="tok-kw">mod</span> math {
   <span class="tok-kw">pub fn</span> <span class="tok-fn">add</span>(a: <span class="tok-type">i32</span>, b: <span class="tok-type">i32</span>) -> <span class="tok-type">i32</span> {
     a + b
@@ -33,7 +33,7 @@
 
 <p>In <code>main.kali</code>:</p>
 <div class="code-block">
-  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <div class="code-block-header"><span class="code-block-lang">zith</span></div>
   <pre><span class="tok-kw">mod</span> math;
 <span class="tok-kw">mod</span> utils;</pre>
 </div>
@@ -41,14 +41,14 @@
 <h2>Using Modules</h2>
 <p>Access items with the module path:</p>
 <div class="code-block">
-  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <div class="code-block-header"><span class="code-block-lang">zith</span></div>
   <pre><span class="tok-kw">let</span> result = math::<span class="tok-fn">add</span>(5, 3);</pre>
 </div>
 
 <h2>Imports</h2>
 <p>Import items to use them directly:</p>
 <div class="code-block">
-  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <div class="code-block-header"><span class="code-block-lang">zith</span></div>
   <pre><span class="tok-kw">use</span> math::<span class="tok-fn">add</span>;
 <span class="tok-kw">use</span> utils::*;  <span class="tok-cmt">// Import all</span>
 
@@ -58,7 +58,7 @@
 <h2>Visibility</h2>
 <p>Control what's accessible outside a module:</p>
 <div class="code-block">
-  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <div class="code-block-header"><span class="code-block-lang">zith</span></div>
   <pre><span class="tok-kw">mod</span> math {
   <span class="tok-kw">pub fn</span> <span class="tok-fn">public</span>() { }      <span class="tok-cmt">// Visible outside</span>
   <span class="tok-kw">fn</span> <span class="tok-fn">private</span>() { }      <span class="tok-cmt">// Only in module</span>
@@ -68,7 +68,7 @@
 <h2>Nested Modules</h2>
 <p>Create hierarchical module structures:</p>
 <div class="code-block">
-  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <div class="code-block-header"><span class="code-block-lang">zith</span></div>
   <pre><span class="tok-kw">mod</span> graphics {
   <span class="tok-kw">pub mod</span> shapes {
     <span class="tok-kw">pub fn</span> <span class="tok-fn">circle</span>() { }
@@ -81,7 +81,7 @@
 <h2>Re-exports</h2>
 <p>Export items from submodules:</p>
 <div class="code-block">
-  <div class="code-block-header"><span class="code-block-lang">kalidous</span></div>
+  <div class="code-block-header"><span class="code-block-lang">zith</span></div>
   <pre><span class="tok-kw">pub use</span> math::<span class="tok-fn">add</span>;  <span class="tok-cmt">// Re-export</span></pre>
 </div>
 

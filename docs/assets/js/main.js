@@ -32,7 +32,7 @@ function getBasePath() {
 
     // If running on GitHub Pages
     if (window.location.hostname === 'galaxyhaze.github.io') {
-        return '/Kalidous-Lang/docs/'; // FIXED: Capital 'L' in Kalidous-Lang
+        return '/Zith-Lang/docs/'; // FIXED: Capital 'L' in Zith-Lang
     }
 
     // Default for local server or custom domain

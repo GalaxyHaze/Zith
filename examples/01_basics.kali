@@ -1,7 +1,7 @@
 // ============================================================================
 // 01_basics.kali
 // ============================================================================
-// This file demonstrates the core fundamentals of the Kalidous language, 
+// This file demonstrates the core fundamentals of the Zith language, 
 // focusing on memory safety without a garbage collector, strict typing, 
 // and explicit control over mutability.
 //
@@ -52,7 +52,7 @@ fn demo_binding() {
     a = 42; // 'a' is now initialized and valid.
 
     // --- Deep Mutability (The 'mut' modifier) ---
-    // Kalidous distinguishes between the *binding* (the container) and the *content*.
+    // Zith distinguishes between the *binding* (the container) and the *content*.
     // 'let' prevents changing the container, but 'mut' allows changing the content inside.
     
     // Example: A constant reference to mutable data.

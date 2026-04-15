@@ -2,31 +2,31 @@
 // Created by diogo on 14/03/26.
 //
 
-#ifndef KALIDOUS_UTILS_H
-#define KALIDOUS_UTILS_H
+#ifndef ZITH_UTILS_H
+#define ZITH_UTILS_H
 
-// impl/memory/utils.h — Arena utilities for Kalidous
+// impl/memory/utils.h — Arena utilities for Zith
 #pragma once
 
 #include <cstddef>
 #include <cstring>
 
-#include <kalidous/kalidous.hpp>
+#include <zith/zith.hpp>
 
 // ============================================================================
 // ArenaList<T>
 //
-// Lista ligada de chunks alocados numa KalidousArena.
+// Lista ligada de chunks alocados numa ZithArena.
 // Não aloca heap — todos os blocos vivem na arena do chamador.
 //
 // Uso típico:
 //
-//   ArenaList<KalidousToken> tokens;
+//   ArenaList<ZithToken> tokens;
 //   tokens.init(arena, /*chunk_capacity=*/64);
 //   tokens.push(arena, some_token);
 //   ...
 //   size_t count = 0;
-//   KalidousToken* flat = tokens.flatten(arena, &count);
+//   ZithToken* flat = tokens.flatten(arena, &count);
 //
 // Invariantes:
 //   - init() deve ser chamado antes de qualquer push()
@@ -67,7 +67,7 @@ struct ArenaList {
 
     // Inicializa a lista com a capacidade preferida por chunk.
     // Pode ser chamado mais de uma vez para reutilizar a struct (reset lógico).
-    void init(KalidousArena * /*arena*/, size_t chunk_capacity) {
+    void init(ZithArena * /*arena*/, size_t chunk_capacity) {
         head_ = nullptr;
         tail_ = nullptr;
         total_ = 0;
@@ -81,7 +81,7 @@ struct ArenaList {
 
     // Insere um elemento no final da lista.
     // Aloca um novo chunk na arena se o atual estiver cheio.
-    void push(KalidousArena *arena, const T &value) {
+    void push(ZithArena *arena, const T &value) {
         if (!tail_ || tail_->len == tail_->capacity) {
             alloc_chunk(arena);
         }
@@ -92,11 +92,11 @@ struct ArenaList {
     // Produz um array contíguo alocado na arena com todos os elementos em ordem.
     // Retorna nullptr se a lista estiver vazia.
     // Pode ser chamado múltiplas vezes — cada chamada aloca um novo array.
-    T *flatten(KalidousArena *arena, size_t *out_count) const {
+    T *flatten(ZithArena *arena, size_t *out_count) const {
         *out_count = total_;
         if (total_ == 0) return nullptr;
 
-        T *arr = static_cast<T *>(kalidous_arena_alloc(arena, total_ * sizeof(T)));
+        T *arr = static_cast<T *>(zith_arena_alloc(arena, total_ * sizeof(T)));
         if (!arr) {
             *out_count = 0;
             return nullptr;
@@ -162,9 +162,9 @@ struct ArenaList {
 
 private:
     // Aloca um novo Chunk na arena e liga-o ao tail
-    void alloc_chunk(KalidousArena *arena) {
+    void alloc_chunk(ZithArena *arena) {
         const size_t alloc_size = sizeof(Chunk) + chunk_capacity_ * sizeof(T);
-        auto *c = static_cast<Chunk *>(kalidous_arena_alloc(arena, alloc_size));
+        auto *c = static_cast<Chunk *>(zith_arena_alloc(arena, alloc_size));
         if (!c) return; // arena esgotada — push seguinte será no-op
 
         c->next = nullptr;
@@ -177,4 +177,4 @@ private:
     }
 };
 
-#endif //KALIDOUS_UTILS_H
+#endif //ZITH_UTILS_H
