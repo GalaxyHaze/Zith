@@ -1,0 +1,37 @@
+<div class="breadcrumb">
+  <span onclick="navigate('intro')" style="cursor:pointer">docs</span>
+  <span class="breadcrumb-sep">/</span>
+  <span onclick="navigate('cli-overview')" style="cursor:pointer">cli</span>
+  <span class="breadcrumb-sep">/</span>
+  <span>fmt</span>
+</div>
+<div class="page-eyebrow animate-in">CLI Reference</div>
+<h1 class="animate-in">zith fmt</h1>
+<p class="lead animate-in">Format Zith source code using the standard style rules.</p>
+
+<h2>Synopsis</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span></div>
+  <pre><span class="tok-fn">zith</span> fmt [path] [<span class="tok-flag">--check</span>] [<span class="tok-flag">--write</span>]</pre>
+</div>
+
+<h2>Description</h2>
+<p>Formats one file or all files in a project. Use <code>--check</code> in CI to fail when formatting is needed.</p>
+
+<h2>Examples</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre><span class="tok-cmt"># Format the current project</span>
+<span class="tok-fn">zith</span> fmt
+
+<span class="tok-cmt"># Check formatting only</span>
+<span class="tok-fn">zith</span> fmt <span class="tok-flag">--check</span>
+
+<span class="tok-cmt"># Format one file</span>
+<span class="tok-fn">zith</span> fmt src/main.zith</pre>
+</div>
+
+<h2>See Also</h2>
+<ul>
+  <li><span onclick="navigate('cmd-check')" style="cursor:pointer; color: #4d9fff;">check</span> - Static validation</li>
+</ul>

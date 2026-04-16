@@ -77,6 +77,41 @@
   </url>
 
   <url>
+    <loc>https://galaxyhaze.github.io/Zith/docs/pages/cli/new.html</loc>
+    <lastmod>2026-04-16</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <url>
+    <loc>https://galaxyhaze.github.io/Zith/docs/pages/cli/clean.html</loc>
+    <lastmod>2026-04-16</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <url>
+    <loc>https://galaxyhaze.github.io/Zith/docs/pages/cli/repl.html</loc>
+    <lastmod>2026-04-16</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <url>
+    <loc>https://galaxyhaze.github.io/Zith/docs/pages/cli/fmt.html</loc>
+    <lastmod>2026-04-16</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <url>
+    <loc>https://galaxyhaze.github.io/Zith/docs/pages/cli/docs.html</loc>
+    <lastmod>2026-04-16</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <url>
     <loc>https://galaxyhaze.github.io/Zith/docs/pages/cli/flags.html</loc>
     <lastmod>2026-03-25</lastmod>
     <changefreq>monthly</changefreq>
@@ -91,6 +126,56 @@
     <priority>0.8</priority>
   </url>
 
+
+  <!-- Advanced -->
+  <url>
+    <loc>https://galaxyhaze.github.io/Zith/docs/pages/advanced/overview.html</loc>
+    <lastmod>2026-04-16</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.82</priority>
+  </url>
+
+  <url>
+    <loc>https://galaxyhaze.github.io/Zith/docs/pages/advanced/how-to-use.html</loc>
+    <lastmod>2026-04-16</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.78</priority>
+  </url>
+
+  <url>
+    <loc>https://galaxyhaze.github.io/Zith/docs/pages/advanced/traits.html</loc>
+    <lastmod>2026-04-16</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.78</priority>
+  </url>
+
+  <url>
+    <loc>https://galaxyhaze.github.io/Zith/docs/pages/advanced/generics.html</loc>
+    <lastmod>2026-04-16</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.78</priority>
+  </url>
+
+  <url>
+    <loc>https://galaxyhaze.github.io/Zith/docs/pages/advanced/metaprogramming.html</loc>
+    <lastmod>2026-04-16</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.75</priority>
+  </url>
+
+  <url>
+    <loc>https://galaxyhaze.github.io/Zith/docs/pages/advanced/macros.html</loc>
+    <lastmod>2026-04-16</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.75</priority>
+  </url>
+
+  <url>
+    <loc>https://galaxyhaze.github.io/Zith/docs/pages/advanced/data-structures.html</loc>
+    <lastmod>2026-04-16</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.78</priority>
+  </url>
   <!-- Language Guide -->
   <url>
     <loc>https://galaxyhaze.github.io/Zith/docs/pages/language/overview.html</loc>
