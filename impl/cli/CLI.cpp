@@ -4,7 +4,6 @@
 // Depends on: CLI11, Zith/zith.h
 
 #include <CLI/CLI.hpp>
-#include <chrono>
 #include <zith/zith.hpp>
 #include <iostream>
 #include <string>
