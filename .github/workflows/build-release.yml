@@ -45,8 +45,6 @@ jobs:
               -DCMAKE_CROSSCOMPILING=ON
 
           # ── macOS Intel (x64, cross-compiled from ARM runner) ─────────────────
-          # Note: Universal binaries or arch-specific builds don't always set CMAKE_CROSSCOMPILING=ON 
-          # automatically on Apple Silicon, so we explicitly handle tests in CMake.
           - os: macos-latest
             target_name: zith-macos-amd64
             cmake_flags: -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_CROSSCOMPILING=ON
@@ -64,7 +62,6 @@ jobs:
           - os: windows-latest
             target_name: zith-windows-arm64.exe
             msvc_arch: amd64_arm64
-            # Force cross-compiling detection for Visual Studio ARM64 builds
             cmake_flags: -DCMAKE_CROSSCOMPILING=ON
 
     steps:
@@ -86,7 +83,7 @@ jobs:
           arch: ${{ matrix.msvc_arch }}
 
       - name: Configure CMake
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_flags }} -DZITH_VERSION=${{ inputs.tag_name || github.ref_name }}
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF ${{ matrix.cmake_flags }} -DZITH_VERSION=${{ inputs.tag_name || github.ref_name }}
 
       - name: Build
         run: cmake --build build --config Release
@@ -144,6 +141,7 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
             -DCMAKE_C_COMPILER="zig;cc;-target;${{ matrix.zig_target }}" \
             -DCMAKE_CXX_COMPILER="zig;c++;-target;${{ matrix.zig_target }}" \
             -DZITH_VERSION=${{ inputs.tag_name || github.ref_name }} \
@@ -190,6 +188,7 @@ jobs:
         run: |
           emcmake cmake -B build-wasm \
             -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
             -DZITH_VERSION=${{ inputs.tag_name || github.ref_name }} \
             -DCMAKE_CROSSCOMPILING=ON
 

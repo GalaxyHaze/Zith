@@ -65,12 +65,15 @@ else ()
     # add_compile_options(-Wall -Wextra -Wpedantic -Werror)
 
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-        # Robust check for lld
-        find_program(LLD_EXE NAMES ld.lld lld)
-        if(LLD_EXE)
-            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld")
-            set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fuse-ld=lld")
-            message(STATUS "Using LLD linker: ${LLD_EXE}")
+        # Only probe for lld on native builds — cross toolchains (Zig, aarch64-gnu)
+        # may not expose lld at the same path and would fail to link.
+        if(NOT CMAKE_CROSSCOMPILING)
+            find_program(LLD_EXE NAMES ld.lld lld)
+            if(LLD_EXE)
+                set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld")
+                set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fuse-ld=lld")
+                message(STATUS "Using LLD linker: ${LLD_EXE}")
+            endif()
         endif()
     endif ()
 endif ()
@@ -150,12 +153,11 @@ install(TARGETS zith ZithParse ZithCore
 # =============================================================================
 # Tests
 # =============================================================================
-# =============================================================================
-# Tests
-# =============================================================================
-option(BUILD_TESTS "Build unit tests" ON)
+# include(CTest) owns the BUILD_TESTING variable (defaults ON).
+# Pass -DBUILD_TESTING=OFF to disable tests, e.g. in CI cross-compile builds.
+include(CTest)
 
-if(BUILD_TESTS)
+if(BUILD_TESTING)
     # --- Catch2 ---
     FetchContent_Declare(
         Catch2
@@ -172,26 +174,21 @@ if(BUILD_TESTS)
         target_include_directories(zith_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
         target_link_libraries(zith_tests PRIVATE ZithParse Catch2::Catch2WithMain)
 
-        # Enable CTest integration
-        include(CTest)
         include(Catch)
 
         # ======================================================================
         # Cross-Compilation Fix
         # ======================================================================
         if(CMAKE_CROSSCOMPILING)
-            # When cross-compiling, we cannot run the executable to discover tests
-            # during the build phase. We define a generic test command instead.
+            # Cannot run the executable on the host to discover tests at build time.
+            # Register a single generic test entry instead; requires an emulator to run.
             message(STATUS "Cross-compiling detected. Skipping test discovery.")
-            
-            # This simply adds a test named "zith_tests" that runs the executable.
-            # When you run 'ctest', it will try to run the binary (if an emulator is present).
             add_test(NAME zith_tests COMMAND zith_tests)
         else()
-            # Native build: Automatically parse test names (standard Catch2 behavior)
+            # Native build: automatically parse and register all Catch2 test cases.
             catch_discover_tests(zith_tests)
         endif()
-        
+
         message(STATUS "💡 Tests target 'zith_tests' configured.")
     endif()
 endif()
@@ -228,7 +225,6 @@ if(EMSCRIPTEN)
         ZITH_WASM
     )
 
-    # Use target_link_options for cleaner syntax and better quoting support
     target_link_options(zith-wasm PRIVATE
         "SHELL:-O3"
         "SHELL:-flto"
@@ -239,17 +235,16 @@ if(EMSCRIPTEN)
         "SHELL:-s EXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
         "SHELL:-s ALLOW_MEMORY_GROWTH=1"
     )
-    
+
     set_target_properties(zith-wasm PROPERTIES
         SUFFIX ".html"
         OUTPUT_NAME "zith"
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     )
 
-    # Apply WASM specific warnings ONLY to this target, not globally
     if (MSVC)
         target_compile_options(zith-wasm PRIVATE /W4 /WX /wd4100)
     else ()
         target_compile_options(zith-wasm PRIVATE -Wall -Wextra -Wpedantic)
     endif()
-endif() # This closes the if(EMSCRIPTEN) block
+endif()
