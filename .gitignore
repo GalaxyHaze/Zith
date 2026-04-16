@@ -82,3 +82,9 @@ build-test
 *.lz
 *.lzo
 ```
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
