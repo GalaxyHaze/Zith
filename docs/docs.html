@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Official Zith programming language documentation.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&family=Outfit:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <title>Zith — Documentation</title>
+</head>
+<body>
+  <div class="page-wrapper">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-topline">
+        <a class="sidebar-home" href="index.html">← Home</a>
+        <span class="logo">Zith Docs</span>
+      </div>
+
+      <div class="section-tabs" id="sectionTabs"></div>
+      <div class="section-panel" id="sectionPanel"></div>
+    </aside>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <div class="main-content" id="mainContent">
+      <header class="header">
+        <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">☰</button>
+        <span class="logo">Documentation</span>
+      </header>
+      <main class="content" id="content"></main>
+    </div>
+  </div>
+
+  <template id="navData">
+    <section data-section="getting-started" data-title="Getting Started" data-overview-id="intro" data-overview-path="pages/intro.html">
+      <item data-id="intro" data-title="Overview" data-path="pages/intro.html"></item>
+      <item data-id="installation" data-title="Installation" data-path="pages/installation.html"></item>
+      <item data-id="quickstart" data-title="Quick Start" data-path="pages/quickstart.html"></item>
+    </section>
+
+    <section data-section="cli" data-title="CLI" data-overview-id="cli-overview" data-overview-path="pages/cli/overview.html">
+      <item data-id="cli-overview" data-title="Overview" data-path="pages/cli/overview.html"></item>
+      <item data-id="cmd-check" data-title="check" data-path="pages/cli/check.html"></item>
+      <item data-id="cmd-compile" data-title="compile" data-path="pages/cli/compile.html"></item>
+      <item data-id="cmd-build" data-title="build" data-path="pages/cli/build.html"></item>
+      <item data-id="cmd-execute" data-title="execute" data-path="pages/cli/execute.html"></item>
+      <item data-id="cmd-run" data-title="run" data-path="pages/cli/run.html"></item>
+      <item data-id="cmd-new" data-title="new" data-path="pages/cli/new.html"></item>
+      <item data-id="cmd-clean" data-title="clean" data-path="pages/cli/clean.html"></item>
+      <item data-id="cmd-repl" data-title="repl" data-path="pages/cli/repl.html"></item>
+      <item data-id="cmd-fmt" data-title="fmt" data-path="pages/cli/fmt.html"></item>
+      <item data-id="cmd-docs" data-title="docs" data-path="pages/cli/docs.html"></item>
+      <item data-id="cli-flags" data-title="Global Flags" data-path="pages/cli/flags.html"></item>
+    </section>
+
+    <section data-section="language" data-title="Language" data-overview-id="lang-overview" data-overview-path="pages/language/overview.html">
+      <item data-id="lang-overview" data-title="Overview" data-path="pages/language/overview.html"></item>
+      <item data-id="lang-syntax" data-title="Syntax Basics" data-path="pages/language/syntax.html"></item>
+      <item data-id="lang-vars" data-title="Variables" data-path="pages/language/variables.html"></item>
+      <item data-id="lang-types" data-title="Types" data-path="pages/language/types.html"></item>
+      <item data-id="lang-control" data-title="Control Flow" data-path="pages/language/control-flow.html"></item>
+      <item data-id="lang-functions" data-title="Functions" data-path="pages/language/functions.html"></item>
+      <item data-id="lang-memory" data-title="Memory" data-path="pages/language/memory.html"></item>
+      <item data-id="lang-errors" data-title="Error Handling" data-path="pages/language/errors.html"></item>
+      <item data-id="lang-modules" data-title="Modules" data-path="pages/language/modules.html"></item>
+      <item data-id="lang-generics" data-title="Generics" data-path="pages/language/generics.html"></item>
+    </section>
+
+    <section data-section="project" data-title="Project" data-overview-id="project-overview" data-overview-path="pages/project/toml.html">
+      <item data-id="project-overview" data-title="Overview" data-path="pages/project/toml.html"></item>
+      <item data-id="project-toml" data-title="ZithProject.toml" data-path="pages/project/toml.html"></item>
+    </section>
+
+    <section data-section="raw" data-title="Raw" data-overview-id="raw-overview" data-overview-path="pages/advanced/overview.html">
+      <item data-id="raw-overview" data-title="Overview" data-path="pages/advanced/overview.html"></item>
+      <item data-id="raw-how-to-use" data-title="How to Use" data-path="pages/advanced/how-to-use.html"></item>
+      <item data-id="raw-traits" data-title="Traits" data-path="pages/advanced/traits.html"></item>
+      <item data-id="raw-generics" data-title="Generics" data-path="pages/advanced/generics.html"></item>
+      <item data-id="raw-metaprogramming" data-title="Metaprogramming" data-path="pages/advanced/metaprogramming.html"></item>
+      <item data-id="raw-macros" data-title="Macros" data-path="pages/advanced/macros.html"></item>
+      <item data-id="raw-data-structures" data-title="Data Structures" data-path="pages/advanced/data-structures.html"></item>
+    </section>
+
+    <section data-section="extras" data-title="Extras" data-overview-id="faq" data-overview-path="pages/faq.html">
+      <item data-id="faq" data-title="FAQ" data-path="pages/faq.html"></item>
+      <item data-id="community-showcase" data-title="Community Showcase" data-path="pages/community.html"></item>
+    </section>
+  </template>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/navigation.js"></script>
+  <script src="assets/js/router.js"></script>
+  <script src="assets/js/content.js"></script>
+  <script src="assets/js/main.js"></script>
+</body>
+</html>

@@ -3,198 +3,71 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Official Zith programming language documentation - CLI reference, language guide, and tooling setup">
-  <meta name="keywords" content="Zith, programming language, documentation, CLI, language guide, systems programming">
-  <meta name="author" content="Zith Team">
-  <meta name="robots" content="index, follow">
-
-  <!-- Open Graph -->
-  <meta property="og:title" content="Zith Documentation">
-  <meta property="og:description" content="Official Zith programming language documentation and reference guide">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="https://github.com/GalaxyHaze/Zith/docs">
-
-  <!-- Twitter Card -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Zith Documentation">
-  <meta name="twitter:description" content="Complete Zith language and CLI reference">
-
-  <!-- Canonical -->
-  <link rel="canonical" href="https://github.com/GalaxyHaze/Zith/docs/index.html">
-
-  <!-- Structured Data -->
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    "name": "Zith Documentation",
-    "url": "https://github.com/GalaxyHaze/Zith/docs",
-    "description": "Official documentation for Zith programming language",
-    "creator": {
-      "@type": "Organization",
-      "name": "Zith Team"
-    },
-    "mainEntity": {
-      "@type": "SoftwareApplication",
-      "name": "Zith",
-      "applicationCategory": "DeveloperApplication",
-      "operatingSystem": "Linux, macOS, Windows"
-    }
-  }
-  </script>
-
-  <!-- Fonts & Styles -->
+  <meta name="description" content="Zith documentation portal: jump to docs, intro, FAQ, and community showcase.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&family=Outfit:wght@400;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css">
-
-  <title>Zith — Documentation</title>
+  <title>Zith — Home</title>
 </head>
-<body>
-  <div class="page-wrapper">
-    <!-- Sidebar Navigation -->
-    <aside class="sidebar" id="sidebar">
-      <div class="sidebar-section">
-        <div class="sidebar-label">Getting Started</div>
-        <div class="sidebar-item active" onclick="navigate('intro')">
-          <span class="sidebar-item-dot"></span> Introduction
-        </div>
-        <div class="sidebar-item" onclick="navigate('installation')">
-          <span class="sidebar-item-dot"></span> Installation
-        </div>
-        <div class="sidebar-item" onclick="navigate('quickstart')">
-          <span class="sidebar-item-dot"></span> Quick Start
-        </div>
+<body class="home-body">
+  <main class="home-shell">
+    <section class="hero-card animate-rise">
+      <p class="hero-eyebrow">Zith Language</p>
+      <h1>Fast docs for fast systems programming.</h1>
+      <p class="hero-lead">Get started in minutes, drill into command references, browse language concepts, and discover community-built programs.</p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary" href="docs.html">Open Documentation</a>
+        <a class="btn btn-secondary" href="docs.html?page=intro">Read Intro</a>
       </div>
-
-      <div class="sidebar-section">
-        <div class="sidebar-label">CLI Reference</div>
-        <div class="sidebar-item" onclick="navigate('cli-overview')">
-          <span class="sidebar-item-dot"></span> Overview
-        </div>
-        <div class="sidebar-item" onclick="navigate('cmd-check')">
-          <span class="sidebar-item-dot"></span> check
-        </div>
-        <div class="sidebar-item" onclick="navigate('cmd-compile')">
-          <span class="sidebar-item-dot"></span> compile
-        </div>
-        <div class="sidebar-item" onclick="navigate('cmd-build')">
-          <span class="sidebar-item-dot"></span> build
-        </div>
-        <div class="sidebar-item" onclick="navigate('cmd-execute')">
-          <span class="sidebar-item-dot"></span> execute
-        </div>
-        <div class="sidebar-item" onclick="navigate('cmd-run')">
-          <span class="sidebar-item-dot"></span> run
-        </div>
-        <div class="sidebar-item" onclick="navigate('cmd-new')">
-          <span class="sidebar-item-dot"></span> new
-        </div>
-        <div class="sidebar-item" onclick="navigate('cmd-clean')">
-          <span class="sidebar-item-dot"></span> clean
-        </div>
-        <div class="sidebar-item" onclick="navigate('cmd-repl')">
-          <span class="sidebar-item-dot"></span> repl
-        </div>
-        <div class="sidebar-item" onclick="navigate('cmd-fmt')">
-          <span class="sidebar-item-dot"></span> fmt
-        </div>
-        <div class="sidebar-item" onclick="navigate('cmd-docs')">
-          <span class="sidebar-item-dot"></span> docs
-        </div>
-        <div class="sidebar-item" onclick="navigate('cli-flags')">
-          <span class="sidebar-item-dot"></span> Global Flags
-        </div>
+      <div class="hero-grid">
+        <a class="hero-tile" href="docs.html?page=cli-overview">
+          <h2>CLI</h2>
+          <p>Commands, flags, and workflows.</p>
+        </a>
+        <a class="hero-tile" href="docs.html?page=lang-overview">
+          <h2>Language</h2>
+          <p>Syntax, types, memory, and modules.</p>
+        </a>
+        <a class="hero-tile" href="docs.html?page=faq">
+          <h2>FAQ</h2>
+          <p>Common questions and troubleshooting.</p>
+        </a>
+        <a class="hero-tile" href="docs.html?page=community-showcase">
+          <h2>Community Showcase</h2>
+          <p>Programs shared by the community.</p>
+        </a>
       </div>
+    </section>
+  </main>
 
-      <div class="sidebar-section">
-        <div class="sidebar-label">Project</div>
-        <div class="sidebar-item" onclick="navigate('project-toml')">
-          <span class="sidebar-item-dot"></span> ZithProject.toml
-        </div>
-      </div>
-
-
-      <div class="sidebar-section">
-        <div class="sidebar-label">Advanced</div>
-        <div class="sidebar-item" onclick="navigate('advanced-overview')">
-          <span class="sidebar-item-dot"></span> Overview
-        </div>
-        <div class="sidebar-item" onclick="navigate('adv-how-to-use')">
-          <span class="sidebar-item-dot"></span> Como usar
-        </div>
-        <div class="sidebar-item" onclick="navigate('adv-traits')">
-          <span class="sidebar-item-dot"></span> Traits
-        </div>
-        <div class="sidebar-item" onclick="navigate('adv-generics')">
-          <span class="sidebar-item-dot"></span> Generics
-        </div>
-        <div class="sidebar-item" onclick="navigate('adv-metaprogramming')">
-          <span class="sidebar-item-dot"></span> Metaprogramação
-        </div>
-        <div class="sidebar-item" onclick="navigate('adv-macros')">
-          <span class="sidebar-item-dot"></span> Macros
-        </div>
-        <div class="sidebar-item" onclick="navigate('adv-data-structures')">
-          <span class="sidebar-item-dot"></span> Estruturas de dados
-        </div>
-      </div>
-      <div class="sidebar-section">
-        <div class="sidebar-label">Language Guide</div>
-        <div class="sidebar-item" onclick="navigate('lang-overview')">
-          <span class="sidebar-item-dot"></span> Overview
-        </div>
-        <div class="sidebar-item" onclick="navigate('lang-syntax')">
-          <span class="sidebar-item-dot"></span> Syntax Basics
-        </div>
-        <div class="sidebar-item" onclick="navigate('lang-vars')">
-          <span class="sidebar-item-dot"></span> Variables
-        </div>
-        <div class="sidebar-item" onclick="navigate('lang-types')">
-          <span class="sidebar-item-dot"></span> Types
-        </div>
-        <div class="sidebar-item" onclick="navigate('lang-control')">
-          <span class="sidebar-item-dot"></span> Control Flow
-        </div>
-        <div class="sidebar-item" onclick="navigate('lang-functions')">
-          <span class="sidebar-item-dot"></span> Functions
-        </div>
-        <div class="sidebar-item" onclick="navigate('lang-memory')">
-          <span class="sidebar-item-dot"></span> Memory
-        </div>
-        <div class="sidebar-item" onclick="navigate('lang-errors')">
-          <span class="sidebar-item-dot"></span> Error Handling
-        </div>
-        <div class="sidebar-item" onclick="navigate('lang-modules')">
-          <span class="sidebar-item-dot"></span> Modules
-        </div>
-        <div class="sidebar-item" onclick="navigate('lang-generics')">
-          <span class="sidebar-item-dot"></span> Generics
-        </div>
-      </div>
-    </aside>
-
-    <!-- Sidebar overlay for mobile -->
-    <div class="sidebar-overlay" id="sidebarOverlay"></div>
-
-    <!-- Main Content Area -->
-    <div class="main-content">
-      <header class="header">
-        <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="3" y1="6" x2="21" y2="6"></line>
-            <line x1="3" y1="12" x2="21" y2="12"></line>
-            <line x1="3" y1="18" x2="21" y2="18"></line>
-          </svg>
-        </button>
-        <span class="logo">Zith</span>
-      </header>
-      <main class="content">
-        <!-- Content will be loaded here -->
-      </main>
+  <footer class="site-footer">
+    <div class="footer-brand-wrap">
+      <a class="footer-brand" href="index.html">Zith</a>
+      <p>Official documentation and learning portal.</p>
     </div>
-  </div>
-
-  <script src="assets/js/main.js"></script>
+    <div class="footer-columns">
+      <div>
+        <h3>Explore</h3>
+        <a href="docs.html">Documentation</a>
+        <a href="docs.html?page=intro">Intro</a>
+        <a href="docs.html?page=installation">Installation</a>
+        <a href="docs.html?page=quickstart">Quick Start</a>
+        <a href="docs.html?page=faq">FAQ</a>
+      </div>
+      <div>
+        <h3>Sections</h3>
+        <a href="docs.html?page=cli-overview">CLI</a>
+        <a href="docs.html?page=lang-overview">Language</a>
+        <a href="docs.html?page=project-overview">Project</a>
+        <a href="docs.html?page=raw-overview">Raw</a>
+        <a href="docs.html?page=community-showcase">Community</a>
+      </div>
+      <div>
+        <h3>Contact</h3>
+        <a href="https://github.com/GalaxyHaze" target="_blank" rel="noopener">GitHub</a>
+        <a href="mailto:galaxyhaze.dev@gmail.com">Email</a>
+      </div>
+    </div>
+  </footer>
 </body>
 </html>

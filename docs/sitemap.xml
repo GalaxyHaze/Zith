@@ -247,4 +247,25 @@
     <priority>0.8</priority>
   </url>
 
+  <url>
+    <loc>https://galaxyhaze.github.io/Zith/docs/docs.html</loc>
+    <lastmod>2026-04-16</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.95</priority>
+  </url>
+
+  <url>
+    <loc>https://galaxyhaze.github.io/Zith/docs/pages/faq.html</loc>
+    <lastmod>2026-04-16</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+
+  <url>
+    <loc>https://galaxyhaze.github.io/Zith/docs/pages/community.html</loc>
+    <lastmod>2026-04-16</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+
 </urlset>
