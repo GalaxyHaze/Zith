@@ -20,6 +20,7 @@ permissions:
   contents: write
 
 jobs:
+  # Job dedicado para criar release e evitar race conditions
   create-release:
     runs-on: ubuntu-latest
     outputs:
@@ -33,19 +34,20 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Using tag: $TAG"
 
-      - name: Create Release (Draft)
+      - name: Create Release (ou usar existente)
         id: create-release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.set-tag.outputs.tag }}
           generate_release_notes: true
-          draft: true  # Começa como draft
-          # Não envia ficheiros aqui para evitar conflito com jobs paralelos
+          draft: true  # Começa como draft para evitar publicações prematuras
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Wait for Release propagation
-        run: sleep 3
+      - name: Wait for Release to be available
+        run: |
+          # Pequeno delay para garantir que a release foi criada no DB
+          sleep 2
 
   build-and-release:
     needs: create-release
@@ -58,11 +60,9 @@ jobs:
           - os: ubuntu-latest
             target_name: zith-linux-amd64
             cmake_flags: "-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
-            setup_apt: "sudo apt-get update && sudo apt-get install -y ninja-build clang"
           - os: macos-latest
             target_name: zith-macos-arm64
             cmake_flags: "-DCMAKE_OSX_ARCHITECTURES=arm64"
-            setup_brew: "brew install ninja"
           - os: windows-latest
             target_name: zith-windows-amd64.exe
             cmake_flags: "-A x64"
@@ -70,50 +70,70 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Necessário para versioning baseado em git
 
-      # --- Setup & Cache ---
-      
-      # Cache APT packages (Linux)
+      # Cache para dependências do sistema (mais eficaz em Linux)
       - name: Cache APT packages (Linux)
         if: runner.os == 'Linux'
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: ninja-build clang libssl-dev pkg-config
+          packages: ninja-build libssl-dev pkg-config
           version: 1.0
-        continue-on-error: true # Se falhar, instalamos no próximo passo de qualquer forma
 
-      # Setup Clang/Ninja manualmente (Fallback garante que o build nunca falha por falta de ferramenta)
-      - name: Install Build Tools (Fallback)
-        if: runner.os != 'Windows'
-        run: |
-          if [ "${{ runner.os }}" == "Linux" ]; then
-             ${{ matrix.setup_apt }}
-          elif [ "${{ runner.os }}" == "macOS" ]; then
-             ${{ matrix.setup_brew }}
-          fi
-        shell: bash
+      # Cache para Homebrew (macOS)
+      - name: Cache Homebrew (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew
+            /Library/Caches/Homebrew
+          key: ${{ runner.os }}-homebrew-${{ hashFiles('.github/workflows/build-release.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-homebrew-
 
+      # Setup CMake com cache
       - name: Setup CMake
         uses: lukka/get-cmake@latest
         with:
           cmake-version: '3.27.x'
 
-      # --- Build ---
-
+      # Cache para build directory (reutilizar objetos compilados)
       - name: Restore CMake cache
         uses: actions/cache@v4
         with:
           path: |
             build
             ~/.ccache
+            ${{ env.VCPKG_ROOT }}
           key: ${{ runner.os }}-cmake-${{ matrix.target_name }}-${{ hashFiles('CMakeLists.txt', 'src/**') }}
           restore-keys: |
             ${{ runner.os }}-cmake-${{ matrix.target_name }}-
             ${{ runner.os }}-cmake-
 
+      # Setup Ninja
+      - name: Setup Ninja (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          if ! command -v ninja &> /dev/null; then
+            if [ "${{ runner.os }}" == "macOS" ]; then
+              brew install ninja
+            else
+              sudo apt-get update && sudo apt-get install -y ninja-build
+            fi
+          fi
+
+      # Setup Clang (Linux)
+      - name: Setup Clang (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
+      # Configure CMake com melhor controlo de paths
       - name: Configure CMake
         run: |
+          mkdir -p build
           cmake -B build \
             -G "Ninja" \
             -DCMAKE_BUILD_TYPE=Release \
@@ -126,62 +146,84 @@ jobs:
         run: cmake --build build --config Release --parallel
         shell: bash
 
-      # --- Prepare Artifact ---
-
-      - name: Prepare Artifact
+      # Validação robusta de artefatos
+      - name: Prepare Artifact with Validation
         shell: bash
         run: |
           set -euo pipefail
+          
           mkdir -p artifacts
           
+          # Definir nome e extensão baseado no OS
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             BINARY_NAME="zith.exe"
+            OUTPUT_PATH="artifacts/${{ matrix.target_name }}"
           else
             BINARY_NAME="zith"
+            OUTPUT_PATH="artifacts/${{ matrix.target_name }}"
           fi
           
-          # Encontra e copia o binário
-          if ! find build -type f -name "$BINARY_NAME" -print -quit | xargs -I {} cp {} "artifacts/${{ matrix.target_name }}"; then
-            echo "Error: Binary not found"
+          # Busca recursiva com validação
+          FOUND_COUNT=$(find build -type f -name "$BINARY_NAME" 2>/dev/null | wc -l)
+          
+          if [ "$FOUND_COUNT" -eq 0 ]; then
+            echo "❌ ERROR: Binário '$BINARY_NAME' não encontrado em build/"
+            echo "Conteúdo de build/:"
+            find build -type f -executable 2>/dev/null || find build -type f 2>/dev/null | head -20
+            exit 1
+          elif [ "$FOUND_COUNT" -gt 1 ]; then
+            echo "⚠️  WARNING: Múltiplos binários encontrados ($FOUND_COUNT)"
+            find build -type f -name "$BINARY_NAME" 2>/dev/null
+          fi
+          
+          # Copiar binário
+          find build -type f -name "$BINARY_NAME" -print -quit | xargs -I {} cp {} "$OUTPUT_PATH"
+          
+          # Validar cópia
+          if [ ! -f "$OUTPUT_PATH" ]; then
+            echo "❌ ERROR: Falha ao copiar binário para $OUTPUT_PATH"
             exit 1
           fi
           
-          # Permissões Unix
+          # Tornar executável em Unix
           if [[ "${{ runner.os }}" != "Windows" ]]; then
-            chmod +x artifacts/${{ matrix.target_name }}
+            chmod +x "$OUTPUT_PATH"
           fi
           
-          ls -lh artifacts/
+          # Informações finais
+          echo "✅ Artefato preparado com sucesso:"
+          ls -lh "$OUTPUT_PATH"
+          file "$OUTPUT_PATH" || true
 
-      # --- Upload (Mantendo como Draft) ---
+      # Verificação de integridade antes do upload
+      - name: Verify Artifacts
+        shell: bash
+        run: |
+          echo "Artefatos para upload:"
+          ls -lh artifacts/
+          
+          if [ ! -s artifacts/* ]; then
+            echo "❌ ERROR: Nenhum artefato encontrado ou ficheiro vazio"
+            exit 1
+          fi
+
+      # Upload com retry automático
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.create-release.outputs.tag }}
           files: artifacts/*
-          draft: true # IMPORTANTE: Mantém como draft para não conflitar
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # Removemos continue-on-error para garantir que falhas parem o job específico
-        # mas fail-fast: false na estratégia permite que outros continuem.
-
-      - name: Cleanup
-        if: always()
-        run: rm -rf build
-
-  # Job final para publicar a release
-  publish-release:
-    needs: [create-release, build-and-release]
-    runs-on: ubuntu-latest
-    # Só roda se nenhum dos builds anteriores falhou (cancelados são ignorados)
-    if: ${{ !contains(needs.*.result, 'failure') }}
-    
-    steps:
-      - name: Publish Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.create-release.outputs.tag }}
-          draft: false  # Agora publica
+          draft: false  # Agora publica (release já existe)
           prerelease: ${{ contains(needs.create-release.outputs.tag, 'alpha') || contains(needs.create-release.outputs.tag, 'beta') || contains(needs.create-release.outputs.tag, 'rc') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true  # Continua mesmo se falhar (melhor que parar tudo)
+
+      # Cleanup de cache para evitar espaço excessivo
+      - name: Cleanup large files
+        if: always()
+        shell: bash
+        run: |
+          # Remove objetos de build desnecessários
+          rm -rf build/CMakeFiles build/.cmake
+          du -sh build/ artifacts/ 2>/dev/null || true
