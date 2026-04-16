@@ -1,0 +1,49 @@
+<div class="breadcrumb">
+  <span onclick="navigate('intro')" style="cursor:pointer">docs</span>
+  <span class="breadcrumb-sep">/</span>
+  <span onclick="navigate('cli-overview')" style="cursor:pointer">cli</span>
+  <span class="breadcrumb-sep">/</span>
+  <span>clean</span>
+</div>
+<div class="page-eyebrow animate-in">CLI Reference</div>
+<h1 class="animate-in">zith clean</h1>
+<p class="lead animate-in">Remove build artifacts and cached outputs.</p>
+
+<h2>Synopsis</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span></div>
+  <pre><span class="tok-fn">zith</span> clean [target] [<span class="tok-flag">--all</span>] [<span class="tok-flag">--dry-run</span>]</pre>
+</div>
+
+<h2>Description</h2>
+<p><code>zith clean</code> deletes generated artifacts such as binaries, bytecode, and intermediate cache files.</p>
+
+<h2>Options</h2>
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>Option</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>--all</code></td><td>Also remove shared caches and downloaded dependencies</td></tr>
+      <tr><td><code>--dry-run</code></td><td>Show what would be removed without deleting files</td></tr>
+      <tr><td><code>-v, --verbose</code></td><td>Display each removed path</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Examples</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre><span class="tok-cmt"># Remove local build output</span>
+<span class="tok-fn">zith</span> clean
+
+<span class="tok-cmt"># Preview removals</span>
+<span class="tok-fn">zith</span> clean <span class="tok-flag">--dry-run</span>
+
+<span class="tok-cmt"># Full cleanup</span>
+<span class="tok-fn">zith</span> clean <span class="tok-flag">--all</span></pre>
+</div>
+
+<h2>See Also</h2>
+<ul>
+  <li><span onclick="navigate('cmd-build')" style="cursor:pointer; color: #4d9fff;">build</span> - Regenerate artifacts</li>
+</ul>

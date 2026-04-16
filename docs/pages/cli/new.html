@@ -1,0 +1,94 @@
+<div class="breadcrumb">
+  <span onclick="navigate('intro')" style="cursor:pointer">docs</span>
+  <span class="breadcrumb-sep">/</span>
+  <span onclick="navigate('cli-overview')" style="cursor:pointer">cli</span>
+  <span class="breadcrumb-sep">/</span>
+  <span>new</span>
+</div>
+<div class="page-eyebrow animate-in">CLI Reference</div>
+<h1 class="animate-in">zith new</h1>
+<p class="lead animate-in">Create a new project directory or a single Zith source file.</p>
+
+<h2>Synopsis</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span></div>
+  <pre><span class="tok-fn">zith</span> new &lt;name-or-path&gt; [<span class="tok-flag">--bin</span>] [<span class="tok-flag">--lib</span>] [<span class="tok-flag">--force</span>]</pre>
+</div>
+
+<h2>Description</h2>
+<p><code>zith new</code> infers what to create from the argument you pass:</p>
+<ul>
+  <li>If you pass a project name such as <code>my-project</code>, it creates a project directory with starter files.</li>
+  <li>If you pass a filename ending in <code>.zith</code> such as <code>main.zith</code>, it creates a single source file.</li>
+</ul>
+
+<h2>Behavior</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Input</th>
+        <th>Result</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>zith new my-project</code></td>
+        <td>Create project folder <code>my-project/</code> with <code>ZithProject.toml</code> and <code>src/main.zith</code></td>
+      </tr>
+      <tr>
+        <td><code>zith new main.zith</code></td>
+        <td>Create file <code>main.zith</code> in current directory</td>
+      </tr>
+      <tr>
+        <td><code>zith new src/app.zith</code></td>
+        <td>Create file and any missing parent directories</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Options</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Option</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>--bin</code></td>
+        <td>Force binary project template when creating a project</td>
+      </tr>
+      <tr>
+        <td><code>--lib</code></td>
+        <td>Force library project template when creating a project</td>
+      </tr>
+      <tr>
+        <td><code>--force</code></td>
+        <td>Overwrite existing files</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Examples</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre><span class="tok-cmt"># Create a new project</span>
+<span class="tok-fn">zith</span> new my-project
+
+<span class="tok-cmt"># Create a single file</span>
+<span class="tok-fn">zith</span> new main.zith
+
+<span class="tok-cmt"># Create a library project</span>
+<span class="tok-fn">zith</span> new core-lib <span class="tok-flag">--lib</span></pre>
+</div>
+
+<h2>See Also</h2>
+<ul>
+  <li><span onclick="navigate('cmd-build')" style="cursor:pointer; color: #4d9fff;">build</span> - Build generated projects</li>
+  <li><span onclick="navigate('cmd-run')" style="cursor:pointer; color: #4d9fff;">run</span> - Run starter applications</li>
+</ul>

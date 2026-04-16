@@ -1,0 +1,40 @@
+<div class="breadcrumb">
+  <span onclick="navigate('intro')" style="cursor:pointer">docs</span>
+  <span class="breadcrumb-sep">/</span>
+  <span onclick="navigate('cli-overview')" style="cursor:pointer">cli</span>
+  <span class="breadcrumb-sep">/</span>
+  <span>repl</span>
+</div>
+<div class="page-eyebrow animate-in">CLI Reference</div>
+<h1 class="animate-in">zith repl</h1>
+<p class="lead animate-in">Start an interactive Read-Eval-Print Loop for quick experiments.</p>
+
+<h2>Synopsis</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span></div>
+  <pre><span class="tok-fn">zith</span> repl [<span class="tok-flag">--load</span> file] [<span class="tok-flag">--no-color</span>]</pre>
+</div>
+
+<h2>Description</h2>
+<p>The REPL lets you evaluate expressions, inspect values, and prototype code without creating a project first.</p>
+
+<h2>Examples</h2>
+<div class="code-block">
+  <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
+  <pre><span class="tok-cmt"># Start interactive shell</span>
+<span class="tok-fn">zith</span> repl
+
+<span class="tok-cmt"># Preload definitions</span>
+<span class="tok-fn">zith</span> repl <span class="tok-flag">--load</span> prelude.zith</pre>
+</div>
+
+<div class="callout callout-note">
+  <span class="callout-icon">ℹ</span>
+  <div class="callout-body">Use <code>:help</code> inside the REPL to list available meta-commands.</div>
+</div>
+
+<h2>See Also</h2>
+<ul>
+  <li><span onclick="navigate('cmd-check')" style="cursor:pointer; color: #4d9fff;">check</span> - Validate snippets in files</li>
+  <li><span onclick="navigate('cmd-run')" style="cursor:pointer; color: #4d9fff;">run</span> - Execute full programs</li>
+</ul>
