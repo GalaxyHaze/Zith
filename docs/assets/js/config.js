@@ -4,7 +4,13 @@
     if (window.location.hostname === 'galaxyhaze.github.io') return '/Zith/docs/';
 
     const path = window.location.pathname;
-    if (path.includes('/docs/')) return path.substring(0, path.indexOf('/docs/') + 6);
+    // If we're in a /docs/ directory, use relative paths from there
+    if (path.includes('/docs/')) {
+      const docsIndex = path.indexOf('/docs/');
+      const docsDir = path.substring(0, docsIndex + 6);
+      // Return relative path from docs directory
+      return './';
+    }
     return './';
   }
 
