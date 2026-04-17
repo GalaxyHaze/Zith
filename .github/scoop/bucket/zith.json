@@ -6,11 +6,11 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/GalaxyHaze/Zith/releases/download/v0.0.1.0/zith-windows-amd64.exe",
-      "hash": "95315264dea20b5dca9aab27ca9e27a328aad5ab3bb36232aac6142861e4079f"
+      "hash": "5d1b3e43b7b61123afcbe99cb1daa4217e9976161ccb219add5885e6b71f88e1"
     },
     "arm64": {
       "url": "https://github.com/GalaxyHaze/Zith/releases/download/v0.0.1.0/zith-windows-arm64.exe",
-      "hash": "14fafdb2fc67aca53bc7b235c3617070704174f02704a5fede5ec77469aab745"
+      "hash": "6128478f97b7c6fab34c0212b12541017299b7027b0966b232fd39e560691bc2"
     }
   },
   "bin": "zith-windows-amd64.exe",

@@ -500,6 +500,11 @@ TEST_CASE("SCAN: raw keyword tokenized", "[scan][lexer][types]") {
     (void)ast;
 }
 
+TEST_CASE("SCAN: raw function", "[scan][lexer][types]") {
+    auto ast = parse_test("raw fn add();");
+    (void)ast;
+}
+
 TEST_CASE("SCAN: family keyword tokenized", "[scan][lexer][types]") {
     auto ast = parse_test("family Numbers { }");
     (void)ast;
@@ -531,6 +536,11 @@ TEST_CASE("SCAN: var keyword tokenized", "[scan][lexer][bindings]") {
 
 TEST_CASE("SCAN: const keyword tokenized", "[scan][lexer][bindings]") {
     auto ast = parse_test("const PI = 3.14159;");
+    (void)ast;
+}
+
+TEST_CASE("SCAN: const function", "[scan][lexer][bindings]") {
+    auto ast = parse_test("const fn add();");
     (void)ast;
 }
 

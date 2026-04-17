@@ -19,7 +19,7 @@
 <p>Use the official install script:</p>
 <div class="code-block">
   <div class="code-block-header"><span class="code-block-lang">shell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
-  <pre>curl -fsSL https://github.com/GalaxyHaze/Zith/raw/main/install.sh | bash</pre>
+  <pre>curl -fsSL https://github.com/GalaxyHaze/Zith/raw/master/install.sh | bash</pre>
 </div>
 
 <p>The script will:</p>
@@ -33,7 +33,7 @@
 <p>Use PowerShell with the install script:</p>
 <div class="code-block">
   <div class="code-block-header"><span class="code-block-lang">powershell</span><button class="code-block-copy" onclick="copyCode(this)">copy</button></div>
-  <pre>iex (New-Object Net.WebClient).DownloadString('https://github.com/GalaxyHaze/Zith/raw/main/install.ps1')</pre>
+  <pre>iex (New-Object Net.WebClient).DownloadString('https://github.com/GalaxyHaze/Zith/raw/master/install.ps1')</pre>
 </div>
 
 <h2>From Source</h2>
@@ -58,12 +58,12 @@ make install</pre>
 
 <h2>Troubleshooting</h2>
 <div class="callout callout-warning">
-  <span class="callout-icon">⚠</span>
+  <span class="callout-icon">!</span>
   <div class="callout-body"><strong>Command not found:</strong> Make sure <code>~/.local/bin</code> is in your PATH. Add <code>export PATH="$HOME/.local/bin:$PATH"</code> to your <code>~/.bashrc</code> or <code>~/.zshrc</code>.</div>
 </div>
 
 <div class="callout callout-warning">
-  <span class="callout-icon">⚠</span>
+  <span class="callout-icon">!</span>
   <div class="callout-body"><strong>Permission denied:</strong> On Unix-like systems, run the install script with bash explicitly: <code>bash install.sh</code></div>
 </div>
 

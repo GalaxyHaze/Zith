@@ -155,76 +155,9 @@ function updateActiveNav(pageId) {
             item.classList.add('active');
         }
     });
-}
 
-function animatePageIn() {
-    document.querySelectorAll('.animate-in').forEach((el, index) => {
-        el.style.animation = 'none';
-        setTimeout(() => {
-            el.style.animation = '';
-        }, 10 + (index * 20));
-    });
-}
+    router.start();
+  }
 
-function copyCode(button) {
-    const codeBlock = button.closest('.code-block');
-    if (!codeBlock) return;
-
-    const preElement = codeBlock.querySelector('pre');
-    if (!preElement) return;
-
-    const code = preElement.textContent;
-
-    navigator.clipboard.writeText(code).then(() => {
-        const originalText = button.textContent;
-        button.textContent = 'copied!';
-        setTimeout(() => {
-            button.textContent = originalText;
-        }, 2000);
-    }).catch(err => {
-        console.error('Failed to copy:', err);
-    });
-}
-
-// --- History Management ---
-window.onpopstate = function(event) {
-    const params = new URLSearchParams(window.location.search);
-    const pageId = params.get('page') || 'intro';
-
-    const relativePath = pageMap[pageId];
-    if (relativePath) {
-        const fullPath = basePath + relativePath;
-
-        fetch(fullPath)
-            .then(response => {
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                return response.text();
-            })
-            .then(html => {
-                const content = document.querySelector('.content');
-                if (content) {
-                    content.innerHTML = html;
-                    updateActiveNav(pageId);
-                    animatePageIn();
-                }
-            })
-            .catch(error => {
-                console.error('Error loading page on back/forward:', error);
-            });
-    }
-};
-
-// Initialize page load
-document.addEventListener('DOMContentLoaded', () => {
-    const params = new URLSearchParams(window.location.search);
-    const page = params.get('page') || 'intro';
-
-    initMobileMenu();
-
-    const relativePath = pageMap[page];
-    if (relativePath) {
-        loadPage(basePath + relativePath, page);
-    } else {
-        navigate('intro');
-    }
-});
+  document.addEventListener('DOMContentLoaded', boot);
+})();

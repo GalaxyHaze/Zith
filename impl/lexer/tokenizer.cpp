@@ -1,6 +1,6 @@
 // impl/parser/tokenizer.cpp
 #include "zith/zith.hpp"
-#include "../memory/utils.h"
+#include "../memory/utils.hpp"
 #include <string_view>
 #include <vector>
 #include <cstring>

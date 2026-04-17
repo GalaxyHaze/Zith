@@ -6,10 +6,8 @@
 #define ZITH_UTILS_H
 
 // impl/memory/utils.h — Arena utilities for Zith
-#pragma once
-
-#include <cstddef>
 #include <cstring>
+#pragma once
 
 #include <zith/zith.hpp>
 
@@ -104,7 +102,7 @@ struct ArenaList {
 
         size_t i = 0;
         for (const Chunk *c = head_; c; c = c->next) {
-            std::memcpy(arr + i, c->items(), c->len * sizeof(T));
+            memcpy(arr + i, c->items(), c->len * sizeof(T));
             i += c->len;
         }
         return arr;
