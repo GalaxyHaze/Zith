@@ -3,7 +3,7 @@ name: Build and Release (Clang Only)
 on:
   push:
     tags:
-      - '*'
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag_name:
@@ -49,36 +49,58 @@ jobs:
           - os: ubuntu-latest
             target_name: zith-linux-amd64
             cache_id: linux-amd64
-            install_cmd: sudo apt-get update && sudo apt-get install -y ninja-build clang
+            clang_version: '18'
+            install_cmd: |
+              sudo apt-get update
+              sudo apt-get install -y ninja-build clang-18 lld-18
+              sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
+              sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
+              sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-18 100
             cmake_flags: >-
               -DCMAKE_C_COMPILER=clang
               -DCMAKE_CXX_COMPILER=clang++
+              -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
 
           # ── Linux (ARM64) - Clang Nativo ─────────────────────────────────────
           - os: ubuntu-latest
             target_name: zith-linux-arm64
             cache_id: linux-arm64
-            install_cmd: sudo apt-get update && sudo apt-get install -y ninja-build clang lld
-            # IMPORTANTE: CMAKE_CROSSCOMPILING=ON impede o CMake de rodar o binário
+            clang_version: '18'
+            install_cmd: |
+              sudo apt-get update
+              sudo apt-get install -y ninja-build clang-18 lld-18
+              sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
+              sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
+              sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-18 100
             cmake_flags: >-
               -DCMAKE_C_COMPILER=clang
               -DCMAKE_CXX_COMPILER=clang++
-              -DCMAKE_CROSSCOMPILING=ON
               -DCMAKE_C_COMPILER_TARGET=aarch64-unknown-linux-gnu
               -DCMAKE_CXX_COMPILER_TARGET=aarch64-unknown-linux-gnu
               -DCMAKE_LINKER=lld
+              -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
+              -DCMAKE_CROSSCOMPILING=ON
 
           # ── macOS (AMD64 e ARM64) ───────────────────────────────────────────────
           - os: macos-latest
             target_name: zith-macos-amd64
             cache_id: macos-amd64
-            install_cmd: brew install ninja
-            cmake_flags: -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_CROSSCOMPILING=ON
+            install_cmd: brew install ninja llvm
+            cmake_flags: >-
+              -DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang
+              -DCMAKE_CXX_COMPILER=$(brew --prefix llvm)/bin/clang++
+              -DCMAKE_LINKER=$(brew --prefix llvm)/bin/lld
+              -DCMAKE_OSX_ARCHITECTURES=x86_64
+              -DCMAKE_CROSSCOMPILING=ON
 
           - os: macos-latest
             target_name: zith-macos-arm64
             cache_id: macos-arm64
-            install_cmd: brew install ninja
+            install_cmd: brew install ninja llvm
+            cmake_flags: >-
+              -DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang
+              -DCMAKE_CXX_COMPILER=$(brew --prefix llvm)/bin/clang++
+              -DCMAKE_LINKER=$(brew --prefix llvm)/bin/lld
 
           # ── Windows (x64) ──────────────────────────────────────────────────────
           - os: windows-latest
@@ -97,60 +119,87 @@ jobs:
             cmake_flags: >-
               -DCMAKE_C_COMPILER=clang-cl
               -DCMAKE_CXX_COMPILER=clang-cl
-              -DCMAKE_CROSSCOMPILING=ON
               -DCMAKE_C_COMPILER_TARGET=arm64-pc-windows-msvc
               -DCMAKE_CXX_COMPILER_TARGET=arm64-pc-windows-msvc
+              -DCMAKE_CROSSCOMPILING=ON
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
-          cmake-version: '3.26.x'
+          cmake-version: '3.28.x'
 
-      # --- CACHING ---
-      - name: Cache APT
+      # --- CACHING (IMPROVED) ---
+      - name: Cache APT Packages
         if: runner.os == 'Linux'
-        uses: awalsh128/cache-apt-pkgs-action@latest
+        uses: awalsh128/cache-apt-pkgs-action@v1
         with:
-          packages: ninja-build clang lld
-          version: ${{ matrix.cache_id }}
+          packages: ninja-build clang-18 lld-18
+          version: ${{ matrix.cache_id }}-v1
 
       - name: Cache Homebrew
         if: runner.os == 'macOS'
         uses: actions/cache@v4
         with:
-          path: ~/Library/Caches/Homebrew
-          key: ${{ runner.os }}-homebrew-${{ hashFiles('.github/workflows/*.yml') }}
-          restore-keys: ${{ runner.os }}-homebrew-
+          path: |
+            ~/Library/Caches/Homebrew
+            ~/Library/Caches/pip
+          key: ${{ runner.os }}-homebrew-${{ hashFiles('Brewfile.lock.json') }}-v1
+          restore-keys: |
+            ${{ runner.os }}-homebrew-
+            ${{ runner.os }}-
 
-      - name: Cache Build
+      - name: Cache Chocolatey
+        if: runner.os == 'Windows'
         uses: actions/cache@v4
         with:
-          path: build
-          key: ${{ runner.os }}-build-${{ matrix.cache_id }}-${{ hashFiles('src/**', 'CMakeLists.txt') }}
-          restore-keys: ${{ runner.os }}-build-${{ matrix.cache_id }}-
+          path: C:\ProgramData\chocolatey\lib
+          key: ${{ runner.os }}-choco-${{ hashFiles('*.lock') }}-v1
+          restore-keys: |
+            ${{ runner.os }}-choco-
+
+      - name: Cache Build Artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+            build-wasm
+          key: ${{ runner.os }}-build-${{ matrix.cache_id }}-${{ hashFiles('src/**', 'CMakeLists.txt', 'CMakePresets.json') }}-v1
+          restore-keys: |
+            ${{ runner.os }}-build-${{ matrix.cache_id }}-
 
       # --- BUILD ---
       - name: Install Dependencies
         run: ${{ matrix.install_cmd }}
+        shell: bash
+
+      - name: Verify Clang Installation
+        shell: bash
+        run: |
+          clang --version
+          clang++ --version
+          lld --version 2>/dev/null || echo "lld verification skipped"
 
       - name: Setup MSVC Headers
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Configure CMake
-        # BUILD_TESTING=OFF é crucial para evitar erros em cross-compilação
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
             -DZITH_VERSION=${{ needs.create-release.outputs.tag }} \
             ${{ matrix.cmake_flags }}
+        shell: bash
 
       - name: Build
-        run: cmake --build build --config Release
+        run: cmake --build build --config Release --verbose
+        shell: bash
 
       - name: Prepare Artifact
         shell: bash
@@ -163,6 +212,16 @@ jobs:
             cp build/bin/zith "artifacts/${{ matrix.target_name }}"
           fi
 
+      - name: Verify Binary
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            file "artifacts/${{ matrix.target_name }}" || echo "File check skipped on Windows"
+          else
+            file "artifacts/${{ matrix.target_name }}"
+            ldd "artifacts/${{ matrix.target_name }}" 2>/dev/null || echo "Dynamic linking check skipped"
+          fi
+
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
@@ -173,7 +232,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # 3. Musl (Clang Nativo + Musl - Sem Zig)
+  # Musl (Clang Nativo + Musl - Sem Zig)
   # ─────────────────────────────────────────────────────────────────────────────
   build-musl:
     needs: create-release
@@ -190,11 +249,34 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Install Clang and Musl
+      - name: Cache APT Packages (Musl)
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: clang-18 lld-18 cmake ninja-build musl-tools musl-dev
+          version: musl-v1
+
+      - name: Setup Clang Alternatives
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang lld cmake ninja-build musl-tools musl-dev
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
+          sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-18 100
+
+      - name: Verify Clang Installation
+        run: |
+          clang --version
+          clang++ --version
+          lld --version
+
+      - name: Cache Build Artifacts (Musl)
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: linux-musl-build-${{ matrix.target_name }}-${{ hashFiles('src/**', 'CMakeLists.txt') }}-v1
+          restore-keys: |
+            linux-musl-build-${{ matrix.target_name }}-
 
       - name: Configure CMake (Musl)
         run: |
@@ -211,16 +293,18 @@ jobs:
             -DCMAKE_CROSSCOMPILING=ON
 
       - name: Build
-        run: cmake --build build --config Release
+        run: cmake --build build --config Release --verbose
 
       - name: Prepare Artifact
         run: |
           mkdir -p artifacts
           chmod +x build/bin/zith
           cp build/bin/zith artifacts/${{ matrix.target_name }}
-          ldd artifacts/${{ matrix.target_name }} || echo "Static binary confirmed"
+          echo "=== Verifying static binary ==="
+          file artifacts/${{ matrix.target_name }}
+          ldd artifacts/${{ matrix.target_name }} 2>&1 || echo "✓ Binary is static (ldd failed as expected)"
 
-      - name: Upload Release Asset
+      - name: Upload MUSL Release Asset
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.create-release.outputs.tag }}
@@ -230,7 +314,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # 4. WebAssembly (Emscripten)
+  # WebAssembly (Emscripten)
   # ─────────────────────────────────────────────────────────────────────────────
   build-wasm:
     needs: create-release
@@ -238,6 +322,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
@@ -245,8 +331,26 @@ jobs:
           version: 3.1.45
           actions-cache-folder: 'emsdk-cache'
 
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.28.x'
+
+      - name: Cache Emscripten
+        uses: actions/cache@v4
+        with:
+          path: emsdk-cache
+          key: emsdk-3.1.45-v1
+          restore-keys: emsdk-
+
+      - name: Cache Build Artifacts (WASM)
+        uses: actions/cache@v4
+        with:
+          path: build-wasm
+          key: wasm-build-${{ hashFiles('src/**', 'CMakeLists.txt') }}-v1
+          restore-keys: wasm-build-
+
       - name: Configure CMake (WASM)
-        # BUILD_TESTING=OFF evita o erro do Catch2 tentando rodar testes
         run: |
           emcmake cmake -B build-wasm \
             -DCMAKE_BUILD_TYPE=Release \
@@ -255,17 +359,17 @@ jobs:
             -DCMAKE_CROSSCOMPILING=ON
 
       - name: Build WASM
-        run: cmake --build build-wasm --config Release -j$(nproc)
+        run: cmake --build build-wasm --config Release -j$(nproc) --verbose
 
       - name: Prepare Artifact
         run: |
           mkdir -p artifacts wasm-staging
-          # Copia arquivos gerados
+          # Copy generated files
           if [ -d "build-wasm/bin" ]; then cp build-wasm/bin/* wasm-staging/; fi
           find build-wasm -maxdepth 1 -type f \( -name "*.wasm" -o -name "*.js" -o -name "*.html" \) -exec cp {} wasm-staging/ \;
           
-          # Empacota
-          cd wasm-staging && zip -r ../artifacts/zith-wasm.zip .
+          # Package
+          cd wasm-staging && zip -r ../artifacts/zith-wasm.zip . && cd ..
 
       - name: Upload WASM
         uses: softprops/action-gh-release@v2
