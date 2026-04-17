@@ -1,12 +1,1 @@
-```
-# Dependencies
-node_modules/
-
-# Editor/IDE files
-.vscode/
-
-# Environment files
-.env
-.env.local
-*.env.*
-```
+(docs/assets/css/modules/components.css, docs/assets/css/modules/home.css, docs/assets/js/main.js, docs/index.html, docs/pages/advanced/data-structures.html, docs/pages/advanced/how-to-use.html, docs/pages/advanced/metaprogramming.html)

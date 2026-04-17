@@ -48,6 +48,43 @@
   background: rgba(16, 23, 36, 0.88);
 }
 
+.sidebar-section {
+  margin-top: 24px;
+}
+
+.sidebar-label {
+  color: var(--blue);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+  text-decoration: none;
+  border-radius: 6px;
+  transition: all var(--transition);
+  margin-bottom: 4px;
+}
+
+.sidebar-item:hover {
+  background: rgba(109, 174, 255, 0.1);
+  color: #e9f1ff;
+}
+
+.sidebar-item-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--blue);
+  opacity: 0.6;
+}
+
 .site-footer {
   border-top: 1px solid var(--border);
   margin-top: auto;

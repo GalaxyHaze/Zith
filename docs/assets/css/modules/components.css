@@ -60,6 +60,7 @@
   margin: 16px 0;
 }
 
+.callout-note { border-left-color: var(--blue); }
 .callout-warning { border-left-color: #de8f49; }
 .callout-success { border-left-color: var(--green); }
 .callout-error { border-left-color: var(--red); }
