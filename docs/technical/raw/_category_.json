@@ -1,0 +1,10 @@
+{
+  "label": "Raw & Unsafe",
+  "position": 5,
+  "link": {
+    "type": "generated-index",
+    "title": "Raw & Unsafe",
+    "description": "Low-level operations, unsafe blocks, and raw pointer manipulation in Zith.",
+    "slug": "/docs/technical/raw/overview"
+  }
+}

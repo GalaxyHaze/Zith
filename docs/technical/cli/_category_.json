@@ -1,0 +1,10 @@
+{
+  "label": "CLI Reference",
+  "position": 2,
+  "link": {
+    "type": "generated-index",
+    "title": "CLI Reference",
+    "description": "Complete reference for all Zith CLI commands.",
+    "slug": "/docs/technical/cli/overview"
+  }
+}
