@@ -71,12 +71,11 @@ jobs:
               sudo ln -sf /usr/bin/ld.lld-18 /usr/bin/ld.lld-18
               sudo ln -sf /usr/bin/ld.lld-18 /usr/bin/ld.lld
             cmake_flags: >-
-              -DCMAKE_C_COMPILER=clang
-              -DCMAKE_CXX_COMPILER=clang++
+              -DCMAKE_C_COMPILER=/usr/bin/clang
+              -DCMAKE_CXX_COMPILER=/usr/bin/clang++
               -DCMAKE_C_COMPILER_TARGET=aarch64-unknown-linux-gnu
               -DCMAKE_CXX_COMPILER_TARGET=aarch64-unknown-linux-gnu
-              -DCMAKE_LINKER=ld.lld
-              -DCMAKE_EXE_LINKER_FLAGS=-static
+              -DCMAKE_EXE_LINKER_FLAGS="-static -fuse-ld=lld"
               -DCMAKE_SYSROOT=/usr/aarch64-linux-gnu
               -DCMAKE_CROSSCOMPILING=ON
           - os: macos-latest
@@ -104,16 +103,6 @@ jobs:
             cmake_flags: >-
               -DCMAKE_C_COMPILER=clang-cl
               -DCMAKE_CXX_COMPILER=clang-cl
-          - os: windows-latest
-            target_name: zith-windows-arm64.exe
-            cache_id: windows-arm64
-            install_cmd: choco install llvm ninja -y
-            cmake_flags: >-
-              -DCMAKE_C_COMPILER=clang-cl
-              -DCMAKE_CXX_COMPILER=clang-cl
-              -DCMAKE_C_COMPILER_TARGET=aarch64-windows-msvc
-              -DCMAKE_CXX_COMPILER_TARGET=aarch64-windows-msvc
-              -DCMAKE_CROSSCOMPILING=ON
     steps:
       - uses: actions/checkout@v4
         with:
@@ -269,12 +258,11 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
             -DENABLE_WERROR=OFF \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_COMPILER=/usr/bin/clang \
+            -DCMAKE_CXX_COMPILER=/usr/bin/clang++ \
             -DCMAKE_C_COMPILER_TARGET=${{ matrix.target_triple }} \
             -DCMAKE_CXX_COMPILER_TARGET=${{ matrix.target_triple }} \
-            -DCMAKE_LINKER=ld.lld \
-            -DCMAKE_EXE_LINKER_FLAGS=-static \
+            -DCMAKE_EXE_LINKER_FLAGS="-static -fuse-ld=lld" \
             -DZITH_VERSION=${{ needs.create-release.outputs.tag }} \
             -DCMAKE_CROSSCOMPILING=ON
         shell: bash
