@@ -8,9 +8,9 @@ dist/
 *.js
 *.css
 
-# Cache directories
-.cache/
-.node-cache/
+# Logs and temp files
+*.log
+*.tmp
 
 # Environment
 .env
@@ -20,9 +20,6 @@ dist/
 # Editors
 .vscode/
 .idea/
-
-# Logs
-*.log
 
 # OS generated files
 .DS_Store
