@@ -45,8 +45,9 @@ htmlcov/
 Thumbs.db
 
 # Docusaurus
-docusaurus/node_modules/
-docusaurus/build/
-docusaurus/.docusaurus/
-docusaurus/.cache/
+docusaurus-docs/node_modules/
+docusaurus-docs/build/
+docusaurus-docs/.docusaurus/
+docusaurus-docs/.cache/
+docs/
 ```
