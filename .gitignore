@@ -2,37 +2,29 @@
 # Dependencies
 node_modules/
 
-# Build artifacts
-dist/
+# Build outputs
 build/
+dist/
 *.js
+*.css
 
 # Cache directories
 .cache/
-.node_cache/
+.node-cache/
 
-# Environment variables
+# Environment
 .env
 .env.local
 *.env.*
 
-# IDE files
+# Editors
 .vscode/
 .idea/
-*.swp
-*.swo
 
 # Logs
 *.log
 
-# Temporary files
-*.tmp
-
-# Coverage reports
-coverage/
-htmlcov/
-.coverage
-
-# Docusaurus specific
-.docusaurus/
+# OS generated files
+.DS_Store
+Thumbs.db
 ```
