@@ -61,14 +61,14 @@ jobs:
               -DCMAKE_CXX_COMPILER=clang++
               -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
 
-          # ── Linux (ARM64) - Clang Nativo ─────────────────────────────────────
+          # ── Linux (ARM64) - Cross-compilation with sysroot ─────────────────────
           - os: ubuntu-latest
             target_name: zith-linux-arm64
             cache_id: linux-arm64
             clang_version: '18'
             install_cmd: |
               sudo apt-get update
-              sudo apt-get install -y ninja-build clang-18 lld-18
+              sudo apt-get install -y ninja-build clang-18 lld-18 gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross
               sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
               sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
               sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-18 100
@@ -78,7 +78,8 @@ jobs:
               -DCMAKE_C_COMPILER_TARGET=aarch64-unknown-linux-gnu
               -DCMAKE_CXX_COMPILER_TARGET=aarch64-unknown-linux-gnu
               -DCMAKE_LINKER=lld
-              -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
+              -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld --sysroot=/usr/aarch64-linux-gnu"
+              -DCMAKE_SYSROOT=/usr/aarch64-linux-gnu
               -DCMAKE_CROSSCOMPILING=ON
 
           # ── macOS (AMD64 e ARM64) ───────────────────────────────────────────────
@@ -256,7 +257,7 @@ jobs:
       - name: Cache APT Packages (Musl)
         uses: awalsh128/cache-apt-pkgs-action@v1
         with:
-          packages: clang-18 lld-18 cmake ninja-build musl-tools musl-dev
+          packages: clang-18 lld-18 cmake ninja-build musl-tools musl-dev musl libc6-dev-arm64-cross gcc-aarch64-linux-gnu
           version: musl-v1
 
       - name: Setup Clang Alternatives
@@ -290,7 +291,8 @@ jobs:
             -DCMAKE_C_COMPILER_TARGET=${{ matrix.target_triple }} \
             -DCMAKE_CXX_COMPILER_TARGET=${{ matrix.target_triple }} \
             -DCMAKE_LINKER=lld \
-            -DCMAKE_EXE_LINKER_FLAGS="-static -fuse-ld=lld" \
+            -DCMAKE_EXE_LINKER_FLAGS="-static -fuse-ld=lld --sysroot=/usr/${{ matrix.target_triple }}" \
+            -DCMAKE_SYSROOT=/usr/${{ matrix.target_triple }} \
             -DZITH_VERSION=${{ needs.create-release.outputs.tag }} \
             -DCMAKE_CROSSCOMPILING=ON
 

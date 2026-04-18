@@ -1,24 +1,31 @@
 ```
 # Build artifacts
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+Makefile
+*.cmake
 *.o
-*.obj
 *.a
-*.lib
-*.dll
 *.so
 *.dylib
+*.dll
 *.exe
 *.out
 
-# CMake build directories
-build/
-cmake-build-*/
-_CacheData/
-
 # Dependencies
+.externalNativeBuild/
+.gradle/
 node_modules/
 vendor/
-deps/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
 
 # Logs
 *.log
@@ -26,70 +33,14 @@ deps/
 # Environment
 .env
 .env.local
-.env.*
-
-# Editor/IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*.tmp
-
-# OS
-.DS_Store
-Thumbs.db
+*.env.*
 
 # Coverage
 coverage/
 htmlcov/
 .coverage
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.so
-.Python
-*.egg-info/
-.eggs/
-
-# Generated files
-dist/
-target/
-.npm/
-.yarn/
-bower_components/
-
-# Testing
-.mypy_cache/
-.pytest_cache/
-.coverage
-coverage.xml
-junit.xml
-
-# Archives
-*.zip
-*.gz
-*.tar
-*.tgz
-*.bz2
-*.xz
-*.7z
-*.rar
-*.zst
-*.lz4
-*.lzh
-*.cab
-*.arj
-*.rpm
-*.deb
-*.Z
-*.lz
-*.lzo
-*.tar.gz
-*.tar.bz2
-*.tar.xz
-*.tar.zst
+# OS files
+.DS_Store
+Thumbs.db
 ```
