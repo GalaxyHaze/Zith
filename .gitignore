@@ -43,4 +43,10 @@ htmlcov/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Docusaurus
+docusaurus/node_modules/
+docusaurus/build/
+docusaurus/.docusaurus/
+docusaurus/.cache/
 ```
