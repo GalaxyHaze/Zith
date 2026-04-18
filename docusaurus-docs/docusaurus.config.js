@@ -5,7 +5,7 @@
 const config = {
   title: 'Zith Programming Language',
   tagline: 'A modern systems programming language with clarity and safety',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/favicon.svg',
 
   onBrokenLinks: 'warn',
   onBrokenMarkdownLinks: 'warn',
