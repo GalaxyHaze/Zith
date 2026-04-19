@@ -112,4 +112,4 @@ If a feature doesn't pass these tests, it doesn't make it into Zith.
 
 ---
 
-**Next:** Learn about [Security](./security.md) →
+**Next:** Learn about [Security](./03-security.md) →

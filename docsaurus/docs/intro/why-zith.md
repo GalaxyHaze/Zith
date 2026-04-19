@@ -201,9 +201,9 @@ Ready to try Zith? Here's your path:
 
 1. **[Installation](./installation.md)** - Set up Zith in minutes
 2. **[Quick Start](./quickstart.md)** - Write your first program
-3. **[CLI Reference](../technical/cli/overview.md)** - Learn the tools
-4. **[Language Guide](../technical/language/overview.md)** - Deep dive
+3. **[CLI Reference](../technical/cli/01-overview.md)** - Learn the tools
 
+4. **[Language Guide](../technical/language/01-overview.md)** - Deep dive
 ---
 
 **Zith proves you don't have to choose between safety and simplicity.** 

@@ -77,4 +77,4 @@ Use `zith <command> --help` for detailed information about any command.
 
 - Learn about individual commands in the sidebar
 - Read about [global flags](./flags.md)
-- Set up your [project configuration](../project/overview.md)
+- Set up your [project configuration](../project/01-overview.md)

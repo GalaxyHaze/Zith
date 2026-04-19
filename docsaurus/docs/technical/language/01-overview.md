@@ -38,7 +38,7 @@ Write reusable code with Zith's powerful generics system.
 
 ## Advanced Topics
 
-For more advanced features, see the **[Raw & Unsafe](../raw/overview.md)** section:
+For more advanced features, see the **[Raw & Unsafe](../raw/01-overview.md)** section:
 
 - Traits and type classes
 - Advanced generics

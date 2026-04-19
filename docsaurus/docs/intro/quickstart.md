@@ -204,9 +204,11 @@ You've written your first Zith programs! Continue learning:
 
 1. **[Why Zith?](./why-zith.md)** - Understand Zith's advantages
 2. **[Syntax Basics](../technical/language/syntax.md)** - Deep dive into syntax
-3. **[CLI Reference](../technical/cli/overview.md)** - Master the command-line tools
-4. **[Language Guide](../technical/language/overview.md)** - Comprehensive language features
+
+3. **[CLI Reference](../technical/cli/01-overview.md)** - Master the command-line tools
+
+4. **[Language Guide](../technical/language/01-overview.md)** - Comprehensive language features
 
 ---
 
-**Need help?** Visit our [FAQ](../technical/faq/overview.md) or join the community on [GitHub](https://github.com/galaxyhaze/Zith/discussions).
+**Need help?** Visit our [FAQ](../technical/faq/01-overview.md) or join the community on [GitHub](https://github.com/galaxyhaze/Zith/discussions).

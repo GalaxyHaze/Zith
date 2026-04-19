@@ -26,4 +26,4 @@ This section will cover module organization in Zith.
 
 ---
 
-**Related:** [Functions](./functions.md) | [Project Configuration](../project/overview.md)
+**Related:** [Functions](./functions.md) | [Project Configuration](../project/01-overview.md)

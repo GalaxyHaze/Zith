@@ -188,4 +188,4 @@ Zith provides **strong memory safety guarantees** through its ownership system, 
 
 ---
 
-**Next:** Compare with [Rust](./rust-comparison.md) →
+**Next:** Compare with [Rust](./04-rust-comparison.md) →

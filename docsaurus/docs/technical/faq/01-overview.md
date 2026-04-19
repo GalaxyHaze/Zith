@@ -9,22 +9,22 @@ Find answers to common questions about the Zith programming language.
 
 ## Categories
 
-### [Philosophy](./philosophy.md)
+### [Philosophy](./02-philosophy.md)
 - Why was Zith created?
 - What are the design principles?
 - What trade-offs were made?
 
-### [Security](./security.md)
+### [Security](./03-security.md)
 - How does Zith ensure memory safety?
 - What vulnerabilities does Zith prevent?
 - Is Zith suitable for security-critical applications?
 
-### [Rust Comparison](./rust-comparison.md)
+### [Rust Comparison](./04-rust-comparison.md)
 - How does Zith compare to Rust?
 - When should I choose Zith over Rust?
 - What can Rust do that Zith can't?
 
-### [Use Cases](./use-cases.md)
+### [Use Cases](./05-use-cases.md)
 - What is Zith best suited for?
 - Can I use Zith for web development?
 - Is Zith good for embedded systems?

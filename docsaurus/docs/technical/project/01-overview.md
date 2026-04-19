@@ -122,6 +122,6 @@ Override configuration with environment variables:
 
 ## Next Steps
 
-- **[CLI Reference](../cli/overview.md)** - Build and manage projects
-- **[Language Guide](../language/overview.md)** - Learn the language
-- **[Raw & Unsafe](../raw/overview.md)** - Advanced features
+- **[CLI Reference](../cli/01-overview.md)** - Build and manage projects
+- **[Language Guide](../language/01-overview.md)** - Learn the language
+- **[Raw & Unsafe](../raw/01-overview.md)** - Advanced features

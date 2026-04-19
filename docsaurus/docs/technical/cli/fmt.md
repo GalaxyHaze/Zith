@@ -29,4 +29,4 @@ Standard options will be documented here.
 
 ---
 
-**Related:** [`check`](./check.md) | [Project Configuration](../project/overview.md)
+**Related:** [`check`](./check.md) | [Project Configuration](../project/01-overview.md)

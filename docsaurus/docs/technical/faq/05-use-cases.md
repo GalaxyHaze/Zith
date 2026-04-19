@@ -239,12 +239,10 @@ mod firmware {
 
 | Your Goal | Start Here |
 |-----------|-----------|
-| Game development | [ECS Guide](../technical/language/entities.md) |
-| CLI tools | [Quick Start](../intro/quickstart.md) |
-| DSL creation | [Contexts](../technical/raw/contexts.md) |
-| Systems programming | [Memory Management](../technical/language/memory.md) |
-| Embedded | [No-Std Guide](../technical/extras/no-std.md) |
+| Game development | [Language Overview](../../technical/language/01-overview.md) |
+| CLI tools | [Quick Start](../../intro/quickstart.md) |
+| Systems programming | [Memory Management](../../technical/language/memory.md) |
 
 ---
 
-**Ready to build?** Check out the [Community Showcase](/community) for inspiration!
+**Ready to build?** Check out the [GitHub](https://github.com/galaxyhaze/Zith) for inspiration!

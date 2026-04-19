@@ -108,9 +108,9 @@ scene PauseMenu { /* isolated resources */ }
 | Understand why Zith matters | [Why Zith?](./why-zith.md) |
 | Install Zith | [Installation](./installation.md) |
 | Write my first program | [Quick Start](./quickstart.md) |
-| See CLI commands | [CLI Reference](../technical/cli/overview.md) |
-| Learn the language | [Language Guide](../technical/language/overview.md) |
+| See CLI commands | [CLI Reference](../technical/cli/01-overview.md) |
 
+| Learn the language | [Language Guide](../technical/language/01-overview.md) |
 ---
 
 Ready to dive in? Let's explore **[Why Zith?](./why-zith.md)** →
