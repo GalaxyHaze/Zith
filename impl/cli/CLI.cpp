@@ -392,6 +392,23 @@ static int cmd_repl(bool /*verbose*/) {
     return 1;
 }
 
+static int cmd_new(const std::string & /*project_name*/, bool /*verbose*/) {
+    // TODO: criar ZithProject.toml com defaults
+    // TODO: criar directorios: src/, lib/, examples/
+    // TODO: criar ficheiro src/main.zith com template
+    print_not_implemented("new");
+    return 1;
+}
+
+static int cmd_clean(bool /*verbose*/) {
+    // TODO: remover bin_dir (bin/)
+    // TODO: remover cache_dir (.zith_cache/)
+    // TODO: remover ficheiros .o, .nbc, .ll, .s
+    // TODO: opção --frozen para remover tudo
+    print_not_implemented("clean");
+    return 1;
+}
+
 #if defined(__VERSION__)
     std::string compiler = __VERSION__;
 #elif defined(_MSC_FULL_VER)
@@ -421,12 +438,12 @@ COMMANDS:
     check        Parse and type-check; report errors only, no output
     compile      Compile to object file or bytecode, no linking
     execute      Run an existing binary or bytecode (reads ZithProject.toml)
-    test         Run tests defined in tests/ (reads ZithProject.toml)
+    test         Run examples in source
     repl         Start interactive REPL
-    new          Create a new project or file
+    new          Create a new project
     fmt          Format source code
     docs         Generate documentation
-    clean        Remove the build directory
+    clean        Remove build artifacts
     version      Show version information
     help         Show this help message
 
@@ -527,6 +544,10 @@ extern "C" int zith_run(int argc, const char *const argv[]) {
     docs_cmd->add_option("-o,--output", docs_output, "Output directory")->default_str("docs");
 
     auto *repl_cmd = app.add_subcommand("repl", "Start interactive REPL");
+    auto *new_cmd = app.add_subcommand("new", "Create a new project");
+    new_cmd->add_option("name", input_file, "Project name")->required();
+
+    auto *clean_cmd = app.add_subcommand("clean", "Remove build artifacts");
     auto *version_cmd = app.add_subcommand("version", "Show version information");
     auto *help_cmd = app.add_subcommand("help", "Show help message");
 
@@ -547,6 +568,8 @@ extern "C" int zith_run(int argc, const char *const argv[]) {
     // -- Dispatch -------------------------------------------------------------
     if (*help_cmd) return cmd_help();
     if (*version_cmd) return cmd_version();
+    if (*new_cmd) return cmd_new(input_file, verbose);
+    if (*clean_cmd) return cmd_clean(verbose);
     if (*repl_cmd) return cmd_repl(verbose);
     if (*docs_cmd) return cmd_docs(input_file, docs_output, verbose);
     if (*fmt_cmd) return cmd_fmt(input_file, fmt_check, verbose);
