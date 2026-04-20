@@ -58,6 +58,7 @@ inline const char *zith_token_type_name(ZithTokenType type) {
         case ZITH_TOKEN_RBRACKET: return "RBRACKET";
         case ZITH_TOKEN_DOT: return "DOT";
         case ZITH_TOKEN_DOTS: return "DOTS";
+        case ZITH_TOKEN_SLASH: return "SLASH";
         case ZITH_TOKEN_COMMA: return "COMMA";
         case ZITH_TOKEN_COLON: return "COLON";
         case ZITH_TOKEN_SEMICOLON: return "SEMICOLON";

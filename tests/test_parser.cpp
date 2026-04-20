@@ -179,6 +179,24 @@ TEST_CASE("SCAN: import declaration", "[scan][module]") {
     REQUIRE(payload->is_from == false);
 }
 
+TEST_CASE("SCAN: import declaration with slash separator", "[scan][module]") {
+    auto ast = parse_test("import std/io;");
+    REQUIRE(ast);
+    REQUIRE(ast->type == ZITH_NODE_PROGRAM);
+
+    auto **decls = static_cast<ZithNode **>(ast->data.list.ptr);
+    REQUIRE(ast->data.list.len >= 1);
+
+    auto *import_node = decls[0];
+    REQUIRE(import_node->type == ZITH_NODE_IMPORT);
+
+    auto *payload = static_cast<ZithImportPayload *>(import_node->data.list.ptr);
+    REQUIRE(payload != nullptr);
+    REQUIRE(std::string(payload->path) == "std/io");
+    REQUIRE(payload->is_export == false);
+    REQUIRE(payload->is_from == false);
+}
+
 TEST_CASE("SCAN: import declaration with alias", "[scan][module]") {
     auto ast = parse_test("import std.io.console as console;");
     REQUIRE(ast);
@@ -197,6 +215,24 @@ TEST_CASE("SCAN: import declaration with alias", "[scan][module]") {
     REQUIRE(std::string(payload->alias, payload->alias_len) == "console");
 }
 
+TEST_CASE("SCAN: import declaration with mixed separators", "[scan][module]") {
+    auto ast = parse_test("import std/io/console;");
+    REQUIRE(ast);
+    REQUIRE(ast->type == ZITH_NODE_PROGRAM);
+
+    auto **decls = static_cast<ZithNode **>(ast->data.list.ptr);
+    REQUIRE(ast->data.list.len >= 1);
+
+    auto *import_node = decls[0];
+    REQUIRE(import_node->type == ZITH_NODE_IMPORT);
+
+    auto *payload = static_cast<ZithImportPayload *>(import_node->data.list.ptr);
+    REQUIRE(payload != nullptr);
+    REQUIRE(std::string(payload->path) == "std/io/console");
+    REQUIRE(payload->is_export == false);
+    REQUIRE(payload->is_from == false);
+}
+
 TEST_CASE("SCAN: from import declaration", "[scan][module]") {
     auto ast = parse_test("from std.io.console import println;");
     REQUIRE(ast);
@@ -211,6 +247,23 @@ TEST_CASE("SCAN: from import declaration", "[scan][module]") {
     auto *payload = static_cast<ZithImportPayload *>(import_node->data.list.ptr);
     REQUIRE(payload != nullptr);
     REQUIRE(std::string(payload->path) == "std.io.console");
+    REQUIRE(payload->is_from == true);
+}
+
+TEST_CASE("SCAN: from import with slash separator", "[scan][module]") {
+    auto ast = parse_test("from std/io/console import println;");
+    REQUIRE(ast);
+    REQUIRE(ast->type == ZITH_NODE_PROGRAM);
+
+    auto **decls = static_cast<ZithNode **>(ast->data.list.ptr);
+    REQUIRE(ast->data.list.len >= 1);
+
+    auto *import_node = decls[0];
+    REQUIRE(import_node->type == ZITH_NODE_IMPORT);
+
+    auto *payload = static_cast<ZithImportPayload *>(import_node->data.list.ptr);
+    REQUIRE(payload != nullptr);
+    REQUIRE(std::string(payload->path) == "std/io/console");
     REQUIRE(payload->is_from == true);
 }
 
@@ -231,6 +284,23 @@ TEST_CASE("SCAN: from import declaration with alias", "[scan][module]") {
     REQUIRE(payload->is_from == true);
     REQUIRE(payload->alias != nullptr);
     REQUIRE(std::string(payload->alias, payload->alias_len) == "log");
+}
+
+TEST_CASE("SCAN: from import with mixed path separators", "[scan][module]") {
+    auto ast = parse_test("from std.io/net/http import request;");
+    REQUIRE(ast);
+    REQUIRE(ast->type == ZITH_NODE_PROGRAM);
+
+    auto **decls = static_cast<ZithNode **>(ast->data.list.ptr);
+    REQUIRE(ast->data.list.len >= 1);
+
+    auto *import_node = decls[0];
+    REQUIRE(import_node->type == ZITH_NODE_IMPORT);
+
+    auto *payload = static_cast<ZithImportPayload *>(import_node->data.list.ptr);
+    REQUIRE(payload != nullptr);
+    REQUIRE(std::string(payload->path) == "std.io/net/http");
+    REQUIRE(payload->is_from == true);
 }
 
 TEST_CASE("SCAN: export declaration", "[scan][module]") {

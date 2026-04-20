@@ -23,6 +23,11 @@ static ZithNode *run_parser_phase(Parser *p, ZithParserMode mode) {
     p->had_error = false;
     p->mode = mode;
 
+    if (mode == ZITH_MODE_SCAN) {
+        extern void clear_scanned_symbols();
+        clear_scanned_symbols();
+    }
+
     ArenaList<ZithNode *> decls_b; 
     decls_b.init(p->arena, 16);
     

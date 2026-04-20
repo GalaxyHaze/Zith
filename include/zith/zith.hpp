@@ -100,6 +100,7 @@ typedef enum {
     ZITH_TOKEN_RBRACKET,
     ZITH_TOKEN_DOT,
     ZITH_TOKEN_DOTS, // ...
+    ZITH_TOKEN_SLASH, // / path separator (also division in expression context)
     ZITH_TOKEN_COMMA,
     ZITH_TOKEN_COLON,
     ZITH_TOKEN_SEMICOLON,

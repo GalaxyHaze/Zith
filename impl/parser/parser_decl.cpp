@@ -7,6 +7,8 @@
 #include "zith/zith.hpp"
 #include "parser.h"
 #include <cstring>
+#include <string>
+#include <vector>
 
 using zith::ArenaList;
 
@@ -58,6 +60,74 @@ static ZithNode *capture_unbody(Parser *p) {
     const ZithToken *body_tokens = &p->tokens[start_pos];
     
     return zith_ast_make_unbody(p->arena, loc, body_tokens, token_count);
+}
+
+// ============================================================================
+// Symbol Registration in SCAN mode
+// ============================================================================
+
+struct ScannedSymbolEntry {
+    const char *name;
+    size_t name_len;
+    int kind;
+    ZithVisibility visibility;
+};
+
+class ScanSymbolCollector {
+public:
+    static ScanSymbolCollector& instance() {
+        static ScanSymbolCollector inst;
+        return inst;
+    }
+
+    void clear() {
+        symbols_.clear();
+    }
+
+    void add_function(const char *name, size_t len, ZithVisibility vis) {
+        ScannedSymbolEntry entry{name, len, 0, vis};
+        symbols_.push_back(entry);
+    }
+
+    void add_struct(const char *name, size_t len, ZithVisibility vis) {
+        ScannedSymbolEntry entry{name, len, 1, vis};
+        symbols_.push_back(entry);
+    }
+
+    void add_trait(const char *name, size_t len, ZithVisibility vis) {
+        ScannedSymbolEntry entry{name, len, 2, vis};
+        symbols_.push_back(entry);
+    }
+
+    void add_enum(const char *name, size_t len, ZithVisibility vis) {
+        ScannedSymbolEntry entry{name, len, 3, vis};
+        symbols_.push_back(entry);
+    }
+
+    size_t count() const { return symbols_.size(); }
+    const ScannedSymbolEntry* data() const { return symbols_.data(); }
+
+private:
+    ScanSymbolCollector() = default;
+    std::vector<ScannedSymbolEntry> symbols_;
+};
+
+void clear_scanned_symbols() {
+    ScanSymbolCollector::instance().clear();
+}
+
+static void register_fn_symbol(Parser *p, const ZithToken *name_tok, ZithVisibility vis) {
+    if (name_tok && p->mode == ZITH_MODE_SCAN) {
+        ScanSymbolCollector::instance().add_function(
+            name_tok->lexeme.data, name_tok->lexeme.len, vis);
+    }
+}
+
+static void register_struct_symbol(Parser *p, const ZithToken *name_tok, ZithVisibility vis) {
+    if (name_tok && p->mode == ZITH_MODE_SCAN) {
+        ScanSymbolCollector::instance().add_struct(
+            name_tok->lexeme.data, name_tok->lexeme.len, vis);
+    }
 }
 
 static ZithVisibility parse_visibility(Parser *p, ZithVisibility *current_vis) {
@@ -231,6 +301,9 @@ static ZithNode *parse_fn_decl(Parser *p, ZithSourceLoc loc, ZithVisibility vis,
     parser_expect(p, ZITH_TOKEN_FN, "expected 'fn' keyword");
     const ZithToken *name = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected function name");
     
+    // Register function symbol in SCAN mode
+    register_fn_symbol(p, name, vis);
+    
     parser_expect(p, ZITH_TOKEN_LPAREN, "expected '('");
     ArenaList<ZithNode *> params_b; 
     params_b.init(p->arena, 8);
@@ -265,6 +338,10 @@ static ZithNode *parse_struct_decl(Parser *p, ZithVisibility struct_vis) {
     const ZithSourceLoc loc = parser_peek(p)->loc;
     parser_advance(p); // consume 'struct'
     const ZithToken *name = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected struct name");
+    
+    // Register struct symbol in SCAN mode
+    register_struct_symbol(p, name, struct_vis);
+    
     parser_expect(p, ZITH_TOKEN_LBRACE, "expected '{'");
 
     ArenaList<ZithNode *> fields_b, methods_b;
@@ -351,10 +428,16 @@ static ZithNode *parse_import_decl(Parser *p) {
     const ZithToken *seg = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected module name");
     if (seg->lexeme.len < sizeof(buf)) { memcpy(buf, seg->lexeme.data, seg->lexeme.len); buf_len = seg->lexeme.len; }
     
-    // Segmentos adicionais separados por '.'
-    while (parser_match(p, ZITH_TOKEN_DOT)) {
-        if (buf_len < sizeof(buf) - 1) buf[buf_len++] = '.';
-        seg = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected identifier after '.'");
+    // Segmentos adicionais separados por '.' ou '/'
+    while (true) {
+        if (parser_match(p, ZITH_TOKEN_DOT)) {
+            if (buf_len < sizeof(buf) - 1) buf[buf_len++] = '.';
+        } else if (parser_match(p, ZITH_TOKEN_DIVIDE)) {
+            if (buf_len < sizeof(buf) - 1) buf[buf_len++] = '/';
+        } else {
+            break;
+        }
+        seg = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected identifier after path separator");
         if (buf_len + seg->lexeme.len < sizeof(buf)) {
             memcpy(buf + buf_len, seg->lexeme.data, seg->lexeme.len);
             buf_len += seg->lexeme.len;
@@ -379,14 +462,20 @@ static ZithNode *parse_from_import_decl(Parser *p) {
     const ZithSourceLoc loc = parser_peek(p)->loc;
     parser_advance(p);  // consome 'from'
     
-    // Parse do módulo base (ex: std.io.console)
+    // Parse do módulo base (ex: std.io.console ou std/io/console)
     char module_buf[256]; size_t module_len = 0;
     const ZithToken *seg = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected module name");
     if (seg->lexeme.len < sizeof(module_buf)) { memcpy(module_buf, seg->lexeme.data, seg->lexeme.len); module_len = seg->lexeme.len; }
     
-    while (parser_match(p, ZITH_TOKEN_DOT)) {
-        if (module_len < sizeof(module_buf) - 1) module_buf[module_len++] = '.';
-        seg = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected identifier after '.'");
+    while (true) {
+        if (parser_match(p, ZITH_TOKEN_DOT)) {
+            if (module_len < sizeof(module_buf) - 1) module_buf[module_len++] = '.';
+        } else if (parser_match(p, ZITH_TOKEN_DIVIDE)) {
+            if (module_len < sizeof(module_buf) - 1) module_buf[module_len++] = '/';
+        } else {
+            break;
+        }
+        seg = parser_expect(p, ZITH_TOKEN_IDENTIFIER, "expected identifier after path separator");
         if (module_len + seg->lexeme.len < sizeof(module_buf)) {
             memcpy(module_buf + module_len, seg->lexeme.data, seg->lexeme.len);
             module_len += seg->lexeme.len;
