@@ -124,6 +124,9 @@ void skip_block(Parser *p);
 #ifdef __cplusplus
 } // extern "C"
 
+// Print scanned symbols for debugging (declared in parser_decl.cpp)
+void print_scanned_symbols();
+
 // ============================================================================
 // C++ ParserContext — wraps Parser with DiagManager
 // ============================================================================

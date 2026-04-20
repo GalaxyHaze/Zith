@@ -87,6 +87,7 @@ This is the largest and most complex file. It handles the "high level" grammar: 
 *   **Statements:** Parses control flow structures (`if`, `for`, `return`) and blocks `{ ... }`.
 *   **Function/Struct Internals:** Parses parameter lists, function bodies, and struct fields.
 *   **Mode Logic:** This file contains the logic that decides **what to do** based on the current `Parser->mode`. In `SCAN` mode, function bodies are captured as UNBODY via `capture_unbody`. In `EXPAND` mode (TODO), UNBODY nodes will be replaced with fully parsed BLOCKs.
+*   **Symbol Collection:** In SCAN mode, the `ScanSymbolCollector` singleton tracks all declared symbols (functions, structs, traits, enums, imports) for later symbol table construction and debugging.
 
 ### Key Functions
 *   `parser_parse_declaration(Parser*)`: The main loop for the top level. Dispatches to specific parsers (fn, struct, etc.).
@@ -95,6 +96,7 @@ This is the largest and most complex file. It handles the "high level" grammar: 
 *   `parse_struct_decl(...)`: Parses struct definitions, including visibility modifiers and fields.
 *   `parse_body(Parser*)`: Handles single-statement bodies vs. block bodies `{ ... }`.
 *   `capture_unbody(...)`: Captures raw tokens between `{` and `}` as an UNBODY node (SCAN mode only).
+*   `ScanSymbolCollector` (class): Singleton that collects all scanned symbols during SCAN mode. Supports `print_scanned_symbols()` for debugging. Symbol kinds: `fn`, `struct`, `trait`, `enum`, `import`.
 
 ---
 
@@ -106,10 +108,13 @@ This is the largest and most complex file. It handles the "high level" grammar: 
     *   `parser_decl.cpp` parses a `fn` signature using `parser_parse_type` (from `parser_expr.cpp`) and `parser_expect` (from `parser_utils.cpp`).
     *   When the body `{ ... }` is reached, `parser_decl.cpp` calls `capture_unbody` to store the raw token stream as an UNBODY node — no parsing of the body content happens here.
     *   Structs, imports, and top-level expressions are fully parsed.
-3.  **EXPAND Phase (TODO):**
+    *   Each symbol (fn, struct, import, etc.) is registered with `ScanSymbolCollector`.
+3.  **Symbol Printing:**
+    *   After SCAN phase completes, `print_scanned_symbols()` outputs all collected symbols to stdout.
+4.  **EXPAND Phase (TODO):**
     *   Walks the AST from SCAN. For each UNBODY node, creates a sub-parser and fully parses the token stream into a BLOCK node.
     *   This is where `parser_parse_statement` and `parser_parse_expression` are called recursively on the captured bodies.
-4.  **SEMA Phase (TODO):**
+5.  **SEMA Phase (TODO):**
     *   Traverses the fully parsed AST for semantic analysis.
     *   Name resolution, type checking, borrow checker, control-flow analysis.
     *   Produces an annotated AST ready for code generation.

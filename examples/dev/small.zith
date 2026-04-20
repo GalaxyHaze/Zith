@@ -1,72 +1,10 @@
-import std.io.println;
-import std.math;
-import std.dyn.array;
-
-
-//for structs / components:
-//const indicates that member will ALWAYS be 'const'
-//independent of the mutability of the 'type', take some examples:
-//let I: mut Point;
-//if the members of 'Point' are default, they will be 'mut' as well
-//let I: Point, now the default members will be 'immutable' as well
-//however, if they are 'mut' or 'const' they will still be as defined
-
 
 struct Point{
-    x: u32, //only declares the members
-    y: u32,
-    //note: self is a special argument if it's the first argument
-    //share -> it means your object is 'passed' as a mut ref, the default for struct would be immutable 'move'
-    fn add(self: share, x: u32, y:u32),
-    const fnPtr: fn (x: u32, y: u32): u32 //ponteiro de função
+    var x,
+    y,
+    z
 }
 
-//since component has 'pure' function, they can be directly defined
-//note: component cannot have traits
-component Velocity{
-    x: f32,
-    y: f32,
-    //note: default of component would be immutable copy
-    //return 'share' in order to chain call
-    //ex: point.acc()->acc()->dcc();
-    //note: '->' is for chain functions call
-    //If a function returns an anonymous function
-    //You must provide a 'name'
-    //Obj.startChain()->(5,7,8)->("Hello");
-    //ex of why is 'bad', you cant know easily what this chain do.
-    //Obj.startChain()->request("db:stuff")->getAction("clean");
-    //                  ^^^^ 'request' is a tag instead of just '->()'
-    //However, if the function returned had a name, you should call by it's name
-    fn acc(self: share, x: f32, y:f32){
-        self.x += x;
-        self.y += y;
-        return self;
-    },
-    fn dcc(self: share, x: f32, y: 32){
-        self.x -= x;
-        self.y -= y;
-        return self;
-    }
+fn main(){
+    let x;
 }
-
-/*implement Point{ //aplica o código
-    fn add(self: share, x: u32, y: u32){
-        self.x += x;
-        self.y += y;
-        return self;
-    }
-}
-
-union Constrain{
-    string,
-    f16,
-    [16]u8, //array of 16 u8
-    u128
-}
-
-enum State{
-    Done,
-    Running,
-    Idle,
-    Error
-}*/

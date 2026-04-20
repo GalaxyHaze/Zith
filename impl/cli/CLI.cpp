@@ -178,11 +178,11 @@ static int cmd_check(const std::string &input_file,
     if (verbose){
         if (ast) {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            printf("-Starting AST\n");
+            printf("\n\n\n-Starting AST\n");
             zith_ast_print(ast, 0);
-            printf("Ending AST\n");
+            printf("Ending AST\n\n\n");
         } else {
-            print_error("Parse failed — null AST");
+            print_error("Parse failed — null AST\n\n");
             zith_arena_destroy(arena);
             return 1;
         }

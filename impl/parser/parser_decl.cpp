@@ -104,6 +104,29 @@ public:
         symbols_.push_back(entry);
     }
 
+    void add_import(const char *name, size_t len, ZithVisibility vis) {
+        ScannedSymbolEntry entry{name, len, 4, vis};
+        symbols_.push_back(entry);
+    }
+
+    void print_symbols() const {
+        size_t n = symbols_.size();
+        if (n == 0) { printf("  (no symbols)\n"); return; }
+        for (size_t i = 0; i < n; ++i) {
+            const auto &sym = symbols_[i];
+            const char *kind_str = "???";
+            switch (sym.kind) {
+                case 0: kind_str = "fn"; break;
+                case 1: kind_str = "struct"; break;
+                case 2: kind_str = "trait"; break;
+                case 3: kind_str = "enum"; break;
+                case 4: kind_str = "import"; break;
+            }
+            const char *vis_str = (sym.visibility == ZITH_VIS_PUBLIC) ? "pub" : "priv";
+            printf("  [%s] %.*s (%s)\n", kind_str, (int)sym.name_len, sym.name, vis_str);
+        }
+    }
+
     size_t count() const { return symbols_.size(); }
     const ScannedSymbolEntry* data() const { return symbols_.data(); }
 
@@ -127,6 +150,12 @@ static void register_struct_symbol(Parser *p, const ZithToken *name_tok, ZithVis
     if (name_tok && p->mode == ZITH_MODE_SCAN) {
         ScanSymbolCollector::instance().add_struct(
             name_tok->lexeme.data, name_tok->lexeme.len, vis);
+    }
+}
+
+static void register_import_symbol(Parser *p, const char *name, size_t len, ZithVisibility vis) {
+    if (name && p->mode == ZITH_MODE_SCAN) {
+        ScanSymbolCollector::instance().add_import(name, len, vis);
     }
 }
 
@@ -455,6 +484,7 @@ static ZithNode *parse_import_decl(Parser *p) {
     
     parser_expect(p, ZITH_TOKEN_SEMICOLON, "expected ';'");
     ZithImportPayload payload = {zith_arena_str(p->arena, buf, buf_len), buf_len, ZITH_VIS_PRIVATE, alias, alias_len, false, false};
+    register_import_symbol(p, buf, buf_len, ZITH_VIS_PRIVATE);
     return zith_ast_make_import(p->arena, loc, payload);
 }
 
@@ -511,6 +541,7 @@ static ZithNode *parse_from_import_decl(Parser *p) {
         false,  // is_export = false
         true    // is_from = true
     };
+    register_import_symbol(p, module_buf, module_len, ZITH_VIS_PRIVATE);
     return zith_ast_make_import(p->arena, loc, payload);
 }
 
@@ -535,6 +566,7 @@ static ZithNode *parse_export_decl(Parser *p) {
     
     parser_expect(p, ZITH_TOKEN_SEMICOLON, "expected ';'");
     ZithImportPayload payload = {zith_arena_str(p->arena, buf, buf_len), buf_len, ZITH_VIS_PUBLIC, nullptr, 0, true, false};
+    register_import_symbol(p, buf, buf_len, ZITH_VIS_PUBLIC);
     return zith_ast_make_import(p->arena, loc, payload);
 }
 
@@ -555,8 +587,15 @@ ZithNode *parser_parse_declaration(Parser *p) {
     if (t->type == ZITH_TOKEN_FROM) return parse_from_import_decl(p);
     if (t->type == ZITH_TOKEN_EXPORT) return parse_export_decl(p);
     if (t->type == ZITH_TOKEN_CONST) { parser_advance(p); return parse_var_decl(p, ZITH_BINDING_CONST); }
-    
+
     ZithNode *expr = parser_parse_expression(p);
     parser_match(p, ZITH_TOKEN_SEMICOLON);
     return expr;
 }
+
+#ifdef __cplusplus
+void print_scanned_symbols() {
+    printf("Scanned symbols:\n");
+    ScanSymbolCollector::instance().print_symbols();
+}
+#endif

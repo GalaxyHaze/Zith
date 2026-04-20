@@ -57,6 +57,9 @@ ZithNode *zith_parse_with_source(ZithArena *arena, const char *source, size_t so
     ZithNode *scan_root = run_parser_phase(&p, ZITH_MODE_SCAN);
     p.scan_root = scan_root;
 
+    extern void print_scanned_symbols();
+    print_scanned_symbols();
+
     // ─── Phase 2: EXPAND ────────────────────────────────────────────────
     // Walk the tree and replace UNBODY nodes with fully parsed BLOCK nodes.
     // This is where statement-level parsing happens inside function bodies.
