@@ -1,6 +1,6 @@
 
 struct Point{
-    var x,
+    var x
     y,
     z
 }

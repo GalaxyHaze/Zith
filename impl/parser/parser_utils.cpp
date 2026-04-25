@@ -31,6 +31,8 @@ void parser_init(Parser *p, ZithArena *arena,
     p->mode = ZITH_MODE_SCAN;
     p->diags = {nullptr, 0, 0};
     p->scan_root = nullptr;
+    p->import_roots = nullptr;
+    p->import_root_count = 0;
 }
 
 // ============================================================================
@@ -169,7 +171,7 @@ void skip_block(Parser *p) {
         parser_expect(p, ZITH_TOKEN_SEMICOLON, "expected ';'");
         return;
     }
-    
+
     // If brace, skip until matching closing brace
     int depth = 1;
     while (!parser_is_at_end(p) && depth > 0) {
@@ -177,6 +179,11 @@ void skip_block(Parser *p) {
         if (t->type == ZITH_TOKEN_LBRACE) depth++;
         else if (t->type == ZITH_TOKEN_RBRACE) depth--;
     }
+}
+
+void parser_set_import_roots(Parser *p, const char **roots, size_t count) {
+    p->import_roots = roots;
+    p->import_root_count = count;
 }
 
 // ============================================================================

@@ -371,9 +371,13 @@ static int cmd_check(const std::string &input_file,
 
     zith_debug_tokens(stream.data, stream.len);
 
+    static const char *default_import_roots[] = {"std", "utils", "c"};
+    constexpr size_t default_root_count = 3;
+
     ZithNode *ast = zith_parse_with_source(arena,
                                                    source, src_size,
-                                                   src.c_str(), stream);
+                                                   src.c_str(), stream,
+                                                   default_import_roots, default_root_count);
 
     // Debug: AST dump
     if (verbose){
@@ -418,7 +422,11 @@ static int cmd_compile(const std::string &input_file,
     ZithArena *arena = tokenize_file(input_file, stream, &source, &src_size, verbose);
     if (!arena) return 1;
 
-    ZithNode *ast = zith_parse_with_source(arena, source, src_size, input_file.c_str(), stream);
+    static const char *default_import_roots[] = {"std", "utils", "c"};
+    constexpr size_t default_root_count = 3;
+
+    ZithNode *ast = zith_parse_with_source(arena, source, src_size, input_file.c_str(), stream,
+                                           default_import_roots, default_root_count);
     if (!ast) {
         zith_arena_destroy(arena);
         return 1;
@@ -549,7 +557,11 @@ static int cmd_execute(const std::string &target, bool interpreted, bool verbose
             zith_arena_destroy(arena);
             return 1;
         }
-        ZithNode *ast = zith_parse_with_source(arena, source.c_str(), source.size(), bin.c_str(), stream);
+        static const char *default_import_roots[] = {"std", "utils", "c"};
+        constexpr size_t default_root_count = 3;
+
+        ZithNode *ast = zith_parse_with_source(arena, source.c_str(), source.size(), bin.c_str(), stream,
+                                               default_import_roots, default_root_count);
         if (!ast) {
             zith_arena_destroy(arena);
             return 1;

@@ -1,6 +1,6 @@
 # Zith Parser Architecture Documentation
 
-This document outlines the architecture of the Zith Parser, which has been modularized into four distinct files. The design follows a **Three-Pass Pipeline** strategy (Scan, Expand, Sema) to handle declarations, macro expansion, and semantic analysis efficiently.
+This document outlines the architecture of the Zith Parser, which has been modularized into six distinct files. The design follows a **Three-Pass Pipeline** strategy (Scan, Expand, Sema) to handle declarations, macro expansion, and semantic analysis efficiently.
 
 ## File Structure Overview
 
@@ -9,7 +9,9 @@ impl/parser/
 ├── parser.cpp         # Entry Point & Pipeline Orchestration
 ├── parser_utils.cpp   # Low-level Utilities, Token Navigation, Error Handling
 ├── parser_expr.cpp    # Expression Parsing (Pratt Parser) & Types
-└── parser_decl.cpp    # High-level Declarations, Statements & Body Logic
+├── parser_decl.cpp    # High-level Declarations, Statements & Body Logic
+├── parser_sema.cpp    # Semantic Analysis Phase
+└── parser_test.cpp    # Test Utilities & RAII Wrappers
 ```
 
 ---
@@ -30,8 +32,8 @@ This file acts as the entry point for the parsing system. It does not contain lo
 ### Key Functions
 *   `parser_init(Parser*, ...)`: Initializes the parser state.
 *   `zith_parse_with_source(...)`: The main public API called by the compiler driver.
-*   `zith_parse_test(const char*)`: Convenience API for tests (uses a shared global arena).
 *   `run_parser_phase(Parser*, ZithParserMode)`: Internal helper to execute a specific mode (Scan/Expand/Sema).
+*   `expand_unbody(...)`: Replaces UNBODY nodes with fully parsed BLOCK nodes.
 
 ---
 
@@ -100,6 +102,50 @@ This is the largest and most complex file. It handles the "high level" grammar: 
 
 ---
 
+## 5. `parser_sema.cpp`
+**The Analyzer**
+
+This file handles the third phase of the pipeline: Semantic Analysis. It performs type checking, name resolution, scope management, and validates language semantics.
+
+### Responsibilities
+*   **Type Inference:** Determines the type of expressions based on literals and context.
+*   **Type Checking:** Validates type compatibility in assignments, return statements, and binary operations.
+*   **Name Resolution:** Resolves identifiers to their declared definitions, reporting undefined references.
+*   **Scope Management:** Tracks variable definitions across nested scopes (blocks, functions, control flow).
+*   **Return Validation:** Ensures return types match the function's declared return type.
+
+### Key Functions
+*   `sema_run(Parser*, ZithNode*)`: Entry point for semantic analysis. Walks the entire AST.
+*   `sema_expr(...)`: Analyzes expressions, returning type information.
+*   `sema_stmt(...)`: Analyzes statements, validating type usage.
+*   `sema_type_from_node(...)`: Converts AST type nodes to semantic type information.
+*   `sema_lookup(...)`: Looks up variable/type in current and enclosing scopes.
+*   `sema_define(...)`: Registers a new variable/type in the current scope.
+
+### Type System
+*   Base types: `void`, `int`, `float`, `string`, `bool`, `module`
+*   Type qualifiers: `optional` (`?`), `failable` (`!`)
+
+---
+
+## 6. `parser_test.cpp`
+**The Test Harness**
+
+This file provides convenience utilities for writing tests. It wraps the parser in a simple API and manages a shared memory arena.
+
+### Responsibilities
+*   **Test API:** Simple functions to parse source strings without manual arena management.
+*   **Global Arena:** Shared arena that's reset between test cases.
+*   **RAII Wrapper:** C++ `ParseResult` class that automatically cleans up.
+
+### Key Functions
+*   `zith_parse_test(const char*)`: Parse source in SCAN mode only.
+*   `zith_parse_test_full(const char*)`: Full pipeline (Scan + Expand + Sema).
+*   `zith_test_arena_destroy(void)`: Cleanup global arena.
+*   `ParseResult` (class): RAII wrapper for test results.
+
+---
+
 ## Data Flow
 
 1.  **Entry:** `parser.cpp` initializes the `Parser` struct.
@@ -111,10 +157,93 @@ This is the largest and most complex file. It handles the "high level" grammar: 
     *   Each symbol (fn, struct, import, etc.) is registered with `ScanSymbolCollector`.
 3.  **Symbol Printing:**
     *   After SCAN phase completes, `print_scanned_symbols()` outputs all collected symbols to stdout.
-4.  **EXPAND Phase (TODO):**
-    *   Walks the AST from SCAN. For each UNBODY node, creates a sub-parser and fully parses the token stream into a BLOCK node.
+4.  **EXPAND Phase:**
+    *   `parser.cpp` calls `expand_unbody` to walk the AST.
+    *   For each UNBODY node, creates a sub-parser and fully parses the token stream into a BLOCK node.
     *   This is where `parser_parse_statement` and `parser_parse_expression` are called recursively on the captured bodies.
-5.  **SEMA Phase (TODO):**
+5.  **SEMA Phase:**
+    *   `parser.cpp` calls `sema_run` (from `parser_sema.cpp`).
     *   Traverses the fully parsed AST for semantic analysis.
-    *   Name resolution, type checking, borrow checker, control-flow analysis.
+    *   Name resolution, type checking, control-flow analysis.
     *   Produces an annotated AST ready for code generation.
+
+---
+
+## Semantic Analysis Coverage
+
+This section documents what the `parser_sema.cpp` module currently checks and validates.
+
+### Type System
+
+**Supported Base Types:**
+- `void` - absence of value
+- `int`, `i8`, `i16`, `i32`, `i64` - signed integers
+- `u8`, `u16`, `u32`, `u64` - unsigned integers
+- `float`, `f32`, `f64` - floating point
+- `str`, `string` - string literals
+- `bool` - boolean
+- `module` - imported module references
+
+**Type Qualifiers:**
+- `?` (optional) - value may be null
+- `!` (failable) - value may be an error
+
+### Checks Performed
+
+**1. Name Resolution**
+- [x] Undefined identifier detection
+- [x] Undefined function call detection
+- [x] Scope-based variable lookup (nested scopes)
+
+**2. Type Checking**
+- [x] Variable declaration type matching
+- [x] Assignment type compatibility
+- [x] Optional type assignability (`?` can assign to non-optional)
+- [x] Failable type assignability (`!` can assign to non-failable)
+
+**3. Return Statements**
+- [x] Void function cannot return value
+- [x] Return type must match function declaration
+- [x] Type mismatch error messages with expected/got types
+
+**4. Binary Operations**
+- [x] String concatenation (`+` with two strings)
+- [x] String + other type = error
+- [x] Int + Int = Int
+- [x] Float + any numeric = Float
+- [x] Comparison operators return Bool (`==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`)
+- [x] Arithmetic operators return Int (`+`, `-`, `*`, `/`, `%`)
+
+**5. Literals**
+- [x] Integer literals → `int`
+- [x] Unsigned literals → `int` (treated as unsigned during parsing)
+- [x] Float literals → `float`
+- [x] String literals → `string`
+- [x] Boolean literals → `bool`
+
+**6. Built-in Functions**
+- [x] `print(...)` - validated but returns `void`
+- [x] `println(...)` - validated but returns `void`
+
+**7. Control Flow**
+- [x] If statement - evaluates condition
+- [x] For loop - creates new scope, evaluates all components
+- [x] Block - creates new scope for variable isolation
+
+**8. Scope Management**
+- [x] Variable definitions registered in scope
+- [x] Function parameters registered in scope
+- [x] Import aliases registered as module type
+- [x] Nested scopes (blocks, loops) properly isolated
+- [x] Shadowing allowed (inner scope overrides outer)
+
+### Not Yet Implemented
+
+- [ ] Struct field access validation
+- [ ] Method call validation
+- [ ] Import path resolution
+- [ ] Control flow analysis (unreachable code, missing returns)
+- [ ] Borrow checking (ownership)
+- [ ] Constant evaluation
+- [ ] Generic type parameters
+- [ ] Interface/trait constraints

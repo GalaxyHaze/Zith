@@ -1,0 +1,5 @@
+import std/io/console;
+
+fn main() {
+    log("hello");
+}

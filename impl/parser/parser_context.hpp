@@ -58,6 +58,10 @@ typedef struct Parser {
     ZithVisibility current_visibility;
     ZithParserMode mode;
     ZithNode *scan_root;
+
+    // Import system - allowed import roots (std, utils, c, etc.)
+    const char **import_roots;
+    size_t import_root_count;
 } Parser;
 
 // ============================================================================
@@ -68,6 +72,9 @@ void parser_init(Parser *p, ZithArena *arena,
                  const char *source, size_t source_len,
                  const char *filename,
                  ZithTokenStream tokens);
+
+void parser_set_import_roots(Parser *p, const char **roots, size_t count);
+void parser_set_imported_decls(void *decls);
 
 // ============================================================================
 // Token navigation

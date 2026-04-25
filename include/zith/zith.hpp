@@ -282,9 +282,21 @@ struct ZithNode {
 
 ZithNode *zith_parse(ZithArena *arena, ZithTokenStream tokens);
 
+#ifndef __cplusplus
+// C version - no default arguments
 ZithNode *zith_parse_with_source(ZithArena *arena, const char *source,
                                          size_t source_len, const char *filename,
-                                         ZithTokenStream tokens);
+                                         ZithTokenStream tokens,
+                                         const char **import_roots,
+                                         size_t import_root_count);
+#else
+// C++ version with default arguments - implementation in parser.cpp
+ZithNode *zith_parse_with_source(ZithArena *arena, const char *source,
+                                         size_t source_len, const char *filename,
+                                         ZithTokenStream tokens,
+                                         const char **import_roots = nullptr,
+                                         size_t import_root_count = 0);
+#endif
 
 
 static inline ZithNodeId zith_node_type(const ZithNode *node) {
