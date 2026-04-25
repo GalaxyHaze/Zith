@@ -54,7 +54,7 @@ jobs:
               sudo ln -sf /usr/bin/clang++-18 /usr/bin/clang++
               sudo ln -sf /usr/bin/ld.lld-18 /usr/bin/ld.lld-18
               sudo ln -sf /usr/bin/ld.lld-18 /usr/bin/ld.lld
-            cmake_flags: >-
+cmake_flags: >-
               -DCMAKE_C_COMPILER=clang
               -DCMAKE_CXX_COMPILER=clang++
               -DCMAKE_LINKER=ld.lld
@@ -65,7 +65,8 @@ jobs:
               sudo apt-get update
               sudo apt-get install -y ninja-build clang-18 lld-18 \
                 gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-                libc6-dev-arm64-cross libc6-arm64-cross
+                libc6-dev-arm64-cross libc6-arm64-cross libstdc++-12-aarch64-cross \
+                binutils-aarch64-linux-gnu
               sudo ln -sf /usr/bin/clang-18 /usr/bin/clang
               sudo ln -sf /usr/bin/clang++-18 /usr/bin/clang++
               sudo ln -sf /usr/bin/ld.lld-18 /usr/bin/ld.lld-18
@@ -228,7 +229,7 @@ jobs:
       - name: Cache APT Packages (Musl)
         uses: awalsh128/cache-apt-pkgs-action@v1
         with:
-          packages: clang-18 lld-18 cmake ninja-build musl-tools musl-dev musl libc6-dev-arm64-cross gcc-aarch64-linux-gnu
+          packages: clang-18 lld-18 cmake ninja-build musl-tools musl-dev musl libc6-dev-arm64-cross gcc-aarch64-linux-gnu libstdc++-12-aarch64-cross binutils-aarch64-linux-gnu
           version: musl-v2
 
       - name: Setup Clang Alternatives
