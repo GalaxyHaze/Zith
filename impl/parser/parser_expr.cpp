@@ -23,6 +23,14 @@ extern ZithLiteral parse_lit_number(const char*, size_t, ZithTokenType);
 
 ZithNode *parser_parse_type(Parser *p) {
     const ZithSourceLoc loc = parser_peek(p)->loc;
+    if (parser_match(p, ZITH_TOKEN_QUESTION)) {
+        ZithNode *inner = parser_parse_type(p);
+        return zith_ast_make_unary_op(p->arena, loc, ZITH_TOKEN_QUESTION, inner, true);
+    }
+    if (parser_match(p, ZITH_TOKEN_BANG)) {
+        ZithNode *inner = parser_parse_type(p);
+        return zith_ast_make_unary_op(p->arena, loc, ZITH_TOKEN_BANG, inner, true);
+    }
     // Ownership modifiers
     if (parser_match(p, ZITH_TOKEN_UNIQUE) || parser_match(p, ZITH_TOKEN_SHARED) ||
         parser_match(p, ZITH_TOKEN_VIEW) || parser_match(p, ZITH_TOKEN_LEND)) {
@@ -41,8 +49,17 @@ ZithNode *parser_parse_type(Parser *p) {
     if (parser_check(p, ZITH_TOKEN_TYPE) || parser_check(p, ZITH_TOKEN_IDENTIFIER)) {
         const ZithToken *t = parser_advance(p);
         ZithNode *base = zith_ast_make_identifier(p->arena, loc, t->lexeme.data, t->lexeme.len);
-        if (parser_match(p, ZITH_TOKEN_QUESTION)) {} // Optional
-        else if (parser_match(p, ZITH_TOKEN_BANG)) {} // Result
+        while (true) {
+            if (parser_match(p, ZITH_TOKEN_QUESTION)) {
+                base = zith_ast_make_unary_op(p->arena, loc, ZITH_TOKEN_QUESTION, base, true);
+                continue;
+            }
+            if (parser_match(p, ZITH_TOKEN_BANG)) {
+                base = zith_ast_make_unary_op(p->arena, loc, ZITH_TOKEN_BANG, base, true);
+                continue;
+            }
+            break;
+        }
         return base;
     }
     parser_error(p, loc, "expected type");

@@ -144,12 +144,13 @@ static ZithArena *tokenize_file(const std::string &src_path,
     return arena;
 }
 
-enum class RtValKind { Void, Int, Float, String };
+enum class RtValKind { Void, Int, Float, String, Bool };
 struct RtValue {
     RtValKind kind = RtValKind::Void;
     int64_t i = 0;
     double f = 0.0;
     std::string s;
+    bool b = false;
 };
 
 struct RtContext {
@@ -159,6 +160,16 @@ struct RtContext {
 
 static RtValue eval_expr(RtContext &ctx, ZithNode *expr);
 static RtValue exec_block(RtContext &ctx, ZithNode *block);
+
+static bool is_truthy(const RtValue &v) {
+    switch (v.kind) {
+        case RtValKind::Bool: return v.b;
+        case RtValKind::Int: return v.i != 0;
+        case RtValKind::Float: return v.f != 0.0;
+        case RtValKind::String: return !v.s.empty();
+        default: return false;
+    }
+}
 
 static RtValue lookup_var(RtContext &ctx, const std::string &name) {
     for (auto it = ctx.scopes.rbegin(); it != ctx.scopes.rend(); ++it) {
@@ -177,6 +188,7 @@ static RtValue eval_call(RtContext &ctx, ZithCallPayload *call) {
             if (arg.kind == RtValKind::String) std::cout << arg.s;
             else if (arg.kind == RtValKind::Int) std::cout << arg.i;
             else if (arg.kind == RtValKind::Float) std::cout << arg.f;
+            else if (arg.kind == RtValKind::Bool) std::cout << (arg.b ? "true" : "false");
         }
         if (cname == "println") std::cout << "\n";
         return {};
@@ -204,6 +216,7 @@ static RtValue eval_expr(RtContext &ctx, ZithNode *expr) {
             if (lit->kind == ZITH_LIT_INT || lit->kind == ZITH_LIT_UINT) { v.kind = RtValKind::Int; v.i = lit->value.i64; }
             else if (lit->kind == ZITH_LIT_FLOAT) { v.kind = RtValKind::Float; v.f = lit->value.f64; }
             else if (lit->kind == ZITH_LIT_STRING) { v.kind = RtValKind::String; v.s.assign(lit->value.string.ptr, lit->value.string.len); }
+            else if (lit->kind == ZITH_LIT_BOOL) { v.kind = RtValKind::Bool; v.b = lit->value.boolean; }
             return v;
         }
         case ZITH_NODE_IDENTIFIER:
@@ -224,10 +237,26 @@ static RtValue eval_expr(RtContext &ctx, ZithNode *expr) {
                     case ZITH_TOKEN_MINUS: out.i = a.i - b.i; break;
                     case ZITH_TOKEN_MULTIPLY: out.i = a.i * b.i; break;
                     case ZITH_TOKEN_DIVIDE: out.i = (b.i == 0 ? 0 : a.i / b.i); break;
+                    case ZITH_TOKEN_EQUAL: out.kind = RtValKind::Bool; out.b = (a.i == b.i); break;
+                    case ZITH_TOKEN_NOT_EQUAL: out.kind = RtValKind::Bool; out.b = (a.i != b.i); break;
+                    case ZITH_TOKEN_LESS_THAN: out.kind = RtValKind::Bool; out.b = (a.i < b.i); break;
+                    case ZITH_TOKEN_LESS_THAN_OR_EQUAL: out.kind = RtValKind::Bool; out.b = (a.i <= b.i); break;
+                    case ZITH_TOKEN_GREATER_THAN: out.kind = RtValKind::Bool; out.b = (a.i > b.i); break;
+                    case ZITH_TOKEN_GREATER_THAN_OR_EQUAL: out.kind = RtValKind::Bool; out.b = (a.i >= b.i); break;
                     default: break;
                 }
             }
             return out;
+        }
+        case ZITH_NODE_UNARY_OP: {
+            RtValue val = eval_expr(ctx, expr->data.kids.a);
+            if (expr->data.list.len == ZITH_TOKEN_BANG) {
+                RtValue out{};
+                out.kind = RtValKind::Bool;
+                out.b = !is_truthy(val);
+                return out;
+            }
+            return val;
         }
         default:
             return {};
@@ -245,8 +274,31 @@ static RtValue exec_stmt(RtContext &ctx, ZithNode *stmt, bool &did_return) {
         case ZITH_NODE_RETURN:
             did_return = true;
             return eval_expr(ctx, stmt->data.kids.a);
+        case ZITH_NODE_IF: {
+            RtValue cond = eval_expr(ctx, stmt->data.kids.a);
+            if (is_truthy(cond)) return exec_block(ctx, stmt->data.kids.b);
+            if (stmt->data.kids.c) return exec_block(ctx, stmt->data.kids.c);
+            return {};
+        }
+        case ZITH_NODE_FOR: {
+            auto *payload = static_cast<ZithForPayload *>(stmt->data.list.ptr);
+            while (true) {
+                if (payload && payload->condition) {
+                    RtValue cond = eval_expr(ctx, payload->condition);
+                    if (!is_truthy(cond)) break;
+                }
+                RtValue loop_ret = exec_block(ctx, payload ? payload->body : nullptr);
+                if (loop_ret.kind != RtValKind::Void) {
+                    did_return = true;
+                    return loop_ret;
+                }
+                if (!payload || !payload->condition) break;
+            }
+            return {};
+        }
         case ZITH_NODE_CALL:
         case ZITH_NODE_BINARY_OP:
+        case ZITH_NODE_UNARY_OP:
         case ZITH_NODE_IDENTIFIER:
         case ZITH_NODE_LITERAL:
             (void)eval_expr(ctx, stmt);

@@ -43,6 +43,10 @@ ZithNode *parser_parse_block(Parser *p);
 // Diagnostics are printed to stderr; returns nullptr on lex error.
 ZithNode *zith_parse_test(const char *source);
 
+// Full pipeline helper for tests (SCAN + EXPAND + SEMA).
+// Returns nullptr when semantic errors are produced.
+ZithNode *zith_parse_test_full(const char *source);
+
 // Cleanup the global test arena (call once at end of test suite).
 void zith_test_arena_destroy(void);
 
