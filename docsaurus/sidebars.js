@@ -26,6 +26,7 @@ const sidebars = {
       },
       items: [
         'technical/language/overview',
+        'technical/language/spec-core-topics',
       ],
     },
     {

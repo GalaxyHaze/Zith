@@ -9,6 +9,8 @@ description: Discover why Zith is an excellent choice for systems programming - 
 
 Zith was designed to fill a gap in the systems programming landscape: **a language that's as safe as Rust but simpler to learn and use**.
 
+The current prototype specification (`Zith-spec.md`, v2.0 architectural revision) formalizes the model around NRM, five ownership keywords, contexts/DSLs, packs, ECS/scenes, and concurrency rules.
+
 ## The Problem with Current Options
 
 | Language | Safety | Simplicity | Learning Curve | Ecosystem |
@@ -204,6 +206,7 @@ Ready to try Zith? Here's your path:
 3. **[CLI Reference](../technical/cli/01-overview.md)** - Learn the tools
 
 4. **[Language Guide](../technical/language/01-overview.md)** - Deep dive
+5. **[Spec Core Topics](../technical/language/spec-core-topics.md)** - Spec topic map
 ---
 
 **Zith proves you don't have to choose between safety and simplicity.** 

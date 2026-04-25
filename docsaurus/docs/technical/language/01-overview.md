@@ -5,9 +5,13 @@ description: Overview of the Zith programming language features.
 
 # Language Guide
 
-This section provides a comprehensive reference for the Zith programming language.
+This section provides a comprehensive reference for the Zith programming language. It now includes a direct map of the prototype v2.0 language spec topics.
 
 ## Core Concepts
+
+
+### [Spec Core Topics](./spec-core-topics.md)
+Review the v2.0 architectural-spec topic map: NRM, ownership keywords, contexts, packs, ECS/scenes, intrinsics, and concurrency.
 
 ### [Syntax Basics](./syntax.md)
 Learn the fundamental syntax of Zith including variables, types, and expressions.
@@ -41,6 +45,7 @@ Write reusable code with Zith's powerful generics system.
 For more advanced features, see the **[Raw & Unsafe](../raw/01-overview.md)** section:
 
 - Traits and type classes
+- Spec-aligned ownership and NRM deep dives
 - Advanced generics
 - Metaprogramming
 - Macros

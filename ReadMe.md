@@ -14,6 +14,24 @@ The documentation includes:
 
 ---
 
+
+## Spec Alignment (Prototype v2.0)
+
+The repository now includes a unified prototype specification in `Zith-spec.md` (**Version 2.0, April 2026**).
+
+Core topics captured by the spec:
+* **Node Resource Model (NRM):** Graph-based compile-time ownership/validity analysis.
+* **Ownership Keywords:** `unique`, `share`, `view`, `lend`, and `extension`.
+* **Type Navigation:** Optional/failable path-aware typing.
+* **Contexts (DSL Namespaces):** Type-safe embedded domain language support.
+* **Packs & Flow Semantics:** Explicit data grouping and branch-aware control flow.
+* **Data-Oriented Patterns:** Native ECS and scene/resource lifecycle modeling.
+* **Intrinsics, Error Handling, Concurrency:** Spec-level behavior definitions.
+
+See also the docs page: `docsaurus/docs/technical/language/spec-core-topics.md`.
+
+---
+
 ## About Zith
 
 Zith is a statically-typed systems programming language designed to provide safe, explicit control over code while maintaining high performance and modern ergonomics.
