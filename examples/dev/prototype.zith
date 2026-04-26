@@ -1,3 +1,7 @@
 fn add(){
     
 }
+
+fn test(x: i32){
+    x * 2
+}
