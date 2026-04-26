@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build and Release (Clang Only)
 
 on:
   push:
@@ -20,49 +20,80 @@ permissions:
   contents: write
 
 jobs:
-  # ─────────────────────────────────────────────────────────────────────────────
-  # Standard matrix: Linux, macOS (Intel + ARM), Windows (x64 + ARM64)
-  # ─────────────────────────────────────────────────────────────────────────────
-  build-and-release:
-    name: Build on \( {{ matrix.os }} ( \){{ matrix.target_name }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - id: meta
+        name: Resolve tag
+        shell: bash
+        run: |
+          TAG="${{ inputs.tag_name || github.event.inputs.tag_name || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          draft: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-main:
+    needs: create-release
+    name: Build ${{ matrix.target_name }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # ── Linux (x64) ──────────────────────────────────────────────────────
           - os: ubuntu-latest
             target_name: zith-linux-amd64
+            cmake_flags: >-
+              -DCMAKE_C_COMPILER=clang
+              -DCMAKE_CXX_COMPILER=clang++
+              -DCMAKE_LINKER=ld.lld
 
-          # ── Linux (ARM64, cross-compiled) ─────────────────────────────────────
           - os: ubuntu-latest
             target_name: zith-linux-arm64
             cmake_flags: >-
-              -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc
-              -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+              -DCMAKE_C_COMPILER=clang
+              -DCMAKE_CXX_COMPILER=clang++
+              -DCMAKE_C_COMPILER_TARGET=aarch64-unknown-linux-gnu
+              -DCMAKE_CXX_COMPILER_TARGET=aarch64-unknown-linux-gnu
+              -DCMAKE_SYSROOT=/usr/aarch64-linux-gnu
               -DCMAKE_CROSSCOMPILING=ON
 
-          # ── macOS Intel (x64, cross-compiled from ARM runner) ─────────────────
           - os: macos-latest
             target_name: zith-macos-amd64
-            cmake_flags: -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_CROSSCOMPILING=ON
+            cmake_flags: >-
+              -DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang
+              -DCMAKE_CXX_COMPILER=$(brew --prefix llvm)/bin/clang++
+              -DCMAKE_OSX_ARCHITECTURES=x86_64
+              -DCMAKE_CROSSCOMPILING=ON
 
-          # ── macOS Apple Silicon (ARM64) ───────────────────────────────────────
           - os: macos-latest
             target_name: zith-macos-arm64
+            cmake_flags: >-
+              -DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang
+              -DCMAKE_CXX_COMPILER=$(brew --prefix llvm)/bin/clang++
 
-          # ── Windows x64 ──────────────────────────────────────────────────────
           - os: windows-latest
             target_name: zith-windows-amd64.exe
             msvc_arch: amd64
+            cmake_flags: >-
+              -DCMAKE_C_COMPILER=clang-cl
+              -DCMAKE_CXX_COMPILER=clang-cl
 
-          # ── Windows ARM64 (cross-compiled from x64 host) ─────────────────────
           - os: windows-latest
             target_name: zith-windows-arm64.exe
             msvc_arch: amd64_arm64
-            cmake_flags: -DCMAKE_CROSSCOMPILING=ON
+            cmake_flags: >-
+              -DCMAKE_C_COMPILER=clang-cl
+              -DCMAKE_CXX_COMPILER=clang-cl
+              -DCMAKE_CROSSCOMPILING=ON
 
     steps:
       - uses: actions/checkout@v4
@@ -70,161 +101,197 @@ jobs:
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
-          cmake-version: '3.26.x'
+          cmake-version: '3.28.x'
 
-      - name: Install ARM64 cross-compiler
-        if: matrix.target_name == 'zith-linux-arm64'
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-18 lld-18 \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            libc6-dev-arm64-cross libc6-arm64-cross libstdc++-12-aarch64-cross \
+            binutils-aarch64-linux-gnu
+          sudo ln -sf /usr/bin/clang-18 /usr/bin/clang
+          sudo ln -sf /usr/bin/clang++-18 /usr/bin/clang++
+          sudo ln -sf /usr/bin/ld.lld-18 /usr/bin/ld.lld
 
-      - name: Setup MSVC Dev Environment
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        shell: bash
+        run: brew install ninja llvm
+
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        shell: bash
+        run: choco install llvm ninja -y
+
+      - name: Setup MSVC environment
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ matrix.msvc_arch }}
 
+      - name: Verify Clang
+        shell: bash
+        run: |
+          clang --version
+          clang++ --version
+
       - name: Configure CMake
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \( {{ matrix.cmake_flags }} -DZITH_VERSION= \){{ inputs.tag_name || github.ref_name }}
+        shell: bash
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
+            -DENABLE_WERROR=OFF \
+            -DZITH_VERSION=${{ needs.create-release.outputs.tag }} \
+            ${{ matrix.cmake_flags }}
 
       - name: Build
+        shell: bash
         run: cmake --build build --config Release
 
-      - name: Prepare Artifact
+      - name: Prepare artifact
         shell: bash
         run: |
           mkdir -p artifacts
-          if [ "${{ runner.os }}" == "Windows" ]; then
+          if [ "${{ runner.os }}" = "Windows" ]; then
             cp build/bin/zith.exe "artifacts/${{ matrix.target_name }}"
           else
             chmod +x build/bin/zith
             cp build/bin/zith "artifacts/${{ matrix.target_name }}"
           fi
 
-      - name: Upload Release Asset
+      - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag_name || github.ref_name }}
-          files: artifacts/*
+          tag_name: ${{ needs.create-release.outputs.tag }}
+          files: artifacts/${{ matrix.target_name }}
+          draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ─────────────────────────────────────────────────────────────────────────────
-  # musl static builds (x86_64 + ARM64) via Zig toolchain
-  # ─────────────────────────────────────────────────────────────────────────────
   build-musl:
-    name: Build Linux musl static (${{ matrix.target_name }})
+    needs: create-release
+    name: Build ${{ matrix.target_name }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     strategy:
       fail-fast: false
       matrix:
         include:
           - target_name: zith-linux-amd64-musl
-            zig_target: x86_64-linux-musl
+            target_triple: x86_64-linux-musl
+            toolchain: x86_64-linux-musl-cross
 
           - target_name: zith-linux-arm64-musl
-            zig_target: aarch64-linux-musl
+            target_triple: aarch64-linux-musl
+            toolchain: aarch64-linux-musl-cross
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Zig and build tools
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.28.x'
+
+      - name: Install Clang and tools
+        shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build wget
-          wget -q https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
-          tar -xf zig-linux-x86_64-0.13.0.tar.xz
-          echo "$PWD/zig-linux-x86_64-0.13.0" >> $GITHUB_PATH
+          sudo apt-get install -y ninja-build clang-18 lld-18 wget xz-utils
+          sudo ln -sf /usr/bin/clang-18 /usr/bin/clang
+          sudo ln -sf /usr/bin/clang++-18 /usr/bin/clang++
+          sudo ln -sf /usr/bin/ld.lld-18 /usr/bin/ld.lld
+
+      - name: Install musl sysroot
+        shell: bash
+        run: |
+          wget -q "https://musl.cc/${{ matrix.toolchain }}.tgz"
+          tar -xzf "${{ matrix.toolchain }}.tgz"
 
       - name: Configure CMake
+        shell: bash
         run: |
+          SYSROOT="$PWD/${{ matrix.toolchain }}/${{ matrix.target_triple }}"
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
-            -DCMAKE_C_COMPILER="zig;cc;-target;${{ matrix.zig_target }}" \
-            -DCMAKE_CXX_COMPILER="zig;c++;-target;${{ matrix.zig_target }}" \
-            -DZITH_VERSION=${{ inputs.tag_name || github.ref_name }} \
-            -DCMAKE_EXE_LINKER_FLAGS="-static" \
+            -DENABLE_WERROR=OFF \
+            -DZITH_VERSION=${{ needs.create-release.outputs.tag }} \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_COMPILER_TARGET=${{ matrix.target_triple }} \
+            -DCMAKE_CXX_COMPILER_TARGET=${{ matrix.target_triple }} \
+            -DCMAKE_SYSROOT="$SYSROOT" \
+            -DCMAKE_EXE_LINKER_FLAGS="--sysroot=$SYSROOT -fuse-ld=lld -static" \
             -DCMAKE_CROSSCOMPILING=ON
 
       - name: Build
+        shell: bash
         run: cmake --build build --config Release
 
-      - name: Prepare Artifact
+      - name: Prepare artifact
+        shell: bash
         run: |
           mkdir -p artifacts
           chmod +x build/bin/zith
-          cp build/bin/zith artifacts/${{ matrix.target_name }}
-          file artifacts/${{ matrix.target_name }}
-          ldd  artifacts/${{ matrix.target_name }} || echo "Static binary confirmed"
+          cp build/bin/zith "artifacts/${{ matrix.target_name }}"
 
-      - name: Upload Release Asset
+      - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag_name || github.ref_name }}
+          tag_name: ${{ needs.create-release.outputs.tag }}
           files: artifacts/${{ matrix.target_name }}
+          draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ─────────────────────────────────────────────────────────────────────────────
-  # WebAssembly (Emscripten)
-  # ─────────────────────────────────────────────────────────────────────────────
   build-wasm:
-    name: Build WebAssembly
+    needs: create-release
+    name: Build zith-wasm
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Emscripten
-        uses: mymindstorm/setup-emsdk@v14
+        uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: 3.1.65
 
-      - name: Verify Emscripten
-        run: emcc -v
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.28.x'
 
       - name: Configure CMake
+        shell: bash
         run: |
-          emcmake cmake -B build-wasm \
+          emcmake cmake -B build-wasm -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
-            -DZITH_VERSION=${{ inputs.tag_name || github.ref_name }} \
+            -DENABLE_WERROR=OFF \
+            -DZITH_VERSION=${{ needs.create-release.outputs.tag }} \
             -DCMAKE_CROSSCOMPILING=ON
 
-      - name: Build WASM
-        run: cmake --build build-wasm --config Release -j$(nproc)
+      - name: Build
+        shell: bash
+        run: cmake --build build-wasm --config Release
 
-      - name: Prepare Artifact (zip)
+      - name: Prepare artifact
+        shell: bash
         run: |
           mkdir -p artifacts wasm-staging
-        
-          echo "=== Emscripten output ==="
-          find build-wasm -type f | sort
-        
-          if [ -d "build-wasm/bin" ]; then
-             cp build-wasm/bin/* wasm-staging/
-          else
-             cp build-wasm/* wasm-staging/ 2>/dev/null || true
-          fi
-        
-          echo "=== WASM files staged ==="
-          ls -lh wasm-staging/
-        
-          if [ -z "$(ls -A wasm-staging/)" ]; then
-            echo "Error: No WASM files found."
-            exit 1
-          fi
-        
-          cd wasm-staging && zip ../artifacts/zith-wasm.zip ./* && cd ..
-        
-          echo "=== Final artifact ==="
-          ls -lh artifacts/
+          [ -d build-wasm/bin ] && cp build-wasm/bin/* wasm-staging/ || true
+          find build-wasm -maxdepth 1 -type f \( -name '*.wasm' -o -name '*.js' -o -name '*.html' \) -exec cp {} wasm-staging/ \;
+          cd wasm-staging && zip -r ../artifacts/zith-wasm.zip . && cd ..
 
-      - name: Upload WASM
+      - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag_name || github.ref_name }}
+          tag_name: ${{ needs.create-release.outputs.tag }}
           files: artifacts/zith-wasm.zip
+          draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(zith LANGUAGES C CXX)
 
+include(GNUInstallDirs)
+
 # =============================================================================
 # Standards & Policies
 # =============================================================================
@@ -61,8 +63,6 @@ FetchContent_MakeAvailable(tomlplusplus)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFI REQUIRED libffi)
-
-set(LLVM_LIB_DIR "/usr/lib/llvm/21/lib")
 
 # =============================================================================
 # Compiler Flags
@@ -129,28 +129,28 @@ endif()
 # =============================================================================
 # LLVM Configuration
 # =============================================================================
-set(LLVM_DIR "/usr/lib/llvm/21/lib/cmake/llvm")
-find_package(LLVM CONFIG PATHS "${LLVM_DIR}" NO_DEFAULT_PATH)
+set(LLVM_DIR "" CACHE PATH "Path to LLVMConfig.cmake (optional)")
+if(LLVM_DIR)
+    find_package(LLVM REQUIRED CONFIG PATHS "${LLVM_DIR}" NO_DEFAULT_PATH)
+else()
+    find_package(LLVM REQUIRED CONFIG)
+endif()
 message(STATUS "✓ Found LLVM ${LLVM_PACKAGE_VERSION} at ${LLVM_DIR}")
 
 add_definitions(-DLLVM_VERSION_MAJOR=${LLVM_VERSION_MAJOR})
+include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 
-set(LLVM_LIBRARIES
-    LLVMAnalysis.a
-    LLVMCodeGen.a
-    LLVMCodeGenTypes.a
-    LLVMCore.a
-    LLVMInstCombine.a
-    LLVMScalarOpts.a
-    LLVMVectorize.a
-    LLVMipo.a
-    LLVMIRReader.a
-    LLVMIRPrinter.a
-    LLVMTarget.a
+llvm_map_components_to_libnames(LLVM_LIBRARIES
+    analysis
+    core
+    instcombine
+    scalaropts
+    vectorize
+    ipo
+    irreader
+    support
+    target
 )
-
-set(LLVM_INCLUDE_DIRS "/usr/lib/llvm/21/include")
-set(LLVM_LIB_DIR "/usr/lib/llvm/21/lib")
 
 # =============================================================================
 # Sources
@@ -185,7 +185,7 @@ target_include_directories(ZithCore
 )
 target_link_libraries(ZithCore PUBLIC 
     tomlplusplus::tomlplusplus
-    "${LLVM_LIB_DIR}/libLLVM-21.so"
+    ${LLVM_LIBRARIES}
 )
 
 # ────────
