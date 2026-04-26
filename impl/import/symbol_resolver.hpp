@@ -7,6 +7,7 @@
 #include "module_registry.hpp"
 #include <ankerl/unordered_dense.h>
 
+#include <cstdio>
 #include <vector>
 #include <string>
 #include <optional>
@@ -21,12 +22,12 @@ namespace import {
 
 enum class ErrorCode {
     ModuleNotFound = 1,
-    SymbolEntryNotFound = 2,
-    DuplicateSymbolEntry = 3,
+    SymbolNotFound = 2,
+    DuplicateSymbol = 3,
     InvalidOverload = 4,
     AliasConflict = 5,
     CircularDependency = 6,
-    SymbolEntryNotExported = 7,
+    SymbolNotExported = 7,
     AmbiguousResolution = 8,
 };
 
@@ -236,6 +237,13 @@ inline std::vector<std::string> SymbolResolver::parse_path(const std::string& pa
         components.push_back(current);
     }
 
+    // Debug output
+    fprintf(stderr, "DEBUG parse_path('%s') -> %zu components: ", path.c_str(), components.size());
+    for (size_t i = 0; i < components.size(); ++i) {
+        fprintf(stderr, "%s%s", components[i].c_str(), (i + 1 < components.size()) ? ", " : "");
+    }
+    fprintf(stderr, "\n");
+
     return components;
 }
 
@@ -278,29 +286,40 @@ inline SymbolResolution SymbolResolver::resolve_path(const std::vector<std::stri
         return SymbolResolution();
     }
 
-    // Multiple components: first is module, rest is symbol path
+    // Multiple components: find module by trying progressively longer names
     std::string module_name = components[0];
     auto mod = ModuleRegistry::instance().get_module(module_name);
+    size_t module_parts = 1;
+    
     if (!mod) {
-        // Try with '/' separator
-        std::string alt_name = module_name;
+        // Try to find the correct module by joining components
         for (size_t i = 1; i < components.size(); ++i) {
-            alt_name += "." + components[i];
+            std::string try_mod = components[0];
+            for (size_t j = 1; j <= i; ++j) {
+                try_mod += "." + components[j];
+            }
+            if (ModuleRegistry::instance().exists(try_mod)) {
+                module_name = try_mod;
+                mod = ModuleRegistry::instance().get_module(module_name);
+                module_parts = i + 1;
+                break;
+            }
         }
-        mod = ModuleRegistry::instance().get_module(alt_name);
-        if (!mod) {
-            errors_.emplace_back(ErrorCode::ModuleNotFound,
-                              "Module '" + module_name + "' not found");
-            return SymbolResolution();
-        }
-        module_name = alt_name;
+    }
+    
+    if (!mod) {
+        errors_.emplace_back(ErrorCode::ModuleNotFound,
+                          "Module not found for path");
+        return SymbolResolution();
     }
 
-    // Build symbol name from remaining components
-    std::string symbol_name = components.size() > 1 ? components[1] : "";
-    for (size_t i = 2; i < components.size(); ++i) {
-        symbol_name += "." + components[i];
+    // Build symbol name from remaining components after the module
+    std::string symbol_name;
+    for (size_t i = module_parts; i < components.size(); ++i) {
+        if (!symbol_name.empty()) symbol_name += ".";
+        symbol_name += components[i];
     }
+    fprintf(stderr, "DEBUG: module='%s' (%zu parts), symbol='%s'\n", module_name.c_str(), module_parts, symbol_name.c_str());
 
     return resolve_in_module(module_name, symbol_name);
 }
@@ -316,13 +335,13 @@ inline SymbolResolution SymbolResolver::resolve_in_module(const std::string& mod
 
     auto* sym = mod->find_symbol(symbol_name);
     if (!sym) {
-        errors_.emplace_back(ErrorCode::SymbolEntryNotFound,
+        errors_.emplace_back(ErrorCode::SymbolNotFound,
                           "SymbolEntry '" + symbol_name + "' not found in module '" + module_name + "'");
         return SymbolResolution();
     }
 
     if (!sym->is_exported() && sym->visibility() != Visibility::Public) {
-        errors_.emplace_back(ErrorCode::SymbolEntryNotExported,
+        errors_.emplace_back(ErrorCode::SymbolNotExported,
                           "SymbolEntry '" + symbol_name + "' is not exported from module '" + module_name + "'");
         return SymbolResolution();
     }
@@ -366,10 +385,11 @@ inline bool SymbolResolver::add_alias(const std::string& alias_name,
         return false;
     }
 
-    // Validate target exists
+// Validate target exists
     auto result = resolve(target_path);
     if (!result) {
-        errors_.emplace_back(ErrorCode::SymbolEntryNotFound,
+        fprintf(stderr, "DEBUG: resolve('%s') failed\n", target_path.c_str());
+        errors_.emplace_back(ErrorCode::SymbolNotFound,
                            "Target symbol '" + target_path + "' for alias '" + alias_name + "' not found",
                            loc.file_path, loc.line, loc.column);
         return false;
@@ -384,13 +404,35 @@ inline bool SymbolResolver::add_alias(const std::string& alias_name,
     Alias alias(alias_name, target_path, loc);
     if (components.size() >= 1) {
         alias.target_module = components[0];
-    }
-    if (components.size() >= 2) {
-        alias.target_symbol = components[1];
-        for (size_t i = 2; i < components.size(); ++i) {
-            alias.target_symbol += "." + components[i];
+        // Find correct module name
+        for (size_t i = 1; i < components.size(); ++i) {
+            std::string try_mod = components[0];
+            for (size_t j = 1; j <= i; ++j) {
+                try_mod += "." + components[j];
+            }
+            if (ModuleRegistry::instance().exists(try_mod)) {
+                alias.target_module = try_mod;
+                break;
+            }
         }
     }
+    if (components.size() >= 2) {
+        // Find symbol name after module
+        size_t module_parts = 1;
+        std::string test_mod = components[0];
+        for (size_t i = 1; i < components.size(); ++i) {
+            test_mod += "." + components[i];
+            if (ModuleRegistry::instance().exists(test_mod)) {
+                module_parts = i + 1;
+            }
+        }
+        for (size_t i = module_parts; i < components.size(); ++i) {
+            if (!alias.target_symbol.empty()) alias.target_symbol += ".";
+            alias.target_symbol += components[i];
+        }
+    }
+    fprintf(stderr, "DEBUG add_alias: module='%s', symbol='%s'\n", 
+           alias.target_module.c_str(), alias.target_symbol.c_str());
 
     aliases_.emplace(alias_name, std::move(alias));
     return true;
@@ -403,13 +445,18 @@ inline std::optional<SymbolEntry> SymbolResolver::resolve_alias(const std::strin
     }
 
     const Alias& alias = it->second;
+    fprintf(stderr, "DEBUG resolve_alias: alias='%s', target_module='%s', target_symbol='%s'\n", 
+           alias_name.c_str(), alias.target_module.c_str(), alias.target_symbol.c_str());
+    
     auto mod = ModuleRegistry::instance().get_module(alias.target_module);
     if (!mod) {
+        fprintf(stderr, "DEBUG: module not found\n");
         return std::nullopt;
     }
 
     auto* sym = mod->find_symbol(alias.target_symbol);
     if (!sym) {
+        fprintf(stderr, "DEBUG: symbol '%s' not found in module\n", alias.target_symbol.c_str());
         return std::nullopt;
     }
 
@@ -478,7 +525,7 @@ inline std::vector<Error> SymbolResolver::validate_module(Module& mod) {
         for (size_t j = i + 1; j < symbols.size(); ++j) {
             if (symbols[i].name() == symbols[j].name()) {
                 if (!symbols[i].has_identical_signature(symbols[j])) {
-                    validation_errors.emplace_back(ErrorCode::DuplicateSymbolEntry,
+                    validation_errors.emplace_back(ErrorCode::DuplicateSymbol,
                                                     "Duplicate symbol '" + symbols[i].name() + "'");
                 }
             }
@@ -498,7 +545,7 @@ inline std::optional<Error> SymbolResolver::detect_duplicate(const std::string& 
     auto* existing = mod->find_symbol(new_symbol.name());
     if (existing) {
         if (new_symbol.has_identical_signature(*existing)) {
-            return Error(ErrorCode::DuplicateSymbolEntry,
+            return Error(ErrorCode::DuplicateSymbol,
                         "Duplicate symbol '" + new_symbol.name() + "' in module '" + module_name + "'",
                         new_symbol.location().file_path,
                         new_symbol.location().line,
@@ -522,7 +569,7 @@ inline std::vector<Error> SymbolResolver::detect_all_conflicts(const std::string
         for (size_t j = i + 1; j < symbols.size(); ++j) {
             if (symbols[i].name() == symbols[j].name()) {
                 if (symbols[i].has_identical_signature(symbols[j])) {
-                    conflicts.emplace_back(ErrorCode::DuplicateSymbolEntry,
+                    conflicts.emplace_back(ErrorCode::DuplicateSymbol,
                                           "Duplicate symbol '" + symbols[i].name() + "'",
                                           symbols[j].location().file_path,
                                           symbols[j].location().line);
@@ -550,8 +597,17 @@ inline bool SymbolResolver::is_valid_overload(const std::string& module_name,
     const auto& symbols = mod->symbols();
     for (const auto& sym : symbols) {
         if (sym.name() == new_function.name() && sym.kind() == SymbolKind::Function) {
-            if (!new_function.has_compatible_signature(sym)) {
-                return false;
+            // Check if signatures are EXACTLY the same (not valid overload)
+            bool identical = false;
+            if (new_function.signature().has_value() && sym.signature().has_value()) {
+                identical = (*new_function.signature() == *sym.signature());
+            }
+            fprintf(stderr, "DEBUG overload: existing='%s' -> new='%s', identical=%s\n",
+                   sym.signature()->to_string().c_str(),
+                   new_function.signature()->to_string().c_str(),
+                   identical ? "YES" : "NO");
+            if (identical) {
+                return false;  // Same signature = invalid overload
             }
         }
     }
