@@ -299,11 +299,8 @@ void sema_run(Parser *p, ZithNode *root) {
     SemaContext ctx{};
     ctx.p = p;
 
-    // Add imported functions to ctx.functions
     extern void *parser_get_imported_decls(void);
     void *imported_decls_ptr = parser_get_imported_decls();
-    fprintf(stderr, "DEBUG SEMA: import ptr = %p, vec size = %zu\n", imported_decls_ptr,
-            imported_decls_ptr ? ((std::vector<ZithNode *>*)imported_decls_ptr)->size() : 0);
     if (imported_decls_ptr) {
         auto *imported_vec = static_cast<std::vector<ZithNode *> *>(imported_decls_ptr);
         for (auto *decl : *imported_vec) {
@@ -311,7 +308,6 @@ void sema_run(Parser *p, ZithNode *root) {
                 auto *fn = static_cast<ZithFuncPayload *>(decl->data.list.ptr);
                 if (fn && fn->name) {
                     ctx.functions[std::string(fn->name, fn->name_len)] = fn;
-                    fprintf(stderr, "DEBUG: Registered imported function: %s\n", fn->name);
                 }
             }
         }

@@ -74,7 +74,7 @@ void parser_init(Parser *p, ZithArena *arena,
                  ZithTokenStream tokens);
 
 void parser_set_import_roots(Parser *p, const char **roots, size_t count);
-void parser_set_imported_decls(void *decls);
+void parser_set_imported_decls(void *decls, ZithArena *arena);
 
 // ============================================================================
 // Token navigation

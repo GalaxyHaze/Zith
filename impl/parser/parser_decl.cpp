@@ -3,7 +3,6 @@
 // Refactored to use centralized modules and proper SCAN/PARSE separation.
 // In SCAN mode, function bodies and blocks are captured as UNBODY nodes
 // without parsing their contents — the parser does NOT analyze block content.
-#include "../memory/arena.hpp"
 #include "zith/zith.hpp"
 #include "parser.h"
 #include <cstring>
@@ -486,13 +485,9 @@ static ZithNode *parse_import_decl(Parser *p) {
     ZithImportPayload payload = {zith_arena_str(p->arena, buf, buf_len), buf_len, ZITH_VIS_PRIVATE, alias, alias_len, false, false};
     register_import_symbol(p, buf, buf_len, ZITH_VIS_PRIVATE);
 
-    // In SCAN mode, try to load and import the module
-    fprintf(stderr, "DEBUG: SCAN mode=%d, roots=%p, count=%zu\n", p->mode, (void*)p->import_roots, p->import_root_count);
     if (p->mode == ZITH_MODE_SCAN && p->import_roots && p->import_root_count > 0) {
         std::string import_path(buf, buf_len);
         
-        // Convert path format: std/io/console -> root=std, path=io/console
-        // Find root (first component before / or .)
         std::string root;
         std::string rel_path;
         size_t slash_pos = import_path.find('/');
@@ -510,16 +505,12 @@ static ZithNode *parse_import_decl(Parser *p) {
             }
         }
         
-        // Check if root is allowed
-        fprintf(stderr, "DEBUG: root='%s', rel_path='%s'\n", root.c_str(), rel_path.c_str());
         bool allowed = false;
         for (size_t i = 0; i < p->import_root_count; ++i) {
             if (root == p->import_roots[i]) { allowed = true; break; }
         }
         
         if (allowed && !rel_path.empty()) {
-            fprintf(stderr, "DEBUG: allowed=%d, rel_path='%s'\n", allowed, rel_path.c_str());
-            // Build file path and load
             std::string base_dir;
             if (p->filename) {
                 std::string fn(p->filename);
@@ -528,17 +519,14 @@ static ZithNode *parse_import_decl(Parser *p) {
             }
             
             std::string file_path = base_dir + root + "/" + rel_path + ".zith";
-            fprintf(stderr, "DEBUG: file_path = %s\n", file_path.c_str());
             size_t file_size = 0;
             char *source = zith_load_file_to_arena(p->arena, file_path.c_str(), &file_size);
-            fprintf(stderr, "DEBUG: source=%p, size=%zu\n", (void*)source, file_size);
             
             if (source && file_size > 0) {
                 ZithTokenStream tokens = zith_tokenize(p->arena, source, file_size);
                 if (tokens.data) {
                     Parser imp_parser;
                     parser_init(&imp_parser, p->arena, source, file_size, file_path.c_str(), tokens);
-                    fprintf(stderr, "DEBUG: tokens count=%zu, first token=%d\n", tokens.len, tokens.data[0].type);
                     imp_parser.mode = ZITH_MODE_SCAN;
                     
                     ArenaList<ZithNode *> import_decls;
@@ -546,18 +534,13 @@ static ZithNode *parse_import_decl(Parser *p) {
                     while (!parser_is_at_end(&imp_parser)) {
                         size_t pb = imp_parser.pos;
                         ZithNode *d = parser_parse_declaration(&imp_parser);
-                        if (d) {
-                            fprintf(stderr, "DEBUG: got decl type=%d\n", d->type);
-                            import_decls.push(p->arena, d);
-                        }
+                        if (d) import_decls.push(p->arena, d);
                         if (imp_parser.pos == pb && !parser_is_at_end(&imp_parser)) parser_advance(&imp_parser);
                     }
                     
-                    fprintf(stderr, "DEBUG: after parse, decls size=%zu\n", import_decls.size());
-                    
                     if (import_decls.size() > 0) {
-                        extern void parser_set_imported_decls(void *decls);
-                        parser_set_imported_decls(&import_decls);
+                        extern void parser_set_imported_decls(void *decls, ZithArena *arena);
+                        parser_set_imported_decls(&import_decls, p->arena);
                     }
                 }
             }
@@ -644,8 +627,10 @@ static ZithNode *parse_export_decl(Parser *p) {
     }
     
 parser_expect(p, ZITH_TOKEN_SEMICOLON, "expected ';'");
-    ZithImportPayload payload = {zith_arena_str(p->arena, buf, buf_len), buf_len, ZITH_VIS_PRIVATE, alias, alias_len, false, false};
-    register_import_symbol(p, buf, buf_len, ZITH_VIS_PRIVATE);
+    auto alias = "";
+    size_t alias_len = 1;
+    ZithImportPayload payload = {zith_arena_str(p->arena, buf, buf_len), buf_len, ZITH_VIS_PUBLIC, alias, alias_len, true, false};
+    register_import_symbol(p, buf, buf_len, ZITH_VIS_PUBLIC);
 
     // In SCAN mode, try to load and import the module
     if (p->mode == ZITH_MODE_SCAN && p->import_roots && p->import_root_count > 0) {
@@ -705,8 +690,8 @@ parser_expect(p, ZITH_TOKEN_SEMICOLON, "expected ';'");
                     }
                     
                     if (import_decls.size() > 0) {
-                        extern void parser_set_imported_decls(void *decls);
-                        parser_set_imported_decls(&import_decls);
+                        extern void parser_set_imported_decls(void *decls, ZithArena *arena);
+                        parser_set_imported_decls(&import_decls, p->arena);
                     }
                 }
             }

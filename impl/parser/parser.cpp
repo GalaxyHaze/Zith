@@ -1,9 +1,6 @@
 // impl/parser/parser.cpp — Parser entry point and pipeline orchestration
-#include "../memory/arena.hpp"
-#include "../lexer/debug.h"
 #include "parser.h"
 #include <cstring>
-#include <string>
 #include <vector>
 
 using zith::ArenaList;
@@ -14,12 +11,10 @@ static int g_parser_depth = 0;
 
 bool g_import_loaded_this_file = false;
 
-void parser_set_imported_decls(void *decls) {
+void parser_set_imported_decls(void *decls, ZithArena *arena) {
     auto *src = static_cast<ArenaList<ZithNode *> *>(decls);
-    // Copy to persistent storage
     size_t count = 0;
-    ZithNode **items = src->flatten(nullptr, &count);
-    fprintf(stderr, "DEBUG: Set imported decls, count=%zu\n", count);
+    ZithNode **items = src->flatten(arena, &count);
     for (size_t i = 0; i < count; ++i) {
         g_imported_decls_vec.push_back(items[i]);
     }
@@ -62,13 +57,7 @@ static ZithNode *run_parser_phase(Parser *p, ZithParserMode mode) {
         if (p->pos == pos_before && !parser_is_at_end(p)) parser_advance(p);
     }
 
-    // Add imported declarations from loaded modules
-    if (!g_imported_decls_vec.empty()) {
-        fprintf(stderr, "DEBUG: Adding %zu imported declarations\n", g_imported_decls_vec.size());
-        for (auto *decl : g_imported_decls_vec) {
-            decls_b.push(p->arena, decl);
-        }
-    }
+    // Imported functions are registered in SEMA's ctx.functions, not added to AST
 
     size_t count = 0;
     ZithNode **decls = decls_b.flatten(p->arena, &count);
