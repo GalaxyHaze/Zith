@@ -71,6 +71,7 @@ jobs:
             cmake_flags: >-
               -DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang
               -DCMAKE_CXX_COMPILER=$(brew --prefix llvm)/bin/clang++
+              -DLLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm
               -DCMAKE_OSX_ARCHITECTURES=x86_64
               -DCMAKE_CROSSCOMPILING=ON
 
@@ -79,6 +80,7 @@ jobs:
             cmake_flags: >-
               -DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang
               -DCMAKE_CXX_COMPILER=$(brew --prefix llvm)/bin/clang++
+              -DLLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm
 
           - os: windows-latest
             target_name: zith-windows-amd64.exe
@@ -93,6 +95,8 @@ jobs:
             cmake_flags: >-
               -DCMAKE_C_COMPILER=clang-cl
               -DCMAKE_CXX_COMPILER=clang-cl
+              -DCMAKE_C_COMPILER_TARGET=arm64-pc-windows-msvc
+              -DCMAKE_CXX_COMPILER_TARGET=arm64-pc-windows-msvc
               -DCMAKE_CROSSCOMPILING=ON
 
     steps:
@@ -110,7 +114,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build clang-18 lld-18 \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            libc6-dev-arm64-cross libc6-arm64-cross libstdc++-12-aarch64-cross \
+            libc6-dev-arm64-cross libc6-arm64-cross \
             binutils-aarch64-linux-gnu
           sudo ln -sf /usr/bin/clang-18 /usr/bin/clang
           sudo ln -sf /usr/bin/clang++-18 /usr/bin/clang++
@@ -119,7 +123,9 @@ jobs:
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
         shell: bash
-        run: brew install ninja llvm
+        run: |
+          brew install ninja llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
 
       - name: Install Windows dependencies
         if: runner.os == 'Windows'
@@ -208,7 +214,9 @@ jobs:
       - name: Install musl sysroot
         shell: bash
         run: |
-          wget -q "https://musl.cc/${{ matrix.toolchain }}.tgz"
+          curl -fL --retry 5 --retry-delay 2 --connect-timeout 20 \
+            "https://musl.cc/${{ matrix.toolchain }}.tgz" \
+            -o "${{ matrix.toolchain }}.tgz"
           tar -xzf "${{ matrix.toolchain }}.tgz"
 
       - name: Configure CMake
