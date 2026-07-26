@@ -203,6 +203,13 @@ void Resolver::resolveExpr(ast::ExprId id) {
                        resolveExpr(n.lhs);
                        resolveExpr(n.rhs);
                    },
+                   [&](const ast::WhenNode &n) {
+                       resolveExpr(n.subject);
+                       for (auto &c : n.cases) {
+                           resolveExpr(c.condition);
+                           resolveExpr(c.body);
+                       }
+                   },
                    [&](const ast::IntrinsicNode &n) {
                        switch (n.kind) {
                        case ast::IntrinsicKind::Fields:

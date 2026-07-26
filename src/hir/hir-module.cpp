@@ -126,6 +126,15 @@ void HirModule::dump(FILE *out, const memory::StringInterner &interner) const {
                         [&](const HirEnumValue &value) {
                             std::fprintf(out, "enum_value %%t%u", value.type);
                         },
+                        [&](const HirSlotAlloca &s) {
+                            std::fprintf(out, "slot_alloca s%u : %%t%u", s.slot, s.type);
+                        },
+                        [&](const HirSlotStore &s) {
+                            std::fprintf(out, "slot_store s%u = %%e%u", s.slot, s.value);
+                        },
+                        [&](const HirSlotLoad &s) {
+                            std::fprintf(out, "slot_load s%u : %%t%u", s.slot, s.type);
+                        },
                     });
                 std::fprintf(out, "\n");
             }

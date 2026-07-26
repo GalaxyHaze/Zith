@@ -156,7 +156,7 @@ bool HirLower::isSymAccessible(symbols::SymId sym_id) const {
 }
 
 types::TypeId HirLower::astExprType(ast::ExprId id) const {
-    return typed_ast_.get(id);
+    return typed_ast_.get(active_builder_, id);
 }
 
 hir::HirExprId HirLower::addHirExpr(hir::HirExpr expr) {
@@ -185,6 +185,7 @@ void HirLower::ensureStub(symbols::SymId fn_sym) {
 
     auto &hfn   = hir_.addFn(data.name);
     hfn.decl_id = data.decl_id;
+    hfn.sym_id  = fn_sym;
     types::TypeLower lower(*source_bld, ctx_.types(), ctx_.diags(), ctx_.syms());
     for (const auto &param : fn->params) {
         hfn.params.push(lower.lower(param.type));
@@ -326,6 +327,7 @@ hir::HirExprId HirLower::visitExpr(ast::ExprId id) {
             [&](const ast::BlockNode &n) { return visitBlock(n); },
             [&](const ast::IfNode &n) { return visitIf(n); },
             [&](const ast::WhileNode &n) { return visitWhile(n); },
+            [&](const ast::WhenNode &n) { return visitWhen(id, n); },
             [&](const ast::FieldNode &n) -> hir::HirExprId {
                 auto object = visitExpr(n.object);
                 if (object == hir::kInvalidHirExpr)
@@ -683,6 +685,167 @@ hir::HirExprId HirLower::visitWhile(const ast::WhileNode &n) {
     setCurrentBlock(exit_block);
     current_fn_->blocks[exit_block].insts = memory::DynArray<hir::HirExprId>(hir_arena_);
     return hir::kInvalidHirExpr;
+}
+
+hir::HirExprId HirLower::visitWhen(ast::ExprId id, const ast::WhenNode &n) {
+    auto origBlock  = currentBlock_;
+    auto result_type = astExprType(id);
+    auto subject_type = astExprType(n.subject);
+
+    // Allocate slot for subject — evaluated exactly once
+    auto subj_slot = allocSlot();
+    auto subj_val  = visitExpr(n.subject);
+    current_fn_->blocks[currentBlock_].insts.push(emitSlotAlloca(subj_slot, subject_type));
+    if (subj_val != hir::kInvalidHirExpr)
+        current_fn_->blocks[currentBlock_].insts.push(emitSlotStore(subj_slot, subj_val));
+
+    // Result slot for value-producing when
+    bool has_value        = result_type != types::kVoidType;
+    bool is_optional      = has_value && ctx_.types().kindOf(result_type) == types::TypeKind::Optional;
+    types::TypeId inner_t = types::kErrorType;
+    if (is_optional) {
+        auto *opt = std::get_if<types::TypeOptional>(&ctx_.types().lookup(result_type));
+        if (opt) inner_t = opt->inner;
+    }
+    hir::HirSlotId result_slot = hir::kInvalidHirSlot;
+    if (has_value) {
+        result_slot = allocSlot();
+        current_fn_->blocks[currentBlock_].insts.push(
+            emitSlotAlloca(result_slot, is_optional ? inner_t : result_type));
+    }
+
+    size_t merge_block = newBlock();
+    size_t no_match_block = merge_block;
+    bool need_no_match_block = is_optional && !n.cases.empty();
+    if (need_no_match_block) {
+        no_match_block = newBlock();
+        setCurrentBlock(no_match_block);
+        current_fn_->blocks[no_match_block].insts = memory::DynArray<hir::HirExprId>(hir_arena_);
+        emitJump(merge_block);
+    }
+
+    for (size_t i = 0; i < n.cases.size(); i++) {
+        auto &c       = n.cases[i];
+        bool is_last  = (i + 1 == n.cases.size());
+        bool is_default = c.is_default;
+
+        auto body_block = newBlock();
+        size_t next_block;
+        if (is_default) {
+            next_block = body_block; // just fall through
+        } else if (is_last) {
+            next_block = no_match_block;
+        } else {
+            next_block = newBlock();
+        }
+
+        if (is_default) {
+            emitJump(body_block);
+        } else {
+            auto cond = lowerWhenCondition(c.condition, subj_slot, subject_type);
+            hir::HirBranch branch;
+            branch.cond       = cond;
+            branch.then_block = static_cast<hir::HirDeclId>(body_block);
+            branch.else_block = static_cast<hir::HirDeclId>(next_block);
+            setTerminator(hir_.addExpr(hir::HirExpr{std::move(branch)}));
+        }
+
+        // Body block
+        setCurrentBlock(body_block);
+        current_fn_->blocks[body_block].insts = memory::DynArray<hir::HirExprId>(hir_arena_);
+        auto body_val = visitExpr(c.body);
+        bool body_terminated =
+            current_fn_->blocks[body_block].terminator != hir::kInvalidHirExpr;
+
+        if (!body_terminated) {
+            if (result_slot != hir::kInvalidHirSlot && body_val != hir::kInvalidHirExpr) {
+                auto body_type = astExprType(c.body);
+                if (body_type != types::kVoidType) {
+                    hir::HirExprId stored = body_val;
+                    if (is_optional) {
+                        // Wrap T in ?T: store inner value, mark slot as "has value"
+                        stored = body_val;
+                    }
+                    current_fn_->blocks[body_block].insts.push(
+                        emitSlotStore(result_slot, stored));
+                }
+            }
+            emitJump(merge_block);
+        }
+
+        if (!is_default && !is_last) {
+            setCurrentBlock(next_block);
+            current_fn_->blocks[next_block].insts = memory::DynArray<hir::HirExprId>(hir_arena_);
+        }
+    }
+
+    // Merge block
+    setCurrentBlock(merge_block);
+    current_fn_->blocks[merge_block].insts = memory::DynArray<hir::HirExprId>(hir_arena_);
+    if (result_slot != hir::kInvalidHirSlot) {
+        auto result = emitSlotLoad(result_slot, is_optional ? inner_t : result_type);
+        current_fn_->blocks[merge_block].insts.push(result);
+        return result;
+    }
+
+    return hir::kInvalidHirExpr;
+}
+
+hir::HirExprId HirLower::lowerWhenCondition(ast::ExprId cond, hir::HirSlotId subj_slot,
+                                            types::TypeId subject_type) {
+    auto &node = builder().getExpr(cond);
+
+    // Range pattern: expand to comparisons against subject
+    if (auto *range = std::get_if<ast::RangeNode>(&node)) {
+        auto lhs_val = visitExpr(range->lhs);
+        auto rhs_val = visitExpr(range->rhs);
+        auto subj    = emitSlotLoad(subj_slot, subject_type);
+
+        bool left_open =
+            (range->bounds == ast::RangeBounds::OpenLeft || range->bounds == ast::RangeBounds::Open);
+        bool right_open =
+            (range->bounds == ast::RangeBounds::OpenRight || range->bounds == ast::RangeBounds::Open);
+
+        hir::HirBinary cmp_left;
+        cmp_left.lhs  = subj;
+        cmp_left.rhs  = lhs_val;
+        cmp_left.op   = left_open ? hir::HirBinaryOp::Gt : hir::HirBinaryOp::Ge;
+        cmp_left.type = types::kBoolType;
+        auto left_id  = addHirExpr(hir::HirExpr{std::move(cmp_left)});
+
+        hir::HirBinary cmp_right;
+        cmp_right.lhs  = subj;
+        cmp_right.rhs  = rhs_val;
+        cmp_right.op   = right_open ? hir::HirBinaryOp::Lt : hir::HirBinaryOp::Le;
+        cmp_right.type = types::kBoolType;
+        auto right_id  = addHirExpr(hir::HirExpr{std::move(cmp_right)});
+
+        hir::HirBinary and_bin;
+        and_bin.lhs  = left_id;
+        and_bin.rhs  = right_id;
+        and_bin.op   = hir::HirBinaryOp::And;
+        and_bin.type = types::kBoolType;
+        return addHirExpr(hir::HirExpr{std::move(and_bin)});
+    }
+
+    // Regular boolean expression (literal, ident, binary, etc.)
+    return visitExpr(cond);
+}
+
+hir::HirSlotId HirLower::allocSlot() {
+    return slot_counter_++;
+}
+
+hir::HirExprId HirLower::emitSlotAlloca(hir::HirSlotId slot, types::TypeId type) {
+    return addHirExpr(hir::HirSlotAlloca{slot, type});
+}
+
+hir::HirExprId HirLower::emitSlotStore(hir::HirSlotId slot, hir::HirExprId value) {
+    return addHirExpr(hir::HirSlotStore{slot, value});
+}
+
+hir::HirExprId HirLower::emitSlotLoad(hir::HirSlotId slot, types::TypeId type) {
+    return addHirExpr(hir::HirSlotLoad{slot, type});
 }
 
 size_t HirLower::newBlock() {

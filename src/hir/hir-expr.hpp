@@ -32,6 +32,9 @@ enum class HirExprKind : uint8_t {
     StructLiteral,
     ArrayLiteral,
     EnumValue,
+    SlotAlloca,
+    SlotStore,
+    SlotLoad,
 };
 
 enum class HirBinaryOp : uint8_t {
@@ -164,9 +167,33 @@ struct HirEnumValue {
     HirExprKind tag = HirExprKind::EnumValue;
 };
 
+/// Internal compiler temporary slot — allocated once, loaded/stored as needed.
+/// These identifiers are synthetic and never collide with user names.
+using HirSlotId = uint32_t;
+inline constexpr HirSlotId kInvalidHirSlot = ~HirSlotId{0};
+
+struct HirSlotAlloca {
+    HirSlotId slot;
+    HirTypeId type;
+    HirExprKind tag = HirExprKind::SlotAlloca;
+};
+
+struct HirSlotStore {
+    HirSlotId slot;
+    HirExprId value;
+    HirExprKind tag = HirExprKind::SlotStore;
+};
+
+struct HirSlotLoad {
+    HirSlotId slot;
+    HirTypeId type;
+    HirExprKind tag = HirExprKind::SlotLoad;
+};
+
 using HirExpr = std::variant<HirLiteral, HirBinary, HirUnary, HirLet, HirVar, HirCall, HirRet,
                              HirBranch, HirJump, HirPhi, HirAssign, HirIndex, HirField,
-                             HirStructLiteral, HirArrayLiteral, HirEnumValue>;
+                             HirStructLiteral, HirArrayLiteral, HirEnumValue,
+                             HirSlotAlloca, HirSlotStore, HirSlotLoad>;
 
 inline HirExprKind exprKind(const HirExpr &expr) {
     return std::visit([](const auto &entry) { return entry.tag; }, expr);

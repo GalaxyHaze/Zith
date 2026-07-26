@@ -83,15 +83,15 @@ auto findFile(const std::string &import_key, std::string_view source_file,
 
         for (auto ext : extensions) {
             auto path = base.string() + ext;
-            if (check_file(path))
+            if (check_file(path) && under_visible_root(path))
                 return path;
         }
 
         auto mod_path = (base / "mod.zith").string();
-        if (check_file(mod_path))
+        if (check_file(mod_path) && under_visible_root(mod_path))
             return mod_path;
 
-        if (fs::is_directory(base))
+        if (fs::is_directory(base) && under_visible_root(base))
             return base.string();
     }
 

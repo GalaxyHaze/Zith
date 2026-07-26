@@ -123,10 +123,12 @@ SemaPipeline::SemaPipeline(symbols::SymbolTable &syms, types::TypeIntern &types,
     : ctx_(syms, types, diags, builder), unifier_(types, diags, arena), arena_(arena),
       resolved_(resolved), typed_ast_(arena), import_mgr_(import_mgr), worklist_(arena),
       active_builder_(&builder), allowed_files_(arena), var_types_(arena), checked_fns_(arena),
-      target_triple_(target_triple) {}
+      target_triple_(target_triple) {
+    typed_ast_.setActiveBuilder(active_builder_);
+}
 
 types::TypeId SemaPipeline::astExprType(ast::ExprId id) const {
-    return typed_ast_.get(id);
+    return typed_ast_.get(active_builder_, id);
 }
 
 ast::AstBuilder &SemaPipeline::builder() const {
@@ -598,8 +600,9 @@ void SemaPipeline::ensureBodyChecked(symbols::SymId fn_sym) {
     auto *previous_builder = active_builder_;
     auto previous_ret      = current_fn_ret_type_;
     active_builder_        = source_bld;
-    current_fn_ret_type_   = lowerFnReturnType(fn_sym);
-    labelMap_              = {};
+    typed_ast_.setActiveBuilder(active_builder_);
+    current_fn_ret_type_ = lowerFnReturnType(fn_sym);
+    labelMap_            = {};
 
     auto scope = syms().enterScope();
 
@@ -629,7 +632,8 @@ void SemaPipeline::ensureBodyChecked(symbols::SymId fn_sym) {
     syms().exitScope();
     current_fn_ret_type_ = previous_ret;
     active_builder_      = previous_builder;
-    allowed_files_       = std::move(previous_allowed);
+    typed_ast_.setActiveBuilder(active_builder_);
+    allowed_files_ = std::move(previous_allowed);
 }
 
 void SemaPipeline::warnNotImplemented(std::string_view feature, memory::Span span) {
@@ -912,10 +916,13 @@ types::TypeId SemaPipeline::visitExpr(ast::ExprId id) {
                 return type;
             },
             [&](const ast::RangeNode &) {
-                warnNotImplemented("range expressions", builder().exprSpan(id));
+                // Range nodes are only valid inside when-case conditions; standalone ranges
+                // are not yet materializable values.
+                warnNotImplemented("standalone range expressions", builder().exprSpan(id));
                 typed_ast_.set(id, types::kErrorType);
                 return types::kErrorType;
             },
+            [&](const ast::WhenNode &n) { return visitWhen(id, n); },
             [&](const ast::UnbodyNode &) {
                 warnNotImplemented("compiler intrinsics in expressions", builder().exprSpan(id));
                 typed_ast_.set(id, types::kErrorType);
@@ -1254,6 +1261,76 @@ types::TypeId SemaPipeline::visitWhile(ast::ExprId id, const ast::WhileNode &n) 
     visitExpr(n.body);
     typed_ast_.set(id, types::kVoidType);
     return types::kVoidType;
+}
+
+types::TypeId SemaPipeline::visitWhen(ast::ExprId id, const ast::WhenNode &n) {
+    auto subject_type = visitExpr(n.subject);
+    if (subject_type == types::kErrorType) {
+        typed_ast_.set(id, types::kErrorType);
+        return types::kErrorType;
+    }
+
+    types::TypeId result_type = types::kVoidType;
+    bool has_value_body = false;
+    bool has_void_body = false;
+    bool has_default = false;
+
+    for (size_t i = 0; i < n.cases.size(); i++) {
+        auto &c = n.cases[i];
+
+        if (auto *ident = std::get_if<ast::IdentNode>(&builder().getExpr(c.condition))) {
+            if (ident->name == "_") {
+                if (has_default) {
+                    ctx_.diags().report(diagnostics::Severity::Error, diagnostics::err::ExpectedExpr,
+                                        "duplicate default case", c.span);
+                    typed_ast_.set(id, types::kErrorType);
+                    return types::kErrorType;
+                }
+                if (i + 1 < n.cases.size()) {
+                    ctx_.diags().report(diagnostics::Severity::Error, diagnostics::err::ExpectedExpr,
+                                        "default case must be the last case", c.span);
+                    typed_ast_.set(id, types::kErrorType);
+                    return types::kErrorType;
+                }
+                has_default = true;
+            }
+        }
+
+        auto cond_type = visitExpr(c.condition);
+        if (cond_type != types::kErrorType && cond_type != types::kBoolType) {
+            if (!unifier_.unify(cond_type, types::kBoolType, c.span)) {
+                typed_ast_.set(id, types::kErrorType);
+                return types::kErrorType;
+            }
+        }
+
+        auto body_type = visitExpr(c.body);
+        if (body_type == types::kErrorType) {
+            typed_ast_.set(id, types::kErrorType);
+            return types::kErrorType;
+        }
+
+        if (body_type == types::kVoidType) {
+            has_void_body = true;
+        } else {
+            has_value_body = true;
+            if (result_type == types::kVoidType) {
+                result_type = body_type;
+            } else if (!unifier_.unify(result_type, body_type, c.span)) {
+                typed_ast_.set(id, types::kErrorType);
+                return types::kErrorType;
+            }
+        }
+    }
+
+    if (!has_value_body) {
+        result_type = types::kVoidType;
+    } else if (has_void_body || !has_default) {
+        result_type = ctx_.types().internOptional(result_type);
+    }
+
+    typed_ast_.set(id, result_type);
+    return result_type;
 }
 
 void SemaPipeline::visitMarker(const ast::MarkerNode &n) {

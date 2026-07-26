@@ -49,6 +49,8 @@ public:
     ExprId enumValue(std::string_view enum_name, std::string_view variant_name,
                      memory::Span span = {});
     ExprId range(ExprId lhs, ExprId rhs, memory::Span span = {});
+    ExprId range(ExprId lhs, ExprId rhs, RangeBounds bounds, memory::Span span = {});
+    ExprId whenExpr(ExprId subject, memory::DynArray<WhenCase> cases, memory::Span span = {});
     ExprId block(memory::DynArray<StmtId> stmts, ExprId trailing = kInvalidExpr,
                  memory::Span span = {});
     ExprId ifExpr(ExprId cond, ExprId then_branch, ExprId else_branch = kInvalidExpr,

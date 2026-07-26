@@ -34,6 +34,10 @@ static std::string joinWith(const memory::DynArray<std::string_view> &path, char
     return result;
 }
 
+static std::string canonicalPath(const std::string &path) {
+    return fs::weakly_canonical(fs::path(path)).string();
+}
+
 auto ImportManager::resolve_file(const std::string &full_path, const std::string &import_key,
                                  const std::string &ns, bool is_from, bool is_export,
                                  const std::string &alias, int32_t import_depth,
@@ -42,6 +46,17 @@ auto ImportManager::resolve_file(const std::string &full_path, const std::string
     if (auto *existing = dep_graph_.loadedIndex(import_key))
         return *existing;
 
+    auto canonical_path = canonicalPath(full_path);
+    if (auto *existing = dep_graph_.loadedByCanonical(canonical_path)) {
+        dep_graph_.remember(import_key, canonical_path, *existing);
+        return *existing;
+    }
+
+    auto guard = dep_graph_.beginResolveCanonical(canonical_path);
+    if (!guard)
+        return std::move(guard.error());
+    auto resolve_guard = std::move(guard.value());
+
     // ── C/C++ header: don't tokenize, just register ───────────────
     auto ext         = fs::path(full_path).extension();
     bool is_c_header = (ext == ".h" || ext == ".hpp");
@@ -49,7 +64,7 @@ auto ImportManager::resolve_file(const std::string &full_path, const std::string
     if (is_c_header) {
         auto idx = registry_.add(loaded_file_factory::makeHeaderFile(
             arena_, interner_, full_path, import_key, ns, is_from, is_export, alias, import_depth));
-        dep_graph_.remember(import_key, idx);
+        dep_graph_.remember(import_key, canonical_path, idx);
         return idx;
     }
 
@@ -88,7 +103,7 @@ auto ImportManager::resolve_file(const std::string &full_path, const std::string
                                                                        std::move(module_syms),
                                                                    },
                                                                    std::move(deps), symbols));
-    dep_graph_.remember(import_key, idx);
+    dep_graph_.remember(import_key, canonical_path, idx);
     return idx;
 }
 
@@ -119,7 +134,11 @@ auto ImportManager::resolve_directory(const std::string &import_key, const std::
             first_idx = res.value();
     }
 
-    dep_graph_.remember(import_key, first_idx);
+    if (first_idx == SIZE_MAX)
+        return memory::Error{"directory '" + dir_path + "' contains no resolvable imports"};
+
+    // The directory key aliases its first file only to deduplicate repeated directory imports.
+    dep_graph_.remember(import_key, canonicalPath(dir_path), first_idx);
     return first_idx;
 }
 
@@ -128,9 +147,15 @@ auto ImportManager::resolve_asset_file(const std::string &full_path, const std::
     if (auto *existing = dep_graph_.loadedIndex(import_key))
         return *existing;
 
+    auto canonical_path = canonicalPath(full_path);
+    if (auto *existing = dep_graph_.loadedByCanonical(canonical_path)) {
+        dep_graph_.remember(import_key, canonical_path, *existing);
+        return *existing;
+    }
+
     auto idx = registry_.add(
         loaded_file_factory::makeAssetFile(arena_, interner_, full_path, import_key, alias));
-    dep_graph_.remember(import_key, idx);
+    dep_graph_.remember(import_key, canonical_path, idx);
     return idx;
 }
 

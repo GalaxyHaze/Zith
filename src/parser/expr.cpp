@@ -103,6 +103,64 @@ ast::ExprId Parser::parsePrimary() {
         return bld->ifExpr(cond, then_branch, else_branch, spanFrom(if_span));
     }
 
+    // when expression
+    auto when_span = peek().span;
+    if (match("when")) {
+        consume('(');
+        auto subject = parseExpr();
+        consume(')');
+        consume('{');
+
+        memory::DynArray<ast::WhenCase> cases{bld->arena()};
+        while (!eof() && !check('}')) {
+            skipComments(*tok);
+            if (check('}'))
+                break;
+
+            consume('(');
+            auto cond = parseExpr();
+            consume(')');
+
+            // ~> delimiter
+            auto tilde_punc = peek();
+            if (!(tilde_punc.is(lexer::TokenKind::Operators) && tilde_punc.punc == '~' &&
+                  peek(1).is(lexer::TokenKind::Operators) && peek(1).punc == '>')) {
+                errorExpected("'~>' after when case condition");
+                return ast::kInvalidExpr;
+            }
+            advance(2); // consume ~ and >
+
+            ast::ExprId body = ast::kInvalidExpr;
+            if (check('{')) {
+                advance();
+                body = parseBlock();
+            } else {
+                body = parseExpr();
+            }
+
+            auto case_span = memory::Span{when_span.file, bld->exprSpan(cond).start,
+                                          bld->exprSpan(body).end};
+            cases.push({cond, body, false, case_span});
+
+            if (!consume(',')) {
+                // No comma — end of cases
+                break;
+            }
+        }
+        consume('}');
+
+        // Mark `_` wildcard as default case
+        if (!cases.empty()) {
+            auto &last = cases[cases.size() - 1];
+            if (auto *ident = std::get_if<ast::IdentNode>(&bld->getExpr(last.condition))) {
+                if (ident->name == "_")
+                    last.is_default = true;
+            }
+        }
+
+        return bld->whenExpr(subject, std::move(cases), spanFrom(when_span));
+    }
+
     // while expression
     auto while_span = peek().span;
     if (match("while")) {
@@ -391,6 +449,49 @@ ast::ExprId Parser::parseExpr(int min_prec) {
                 type_name->name, std::move(fields),
                 memory::Span{lhs_span.file, lhs_span.start, previous().span.end});
             continue;
+        }
+
+        // ── Range operators: ..  >..  ..<  >..< ────────────────────
+        // Must come before .field since `..` overlaps with `.`.
+        {
+            ast::RangeBounds bounds = ast::RangeBounds::Closed;
+            uint32_t advance_n      = 0;
+            auto &c0                = peek(0);
+            auto &c1                = peek(1);
+            auto &c2                = peek(2);
+
+            // >.. or >..< — left-open
+            if (c0.is(lexer::TokenKind::Operators) && c0.punc == '>' &&
+                c1.is(lexer::TokenKind::Punctuation) && c1.punc == '.' &&
+                c2.is(lexer::TokenKind::Punctuation) && c2.punc == '.') {
+                advance_n = 3; // consume > . .
+                if (peek(3).is(lexer::TokenKind::Operators) && peek(3).punc == '<') {
+                    advance_n = 4;
+                    bounds    = ast::RangeBounds::Open;
+                } else {
+                    bounds = ast::RangeBounds::OpenLeft;
+                }
+            }
+            // .. or ..< — right-inclusive or right-open
+            else if (c0.is(lexer::TokenKind::Punctuation) && c0.punc == '.' &&
+                     c1.is(lexer::TokenKind::Punctuation) && c1.punc == '.') {
+                advance_n = 2; // consume . .
+                if (c2.is(lexer::TokenKind::Operators) && c2.punc == '<') {
+                    advance_n = 3;
+                    bounds    = ast::RangeBounds::OpenRight;
+                } else {
+                    bounds = ast::RangeBounds::Closed;
+                }
+            }
+
+            if (advance_n > 0) {
+                advance(advance_n);
+                auto rhs = parseExpr();
+                lhs      = bld->range(lhs, rhs, bounds,
+                                      memory::Span{lhs_span.file, lhs_span.start,
+                                                   bld->exprSpan(rhs).end});
+                continue;
+            }
         }
 
         // ── Postfix: .field ──────────────────────────────────────────

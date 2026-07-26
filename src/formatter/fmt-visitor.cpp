@@ -498,6 +498,7 @@ void FmtVisitor::visitExpr(ast::ExprId id, int parent_prec) {
                    [&](const ast::ArrayLiteralNode &n) { emitArrayLiteral(n); },
                    [&](const ast::EnumValueNode &n) { emitEnumValue(n); },
                    [&](const ast::RangeNode &n) { emitRange(n); },
+                   [&](const ast::WhenNode &n) { emitWhen(n); },
                    [](const ast::UnbodyNode &) {},
                    [&](const ast::IntrinsicNode &n) { emitIntrinsic(n); },
                    [&](const ast::MacroCallNode &n) { emitMacroCall(n); },
@@ -624,8 +625,36 @@ void FmtVisitor::emitEnumValue(const ast::EnumValueNode &node) {
 
 void FmtVisitor::emitRange(const ast::RangeNode &node) {
     visitExpr(node.lhs);
-    emit("..");
+    switch (node.bounds) {
+    case ast::RangeBounds::OpenLeft:  emit(">..");  break;
+    case ast::RangeBounds::OpenRight: emit("..<");  break;
+    case ast::RangeBounds::Open:      emit(">..<"); break;
+    default:                          emit("..");   break;
+    }
     visitExpr(node.rhs);
+}
+
+void FmtVisitor::emitWhen(const ast::WhenNode &node) {
+    emit("when (");
+    visitExpr(node.subject);
+    emit(") {\n");
+    incIndent();
+    for (size_t i = 0; i < node.cases.size(); i++) {
+        auto &c = node.cases[i];
+        emitIndent();
+        emit("(");
+        visitExpr(c.condition);
+        emit(")");
+        emit(" ~> ");
+        visitExpr(c.body);
+        if (i + 1 < node.cases.size())
+            emit(",\n");
+        else
+            emit(",\n");
+    }
+    decIndent();
+    emitIndent();
+    emit("}");
 }
 
 void FmtVisitor::emitIntrinsic(const ast::IntrinsicNode &node) {

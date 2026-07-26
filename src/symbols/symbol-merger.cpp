@@ -63,6 +63,22 @@ void SymbolMerger::mergeInto(SymbolTable &main_syms, int32_t from_depth) {
         sym_origins_[main_sid] = SymOrigin{file_idx, local_sid};
     };
 
+    auto report_collision = [&](std::string_view name, SymId existing_sid, size_t incoming_file) {
+        if (existing_sid >= sym_origins_.size())
+            return;
+
+        const auto &origin = sym_origins_[existing_sid];
+        if (origin.file_idx == size_t(-1) || origin.file_idx == incoming_file ||
+            origin.file_idx >= files_.size())
+            return;
+
+        diags_.report(diagnostics::Severity::Error, diagnostics::err::DuplicateDecl,
+                      "imported symbol '" + std::string(name) + "' conflicts between '" +
+                          files_[origin.file_idx].import_key + "' and '" +
+                          files_[incoming_file].import_key + "'",
+                      {});
+    };
+
     std::unordered_set<std::string> from_namespaces;
 
     for (size_t fi = 0; fi < files_.size(); ++fi) {
@@ -81,6 +97,7 @@ void SymbolMerger::mergeInto(SymbolTable &main_syms, int32_t from_depth) {
         }
 
         memory::FlatMap<std::string_view, std::string_view> selective_map;
+        std::unordered_set<std::string_view> matched_selective;
         bool selective = !file.import_symbols.empty();
         for (auto &isym : file.import_symbols)
             selective_map[isym.name] = isym.alias;
@@ -98,6 +115,7 @@ void SymbolMerger::mergeInto(SymbolTable &main_syms, int32_t from_depth) {
                 auto *alias_ptr = selective_map.get(raw_name);
                 if (!alias_ptr)
                     return;
+                matched_selective.insert(raw_name);
                 auto alias_name = *alias_ptr;
 
                 std::string_view declare_name;
@@ -106,8 +124,11 @@ void SymbolMerger::mergeInto(SymbolTable &main_syms, int32_t from_depth) {
                 else
                     declare_name = raw_name;
 
-                if (main_syms.lookupInScope(declare_name, kRootScope) != kInvalidSym)
+                auto existing_sid = main_syms.lookupInScope(declare_name, kRootScope);
+                if (existing_sid != kInvalidSym) {
+                    report_collision(declare_name, existing_sid, fi);
                     return;
+                }
                 auto main_id = main_syms.declare(declare_name, vis, depth, data.kind, data.decl_id,
                                                  data.span, data.target, data.doc_span);
                 record_origin(main_id, fi, sid);
@@ -116,8 +137,11 @@ void SymbolMerger::mergeInto(SymbolTable &main_syms, int32_t from_depth) {
 
             auto declare_or_diag = [&](std::string_view name, SymbolVisibility visibility,
                                        int32_t mod_depth, SymId local_sid) {
-                if (main_syms.lookupInScope(name, kRootScope) != kInvalidSym)
+                auto existing_sid = main_syms.lookupInScope(name, kRootScope);
+                if (existing_sid != kInvalidSym) {
+                    report_collision(name, existing_sid, fi);
                     return;
+                }
                 auto main_id =
                     main_syms.declare(name, visibility, mod_depth, data.kind, data.decl_id,
                                       data.span, data.target, data.doc_span);
@@ -140,13 +164,27 @@ void SymbolMerger::mergeInto(SymbolTable &main_syms, int32_t from_depth) {
                 merge_sym(sid, true);
         }
 
+        if (selective) {
+            for (auto &isym : file.import_symbols) {
+                if (matched_selective.contains(isym.name))
+                    continue;
+                diags_.report(diagnostics::Severity::Error, diagnostics::err::ImportError,
+                              "import selector '" + std::string(isym.name) +
+                                  "' was not found in '" + file.import_key + "'",
+                              {});
+            }
+        }
+
         std::unordered_set<size_t> visited;
         auto declare_re_export = [&](std::string_view name, SymbolVisibility visibility,
                                      int32_t mod_depth, SymKind kind, ast::DeclId decl_id,
                                      memory::Span span, SymId target, memory::Span doc_span,
                                      size_t re_export_file, SymId local_id) {
-            if (main_syms.lookupInScope(name, kRootScope) != kInvalidSym)
+            auto existing_sid = main_syms.lookupInScope(name, kRootScope);
+            if (existing_sid != kInvalidSym) {
+                report_collision(name, existing_sid, re_export_file);
                 return;
+            }
             auto main_id = main_syms.declare(name, visibility, mod_depth, kind, decl_id, span,
                                              target, doc_span);
             record_origin(main_id, re_export_file, local_id);

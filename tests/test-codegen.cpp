@@ -320,12 +320,15 @@ static void test_from_console_lowers_println_body() {
 
 static void test_console_alias_resolves_member_without_global_import() {
     CodegenTest aliased;
+    aliased.opts.flags.emitIr(true);
     auto ok = aliased.run("codegen-console-alias.zith", "import std/io/console as console\n"
                                                         "fn main(): i32 {\n"
                                                         "    console.println(\"alias import\");\n"
                                                         "    return 0;\n"
                                                         "}\n");
     CHECK(ok.ok, "console.println resolves through an import alias");
+    CHECK(ok.output.find("call void @println") != std::string::npos,
+          "Alias import emits a call to the imported function");
 
     CodegenTest unqualified;
     auto missing =

@@ -32,8 +32,10 @@ public:
     explicit DepGraph(memory::Arena &arena);
 
     auto loadedIndex(std::string_view import_key) const -> const size_t *;
+    auto loadedByCanonical(std::string_view canonical_path) const -> const size_t *;
     auto beginResolve(const std::string &import_key) -> memory::Result<ResolveGuard>;
-    void remember(std::string_view import_key, size_t idx);
+    auto beginResolveCanonical(const std::string &canonical_path) -> memory::Result<ResolveGuard>;
+    void remember(std::string_view import_key, std::string_view canonical_path, size_t idx);
     bool isLoaded(std::string_view import_key) const;
 
     void setRootDeps(memory::DynArray<size_t> deps);
@@ -41,7 +43,9 @@ public:
 
 private:
     memory::FlatMap<std::string, size_t> index_by_path_;
+    memory::FlatMap<std::string, size_t> index_by_canonical_;
     memory::FlatMap<std::string, char> resolving_;
+    memory::FlatMap<std::string, char> resolving_canonical_;
     memory::DynArray<size_t> root_deps_;
 };
 

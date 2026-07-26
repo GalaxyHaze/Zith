@@ -17,6 +17,7 @@
 #include "symbols/symbol-table.hpp"
 #include "types/type-intern.hpp"
 
+#include "cache/cache.hpp"
 #include <array>
 #include <cstdarg>
 #include <functional>
@@ -87,6 +88,15 @@ class CompilationSession {
     std::string mContentOverride;
     std::shared_ptr<FrontendContext> mFrontendContext;
     std::shared_ptr<const CompilationSnapshot> mSnapshot;
+    std::unique_ptr<cache::Store> mCacheStore;
+    bool mCacheLoaded = false; // true when the root module was served from cache
+    bool mCacheHydrated = false; // true when session state was restored from artifact
+    std::string mCanonicalPath;
+    session::ContentFingerprint mSourceFingerprint;
+
+    bool tryLoadPersistentCache();
+    void writePersistentCache();
+    void hydrateFromArtifact(const cache::Artifact &art);
     // Per-stage wall-clock durations in milliseconds; 0.0 = stage not executed.
     std::array<double, static_cast<size_t>(StageIndex::Count)> mStageDurations{};
 

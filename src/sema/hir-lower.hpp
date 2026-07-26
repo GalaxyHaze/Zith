@@ -32,6 +32,7 @@ class HirLower {
     types::TypeId current_fn_ret_type_ = types::kErrorType;
     size_t currentBlock_               = 0;
     memory::FlatMap<std::string_view, size_t> labelMap_;
+    uint32_t slot_counter_ = 0;
 
     ast::AstBuilder &builder() const;
     ast::AstBuilder *builderForSym(symbols::SymId fn_sym);
@@ -55,8 +56,15 @@ class HirLower {
     hir::HirExprId visitBlock(const ast::BlockNode &n);
     hir::HirExprId visitIf(const ast::IfNode &n);
     hir::HirExprId visitWhile(const ast::WhileNode &n);
+    hir::HirExprId visitWhen(ast::ExprId id, const ast::WhenNode &n);
+    hir::HirExprId lowerWhenCondition(ast::ExprId cond, hir::HirSlotId subj_slot,
+                                      types::TypeId subject_type);
     void visitStmt(ast::StmtId id);
     size_t newBlock();
+    hir::HirExprId emitSlotAlloca(hir::HirSlotId slot, types::TypeId type);
+    hir::HirExprId emitSlotStore(hir::HirSlotId slot, hir::HirExprId value);
+    hir::HirExprId emitSlotLoad(hir::HirSlotId slot, types::TypeId type);
+    hir::HirSlotId allocSlot();
     void setCurrentBlock(size_t idx);
     size_t currentBlock() const;
     void setTerminator(hir::HirExprId term);

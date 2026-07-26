@@ -77,6 +77,26 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 llvm::errs() << "FATAL: HirPhi not supported in memory-variable codegen model\n";
                 std::abort();
             },
+            [&](const hir::HirSlotAlloca &s) -> llvm::Value * {
+                if (s.slot >= slots_.size())
+                    slots_.resize(s.slot + 1);
+                auto *alloc = builder_.CreateAlloca(typeGen_.lower(s.type));
+                slots_[s.slot] = alloc;
+                return alloc;
+            },
+            [&](const hir::HirSlotStore &s) -> llvm::Value * {
+                if (s.slot >= slots_.size())
+                    return nullptr;
+                auto *val = emitExpr(s.value, mod);
+                if (!val) return nullptr;
+                builder_.CreateStore(val, slots_[s.slot]);
+                return val;
+            },
+            [&](const hir::HirSlotLoad &s) -> llvm::Value * {
+                if (s.slot >= slots_.size())
+                    return nullptr;
+                return builder_.CreateLoad(typeGen_.lower(s.type), slots_[s.slot]);
+            },
         });
 }
 
@@ -303,11 +323,17 @@ llvm::Value *CodeGenEmit::emitCall(const hir::HirCall &call, const hir::HirModul
     // The callee is typically the first arg — resolve through IRBuilder's module
     auto *module = builder_.GetInsertBlock()->getParent()->getParent();
 
-    // For now, resolve callee from resolved_fn symbol
+    // HIR function names are local to their source module, while call symbols
+    // can be namespace-qualified by an import alias. Resolve by symbol identity.
     if (call.resolved_fn != symbols::kInvalidSym) {
-        auto &sym = syms_.get(call.resolved_fn);
-        auto name = interner_.lookup(sym.name);
-        fn        = module->getFunction(llvm::StringRef(name.data(), name.size()));
+        for (size_t i = 0; i < mod.getFnCount(); ++i) {
+            const auto &hir_fn = mod.getFn(i);
+            if (hir_fn.sym_id != call.resolved_fn)
+                continue;
+            auto name = interner_.lookup(hir_fn.name);
+            fn        = module->getFunction(llvm::StringRef(name.data(), name.size()));
+            break;
+        }
     }
 
     if (!fn) {

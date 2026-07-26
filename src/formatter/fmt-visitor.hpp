@@ -65,6 +65,7 @@ private:
     void emitArrayLiteral(const ast::ArrayLiteralNode &node);
     void emitEnumValue(const ast::EnumValueNode &node);
     void emitRange(const ast::RangeNode &node);
+    void emitWhen(const ast::WhenNode &node);
     void emitIntrinsic(const ast::IntrinsicNode &node);
     void emitMacroCall(const ast::MacroCallNode &node);
     void emitSequence(const ast::SeqNode &node, int parent_prec);

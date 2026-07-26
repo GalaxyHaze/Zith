@@ -53,6 +53,10 @@ auto DepGraph::loadedIndex(std::string_view import_key) const -> const size_t * 
     return index_by_path_.get(import_key);
 }
 
+auto DepGraph::loadedByCanonical(std::string_view canonical_path) const -> const size_t * {
+    return index_by_canonical_.get(canonical_path);
+}
+
 auto DepGraph::beginResolve(const std::string &import_key) -> memory::Result<ResolveGuard> {
     if (resolving_.contains(import_key))
         return memory::Error{"circular import detected: '" + import_key + "'"};
@@ -61,8 +65,18 @@ auto DepGraph::beginResolve(const std::string &import_key) -> memory::Result<Res
     return ResolveGuard(&resolving_, import_key);
 }
 
-void DepGraph::remember(std::string_view import_key, size_t idx) {
+auto DepGraph::beginResolveCanonical(const std::string &canonical_path)
+    -> memory::Result<ResolveGuard> {
+    if (resolving_canonical_.contains(canonical_path))
+        return memory::Error{"circular import detected: '" + canonical_path + "'"};
+
+    resolving_canonical_.insert(canonical_path, char(1));
+    return ResolveGuard(&resolving_canonical_, canonical_path);
+}
+
+void DepGraph::remember(std::string_view import_key, std::string_view canonical_path, size_t idx) {
     index_by_path_.insert(std::string(import_key), idx);
+    index_by_canonical_.insert(std::string(canonical_path), idx);
 }
 
 bool DepGraph::isLoaded(std::string_view import_key) const {
@@ -101,7 +115,7 @@ auto collectModuleDependencies(memory::Arena &arena, diagnostics::DiagnosticEngi
                 deps.re_exported_files.push(re_res.value());
             } else {
                 auto key = joinWith(import->path, '/');
-                diags.report(diagnostics::Severity::Warning, diagnostics::err::ImportError,
+                diags.report(diagnostics::Severity::Error, diagnostics::err::ImportError,
                              "re-export of '" + key + "' failed: " + re_res.error().msg, {});
             }
             continue;
@@ -113,7 +127,7 @@ auto collectModuleDependencies(memory::Arena &arena, diagnostics::DiagnosticEngi
                 deps.dep_files.push(dep_res.value());
             } else {
                 auto key = joinWith(import->path, '/');
-                diags.report(diagnostics::Severity::Warning, diagnostics::err::ImportError,
+                diags.report(diagnostics::Severity::Error, diagnostics::err::ImportError,
                              "from-import of '" + key + "' failed: " + dep_res.error().msg, {});
             }
         }

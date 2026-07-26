@@ -16,6 +16,7 @@ enum class ExprKind : uint8_t {
     Field,
     Index,
     Range,
+    When,
     Unbody,
     Intrinsic,
     MacroCall,

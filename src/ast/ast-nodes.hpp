@@ -129,8 +129,25 @@ struct EnumValueNode {
 struct RangeNode {
     ExprId lhs;
     ExprId rhs;
+    RangeBounds bounds = RangeBounds::Closed;
     memory::Span span{};
     ExprKind tag = ExprKind::Range;
+};
+
+enum class RangeBounds : uint8_t { Closed, OpenLeft, OpenRight, Open };
+
+struct WhenCase {
+    ExprId condition;
+    ExprId body;
+    bool is_default = false;
+    memory::Span span{};
+};
+
+struct WhenNode {
+    ExprId subject;
+    memory::DynArray<WhenCase> cases;
+    memory::Span span{};
+    ExprKind tag = ExprKind::When;
 };
 
 struct BlockNode {
@@ -441,7 +458,7 @@ struct ErrorExprNode {
 using ExprNode = std::variant<LitValue, IdentNode, BinaryNode, UnaryNode, CallNode, BlockNode,
                               IfNode, WhileNode, FieldNode, IndexNode, StructLiteralNode,
                               ArrayLiteralNode, EnumValueNode, RangeNode, UnbodyNode, IntrinsicNode,
-                              MacroCallNode, SeqNode, WordCallNode, ErrorExprNode>;
+                              MacroCallNode, SeqNode, WordCallNode, WhenNode, ErrorExprNode>;
 
 struct GotoNode {
     std::string_view target;

@@ -68,6 +68,7 @@ class SemaPipeline {
     types::TypeId visitBlock(ast::ExprId id, const ast::BlockNode &n);
     types::TypeId visitIf(ast::ExprId id, const ast::IfNode &n);
     types::TypeId visitWhile(ast::ExprId id, const ast::WhileNode &n);
+    types::TypeId visitWhen(ast::ExprId id, const ast::WhenNode &n);
     void visitStmt(ast::StmtId id);
     void visitMarker(const ast::MarkerNode &n);
     void visitGoto(const ast::GotoNode &n);

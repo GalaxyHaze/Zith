@@ -63,6 +63,7 @@ private:
     const symbols::SymbolTable &syms_;
     const types::TypeIntern &types_;
     memory::FlatMap<std::string_view, NamedValue> namedValues_;
+    std::vector<llvm::Value *> slots_;
     const std::vector<llvm::BasicBlock *> *blocks_ = nullptr;
 };
 

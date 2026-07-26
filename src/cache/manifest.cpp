@@ -1,0 +1,167 @@
+#include "manifest.hpp"
+
+#include "zirl/zirl-header.hpp"
+
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <string>
+
+namespace zith::cache {
+
+namespace {
+
+namespace fs = std::filesystem;
+
+// Simple text manifest format: one record per line, fields separated by \x1f.
+// Human-debuggable and trivial to regenerate if corrupted.
+std::string escapeField(std::string_view s) {
+    std::string out;
+    for (char c : s) {
+        if (c == '\n' || c == '\x1f' || c == '\x1e')
+            out.push_back('\\');
+        out.push_back(c);
+    }
+    return out;
+}
+
+std::string unescapeField(std::string_view s) {
+    std::string out;
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\\' && i + 1 < s.size()) {
+            out.push_back(s[++i]);
+        } else {
+            out.push_back(s[i]);
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+void Manifest::upsert(ManifestEntry entry) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto &slot = by_path_[entry.canonical_path];
+    // Update reverse deps for the previous dependency set.
+    for (const auto &dep : slot.dependencies)
+        reverse_deps_[dep].erase(entry.canonical_path);
+    slot = std::move(entry);
+    for (const auto &dep : slot.dependencies)
+        reverse_deps_[dep].insert(slot.canonical_path);
+}
+
+void Manifest::remove(std::string_view canonical_path) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto it = by_path_.find(std::string(canonical_path));
+    if (it == by_path_.end())
+        return;
+    for (const auto &dep : it->second.dependencies)
+        reverse_deps_[dep].erase(it->first);
+    by_path_.erase(it);
+}
+
+std::optional<ManifestEntry> Manifest::find(std::string_view canonical_path) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto it = by_path_.find(std::string(canonical_path));
+    if (it == by_path_.end())
+        return std::nullopt;
+    return it->second;
+}
+
+std::vector<std::string> Manifest::dependentsOf(std::string_view canonical_path) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> result;
+    std::unordered_set<std::string> visited;
+    std::vector<std::string> stack{std::string(canonical_path)};
+    while (!stack.empty()) {
+        auto cur = std::move(stack.back());
+        stack.pop_back();
+        if (!visited.insert(cur).second)
+            continue;
+        const auto it = reverse_deps_.find(cur);
+        if (it == reverse_deps_.end())
+            continue;
+        for (const auto &dep : it->second) {
+            result.push_back(dep);
+            stack.push_back(dep);
+        }
+    }
+    return result;
+}
+
+void Manifest::save() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::error_code ec;
+    fs::create_directories(root_, ec);
+    const auto path = fs::path(root_) / "manifest";
+    std::FILE *fp = std::fopen(path.c_str(), "wb");
+    if (!fp)
+        return;
+    for (const auto &[key, entry] : by_path_) {
+        std::fprintf(fp, "%s\x1f%s\x1f%08x\x1f%08x\x1f%08x\x1f%08x\x1e",
+                     escapeField(entry.canonical_path).c_str(),
+                     escapeField(entry.artifact_path).c_str(), entry.public_abi_hi,
+                     entry.public_abi_lo, entry.source_fp_hi, entry.source_fp_lo);
+        for (size_t i = 0; i < entry.dependencies.size(); ++i) {
+            if (i != 0)
+                std::fputc('\x1d', fp);
+            std::fprintf(fp, "%s", escapeField(entry.dependencies[i]).c_str());
+        }
+        std::fputc('\n', fp);
+    }
+    std::fclose(fp);
+}
+
+void Manifest::load() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto path = fs::path(root_) / "manifest";
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        return;
+    std::string line;
+    while (std::getline(input, line)) {
+        std::string_view raw(line);
+        if (raw.empty())
+            continue;
+        // Split on \x1e into [header, deps].
+        auto sep = raw.find('\x1e');
+        std::string_view header = (sep == std::string_view::npos) ? raw : raw.substr(0, sep);
+        std::string_view deps   = (sep == std::string_view::npos) ? "" : raw.substr(sep + 1);
+        // Parse header fields separated by \x1f.
+        std::vector<std::string_view> fields;
+        size_t start = 0;
+        for (size_t i = 0; i <= header.size(); ++i) {
+            if (i == header.size() || header[i] == '\x1f') {
+                fields.push_back(header.substr(start, i - start));
+                start = i + 1;
+            }
+        }
+        if (fields.size() < 6)
+            continue;
+        ManifestEntry entry;
+        entry.canonical_path  = unescapeField(fields[0]);
+        entry.artifact_path   = unescapeField(fields[1]);
+        entry.public_abi_hi   = static_cast<uint32_t>(std::stoul(std::string(fields[2]), nullptr, 16));
+        entry.public_abi_lo   = static_cast<uint32_t>(std::stoul(std::string(fields[3]), nullptr, 16));
+        entry.source_fp_hi    = static_cast<uint32_t>(std::stoul(std::string(fields[4]), nullptr, 16));
+        entry.source_fp_lo    = static_cast<uint32_t>(std::stoul(std::string(fields[5]), nullptr, 16));
+        // Parse deps separated by \x1d.
+        if (!deps.empty()) {
+            size_t dstart = 0;
+            for (size_t i = 0; i <= deps.size(); ++i) {
+                if (i == deps.size() || deps[i] == '\x1d') {
+                    auto d = deps.substr(dstart, i - dstart);
+                    if (!d.empty())
+                        entry.dependencies.push_back(unescapeField(d));
+                    dstart = i + 1;
+                }
+            }
+        }
+        for (const auto &dep : entry.dependencies)
+            reverse_deps_[dep].insert(entry.canonical_path);
+        by_path_[entry.canonical_path] = std::move(entry);
+    }
+}
+
+} // namespace zith::cache

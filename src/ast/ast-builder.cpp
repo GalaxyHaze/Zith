@@ -49,6 +49,9 @@ template <> struct ExprTagFor<EnumValueNode> {
 template <> struct ExprTagFor<RangeNode> {
     static constexpr ExprKind value = ExprKind::Range;
 };
+template <> struct ExprTagFor<WhenNode> {
+    static constexpr ExprKind value = ExprKind::When;
+};
 template <> struct ExprTagFor<UnbodyNode> {
     static constexpr ExprKind value = ExprKind::Unbody;
 };
@@ -248,6 +251,14 @@ ExprId AstBuilder::enumValue(std::string_view enum_name, std::string_view varian
 
 ExprId AstBuilder::range(ExprId lhs, ExprId rhs, memory::Span span) {
     return addExpr(RangeNode{lhs, rhs, span});
+}
+
+ExprId AstBuilder::range(ExprId lhs, ExprId rhs, RangeBounds bounds, memory::Span span) {
+    return addExpr(RangeNode{lhs, rhs, bounds, span});
+}
+
+ExprId AstBuilder::whenExpr(ExprId subject, memory::DynArray<WhenCase> cases, memory::Span span) {
+    return addExpr(WhenNode{subject, std::move(cases), span});
 }
 
 ExprId AstBuilder::block(memory::DynArray<StmtId> stmts, ExprId trailing, memory::Span span) {

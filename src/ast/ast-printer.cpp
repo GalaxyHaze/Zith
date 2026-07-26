@@ -415,7 +415,14 @@ void print_expr_node(const ExprNode &node, const AstBuilder &bld, FILE *out, int
                              n.variant_name.data());
             },
             [&](const RangeNode &n) {
-                std::fprintf(out, "Range\n");
+                const char *bound_str = "Closed";
+                switch (n.bounds) {
+                case RangeBounds::OpenLeft:  bound_str = "OpenLeft";  break;
+                case RangeBounds::OpenRight: bound_str = "OpenRight"; break;
+                case RangeBounds::Open:      bound_str = "Open";      break;
+                default: break;
+                }
+                std::fprintf(out, "Range(%s)\n", bound_str);
                 print_indent(out, depth + 1);
                 print_expr(n.lhs, bld, out, depth + 1);
                 print_indent(out, depth + 1);
@@ -453,6 +460,25 @@ void print_expr_node(const ExprNode &node, const AstBuilder &bld, FILE *out, int
                             std::fprintf(out, "  op(%d)\n", static_cast<int>(op.builtin_op));
                         }
                     }
+                }
+            },
+            [&](const WhenNode &n) {
+                std::fprintf(out, "When\n");
+                print_indent(out, depth + 1);
+                std::fprintf(out, "subject:\n");
+                print_indent(out, depth + 2);
+                print_expr(n.subject, bld, out, depth + 2);
+                for (size_t i = 0; i < n.cases.size(); i++) {
+                    print_indent(out, depth + 1);
+                    std::fprintf(out, "case %zu (%s):\n", i, n.cases[i].is_default ? "default" : "pattern");
+                    print_indent(out, depth + 2);
+                    std::fprintf(out, "condition:\n");
+                    print_indent(out, depth + 3);
+                    print_expr(n.cases[i].condition, bld, out, depth + 3);
+                    print_indent(out, depth + 2);
+                    std::fprintf(out, "body:\n");
+                    print_indent(out, depth + 3);
+                    print_expr(n.cases[i].body, bld, out, depth + 3);
                 }
             },
             [&](const WordCallNode &n) {
