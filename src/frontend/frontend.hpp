@@ -1,0 +1,313 @@
+#pragma once
+
+#include "memory/arena.hpp"
+
+#include <cstdint>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace zith::frontend {
+
+template <typename Tag> struct Id {
+    uint32_t value = 0;
+
+    [[nodiscard]] constexpr explicit operator bool() const noexcept {
+        return value != 0;
+    }
+    friend constexpr bool operator==(Id, Id) = default;
+};
+
+struct ModuleTag {};
+struct TokenTag {};
+struct SyntaxNodeTag {};
+struct ExprTag {};
+struct DeclTag {};
+struct StmtTag {};
+struct TypeExprTag {};
+struct LocalTag {};
+struct ScopeTag {};
+struct SymbolTag {};
+
+using ModuleId     = Id<ModuleTag>;
+using TokenId      = Id<TokenTag>;
+using SyntaxNodeId = Id<SyntaxNodeTag>;
+using ExprId       = Id<ExprTag>;
+using DeclId       = Id<DeclTag>;
+using StmtId       = Id<StmtTag>;
+using TypeExprId   = Id<TypeExprTag>;
+using LocalId      = Id<LocalTag>;
+using ScopeId      = Id<ScopeTag>;
+using SymbolId     = Id<SymbolTag>;
+
+struct TextSpan {
+    uint32_t start = 0;
+    uint32_t end   = 0;
+
+    [[nodiscard]] constexpr uint32_t size() const noexcept {
+        return end - start;
+    }
+    friend constexpr bool operator==(TextSpan, TextSpan) = default;
+};
+
+enum class TriviaKind : uint8_t { Whitespace, LineComment, BlockComment, DocLine, DocBlock };
+
+struct Trivia {
+    TriviaKind kind;
+    TextSpan span;
+};
+
+enum class TokenKind : uint8_t {
+    Identifier,
+    Keyword,
+    Literal,
+    Operator,
+    Punctuation,
+    Unknown,
+    End,
+};
+
+struct Token {
+    TokenKind kind = TokenKind::Unknown;
+    TextSpan span;
+    uint32_t leadingTriviaStart = 0;
+    uint32_t leadingTriviaCount = 0;
+};
+
+struct Diagnostic {
+    TextSpan span;
+    std::string message;
+};
+
+enum class SyntaxKind : uint8_t { Root, Token, Error };
+
+enum class Visibility : uint8_t { Private, Public, Module };
+
+enum class DeclKind : uint8_t {
+    Error,
+    Import,
+    Function,
+    TypeAlias,
+    Struct,
+    Enum,
+    Union,
+    Trait,
+    Interface,
+    Variable,
+    Context,
+    Word,
+};
+
+enum class ExprKind : uint8_t {
+    Error,
+    Name,
+    Literal,
+    Unary,
+    Binary,
+    Call,
+    Block,
+    If,
+    While,
+    Return,
+    Assign,
+};
+
+enum class StmtKind : uint8_t {
+    Error,
+    Expression,
+    Binding,
+    Return,
+    Break,
+    Continue,
+};
+
+enum class TypeExprKind : uint8_t { Error, Name, Pointer, Optional, Array, Function };
+
+struct TypeExpression {
+    TypeExprId id;
+    TypeExprKind kind = TypeExprKind::Error;
+    TextSpan span;
+    std::string name;
+    std::vector<TypeExprId> arguments;
+};
+
+struct Binding {
+    LocalId id;
+    std::string name;
+    bool mutableBinding = false;
+    TextSpan span;
+    TypeExprId type;
+    ExprId initializer;
+};
+
+struct Statement {
+    StmtId id;
+    StmtKind kind = StmtKind::Error;
+    TextSpan span;
+    ExprId expression;
+    Binding binding;
+};
+
+struct Expression {
+    ExprId id;
+    ExprKind kind = ExprKind::Error;
+    TextSpan span;
+    std::string text;
+    std::vector<ExprId> operands;
+    std::vector<StmtId> statements;
+    ScopeId scope;
+};
+
+struct Scope {
+    ScopeId id;
+    ScopeId parent;
+    TextSpan span;
+};
+
+struct Parameter {
+    LocalId id;
+    std::string name;
+    TextSpan span;
+    TypeExprId type;
+};
+
+struct ImportDecl {
+    std::vector<std::string> path;
+    bool isFrom   = false;
+    bool isExport = false;
+    bool isAsset  = false;
+    int32_t depth = 1;
+};
+
+struct Declaration {
+    DeclId id;
+    DeclKind kind         = DeclKind::Error;
+    Visibility visibility = Visibility::Private;
+    TextSpan span;
+    std::string name;
+    ImportDecl import;
+    std::vector<Parameter> parameters;
+    TypeExprId declaredType;
+    ExprId initializer;
+    ExprId body;
+};
+
+struct GreenNode;
+
+struct GreenElement {
+    const GreenNode *node = nullptr;
+    TokenId token;
+
+    [[nodiscard]] constexpr bool isNode() const noexcept {
+        return node != nullptr;
+    }
+};
+
+struct GreenNode {
+    SyntaxKind kind = SyntaxKind::Error;
+    TextSpan span;
+    const GreenElement *children = nullptr;
+    uint32_t childCount          = 0;
+};
+
+class SyntaxToken {
+public:
+    SyntaxToken(const std::vector<Token> &tokens, const std::string &source, TokenId id)
+        : tokens_(&tokens), source_(&source), id_(id) {}
+
+    [[nodiscard]] TokenId id() const noexcept {
+        return id_;
+    }
+    [[nodiscard]] const Token &token() const noexcept;
+    [[nodiscard]] std::string_view text() const noexcept;
+
+private:
+    const std::vector<Token> *tokens_;
+    const std::string *source_;
+    TokenId id_;
+};
+
+class SyntaxNode {
+public:
+    SyntaxNode(const GreenNode &green, const std::vector<Token> &tokens, const std::string &source)
+        : green_(&green), tokens_(&tokens), source_(&source) {}
+
+    [[nodiscard]] SyntaxKind kind() const noexcept {
+        return green_->kind;
+    }
+    [[nodiscard]] TextSpan span() const noexcept {
+        return green_->span;
+    }
+    [[nodiscard]] uint32_t childCount() const noexcept {
+        return green_->childCount;
+    }
+    [[nodiscard]] const GreenElement &child(uint32_t index) const noexcept;
+    [[nodiscard]] SyntaxToken token(uint32_t index) const noexcept;
+
+private:
+    const GreenNode *green_;
+    const std::vector<Token> *tokens_;
+    const std::string *source_;
+};
+
+class FrontendSnapshot {
+public:
+    explicit FrontendSnapshot(std::string source);
+    FrontendSnapshot(FrontendSnapshot &&) noexcept            = default;
+    FrontendSnapshot &operator=(FrontendSnapshot &&) noexcept = default;
+    FrontendSnapshot(const FrontendSnapshot &)                = delete;
+    FrontendSnapshot &operator=(const FrontendSnapshot &)     = delete;
+
+    [[nodiscard]] const std::string &source() const noexcept {
+        return source_;
+    }
+    [[nodiscard]] const std::vector<Trivia> &trivia() const noexcept {
+        return trivia_;
+    }
+    [[nodiscard]] const std::vector<Token> &tokens() const noexcept {
+        return tokens_;
+    }
+    [[nodiscard]] const std::vector<Diagnostic> &diagnostics() const noexcept {
+        return diagnostics_;
+    }
+    [[nodiscard]] const std::vector<Declaration> &declarations() const noexcept {
+        return declarations_;
+    }
+    [[nodiscard]] const std::vector<TypeExpression> &typeExpressions() const noexcept {
+        return type_expressions_;
+    }
+    [[nodiscard]] const std::vector<Expression> &expressions() const noexcept {
+        return expressions_;
+    }
+    [[nodiscard]] const std::vector<Statement> &statements() const noexcept {
+        return statements_;
+    }
+    [[nodiscard]] const std::vector<Scope> &scopes() const noexcept {
+        return scopes_;
+    }
+    [[nodiscard]] SyntaxNode root() const noexcept;
+    [[nodiscard]] std::string reconstruct() const;
+
+private:
+    friend FrontendSnapshot parse(std::string source);
+    friend void lex(FrontendSnapshot &snapshot);
+    friend void parseCst(FrontendSnapshot &snapshot);
+    friend void lowerAst(FrontendSnapshot &snapshot);
+    friend class AstLowerer;
+
+    std::string source_;
+    memory::Arena arena_;
+    std::vector<Trivia> trivia_;
+    std::vector<Token> tokens_;
+    std::vector<Diagnostic> diagnostics_;
+    std::vector<Declaration> declarations_;
+    std::vector<TypeExpression> type_expressions_;
+    std::vector<Expression> expressions_;
+    std::vector<Statement> statements_;
+    std::vector<Scope> scopes_;
+    const GreenNode *root_ = nullptr;
+};
+
+[[nodiscard]] FrontendSnapshot parse(std::string source);
+
+} // namespace zith::frontend
