@@ -1,18 +1,23 @@
 const sidebar = document.getElementById("sidebar");
 const content = document.getElementById("content");
 const filebarPath = document.getElementById("filebarPath");
-const defaultPage = "./intro/D-overview.html";
+const defaultPage = "./getting-started/D-introduction.html";
+const treeVersion = 2;
 
 let treeModel = [];
 let flatPages = [];
 let pageMeta = new Map();
+let aliasMap = new Map();
 
 (function loadMenu() {
     const cached = sessionStorage.getItem("tree_json");
     if (cached) {
         try {
-            initialiseNavigation(JSON.parse(cached));
-            return;
+            const menu = JSON.parse(cached);
+            if (menu.version === treeVersion) {
+                initialiseNavigation(menu);
+                return;
+            }
         } catch (_) {}
     }
 
@@ -32,16 +37,18 @@ let pageMeta = new Map();
         });
 })();
 
-function initialiseNavigation(menu) {
-    treeModel = menu;
+function initialiseNavigation(menuData) {
+    const generatedTree = !Array.isArray(menuData) && Array.isArray(menuData.navigation);
+    treeModel = generatedTree ? menuData.navigation : menuData;
     flatPages = [];
     pageMeta = new Map();
+    aliasMap = new Map(Object.entries(generatedTree ? menuData.aliases || {} : {}));
 
     buildPageIndex(treeModel);
     renderMenu(treeModel, sidebar);
 
     const page = getPageFromURL() || defaultPage;
-    loadPage(page, null, { replaceHistory: !getPageFromURL() });
+    loadPage(page, getAnchorFromURL(), { replaceHistory: !getPageFromURL() });
 }
 
 function renderMenu(items, parent) {
@@ -92,6 +99,10 @@ function updateFilebar(path) {
     const meta = pageMeta.get(path);
     const filename = path.split("/").pop() || "_";
     filebarPath.textContent = meta ? meta.trail.join(" / ") : filename;
+}
+
+function resolveAlias(path) {
+    return aliasMap.get(path) || path;
 }
 
 function setActiveLink(path) {
@@ -181,7 +192,8 @@ function injectPageNavigation(path) {
 let initialLoad = true;
 
 function loadPage(path, anchor = null, opts = {}) {
-    fetch(path)
+    const canonicalPath = resolveAlias(path);
+    fetch(canonicalPath)
         .then(res => {
             if (!res.ok) throw new Error("Page not found");
             return res.text();
@@ -190,15 +202,15 @@ function loadPage(path, anchor = null, opts = {}) {
             const wasInitialLoad = initialLoad;
             content.innerHTML = html;
 
-            updateFilebar(path);
-            setActiveLink(path);
-            injectPageNavigation(path);
+            updateFilebar(canonicalPath);
+            setActiveLink(canonicalPath);
+            injectPageNavigation(canonicalPath);
 
             if (window.Prism) {
                 Prism.highlightAllUnder(content);
             }
 
-            const filename = path.split("/").pop() || "_";
+            const filename = canonicalPath.split("/").pop() || "_";
             const titleMatch = html.match(/<h[12][^>]*>(.*?)<\/h[12]>/i);
             const pageTitle = titleMatch
                 ? titleMatch[1].replace(/<[^>]+>/g, "").trim()
@@ -208,17 +220,17 @@ function loadPage(path, anchor = null, opts = {}) {
             if (initialLoad) {
                 initialLoad = false;
             }
+            const historyURL = "?page=" + path.replace("./", "") +
+                (anchor ? "#" + encodeURIComponent(anchor) : "");
             if (opts.replaceHistory) {
                 history.replaceState(
                     { path: path, anchor: anchor },
-                    "",
-                    "?page=" + path.replace("./", "")
+                    "", historyURL
                 );
             } else if (!opts.fromPop && !wasInitialLoad) {
                 history.pushState(
                     { path: path, anchor: anchor },
-                    "",
-                    "?page=" + path.replace("./", "")
+                    "", historyURL
                 );
             }
 
@@ -248,9 +260,13 @@ function getPageFromURL() {
     const params = new URLSearchParams(window.location.search);
     const page = params.get("page");
     if (page) {
-        return "./" + page;
+        return "./" + page.replace(/^\.\//, "");
     }
     return null;
+}
+
+function getAnchorFromURL() {
+    return window.location.hash ? decodeURIComponent(window.location.hash.slice(1)) : null;
 }
 
 document.addEventListener("click", e => {
@@ -274,7 +290,7 @@ window.addEventListener("popstate", e => {
     } else {
         const page = getPageFromURL();
         if (page) {
-            loadPage(page, null, { fromPop: true });
+            loadPage(page, getAnchorFromURL(), { fromPop: true });
         }
     }
 });

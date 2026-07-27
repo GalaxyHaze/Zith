@@ -1,0 +1,56 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="18-c-interop">18. C Interop</h1>
+<p>Zith offers three modes of C interop, designed to make using existing C libraries as frictionless as possible.</p>
+<h3 id="181-automatic-binding-via-h">18.1 Automatic Binding via <code>.h</code></h3>
+<p>Including a C header automatically generates bindings. Every function becomes a <code>raw fn</code> by default, and pointer types are inferred:</p>
+<pre><code class="language-zith">import &quot;openssl/ssl.h&quot;;
+
+// All C functions are now available as raw fn
+SSL_CTX_new(method);</code></pre>
+<table>
+  <thead>
+    <tr>
+      <th>C type</th>
+      <th>Inferred Zith type</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>T*</code></td>
+      <td><code>mut *T</code> (mutable pointer)</td>
+    </tr>
+    <tr>
+      <td><code>const T*</code></td>
+      <td><code>*T</code> (read-only pointer)</td>
+    </tr>
+    <tr>
+      <td><code>T**</code></td>
+      <td><code>mut <em>mut </em>T</code></td>
+    </tr>
+    <tr>
+      <td><code>void*</code></td>
+      <td><code>raw opaque</code></td>
+    </tr>
+    <tr>
+      <td><code>int</code>, <code>float</code>, etc.</td>
+      <td>direct primitive equivalents</td>
+    </tr>
+  </tbody>
+</table>
+<h3 id="182-manual-binding-with-semantic-annotation">18.2 Manual Binding with Semantic Annotation</h3>
+<p>Override or supplement auto-generated bindings to attach Zith-specific semantics:</p>
+<pre><code class="language-zith">// Equivalent declarations — malloc is a C function (no namespace)
+// bindToC is subject to Zith namespace rules
+fn bindToC = extern &#x27;C&#x27; malloc(size: u64): unique opaque;
+extern &#x27;C&#x27; malloc(size: u64): unique opaque;   // same thing, no namespace alias</code></pre>
+<h3 id="183-external-no-header">18.3 External (No Header)</h3>
+<p>For assembly routines, headerless libraries, or code deliberately outside the project:</p>
+<pre><code class="language-zith">// The linker resolves this; the compiler has no information about the function
+fn bindTo = extern someAsmRoutine(x: u64): u64;</code></pre>
+<h3 id="184-exposing-zith-to-c">18.4 Exposing Zith to C</h3>
+<pre><code class="language-zith">extern &#x27;C&#x27; fn my_function(x: i32): i32 {
+    x * 2
+}
+// Generates a C-compatible symbol, callable from C as an ordinary function</code></pre>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

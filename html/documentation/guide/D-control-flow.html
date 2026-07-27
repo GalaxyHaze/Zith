@@ -1,0 +1,11 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="control-flow">Control Flow</h1>
+<p><code>if</code>, <code>when</code>, and <code>for</code> are working control-flow constructs. Use <code>if</code> for a boolean branch and <code>for</code> for iteration.</p>
+<pre><code class="language-zith">fn sign(value: i32): i32 {
+    if (value &lt; 0) {
+        -1
+    } else {
+        1
+    }
+}</code></pre>
+<p>The language also specifies chains, markers, docks, and jumps. The latter are specialized tools; consult the <a href="./../reference/D-control-flow.html">Control Flow reference</a> before using them.</p>

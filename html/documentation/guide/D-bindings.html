@@ -1,0 +1,7 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="bindings">Bindings</h1>
+<p>Use <code>let</code> for an immutable binding and <code>var</code> when the binding will be reassigned. <code>const</code> and <code>global</code> are also part of the language, with separate compile-time and storage semantics.</p>
+<pre><code class="language-zith">let answer: i32 = 42;
+var count: i32 = 0;
+count = count + 1;</code></pre>
+<p>The compiler supports these binding forms. Destructuring and the full mutability model are specified in <a href="./../reference/D-mutability-bindings.html">Bindings reference</a>.</p>

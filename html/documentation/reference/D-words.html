@@ -1,0 +1,91 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="16-words-custom-operators">16. Words (Custom Operators)</h1>
+<blockquote><p><strong>Implementation status:</strong> <code>word</code> / <code>context</code> declarations and word calls are <strong>blocked (E2010)</strong>. The parser accepts them; the semantic pass rejects them before HIR. See <a href="./D-implementation-status.html">impl-status.md</a> for details.</p></blockquote>
+<p>Words let you define custom operators from identifiers. Each word has a fixed position — <strong>prefix</strong>, <strong>infix</strong>, or <strong>suffix</strong> — with language-defined precedence.</p>
+<ul>
+  <li>You must activate a word with <code>use</code>, even if you already imported its module.</li>
+  <li>Two words with the same name in the same scope: compile error.</li>
+  <li>If the compiler sees any ambiguity (even potential), it errors out.</li>
+  <li>Best practice: define words inside a <code>context</code> (<a href="./D-contexts.html">§17</a>).</li>
+</ul>
+<h3 id="161-word-types">16.1 Word Types</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Example</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>operator</code></td>
+      <td>Overload a specific operator (<code>+</code>, <code>-</code>, <code>*</code>, <code>()</code>, etc.)</td>
+      <td><code>implement Vec3 as Arithmetic { fn +(self, other: Self): Self { ... } }</code></td>
+    </tr>
+    <tr>
+      <td><code>token</code></td>
+      <td>A word with low precedence that does nothing alone. Serves as a named argument for macros and other words.</td>
+      <td><code>token SELECT;</code></td>
+    </tr>
+  </tbody>
+</table>
+<h4 id="operator-words">Operator Words</h4>
+<p>Operator words overload built-in operators. Use <code>implement</code> with a capability to define the behavior:</p>
+<pre><code class="language-zith">implement Vec3 as Arithmetic {
+    fn +(self, other: Self): Self { ... }
+    fn -(self, other: Self): Self { ... }
+    fn *(self, scalar: f32): Self { ... }
+}
+
+// Custom word — not overloading a built-in operator
+use math.vec.dot as DOT;
+use math.vec.cross as CROSS;
+
+// Infix — reads as dot(vec1, vec2)
+let d = vec1 DOT vec2;
+
+// Prefix — reads as VALIDATE input
+let result = VALIDATE data;
+
+// Suffix — reads as input CHECK
+let value = input CHECK;</code></pre>
+<table>
+  <thead>
+    <tr>
+      <th>Position</th>
+      <th>Reads as</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Infix</td>
+      <td><code>a DOT b</code> → <code>dot(a, b)</code></td>
+    </tr>
+    <tr>
+      <td>Prefix</td>
+      <td><code>not x</code> → <code>not(x)</code></td>
+    </tr>
+    <tr>
+      <td>Suffix</td>
+      <td><code>x!</code> → <code>assert(x)</code></td>
+    </tr>
+  </tbody>
+</table>
+<h4 id="token-words">Token Words</h4>
+<p>Token words have low precedence and do nothing alone. They serve as named arguments for macros and other words — e.g., SQL keywords:</p>
+<pre><code class="language-zith">token SELECT;
+token FROM;
+token WHERE;
+
+// Operator* defines behavior for a token
+operator* (SELECT, list) { ... }</code></pre>
+<blockquote><p>Tokens are useful for DSLs where keywords need to be passed as arguments without function call syntax.</p></blockquote>
+<h3 id="162-words-vs-macros">16.2 Words vs. Macros</h3>
+<ul>
+  <li><strong>Macros:</strong> Better for heavy logic, still require <code>()</code> syntax, can't return values.</li>
+  <li><strong>Words:</strong> Work as keywords, let you return values, and can delegate to macros. Better for lightweight tasks.</li>
+</ul>
+<blockquote><p>Words let you pass keywords, words, and macros as arguments.</p></blockquote>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

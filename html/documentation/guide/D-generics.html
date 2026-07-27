@@ -1,0 +1,8 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="generics">Generics</h1>
+<p>Generic declarations use angle brackets. Simple monomorphization is working.</p>
+<pre><code class="language-zith">struct Pair&lt;T, U&gt; {
+    first: T,
+    second: U,
+}</code></pre>
+<p>Complex constraints are only partially implemented. Keep early code to simple type parameters and verify the result with <code>zithc check</code>. The complete syntax is in the <a href="./../reference/D-type-system.html">Type System reference</a>.</p>

@@ -1,0 +1,105 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="14-runtime-polymorphism--dynamic-behaviour">14. Runtime: Polymorphism &amp; Dynamic Behaviour</h1>
+<h3 id="141-static-vs-dynamic-dispatch">14.1 Static vs Dynamic Dispatch</h3>
+<p>By default, Zith uses static dispatch — the compiler knows the exact implementation at compile time. Zero overhead.</p>
+<p>Use <code>dyn</code> for dynamic dispatch. At the call site you get polymorphism; the compiler and LLVM can often optimize away the indirection, making it zero-cost in practice.</p>
+<h3 id="142-dyn-as-a-type-hint">14.2 <code>dyn</code> as a Type Hint</h3>
+<p>Like <code>union</code> (see <a href="./D-type-system.html#36-union">§3.6</a>), <code>dyn</code> works as a <strong>type hint</strong>. When the compiler can't deduce the concrete type, you write <code>dyn</code> to tell it you want dynamic behavior:</p>
+<pre><code class="language-zith">let x: dyn = 5;
+if (x is i32) x += 32;   // smart-cast inside the branch
+
+// dyn []T — dynamic Trait slice
+let items: dyn []Drawable = shapes;
+// dyn slice
+let dynList: dyn [];
+
+// In many cases LLVM strips the dyn overhead entirely
+// even if not, compare the type is a simple int comparison
+// in terms of performance, is union + ptr indirection, still fast</code></pre>
+<p>Inside a smart-cast branch (<code>is</code>), the type narrows to the concrete type. Mutations inside the branch affect the inner value; outside, assigning to the variable changes what the <code>dyn</code> points to (if <code>var</code>).</p>
+<h3 id="143-dyn-traits">14.3 <code>dyn</code> Traits</h3>
+<p><code>dyn Trait</code> is a <code>view</code> by default — a read-only, non-owning reference with a vtable. That means <code>view dyn</code> is redundant.</p>
+<p>All other memory modifiers work with <code>dyn</code>:</p>
+<table>
+  <thead>
+    <tr>
+      <th>Keyword</th>
+      <th><code>dyn</code> behavior</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>view dyn</code></td>
+      <td>Redundant — <code>dyn</code> is already a view</td>
+    </tr>
+    <tr>
+      <td><code>share dyn</code></td>
+      <td>Multiple names, same dynamic value</td>
+    </tr>
+    <tr>
+      <td><code>lend dyn</code></td>
+      <td>Exclusive mutable borrow of a dynamic value</td>
+    </tr>
+    <tr>
+      <td><code>unique dyn</code></td>
+      <td>Single-owner dynamic value</td>
+    </tr>
+  </tbody>
+</table>
+<pre><code class="language-zith">fn draw_all(items: dyn []Drawable) {
+    for (item in items) { item.render(); }
+}
+
+//specific verbose, you could use an interface or alias to simplify
+fn modify(shape: lend dyn Drawable) {
+    shape.scale(2.0);
+}</code></pre>
+<p><code>dyn</code> does <strong>not</strong> work with <code>interface</code> (see <a href="./D-traits-interfaces.html#43-capabilities">§4.3</a>) — only traits. Interfaces are structural and don't carry a vtable.</p>
+<p>When you write a type that could be <code>dyn</code> or <code>opaque</code>, prefer <code>dyn</code> — it's short and clearer. Reserve <code>opaque</code> for cases where you specifically need <code>raw opaque</code> (untagged <code>void*</code>, C interop).</p>
+<h3 id="144-dyn-vs-generics">14.4 <code>dyn</code> vs Generics</h3>
+<table>
+  <thead>
+    <tr>
+      <th></th>
+      <th>Generics</th>
+      <th><code>dyn</code></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Dispatch</td>
+      <td>Static — one copy per type</td>
+      <td>Dynamic — single code path</td>
+    </tr>
+    <tr>
+      <td>Code size</td>
+      <td>Larger (N copies)</td>
+      <td>Smaller (one copy)</td>
+    </tr>
+    <tr>
+      <td>Performance</td>
+      <td>No indirection</td>
+      <td>Vtable indirection (often elided by LLVM)</td>
+    </tr>
+    <tr>
+      <td>When to use</td>
+      <td>Hot loops, known types at compile time</td>
+      <td>Heterogeneous collections, plugins</td>
+    </tr>
+  </tbody>
+</table>
+<pre><code class="language-zith">// Generic — compiler monomorphizes
+fn log&lt;T: Printable&gt;(val: T) { val.print(); }
+
+// dyn — vtable dispatch, LLVM may inline away the overhead
+fn logDyn(val: dyn Printable) { val.print(); }</code></pre>
+<h3 id="145-object-safety">14.5 Object Safety</h3>
+<p>A trait is object-safe if all its methods meet these rules:</p>
+<ul>
+  <li>No <code>Self</code> in parameter or return types (except <code>self</code>, <code>other</code>)</li>
+  <li>No generic type parameters on the method</li>
+  <li>No <code>Self: Sized</code> requirements</li>
+</ul>
+<p>If you try to use a non-object-safe trait with <code>dyn</code>, the compiler rejects it.</p>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

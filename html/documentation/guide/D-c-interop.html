@@ -1,0 +1,5 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="c-interop">C Interop</h1>
+<p>The working core supports external function declarations and C header imports.</p>
+<pre><code class="language-zith">extern fn puts(message: raw opaque): i32;</code></pre>
+<p>C interoperability has safety boundaries. Keep declarations small, use the exact C ABI, and consult <a href="./D-raw-unsafe.html">Raw &amp; Unsafe</a> plus the <a href="./../reference/D-c-interop.html">C Interop reference</a>.</p>

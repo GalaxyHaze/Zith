@@ -1,0 +1,4 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="comptime">Comptime</h1>
+<p>Zith specifies <code>const</code> blocks, compile-time functions, reflection, and type transformation. The compiler parses relevant syntax but does not yet evaluate comptime blocks or <code>const fn</code> calls.</p>
+<p>Layout intrinsics such as <code>@sizeOf</code>, <code>@alignOf</code>, and <code>@offsetOf</code> are working with an LLVM-enabled compiler. Other intrinsic calls currently emit W2009. See the <a href="./../reference/D-comptime.html">Comptime reference</a>.</p>

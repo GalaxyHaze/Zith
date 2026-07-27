@@ -1,0 +1,236 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="7-memory-model-nra">7. Memory Model (NRA)</h1>
+<h3 id="71-what-nra-tracks">7.1 What NRA Tracks</h3>
+<p>NRA watches every value in your program and classifies it into one of three states:</p>
+<table>
+  <thead>
+    <tr>
+      <th>State</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>alive</code></td>
+      <td>Ready to read or use</td>
+    </tr>
+    <tr>
+      <td><code>dead</code></td>
+      <td>Moved away — you cannot read it, only reassign</td>
+    </tr>
+    <tr>
+      <td><code>lent</code></td>
+      <td>Temporarily borrowed — exclusive while the borrow lasts</td>
+    </tr>
+  </tbody>
+</table>
+<p>It also tracks the <strong>origin</strong> of each node — where the value came from:</p>
+<table>
+  <thead>
+    <tr>
+      <th>Origin</th>
+      <th>Example</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>literal</code></td>
+      <td><code>"hello"</code>, <code>42</code> — zero cost, no allocation</td>
+    </tr>
+    <tr>
+      <td><code>allocator</code></td>
+      <td>Heap-allocated via <code>new</code> or concatenation</td>
+    </tr>
+    <tr>
+      <td><code>local</code></td>
+      <td>Stack variable</td>
+    </tr>
+    <tr>
+      <td><code>view</code></td>
+      <td>Read-only reference to another node</td>
+    </tr>
+  </tbody>
+</table>
+<p>With these two axes (state + origin), NRA enforces the rules in <a href="#74-the-four-nra-rules">§7.4</a>.</p>
+<h3 id="72-move-semantics">7.2 Move Semantics</h3>
+<p>Moving <code>a</code> to <code>b</code> redirects the name <code>b</code> to <code>a</code>'s node. The name <code>a</code> is considered <strong>dead</strong> / <strong>invalid</strong> and cannot be read — only reassigned:</p>
+<pre><code class="language-zith">var a = Point { x: 1.0, y: 2.0 };
+let b = a;                          // b -&gt; a&#x27;s node; a becomes dead
+// println(a.x);                    -- COMPILE ERROR: a is dead
+@println(b.x);                       // OK
+
+a = Point { x: 3.0, y: 4.0 };      // OK: reassignment creates a new node for a</code></pre>
+<p>In effect, if <code>a</code> is never reassigned, it is as though <code>a</code> never existed and <code>b</code> has held <code>Point { x: 1.0, y: 2.0 }</code> all along.</p>
+<h3 id="73-memory-modifiers">7.3 Memory Modifiers</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Modifier</th>
+      <th>Relationship</th>
+      <th>Common use</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>default</code></td>
+      <td>Owned. Lifetime follows the binding.</td>
+      <td>Variables, struct fields</td>
+    </tr>
+    <tr>
+      <td><code>lend</code></td>
+      <td>Exclusive mutable temporary. Cannot be stored, moved, or captured — but <strong>can be returned</strong>, passing the promise to the caller. <code>belong</code> fields can also be passed as <code>lend</code>.</td>
+      <td>Passing mutable references to functions</td>
+    </tr>
+    <tr>
+      <td><code>view</code></td>
+      <td>Read-only, non-owning reference. Many views may coexist.</td>
+      <td>Inspecting without ownership</td>
+    </tr>
+    <tr>
+      <td><code>unique</code></td>
+      <td>Single-owner guarantee — only one name in the graph.</td>
+      <td>Ownership-transfer patterns</td>
+    </tr>
+    <tr>
+      <td><code>share</code></td>
+      <td>Multiple names, same node, statically validated — no ref-counting. Mutable.</td>
+      <td>Compile-time-proven sharing</td>
+    </tr>
+    <tr>
+      <td><code>belong</code></td>
+      <td>Part-of relationship. Node lifetime tied to its parent; cannot be stored independently. Can be passed as <code>lend</code>.</td>
+      <td>Back-pointers, hierarchies</td>
+    </tr>
+  </tbody>
+</table>
+<blockquote><p><code>unique</code> provides compile-time single-owner guarantees for local bindings. In a <code>global</code> context, <code>unique</code> becomes runtime-checked — the compiler enforces exclusive access at program startup. <code>global</code> bindings cannot be moved; the <code>Lent</code> capability manages thread-safe distribution.</p></blockquote>
+<blockquote><p>In practice, most code only needs <code>lend</code> and <code>view</code>.</p></blockquote>
+<h4 id="implicit-mutability">Implicit Mutability</h4>
+<p>Each memory modifier carries an implicit content mutability level:</p>
+<table>
+  <thead>
+    <tr>
+      <th>Modifier</th>
+      <th>Implies</th>
+      <th>Example</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>lend</code></td>
+      <td>Mutable</td>
+      <td><code>fn update(p: lend Point) { p.x += 1; }</code> — <code>p</code> is mutable</td>
+    </tr>
+    <tr>
+      <td><code>unique</code></td>
+      <td>Mutable</td>
+      <td><code>let r: unique Resource = ...;</code> — <code>r</code>'s fields are mutable</td>
+    </tr>
+    <tr>
+      <td><code>share</code></td>
+      <td>Mutable</td>
+      <td><code>global counter: share i32 = 0;</code> — mutable across threads</td>
+    </tr>
+    <tr>
+      <td><code>belong</code></td>
+      <td>Mutable</td>
+      <td><code>parent: ?belong Self</code> — mutable back-pointer</td>
+    </tr>
+    <tr>
+      <td><code>view</code></td>
+      <td>Immutable</td>
+      <td><code>fn read(c: view Config) { ... }</code> — <code>c</code> is read-only</td>
+    </tr>
+    <tr>
+      <td><code>default</code></td>
+      <td>Depends on <code>mut</code></td>
+      <td><code>let x: Point;</code> — immutable. <code>let x: mut Point;</code> — mutable.</td>
+    </tr>
+  </tbody>
+</table>
+<p><code>default</code> is the only modifier where mutability is explicitly controlled via the <code>mut</code> keyword. All others carry their mutability semantics implicitly.</p>
+<h3 id="74-the-four-nra-rules">7.4 The Four NRA Rules</h3>
+<p><strong>Rule 1 — Argument Exclusivity.</strong> In any call expression, each argument must refer to a distinct node, without exception:</p>
+<ul>
+  <li>Duplicating a <code>default</code> / <code>unique</code> / <code>lend</code> argument → <strong>ownership error</strong>.</li>
+  <li>Duplicating a <code>share</code> / <code>view</code> argument → <strong>logic error</strong> (passing the same resource twice is almost certainly a bug).</li>
+</ul>
+<p><strong>Rule 2 — No Dead Node Access.</strong> A symbol cannot be read while its node is <code>dead</code>.</p>
+<p><strong>Rule 3 — No Escaping <code>belong</code>.</strong> A <code>belong</code> node cannot be stored anywhere whose lifetime exceeds any node in its dependency vector. At every use, all of its parents must be <code>alive</code>.</p>
+<p><strong>Rule 4 — <code>lend</code> Behavioral Promise.</strong> A <code>lend</code> value cannot be stored, moved, or captured. It may be passed as a call argument or returned — in the latter case, passing the promise on to the caller.</p>
+<blockquote><p>For details on how NRA resolves nodes and validates these rules, see <a href="#78-how-nra-resolves-nodes">§7.8</a>.</p></blockquote>
+<h3 id="75-nra-in-practice">7.5 NRA in Practice</h3>
+<pre><code class="language-zith">// lend -- exclusive temporary borrow
+fn scale(p: lend Point, factor: f32) { p.x *= factor; p.y *= factor; }
+let pt = mut Point { x: 3.0, y: 4.0 };
+scale(pt, 2.0);
+@println(pt.x);   // OK: borrow ended
+
+// view -- multiple read-only refs
+let v1: view Point = pt;
+let v2: view Point = pt;   // fine
+
+// share -- no ref-count, statically proven
+let a: share Config = load();
+let b: share Config = a;   // both point to the same node
+
+// belong -- back-pointer cannot outlive its parent
+struct Tree&lt;T&gt; {
+    data:     T,
+    children: []unique Self,
+    parent:   ?belong Self,
+}
+
+// belong fields can be passed as lend
+fn getParent(self: view Node): lend Node { self.parent }</code></pre>
+<h3 id="76-nra-limitations--escape-hatches">7.6 NRA Limitations &amp; Escape Hatches</h3>
+<p>NRA cannot statically validate every shared or viewed cycle across threads. Three escape hatches cover the remaining cases:</p>
+<pre><code class="language-zith">// await -- safe: the compiler knows the thread is done before the scope ends
+let handle = spawn worker(shared_data);
+await handle;
+
+// #wont_remain -- a promise that the thread dies before the scope ends
+#wont_remain let _ = spawn quick_task(shared_data);
+
+// Rc -- runtime ref-count wrapper, provides thread safety for any type
+let shared = Rc.new(HeavyResource.init());
+let _ = spawn worker(Rc.clone(shared));</code></pre>
+<blockquote><p><code>Rc&lt;T&gt;</code> and <code>Arc&lt;T&gt;</code> are wrappers that provide thread safety for any type <code>T</code> — no <code>Share</code> requirement on <code>T</code> itself. The wrapper handles synchronization internally.</p></blockquote>
+<h3 id="77-self-referential-types">7.7 Self-Referential Types</h3>
+<pre><code class="language-zith">struct Node&lt;T&gt; {
+    data: T,
+    next: ?unique Self,
+    prev: ?belong Self,
+}
+
+implement Node&lt;T&gt; {
+    fn append(self: lend Self, data: T) {
+        self.next = unique Node { data, next: null, prev: belong self };
+    }
+}</code></pre>
+<ul>
+  <li>Freeing the head frees the entire chain, since <code>next</code> forms a <code>unique</code> ownership chain.</li>
+  <li>NRA guarantees <code>prev</code> (<code>belong</code>) never outlives its owner.</li>
+  <li><code>belong</code> fields may be passed as <code>lend</code> to functions.</li>
+</ul>
+<h3 id="78-how-nra-resolves-nodes">7.8 How NRA Resolves Nodes</h3>
+<blockquote><p><em>This section is relevant for tooling authors and compiler contributors.</em></p></blockquote>
+<p>Every symbol gets a <strong>resource node</strong>. NRA is <strong>lazy</strong> — it only validates a node when you use, view, or return it.</p>
+<h4 id="node-validation">Node Validation</h4>
+<p>When you access a node, NRA checks:</p>
+<ol>
+  <li>The node itself is <code>alive</code> (not <code>dead</code>).</li>
+  <li>Every node in its <strong>dependency vector</strong> — the fields or resources it belongs to or references — is also valid.</li>
+</ol>
+<p>If a node is <code>dead</code> (say, after a move), NRA records where and why. You get an error pointing right at the violation.</p>
+<h4 id="function-evaluation">Function Evaluation</h4>
+<p>NRA caches function results. If it has seen a function before, it reuses the cached analysis. Otherwise, it inspects every return path:</p>
+<ul>
+  <li><strong>Every</strong> path returns one of the function's arguments → caller's node is <strong>not consumed</strong> (ownership stays with you).</li>
+  <li><strong>Any</strong> path doesn't return an argument → the result is <strong>consumed</strong>.</li>
+</ul>
+<p>Since memory modifiers (<code>lend</code>, <code>view</code>, <code>unique</code>, ...) are in the function signature, NRA knows everything it needs without re-analyzing the body.</p>
+<h4 id="branch-isolation-if--else--when">Branch Isolation (<code>if</code> / <code>else</code> / <code>when</code>)</h4>
+<p>Each branch runs in isolation. A move inside one branch cannot affect the others. After all branches complete, NRA applies the side effects of whichever branch actually ran.</p>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

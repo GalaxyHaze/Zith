@@ -1,0 +1,28 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="19-project-configuration">19. Project Configuration</h1>
+<h3 id="191-zithprojecttoml-per-project">19.1 <code>ZithProject.toml</code> (per-project)</h3>
+<pre><code class="language-toml">[project]
+name    = &quot;my_app&quot;
+version = &quot;0.1.0&quot;
+
+[build]
+runtime = true            # default: true; set false for OS/embedded targets
+asm     = &quot;x86_64_intel&quot;  # required if using inline assembly
+                          # errors if it diverges from the host machine or other project files
+
+[assets]
+paths = [&quot;assets/&quot;]       # compile-time-validated asset paths
+
+[dependencies]
+std = &quot;bundled&quot;</code></pre>
+<h3 id="192-zithflags-compiler--global">19.2 <code>ZithFlags</code> (compiler / global)</h3>
+<pre><code>--runtime=false     # disable the runtime globally: removes most allocators,
+                    # disables `must`, disables dynamically linked libraries and
+                    # anything that depends on them, and forces all available
+                    # std to be statically linked
+--asm=arm64         # set the assembly dialect globally
+--release           # release mode 
+--debug             # debug mode (default)</code></pre>
+<blockquote><p><code>runtime = false</code> disables the heap, standard stack assumptions, and signal handlers. Any standard library feature that requires a runtime becomes unavailable at compile time.</p></blockquote>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

@@ -14,6 +14,20 @@ The site was created by [MieldewMeat](https://github.com/MieldewMeat).
 
 Documentation for the Zith programming language is currently **in progress** and will be published here as it grows.
 
+### Documentation build
+
+Editorial pages are Markdown-first under `docs/pages`. The Language Reference is synchronized from
+the adjacent compiler checkout at `../Zith/docs`; generated HTML fragments remain versioned for
+static hosting.
+
+```bash
+make docs
+make docs-check
+```
+
+`make docs-check` fails if generated fragments, navigation, or the specification manifest are out
+of date.
+
 ---
 
 ##  Contribute

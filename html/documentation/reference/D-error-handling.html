@@ -1,0 +1,175 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="8-error-handling">8. Error Handling</h1>
+<blockquote><p><strong>Implementation status:</strong> <code>?T</code> / <code>T!</code> types, <code>must</code>, and <code>raw</code> are <strong>working</strong>. <code>?</code> / <code>!</code> propagation operators, <code>fail</code> blocks, <code>with</code> / <code>catch</code>, and <code>throw</code> are <strong>spec-only</strong> (no compiler support yet). See <a href="./D-implementation-status.html">impl-status.md</a> for details.</p></blockquote>
+<p>Error handling in Zith is fully static and return-based — there are no exceptions, and no semicolon is required after <code>?</code> or <code>!</code>.</p>
+<h3 id="81-failable-types">8.1 Failable Types</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Syntax</th>
+      <th>Meaning</th>
+      <th>Propagated by</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>?T</code></td>
+      <td>Optional — <code>T</code> or <code>null</code>.</td>
+      <td><code>?</code> (postfix)</td>
+    </tr>
+    <tr>
+      <td><code>T!</code></td>
+      <td>Result — <code>T</code> or an error. Equivalent to a <code>Result&lt;T, E&gt;</code> where <code>E</code> implements <code>Error</code>. The compiler infers an anonymous error union when multiple error types are possible.</td>
+      <td><code>!</code> (postfix)</td>
+    </tr>
+  </tbody>
+</table>
+<p>Failable types may be stacked, and the notation reads linearly:</p>
+<pre><code class="language-zith">?*?(?i32 ! IoError)</code></pre>
+<p>Read left to right, outer to inner: an <em>optional</em> <strong>pointer</strong> to an <em>optional</em> <strong>Result</strong>, where the Result's success type is <code>?i32</code> and its error type is <code>IoError</code>.</p>
+<h3 id="82-must-vs-raw">8.2 <code>must</code> vs. <code>raw</code></h3>
+<table>
+  <thead>
+    <tr>
+      <th></th>
+      <th>Debug mode</th>
+      <th>Release mode</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>must</code></td>
+      <td>Panics with file and line information.</td>
+      <td>The compiler guides you to remove it, turning it into an <code>if</code>/<code>else</code> with an early return and a custom error code.</td>
+    </tr>
+    <tr>
+      <td><code>raw</code></td>
+      <td>Always unchecked.</td>
+      <td>Always unchecked.</td>
+    </tr>
+  </tbody>
+</table>
+<pre><code class="language-zith">let cfg: ?Config = tryLoad();
+let c1 = must cfg;   // panics in debug; compiler warns/guides in release
+let c2 = raw cfg;    // always unchecked; compiler always warns</code></pre>
+<p><code>must</code> also doubles as an assertion: <code>must(cond)</code> panics with file and line info if <code>cond</code> is false (debug only). In release, the compiler guides you to replace it with proper error handling.</p>
+<h3 id="83-propagation--fallback">8.3 Propagation &amp; Fallback</h3>
+<pre><code class="language-zith">fn readConfig(path: string): Config! {
+    let file = File.open(path)!
+    let data = file.read()!
+    parse(data)!
+}
+
+let name = ?user.name or &quot;guest&quot;;
+let data = !primary() or backup() or default;
+
+// Propagation inside a chain
+readFile(&quot;data.bin&quot;) -&gt; parse(..)! -&gt; validate(..)? -&gt; process(..)</code></pre>
+<p>Accessing a failable type's inner value requires one of four operators: <code>?</code>, <code>!</code>, <code>raw</code>, or <code>must</code>.</p>
+<ul>
+  <li><strong><code>?</code></strong> unwraps an Optional — returns <code>T</code> or <code>null</code>.</li>
+  <li><strong><code>!</code></strong> unwraps a Result — returns <code>T</code> or an error.</li>
+</ul>
+<h4 id="prefix-vs-postfix">Prefix vs Postfix</h4>
+<p><code>?</code> and <code>!</code> serve two distinct roles depending on position:</p>
+<table>
+  <thead>
+    <tr>
+      <th>Position</th>
+      <th>Role</th>
+      <th>Rule</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Prefix</strong> (start of expression)</td>
+      <td>Fallback</td>
+      <td>Only <strong>one</strong> <code>?</code> or <code>!</code> per expression. Must be followed by <code>or</code> to provide the fallback value.</td>
+    </tr>
+    <tr>
+      <td><strong>Postfix</strong> (end of a chain segment)</td>
+      <td>Propagation</td>
+      <td><strong>Multiple</strong> allowed. Propagates the error/null out of the chain, skipping the remaining calls.</td>
+    </tr>
+  </tbody>
+</table>
+<pre><code class="language-zith">// Prefix — one per expression, must use &#x27;or&#x27; for fallback
+let x = ?opt or default;           // valid
+let x = !result or fallback;       // valid
+let x = ?opt or default or backup; // valid — chain of fallbacks
+
+// Postfix — multiple allowed in a chain
+let x = ?y or default.data()?fn()?process()?
+//       ^prefix                                        ^postfix (propagation)
+
+// Invalid — two prefixes in one expression
+let x = ?y.?data.?fn();   // invalid
+let x = ?opt?;            // invalid — &#x27;?&#x27; cannot follow another &#x27;?&#x27;</code></pre>
+<p>You can chain with <code>or</code> until it finds an Integral result (short-circuit).</p>
+<h3 id="84-with--catch">8.4 <code>with</code> / <code>catch</code></h3>
+<table>
+  <thead>
+    <tr>
+      <th>Form</th>
+      <th>Behavior</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>with</code></td>
+      <td>Short-circuit — the first failure jumps straight to <code>catch</code></td>
+    </tr>
+    <tr>
+      <td><code>eager with</code></td>
+      <td>Eager — every expression is evaluated; <code>catch</code> runs if any failed</td>
+    </tr>
+  </tbody>
+</table>
+<pre><code class="language-zith">// Short-circuit
+with (connectDb(), user: getUser(id)) {
+    process(user);
+}
+catch (err) { log(err); }   // any name works; &#x27;err&#x27; is convention
+
+// Eager — all expressions run, then catch if any failed
+eager with (a: fetchA(), b: fetchB()) {
+    use(b);
+} catch { log(a, b); }</code></pre>
+<blockquote><p>In <code>eager with</code>, all expressions are evaluated before <code>catch</code>. The named bindings (<code>a</code>, <code>b</code>) remain in scope inside <code>catch</code> so you can inspect which ones failed. In short-circuit <code>with</code>, only the failing expression is known, so <code>catch</code> receives a single error parameter.</p></blockquote>
+<h3 id="85-fail-blocks">8.5 <code>fail</code> Blocks</h3>
+<p>A <code>fail</code> block runs when an error would otherwise escape its associated scope. It can follow a named block (external) or sit inside a block as a scope guard (nameless):</p>
+<pre><code class="language-zith">// External fail
+loadConfigure {
+    let raw = readFile(&quot;config.json&quot;)!
+    parse(raw)!
+} fail loadConfigure(err) {
+    if (err is NotFound) { continue(default); }
+    throw Error{ context: &quot;load failed&quot;, cause: err };
+}
+
+// Nameless fail -- guards the current scope
+{
+    fail (err) { log(&quot;scope error:&quot;, err); }
+    risky()!
+    another()!
+}</code></pre>
+<blockquote><p><strong>Name linking:</strong> an external <code>fail</code> block's name must match the block it guards. When there is only one failable block in scope, the name can be omitted. A nameless <code>fail</code> guards the current scope directly — the compiler passes the error the same way.</p></blockquote>
+<p>Inside a <code>fail</code> block, the parameter receives the error directly. You have four options:</p>
+<ul>
+  <li><code>continue(value)</code> — resume after the block with a replacement value.</li>
+  <li><code>return value;</code> — exit the enclosing function.</li>
+  <li><code>throw value;</code> — propagate a new error (requires the <code>Error</code> capability).</li>
+  <li>Fall through — the original error propagates unchanged.</li>
+</ul>
+<p>Use <code>@ok</code> to extract the success type from the failure node — useful when <code>continue</code> needs to return a value of a different type than the error:</p>
+<pre><code class="language-zith">fail (err) {
+    continue(@ok err);   // extract success value from the failure node
+}</code></pre>
+<p><code>@err</code> also exists for extracting the error type in other contexts.</p>
+<h3 id="86-throw">8.6 <code>throw</code></h3>
+<pre><code class="language-zith">fn divide(a: i32, b: i32): i32! {
+    if (b == 0) throw DivisionByZero;
+    a / b
+}</code></pre>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

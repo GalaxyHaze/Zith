@@ -1,12 +1,6 @@
-<h1><code>zith run</code></h1>
-<div class="callout callout-info">
-  <p><strong>&#8505; Info:</strong> This page is under construction. Content coming soon!</p>
-</div>
-<h2>Overview</h2>
-<p>The <code>run</code> command compiles and executes your program in one step.</p>
-<h2>Usage</h2>
-<pre><code class="language-bash">zith run [options] [-- args...]</code></pre>
-<h2>Options</h2>
-<p>Standard options will be documented here.</p>
-<hr>
-<p><strong>Related:</strong> <code>zith build</code> | <code>zith repl</code></p>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="zithc-run"><code>zithc run</code></h1>
+<p>Compile and execute a project or source target in one command.</p>
+<pre><code class="language-bash">zithc run
+zithc run src/main.zith</code></pre>
+<p>Use <code>run</code> for a local development loop. Use <a href="./D-build.html">build</a> when you need the compiled artifact without execution.</p>

@@ -1,0 +1,10 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="types">Types</h1>
+<p>Zith has signed and unsigned integer types, floating-point types, <code>bool</code>, and <code>char</code>. Structs, components, enums, and unions are working core declarations.</p>
+<pre><code class="language-zith">struct Point {
+    x: i32,
+    y: i32,
+}
+
+enum Direction { North, South, East, West }</code></pre>
+<p>Start with explicit annotations when learning. The <a href="./../reference/D-type-system.html">Type System reference</a> defines arrays, slices, generic types, unions, and the experimental narrowing rules.</p>

@@ -1,0 +1,55 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="5-functions">5. Functions</h1>
+<h3 id="51-return-types--implicit-returns">5.1 Return Types &amp; Implicit Returns</h3>
+<pre><code class="language-zith">fn add(a: i32, b: i32): i32 { a + b }   // explicit type, implicit return
+fn add(a: i32, b: i32)      { a + b }   // inferred type
+
+// Bounds-checked indexing: returns the element if in range, otherwise
+// propagates null via the implicit optional from &#x27;?&#x27;.
+fn first&lt;T&gt;(slice: []T): ?T {
+    slice[0]?
+}</code></pre>
+<blockquote><p>The compiler cannot infer a <code>union</code> or <code>dyn</code> return type without an explicit type hint.</p></blockquote>
+<h3 id="52-function-kinds">5.2 Function Kinds</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Kind</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>fn</code></td>
+      <td>Standard runtime function.</td>
+    </tr>
+    <tr>
+      <td><code>const fn</code></td>
+      <td>Resolved entirely at compile time.</td>
+    </tr>
+    <tr>
+      <td><code>async fn</code></td>
+      <td>Returns <code>Coroutine&lt;T&gt;</code> — a lazy generator with a default base implementation. Must be consumed by a type implementing <code>Generator</code>.</td>
+    </tr>
+    <tr>
+      <td><code>flow fn</code></td>
+      <td>Enables marker/dock control flow (<a href="./D-control-flow.html#94-flow-functions--markers">§9.4</a>).</td>
+    </tr>
+    <tr>
+      <td><code>raw fn</code></td>
+      <td>Always unchecked, bypassing safety in both debug and release. The compiler warns in release builds if <code>raw</code> could be removed.</td>
+    </tr>
+  </tbody>
+</table>
+<blockquote><p>Function kinds are orthogonal and cannot be combined on a single declaration.</p></blockquote>
+<p>Macro calls use the <code>@</code> prefix — <code>@println</code>, <code>@log</code>, <code>@serialize</code> — while ordinary function calls use a bare name, such as <code>console.write</code>, <code>process</code>, or <code>save</code>. See <a href="./D-macros.html">§15</a> for the full rule.</p>
+<h3 id="53-async-fn--yield">5.3 <code>async fn</code> &amp; <code>yield</code></h3>
+<pre><code class="language-zith">// An async fn returns Coroutine&lt;T&gt;, not T directly.
+// Coroutine&lt;T&gt; has a default base implementation.
+// Only types implementing Generator can receive it.
+async fn fetch(url: string): Response! {
+    yield;
+    get_response()!
+}</code></pre>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

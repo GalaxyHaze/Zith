@@ -1,0 +1,97 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="21-best-practices--patterns">21. Best Practices &amp; Patterns</h1>
+<h3 id="211-ownership-patterns">21.1 Ownership Patterns</h3>
+<ul>
+  <li><strong>Resources shall be <code>unique</code>:</strong> <code>let resource: unique = Resource.new();</code></li>
+  <li><strong>Use <code>share</code> for intentional multiple owners:</strong> implement <code>Share</code> and <code>Clone</code> explicitly.</li>
+  <li><strong>Use <code>view</code> for reading:</strong> <code>fn process(config: view Config)</code></li>
+  <li><strong>Use <code>lend</code> for temporary mutation:</strong> <code>fn update(state: lend GameState)</code></li>
+  <li><strong>Use <code>belong</code> for part-of relationships,</strong> such as back-pointers.</li>
+</ul>
+<h3 id="212-optional--failable-patterns">21.2 Optional &amp; Failable Patterns</h3>
+<ul>
+  <li><strong>Prefer <code>?...or</code> for optionals:</strong> <code>let name = ?user.name or "guest";</code></li>
+  <li><strong>Prefer <code>!...or</code> for failables:</strong> <code>let config = !loadPrimary() or loadBackup() or defaultConfig();</code></li>
+  <li><strong>Reserve <code>must</code> for initialization:</strong> <code>const API_KEY = must env("API_KEY");</code></li>
+</ul>
+<h3 id="213-context-patterns">21.3 Context Patterns</h3>
+<ul>
+  <li>Group related DSL features by defining macros and words inside a single <code>context</code> block.</li>
+  <li>Activate at most one global context per domain to avoid pollution.</li>
+</ul>
+<h3 id="214-error-handling-patterns">21.4 Error Handling Patterns</h3>
+<ul>
+  <li>Add context to errors using <code>fail</code> blocks and custom <code>throw</code> statements.</li>
+  <li>Chain fallbacks explicitly: <code>let data = !step1() or step2() or step3() or AllFailed;</code></li>
+</ul>
+<h3 id="215-macro-patterns">21.5 Macro Patterns</h3>
+<ul>
+  <li>Prefer macros scoped inside contexts over global activation.</li>
+  <li>Prefer to apply context per block for the same reason.</li>
+</ul>
+<h3 id="216-rule-of-three">21.6 Rule of Three</h3>
+<p>If a function needs more than three specialized tools (markers, words, contexts, macros, comptime, inline error handling), something went wrong. Split the function or reconsider your abstraction.</p>
+<pre><code>// Good — two tools: marker + word
+flow fn process() {
+    dock init { ... }
+    step1 -&gt; step2
+}
+
+// Warning sign — four tools in one function
+flow fn process() {
+    dock init { ... }          // marker
+    use Math;                  // context
+    use assert AS CHECK;       // word
+    risky()!                   // inline error handling
+    // Prefer: move the context/word usage to a wrapper function
+}</code></pre>
+<p>The Rule of Three keeps code readable. Zith gives you many tools — you don't have to use them all at once.</p>
+<h3 id="217-naming-conventions">21.7 Naming Conventions</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Construct</th>
+      <th>Convention</th>
+      <th>Examples</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Variables &amp; functions</td>
+      <td>camelCase</td>
+      <td><code>playerHealth</code>, <code>getDamage</code>, <code>loadConfig</code></td>
+    </tr>
+    <tr>
+      <td>Components</td>
+      <td>single word, lowercase</td>
+      <td><code>rgb</code>, <code>color</code>, <code>file</code>, <code>vertex</code>, <code>health</code></td>
+    </tr>
+    <tr>
+      <td>Structs</td>
+      <td>PascalCase</td>
+      <td><code>Point</code>, <code>Container</code>, <code>DynArray</code>, <code>GameConfig</code></td>
+    </tr>
+    <tr>
+      <td>Traits &amp; interfaces</td>
+      <td>PascalCase</td>
+      <td><code>Printable</code>, <code>iPositioned</code> (interfaces use lowercase <code>i</code> prefix)</td>
+    </tr>
+    <tr>
+      <td>Files</td>
+      <td>kebab-case</td>
+      <td><code>game-loop.zith</code>, <code>asset-manager.zith</code></td>
+    </tr>
+    <tr>
+      <td>Constants &amp; comptime</td>
+      <td>UPPER_SNAKE_CASE</td>
+      <td><code>MAX_SIZE</code>, <code>PI</code>, <code>DEFAULT_TIMEOUT</code></td>
+    </tr>
+    <tr>
+      <td>Enums</td>
+      <td>PascalCase for the type; PascalCase for variants</td>
+      <td><code>enum Direction { North, South }</code></td>
+    </tr>
+  </tbody>
+</table>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

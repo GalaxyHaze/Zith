@@ -1,0 +1,98 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="13-raw--unsafe">13. Raw &amp; Unsafe</h1>
+<h3 id="131-safety-hierarchy">13.1 Safety Hierarchy</h3>
+<pre><code>Safe code (default)
+    └─ needs raw blocks to call raw fn
+         └─ needs to be inside a raw block / fn to use unsafe block</code></pre>
+<table>
+  <thead>
+    <tr>
+      <th></th>
+      <th><code>raw</code></th>
+      <th><code>unsafe</code></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>What it is</strong></td>
+      <td>A base-level bypass, always unchecked.</td>
+      <td>A stronger bypass, valid only inside <code>raw</code> contexts.</td>
+    </tr>
+    <tr>
+      <td><strong>Scope</strong></td>
+      <td>Any expression or statement.</td>
+      <td>Only inside a <code>raw fn</code> or <code>raw</code> block.</td>
+    </tr>
+    <tr>
+      <td><strong>Debug mode</strong></td>
+      <td>Unchecked.</td>
+      <td>Unchecked.</td>
+    </tr>
+    <tr>
+      <td><strong>Release mode</strong></td>
+      <td>Unchecked; compiler warns.</td>
+      <td>Unchecked; compiler warns.</td>
+    </tr>
+    <tr>
+      <td><strong>Use case</strong></td>
+      <td>C interop, performance-critical paths.</td>
+      <td>Operations undefined if misused — pointer arithmetic, inline assembly.</td>
+    </tr>
+  </tbody>
+</table>
+<h3 id="132-raw-fn">13.2 <code>raw fn</code></h3>
+<p>A <code>raw fn</code> bypasses safety checks in both debug and release. The compiler warns if <code>raw</code> could be removed in release builds.</p>
+<pre><code class="language-zith">raw fn c_compat(x: raw opaque): raw opaque {
+    // basic validations still exist but allows:
+    // mut *, use raw opaque / union &amp; etc..
+}</code></pre>
+<h3 id="133-unsafe">13.3 <code>unsafe</code></h3>
+<pre><code class="language-zith">raw fn dangerous(x: opaque) {
+    unsafe {
+        // extension of raw — completely disables compiler checks
+        // allows: bypass mutability, bit_cast, arbitrary address assignment,
+        // inline assembly, etc.
+        asm {
+            mov rax, x         // x is a Zith var — compiler maps it
+            call someFn         // can call Zith fns from asm
+        }
+    }
+}</code></pre>
+<h3 id="134-trust-as-a-bridge">13.4 <code>Trust</code> as a Bridge</h3>
+<p><code>Trust</code> bridges safe code to raw and unsafe code. A trait extending <code>Trust</code> may contain <code>raw fn</code> methods that are callable from safe contexts:</p>
+<pre><code class="language-zith">trait Place extends Trust {
+    raw fn sample(): i32 {}
+}
+
+fn safe_caller(a: impl Place) {
+    let v = a.sample();   // allowed: Trust is in scope via Place
+}</code></pre>
+<h3 id="135-when-to-use-each">13.5 When to Use Each</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Situation</th>
+      <th>Use</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>C interop, headerless libraries</td>
+      <td><code>raw fn</code></td>
+    </tr>
+    <tr>
+      <td>Pointer arithmetic, inline assembly</td>
+      <td><code>unsafe</code> inside <code>raw fn</code></td>
+    </tr>
+    <tr>
+      <td>Exposing low-level operations to safe code</td>
+      <td><code>Trust</code> capability</td>
+    </tr>
+    <tr>
+      <td>Normal application code</td>
+      <td>Neither — stay safe</td>
+    </tr>
+  </tbody>
+</table>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

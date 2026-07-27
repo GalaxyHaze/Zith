@@ -1,0 +1,138 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="2-module-system">2. Module System</h1>
+<h3 id="21-import-keywords">2.1 Import Keywords</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Keyword</th>
+      <th>Behavior</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>import path</code> / <code>import path as name</code></td>
+      <td>Imports a module under its path as a namespace, or under an explicit alias. Members are accessed as <code>name.symbol</code></td>
+    </tr>
+    <tr>
+      <td><code>from path</code></td>
+      <td>Injects all visible symbols directly into scope, sugar for simple cases</td>
+    </tr>
+    <tr>
+      <td><code>export path</code></td>
+      <td>Re-exports a dependency; consumers of this module receive it as well</td>
+    </tr>
+  </tbody>
+</table>
+<pre><code class="language-zith">import std/io/console as console;
+@console.println(&quot;hi&quot;);
+
+from std/io/console;
+@println(&quot;hi&quot;);
+
+export std/io/console;</code></pre>
+<h3 id="22-alias-vs-use-vs-type">2.2 <code>alias</code> vs <code>use</code> vs <code>type</code></h3>
+<p>These three keywords are easy to conflate but serve distinct purposes:</p>
+<table>
+  <thead>
+    <tr>
+      <th>Keyword</th>
+      <th>Purpose</th>
+      <th>Example</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>alias</code></td>
+      <td>Create a name alias for a type, namespace, or symbol.</td>
+      <td><code>alias Vec = std.collections.DynArray;</code></td>
+    </tr>
+    <tr>
+      <td><code>type</code></td>
+      <td>Creates a new distinct type from an existing one</td>
+      <td><code>type Celsius = f32;</code></td>
+    </tr>
+    <tr>
+      <td><code>use</code></td>
+      <td>Bring a word, context, or operator into the current scope.</td>
+      <td><code>use math.vec.dot as DOT;</code> / <code>use SQL;</code></td>
+    </tr>
+  </tbody>
+</table>
+<pre><code class="language-zith">alias Vec   = std.collections.DynArray;
+alias print = std.io.console.println;
+
+use math.vec.dot as DOT;
+use SQL;
+
+type angle = f32;
+type celsius = f32;
+type uuid = u128;</code></pre>
+<h3 id="23-namespace-access--scope-resolution">2.3 Namespace Access &amp; Scope Resolution</h3>
+<p>Namespaces are accessed with <code>.</code> — e.g. <code>std.io.console.println</code>. The <code>::</code> operator reaches upward past a shadowed name to the outer scope:</p>
+<pre><code class="language-zith">let x = 10;
+{
+    let x = 20;
+    @println(::x);   // 10, outer scope
+}</code></pre>
+<h3 id="24-type-constraints-vs-union-separators">2.4 Type Constraints vs. Union Separators</h3>
+<p>Type constraints and union variants look similar but use different separators to avoid ambiguity:</p>
+<table>
+  <thead>
+    <tr>
+      <th>Construct</th>
+      <th>Separator</th>
+      <th>Semantics</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Type constraint</td>
+      <td><code>or</code> (keyword)</td>
+      <td>Compile-time restriction / constraint</td>
+    </tr>
+    <tr>
+      <td>Union body</td>
+      <td><code>,</code> (comma)</td>
+      <td>Runtime tagged union; variants separated by commas.</td>
+    </tr>
+  </tbody>
+</table>
+<pre><code class="language-zith">// Type constraint -- compile-time dispatch
+type Number = i32 or f64 or bool;
+fn convert&lt;T: Number&gt;(val: T): string { ... }
+
+// Union by default is runtime tagged
+union AnyNumber { i32, f64, bool }</code></pre>
+<h3 id="25-visibility">2.5 Visibility</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Modifier</th>
+      <th>Scope</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><em>(none)</em></td>
+      <td>Private — visible only within the declaring file.</td>
+    </tr>
+    <tr>
+      <td><code>pub</code></td>
+      <td>Public — visible to any importer.</td>
+    </tr>
+    <tr>
+      <td><code>mod</code></td>
+      <td>Module-local — visible to immediate sibling files in the same directory.</td>
+    </tr>
+    <tr>
+      <td><code>mod(..)</code></td>
+      <td>Visible to all sub-directories, unlimited depth.</td>
+    </tr>
+    <tr>
+      <td><code>mod(N)</code></td>
+      <td>Visible to exactly N levels of sub-directories deep.</td>
+    </tr>
+  </tbody>
+</table>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

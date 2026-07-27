@@ -1,129 +1,355 @@
-[
-  {
-    "title": "Home",
-    "link": "../home.html",
-    "children": [
-      {
-        "title": "Quick Start",
-        "link": "./D-quickstart.html"
-      },
-      {
-        "title": "Introduction",
-        "link": "./intro/D-overview.html",
-        "children": [
-          { "title": "Installation", "link": "./intro/D-installation.html" },
-          { "title": "Why Zith?", "link": "./intro/D-why-zith.html" }
-        ]
-      },
-      {
-        "title": "Language Guide",
-        "link": "./language/D-overview.html",
-        "children": [
-          { "title": "Syntax", "link": "./language/D-syntax.html" },
-          { "title": "Variables", "link": "./language/D-variables.html" },
-          { "title": "Types", "link": "./language/D-types.html" },
-          { "title": "Control Flow", "link": "./language/D-control-flow.html" },
-          { "title": "Functions", "link": "./language/D-functions.html" },
-          { "title": "Ownership", "link": "./language/D-ownership.html" },
-          { "title": "Memory", "link": "./language/D-memory.html" },
-          { "title": "Modules", "link": "./language/D-modules.html" },
-          { "title": "Generics", "link": "./language/D-generics.html" },
-          { "title": "Errors", "link": "./language/D-errors.html" },
-          { "title": "Contexts", "link": "./language/D-contexts.html" },
-          { "title": "Concurrency", "link": "./language/D-concurrency.html" },
-          { "title": "ECS & Scenes", "link": "./language/D-ecs.html" },
-          { "title": "Intrinsics", "link": "./language/D-intrinsics.html" },
-          { "title": "Packs", "link": "./language/D-packs.html" },
-          { "title": "Best Practices", "link": "./language/D-best-practices.html" }
-        ]
-      },
-      {
-        "title": "Specification",
-        "link": "./spec/D-overview.html",
-        "children": [
-          { "title": "Implementation Status", "link": "./spec/D-impl-status.html" },
-          { "title": "Module System", "link": "./spec/D-module-system.html" },
-          { "title": "Type System", "link": "./spec/D-type-system.html" },
-          { "title": "Traits & Interfaces", "link": "./spec/D-traits-interfaces.html" },
-          { "title": "Functions", "link": "./spec/D-functions.html" },
-          { "title": "Mutability & Bindings", "link": "./spec/D-mutability-bindings.html" },
-          { "title": "Memory Model", "link": "./spec/D-memory-model.html" },
-          { "title": "Error Handling", "link": "./spec/D-error-handling.html" },
-          { "title": "Control Flow", "link": "./spec/D-control-flow.html" },
-          { "title": "Concurrency", "link": "./spec/D-concurrency.html" },
-          { "title": "Comptime", "link": "./spec/D-comptime.html" },
-          { "title": "Assets", "link": "./spec/D-assets.html" },
-          { "title": "Raw & Unsafe", "link": "./spec/D-raw-unsafe.html" },
-          { "title": "Polymorphism", "link": "./spec/D-polymorphism.html" },
-          { "title": "Macros", "link": "./spec/D-macros.html" },
-          { "title": "Words", "link": "./spec/D-words.html" },
-          { "title": "Contexts", "link": "./spec/D-contexts.html" },
-          { "title": "C Interop", "link": "./spec/D-c-interop.html" },
-          { "title": "Project Config", "link": "./spec/D-project-config.html" },
-          { "title": "Standard Library", "link": "./spec/D-standard-library.html" }
-        ]
-      },
-      {
-        "title": "CLI Reference",
-        "link": "./cli/D-cli.html",
-        "children": [
-          { "title": "Check", "link": "./cli/D-check.html" },
-          { "title": "Build", "link": "./cli/D-build.html" },
-          { "title": "Compile", "link": "./cli/D-compile.html" },
-          { "title": "Run", "link": "./cli/D-run.html" },
-          { "title": "New", "link": "./cli/D-new.html" },
-          { "title": "Fmt", "link": "./cli/D-fmt.html" },
-          { "title": "Clean", "link": "./cli/D-clean.html" },
-          { "title": "Docs", "link": "./cli/D-docs.html" },
-          { "title": "REPL", "link": "./cli/D-repl.html" },
-          { "title": "Flags", "link": "./cli/D-flags.html" }
-        ]
-      },
-      {
-        "title": "Advanced Topics",
-        "link": "./advanced/D-overview.html",
-        "children": [
-          { "title": "How to Use", "link": "./advanced/D-how-to-use.html" },
-          { "title": "Traits", "link": "./advanced/D-traits.html" },
-          { "title": "Generics Deep", "link": "./advanced/D-generics-deep.html" },
-          { "title": "Metaprogramming", "link": "./advanced/D-metaprogramming.html" },
-          { "title": "Macros", "link": "./advanced/D-macros.html" },
-          { "title": "Data Structures", "link": "./advanced/D-data-structures.html" },
-          { "title": "Unsafe", "link": "./advanced/D-unsafe.html" },
-          { "title": "Raw Pointers", "link": "./advanced/D-raw-pointers.html" }
-        ]
-      },
-      {
-        "title": "FAQ",
-        "link": "./faq/D-overview.html",
-        "children": [
-          { "title": "Philosophy", "link": "./faq/D-philosophy.html" },
-          { "title": "Security", "link": "./faq/D-security.html" },
-          { "title": "Rust Comparison", "link": "./faq/D-rust-comparison.html" },
-          { "title": "Use Cases", "link": "./faq/D-use-cases.html" }
-        ]
-      },
-      {
-        "title": "Community",
-        "link": "./community/D-overview.html",
-        "children": [
-          { "title": "Chat", "link": "./community/D-chat.html" },
-          { "title": "Contributing", "link": "./community/D-contributing.html" },
-          { "title": "Code of Conduct", "link": "./community/D-code-of-conduct.html" }
-        ]
-      },
-      {
-        "title": "Roadmap",
-        "link": "./D-roadmap.html"
-      },
-      {
-        "title": "Project",
-        "link": "./D-project-overview.html"
-      },
-      {
-        "title": "Stdlib Reference",
-        "link": "./D-reference-stdlib.html"
-      }
-    ]
+{
+  "version": 2,
+  "navigation": [
+    {
+      "title": "Home",
+      "link": "../home.html",
+      "children": [
+        {
+          "title": "Getting Started",
+          "link": "./getting-started/D-quick-start.html",
+          "children": [
+            {
+              "title": "Introduction",
+              "link": "./getting-started/D-introduction.html",
+              "children": []
+            },
+            {
+              "title": "Installation",
+              "link": "./getting-started/D-installation.html",
+              "children": []
+            },
+            {
+              "title": "Why Zith",
+              "link": "./getting-started/D-why-zith.html",
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "Language Guide",
+          "link": "./guide/D-overview.html",
+          "children": [
+            {
+              "title": "Syntax",
+              "link": "./guide/D-syntax.html",
+              "children": []
+            },
+            {
+              "title": "Bindings",
+              "link": "./guide/D-bindings.html",
+              "children": []
+            },
+            {
+              "title": "Types",
+              "link": "./guide/D-types.html",
+              "children": []
+            },
+            {
+              "title": "Functions",
+              "link": "./guide/D-functions.html",
+              "children": []
+            },
+            {
+              "title": "Modules",
+              "link": "./guide/D-modules.html",
+              "children": []
+            },
+            {
+              "title": "Control Flow",
+              "link": "./guide/D-control-flow.html",
+              "children": []
+            },
+            {
+              "title": "Generics",
+              "link": "./guide/D-generics.html",
+              "children": []
+            },
+            {
+              "title": "Memory Model",
+              "link": "./guide/D-memory-model.html",
+              "children": []
+            },
+            {
+              "title": "Errors",
+              "link": "./guide/D-errors.html",
+              "children": []
+            },
+            {
+              "title": "Traits & Interfaces",
+              "link": "./guide/D-traits-interfaces.html",
+              "children": []
+            },
+            {
+              "title": "Comptime",
+              "link": "./guide/D-comptime.html",
+              "children": []
+            },
+            {
+              "title": "Contexts, Words & Macros",
+              "link": "./guide/D-contexts-words-macros.html",
+              "children": []
+            },
+            {
+              "title": "Concurrency",
+              "link": "./guide/D-concurrency.html",
+              "children": []
+            },
+            {
+              "title": "C Interop",
+              "link": "./guide/D-c-interop.html",
+              "children": []
+            },
+            {
+              "title": "Raw & Unsafe",
+              "link": "./guide/D-raw-unsafe.html",
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "Language Reference",
+          "link": "./reference/D-specification.html",
+          "children": [
+            {
+              "title": "Implementation Status",
+              "link": "./reference/D-implementation-status.html",
+              "children": []
+            },
+            {
+              "title": "Module System",
+              "link": "./reference/D-module-system.html",
+              "children": []
+            },
+            {
+              "title": "Type System",
+              "link": "./reference/D-type-system.html",
+              "children": []
+            },
+            {
+              "title": "Traits & Interfaces",
+              "link": "./reference/D-traits-interfaces.html",
+              "children": []
+            },
+            {
+              "title": "Functions",
+              "link": "./reference/D-functions.html",
+              "children": []
+            },
+            {
+              "title": "Bindings",
+              "link": "./reference/D-mutability-bindings.html",
+              "children": []
+            },
+            {
+              "title": "Memory Model",
+              "link": "./reference/D-memory-model.html",
+              "children": []
+            },
+            {
+              "title": "Errors",
+              "link": "./reference/D-error-handling.html",
+              "children": []
+            },
+            {
+              "title": "Control Flow",
+              "link": "./reference/D-control-flow.html",
+              "children": []
+            },
+            {
+              "title": "Concurrency",
+              "link": "./reference/D-concurrency.html",
+              "children": []
+            },
+            {
+              "title": "Comptime",
+              "link": "./reference/D-comptime.html",
+              "children": []
+            },
+            {
+              "title": "Assets",
+              "link": "./reference/D-assets.html",
+              "children": []
+            },
+            {
+              "title": "Raw & Unsafe",
+              "link": "./reference/D-raw-unsafe.html",
+              "children": []
+            },
+            {
+              "title": "Polymorphism",
+              "link": "./reference/D-polymorphism.html",
+              "children": []
+            },
+            {
+              "title": "Macros",
+              "link": "./reference/D-macros.html",
+              "children": []
+            },
+            {
+              "title": "Words",
+              "link": "./reference/D-words.html",
+              "children": []
+            },
+            {
+              "title": "Contexts",
+              "link": "./reference/D-contexts.html",
+              "children": []
+            },
+            {
+              "title": "C Interop",
+              "link": "./reference/D-c-interop.html",
+              "children": []
+            },
+            {
+              "title": "Project Configuration",
+              "link": "./reference/D-project-config.html",
+              "children": []
+            },
+            {
+              "title": "Standard Library",
+              "link": "./reference/D-standard-library.html",
+              "children": []
+            },
+            {
+              "title": "Best Practices",
+              "link": "./reference/D-best-practices.html",
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "CLI Reference",
+          "link": "./cli/D-overview.html",
+          "children": [
+            {
+              "title": "zithc build",
+              "link": "./cli/D-build.html",
+              "children": []
+            },
+            {
+              "title": "zithc run",
+              "link": "./cli/D-run.html",
+              "children": []
+            },
+            {
+              "title": "zithc check",
+              "link": "./cli/D-check.html",
+              "children": []
+            },
+            {
+              "title": "zithc fmt",
+              "link": "./cli/D-fmt.html",
+              "children": []
+            },
+            {
+              "title": "zithc create",
+              "link": "./cli/D-create.html",
+              "children": []
+            },
+            {
+              "title": "zithc clean",
+              "link": "./cli/D-clean.html",
+              "children": []
+            },
+            {
+              "title": "zithc execute",
+              "link": "./cli/D-execute.html",
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "Project",
+          "link": "./project/D-overview.html",
+          "children": []
+        },
+        {
+          "title": "FAQ",
+          "link": "./faq/D-overview.html",
+          "children": []
+        },
+        {
+          "title": "Community",
+          "link": "./community/D-overview.html",
+          "children": []
+        }
+      ]
+    }
+  ],
+  "aliases": {
+    "./D-dev-wasm-build.html": "./cli/D-build.html",
+    "./D-language-spec-core-topics.html": "./reference/D-specification.html",
+    "./D-project-overview.html": "./project/D-overview.html",
+    "./D-quickstart.html": "./getting-started/D-quick-start.html",
+    "./D-reference-stdlib.html": "./reference/D-standard-library.html",
+    "./D-roadmap.html": "./project/D-overview.html",
+    "./advanced/D-data-structures.html": "./guide/D-types.html",
+    "./advanced/D-generics-deep.html": "./guide/D-generics.html",
+    "./advanced/D-how-to-use.html": "./guide/D-overview.html",
+    "./advanced/D-macros.html": "./guide/D-contexts-words-macros.html",
+    "./advanced/D-metaprogramming.html": "./guide/D-comptime.html",
+    "./advanced/D-overview.html": "./guide/D-overview.html",
+    "./advanced/D-raw-pointers.html": "./guide/D-raw-unsafe.html",
+    "./advanced/D-traits.html": "./guide/D-traits-interfaces.html",
+    "./advanced/D-unsafe.html": "./guide/D-raw-unsafe.html",
+    "./cli/D-cli.html": "./cli/D-overview.html",
+    "./cli/D-compile.html": "./cli/D-build.html",
+    "./cli/D-docs.html": "./cli/D-overview.html",
+    "./cli/D-flags.html": "./cli/D-overview.html",
+    "./cli/D-new.html": "./cli/D-create.html",
+    "./cli/D-repl.html": "./cli/D-overview.html",
+    "./community/D-chat.html": "./community/D-overview.html",
+    "./community/D-code-of-conduct.html": "./community/D-overview.html",
+    "./community/D-contributing.html": "./community/D-overview.html",
+    "./faq/D-philosophy.html": "./faq/D-overview.html",
+    "./faq/D-rust-comparison.html": "./faq/D-overview.html",
+    "./faq/D-security.html": "./faq/D-overview.html",
+    "./faq/D-use-cases.html": "./faq/D-overview.html",
+    "./intro/D-installation.html": "./getting-started/D-installation.html",
+    "./intro/D-overview.html": "./getting-started/D-introduction.html",
+    "./intro/D-why-zith.html": "./getting-started/D-why-zith.html",
+    "./language/D-best-practices.html": "./reference/D-best-practices.html",
+    "./language/D-c-interop.html": "./guide/D-c-interop.html",
+    "./language/D-concurrency.html": "./guide/D-concurrency.html",
+    "./language/D-contexts.html": "./guide/D-contexts-words-macros.html",
+    "./language/D-control-flow.html": "./guide/D-control-flow.html",
+    "./language/D-ecs.html": "./guide/D-overview.html",
+    "./language/D-errors.html": "./guide/D-errors.html",
+    "./language/D-functions.html": "./guide/D-functions.html",
+    "./language/D-generics.html": "./guide/D-generics.html",
+    "./language/D-intrinsics.html": "./guide/D-comptime.html",
+    "./language/D-memory.html": "./guide/D-memory-model.html",
+    "./language/D-modules.html": "./guide/D-modules.html",
+    "./language/D-overview.html": "./guide/D-overview.html",
+    "./language/D-ownership.html": "./guide/D-memory-model.html",
+    "./language/D-packs.html": "./guide/D-bindings.html",
+    "./language/D-raw-unsafe.html": "./guide/D-raw-unsafe.html",
+    "./language/D-syntax.html": "./guide/D-syntax.html",
+    "./language/D-traits.html": "./guide/D-traits-interfaces.html",
+    "./language/D-types.html": "./guide/D-types.html",
+    "./language/D-variables.html": "./guide/D-bindings.html",
+    "./spec/D-assets.html": "./reference/D-assets.html",
+    "./spec/D-best-practices.html": "./reference/D-best-practices.html",
+    "./spec/D-c-interop.html": "./reference/D-c-interop.html",
+    "./spec/D-comptime.html": "./reference/D-comptime.html",
+    "./spec/D-concurrency.html": "./reference/D-concurrency.html",
+    "./spec/D-contexts.html": "./reference/D-contexts.html",
+    "./spec/D-control-flow.html": "./reference/D-control-flow.html",
+    "./spec/D-error-handling.html": "./reference/D-error-handling.html",
+    "./spec/D-functions.html": "./reference/D-functions.html",
+    "./spec/D-impl-status.html": "./reference/D-implementation-status.html",
+    "./spec/D-macros.html": "./reference/D-macros.html",
+    "./spec/D-memory-model.html": "./reference/D-memory-model.html",
+    "./spec/D-module-system.html": "./reference/D-module-system.html",
+    "./spec/D-mutability-bindings.html": "./reference/D-mutability-bindings.html",
+    "./spec/D-overview.html": "./reference/D-specification.html",
+    "./spec/D-polymorphism.html": "./reference/D-polymorphism.html",
+    "./spec/D-project-config.html": "./reference/D-project-config.html",
+    "./spec/D-raw-unsafe.html": "./reference/D-raw-unsafe.html",
+    "./spec/D-standard-library.html": "./reference/D-standard-library.html",
+    "./spec/D-traits-interfaces.html": "./reference/D-traits-interfaces.html",
+    "./spec/D-type-system.html": "./reference/D-type-system.html",
+    "./spec/D-words.html": "./reference/D-words.html"
   }
-]
+}

@@ -1,12 +1,7 @@
-<h1><code>zith fmt</code></h1>
-<div class="callout callout-info">
-  <p><strong>&#8505; Info:</strong> This page is under construction. Content coming soon!</p>
-</div>
-<h2>Overview</h2>
-<p>The <code>fmt</code> command formats your Zith code according to standard style guidelines.</p>
-<h2>Usage</h2>
-<pre><code class="language-bash">zith fmt [options]</code></pre>
-<h2>Options</h2>
-<p>Standard options will be documented here.</p>
-<hr>
-<p><strong>Related:</strong> <code>zith check</code> | <a href="../D-project-overview.html">Project Configuration</a></p>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="zithc-fmt"><code>zithc fmt</code></h1>
+<p>Format a source file or directory using Zith formatting conventions.</p>
+<pre><code class="language-bash">zithc fmt src
+zithc fmt --check src
+zithc fmt -i src</code></pre>
+<p><code>--check</code> reports whether formatting changes are needed. <code>-i</code> writes the formatted source in place.</p>

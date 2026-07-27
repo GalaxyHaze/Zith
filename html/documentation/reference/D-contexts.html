@@ -1,0 +1,16 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="17-contexts">17. Contexts</h1>
+<blockquote><p><strong>Implementation status:</strong> <code>context</code> declarations and <code>use</code> activation are <strong>blocked (E2010)</strong>. Parsed; rejected at sema. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<p>A context bundles macros, constants, words, and other declarations into a reusable package. You can apply it to a single block or activate it globally — only one context may be active at a time in a given scope.</p>
+<pre><code class="language-zith">// Scoped: macros and words active only inside this block
+use SQL {
+    SELECT * FROM users WHERE id = :id
+}
+
+// Global: replaces any previous active context
+use SQL;</code></pre>
+<p>You can attach a context to any named block in Zith.</p>
+<h3 id="best-practice">Best Practice</h3>
+<p>Define your macros and words inside context blocks rather than leaving them globally active. Think of it as a lightweight namespace for DSLs — keeps the rest of your code clean.</p>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

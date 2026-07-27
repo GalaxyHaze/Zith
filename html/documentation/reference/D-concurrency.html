@@ -1,0 +1,56 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="10-concurrency--threads">10. Concurrency &amp; Threads</h1>
+<blockquote><p><strong>Implementation status:</strong> <code>spawn</code>, <code>await</code>, and <code>#wont_remain</code> are <strong>spec-only</strong>. No compiler support exists yet. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<h3 id="101-spawning">10.1 Spawning</h3>
+<pre><code class="language-zith">// Default thread type
+let handle = spawn worker_fn(data);
+
+// Explicit thread type
+let handle = spawn worker_fn(data) with GreenThread;
+
+// Fire-and-forget
+let _ = spawn background_task();
+
+// #wont_remain -- promise the thread dies before the scope ends
+#wont_remain let _ = spawn quickTask(sharedData);</code></pre>
+<h3 id="102-compile-time-safety-enforcement">10.2 Compile-Time Safety Enforcement</h3>
+<p>If a thread accesses shared data, the compiler requires <strong>one of</strong>:</p>
+<ul>
+  <li><code>await handle</code> before the shared data goes out of scope, or</li>
+  <li>the <code>#wont_remain</code> attribute on the spawn.</li>
+</ul>
+<p>Missing both is a <strong>compile error</strong>. Violating the <code>#wont_remain</code> promise is not caught by the compiler — the shared data may become a dangling reference. An alternative to both is using <code>global: share T</code> or <code>Rc</code>.</p>
+<table>
+  <thead>
+    <tr>
+      <th>Keyword / Method</th>
+      <th>Semantics</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>await handle</code></td>
+      <td>Waits for the thread to finish.</td>
+    </tr>
+    <tr>
+      <td><code>await globalVar</code></td>
+      <td>Blocks until the global variable has been initialized.</td>
+    </tr>
+    <tr>
+      <td><code>handle.send(msg)</code></td>
+      <td>Sends a message to the running thread.</td>
+    </tr>
+    <tr>
+      <td><code>#wont_remain</code></td>
+      <td>Attribute on <code>spawn</code>. Promises the thread dies before the enclosing scope ends.</td>
+    </tr>
+  </tbody>
+</table>
+<pre><code class="language-zith">let handle = spawn worker(sharedData);
+await handle;
+
+global cfg: Config;
+await cfg;
+@println(cfg.host);</code></pre>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

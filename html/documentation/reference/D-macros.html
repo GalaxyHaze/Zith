@@ -1,0 +1,59 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="15-macros">15. Macros</h1>
+<blockquote><p><strong>Implementation status:</strong> Macro declarations parse; <code>@macro</code> call sites emit warning W2009 (<code>NotImplemented</code>) and the call is dropped. Tag macros are <strong>spec-only</strong>. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Normal (scoped)</td>
+      <td>Hygienic — symbols do not leak into the call site's scope. Requires the <code>@</code> prefix at the call site.</td>
+    </tr>
+    <tr>
+      <td>Raw macro</td>
+      <td>Inserts code literally at the call site; not hygienic. Also requires the <code>@</code> prefix.</td>
+    </tr>
+    <tr>
+      <td>Tag macro</td>
+      <td>HTML-like syntax. Tag attributes (e.g. <code>id=5</code>) are available as <code>attributes</code> when the macro is the first argument; content between tags forms the remaining arguments. Uses <code>&lt;&gt;</code> syntax — no <code>@</code> prefix.</td>
+    </tr>
+  </tbody>
+</table>
+<blockquote><p>Best practice: define macros inside a <code>context</code> block (<a href="./D-contexts.html">§17</a>) rather than activating them globally.</p></blockquote>
+<ul>
+  <li>They all have special arguments that can manipulate the AST. Default and raw macros accept attributes via <code>[capture]</code> syntax; tag macros receive attributes as <code>attributes</code>.</li>
+</ul>
+<pre><code class="language-zith">macro log(msg: expr) { @println(&quot;[LOG] &quot;, msg); }
+
+raw macro swap(a: identifier, b: identifier) {
+    let _tmp = a; a = b; b = _tmp;
+}
+
+// Default/raw macro with capture attribute
+@closure[capture](){ ... }
+
+// Tag macro — attributes come from the tag syntax
+&lt;Section title=&quot;Overview&quot;&gt; body &lt;/Section&gt;
+&lt;cool id=5, name=&quot;name&quot;&gt; content &lt;/cool&gt;
+
+// Macro parameter meta-types: identifier, expr, condition, body</code></pre>
+<h3 id="151-the--prefix-rule">15.1 The <code>@</code> Prefix Rule</h3>
+<p>The <code>@</code> prefix is what distinguishes a macro call from an ordinary function call:</p>
+<pre><code class="language-zith">// Macro call -- @ prefix
+@println(&quot;hello&quot;);
+@log(&quot;debug message&quot;);
+@serialize(obj);
+
+// Function call -- bare name
+console.write(&quot;hello&quot;);
+process(data);
+save(file);</code></pre>
+<p>Tag macros are the one exception — they use <code>&lt;&gt;</code> syntax and never take the <code>@</code> prefix:</p>
+<pre><code class="language-zith">&lt;div class=&quot;container&quot;&gt; content &lt;/div&gt;
+&lt;Section title=&quot;Overview&quot;&gt; body &lt;/Section&gt;</code></pre>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

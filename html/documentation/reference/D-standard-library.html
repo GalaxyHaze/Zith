@@ -1,0 +1,80 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="20-standard-library">20. Standard Library</h1>
+<h3 id="201-three-part-structure">20.1 Three-Part Structure</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Namespace</th>
+      <th>Stability</th>
+      <th>Use when</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>std</code></td>
+      <td>Stable, backward-compatible</td>
+      <td>You need a guaranteed API</td>
+    </tr>
+    <tr>
+      <td><code>soon</code></td>
+      <td>Experimental, may change</td>
+      <td>You're prototyping and don't mind breakage</td>
+    </tr>
+    <tr>
+      <td><code>c</code></td>
+      <td>Direct C FFI bindings</td>
+      <td>You need to call C APIs</td>
+    </tr>
+  </tbody>
+</table>
+<pre><code class="language-zith">import std;
+import soon;   // use with caution — API may shift
+import c;       // raw C bindings</code></pre>
+<h3 id="202-core-modules">20.2 Core Modules</h3>
+<h4 id="stdioconsole"><code>std/io/console</code></h4>
+<pre><code class="language-zith">fn println(msg: []char): void;
+fn print(msg: []char): void;
+fn eprint(msg: []char): void;</code></pre>
+<pre><code class="language-zith">@println(&quot;hello&quot;);</code></pre>
+<h4 id="stdcollectionsdynarray"><code>std/collections/DynArray</code></h4>
+<pre><code class="language-zith">struct DynArray&lt;T&gt; {
+    fn push(self: lend, val: T);
+    fn pop(self): ?T;
+    fn len(self): u64;
+    fn get(self, index: u64): ?T;
+}</code></pre>
+<h4 id="stdfs"><code>std/fs</code></h4>
+<pre><code class="language-zith">struct File { ... }
+
+fn open(path: string): File!;
+fn read(self: view File): []u8!;
+fn write(self: lend File, data: []u8): void!;</code></pre>
+<h3 id="203-common-traits">20.3 Common Traits</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Trait</th>
+      <th>What it enables</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>Copy</code></td>
+      <td>Bitwise copy — primitives and components get this by default</td>
+    </tr>
+    <tr>
+      <td><code>Clone</code></td>
+      <td><code>fn clone(self): Self!</code></td>
+    </tr>
+    <tr>
+      <td><code>Lent</code></td>
+      <td>Can appear as a <code>lend</code> parameter</td>
+    </tr>
+    <tr>
+      <td><code>Share</code></td>
+      <td>Safe to share across threads</td>
+    </tr>
+  </tbody>
+</table>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

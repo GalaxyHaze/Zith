@@ -1,0 +1,120 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="9-control-flow">9. Control Flow</h1>
+<h3 id="91-syntax-rules">9.1 Syntax Rules</h3>
+<p>Parentheses <code>()</code> are mandatory on every control structure's condition except function calls. Logical operators use English keywords; bitwise operators use standard symbols followed by <code>.</code>:</p>
+<pre><code class="language-zith">if (x &gt; 0 and y &lt; 10) { ... }
+if isTrue() and (x &gt; 5) { ... }
+let mask = a &amp;. b |. c ^. d;</code></pre>
+<h3 id="92-for">9.2 <code>for</code></h3>
+<pre><code class="language-zith">for { ... }                                     // infinite
+for (i in 0..=9) { @println(i); }               // inclusive range
+for (i in 0..9)  { @println(i); }               // exclusive range
+for (i = 0), (i &lt; 10), (i += 1) { ... }         // init / cond / step
+for (v in range(0, 100)) { @println(v); }       // over a generator
+
+// Destructured group with fallback
+let r = for ([acc, i]: i32), (i in 0..n) { acc *= i + 1 } or 0;</code></pre>
+<blockquote><p>If the loop body may never run, its return value is deduced as optional — unless <code>or</code> collapses it to a non-optional value.</p></blockquote>
+<blockquote><p>The init/cond/step form accepts comma-separated, parenthesized expressions — <code>for (i = 0), (i &lt; 10), (i += 1)</code> — or the flat alternative, <code>for (i = 0, i &lt; 10, i += 1)</code>.</p></blockquote>
+<h3 id="93-chain-flow">9.3 Chain Flow (<code>-&gt;</code>)</h3>
+<p>The <code>-&gt;</code> operator pipes output left to right. The previous value is available as <code>..</code>, and tags capture values for later use. <code>!</code> and <code>?</code> propagate out of the chain normally. Precedence is left-to-right and lower than function calls.</p>
+<pre><code class="language-zith">getData() -&gt; process(..) -&gt; save(..);
+
+getData()
+    -&gt; raw:    parse(..)
+    -&gt; parsed: validate(..)!       // ! propagates out of the chain
+    -&gt; connectDb()
+    -&gt; save(parsed);
+
+// Inline block
+readFile(&quot;data.bin&quot;)
+    -&gt; { let h = parse_header(..); validate(h)! }
+    -&gt; process_body(..);
+
+// Comma sub-chain -- f1 and f2 receive foo&#x27;s value but do NOT advance the chain
+foo(), f1(..), f2(..) -&gt; f3(..);
+
+// Parenthesized sub-chain -- this one does advance inside the sub-chain
+// But don&#x27;t affect the main chain
+foo(), ( f1(..) -&gt; f2() ) -&gt; f3(..);
+         ^                      ^
+         |                      |
+         foo                    foo</code></pre>
+<blockquote><p>Comma sub-chains are useful for side effects — logging, validation — without disrupting the main data flow.</p></blockquote>
+<h3 id="94-flow-functions--markers">9.4 <code>flow</code> Functions &amp; Markers</h3>
+<p>A <code>flow fn</code> lets you write control flow using <strong>markers</strong>, <strong>docks</strong>, and <strong>jumps</strong>:</p>
+<ul>
+  <li><strong><code>marker</code></strong>: A named block of code, hoisted to the top of the <code>flow fn</code>. Acts as a label. Receives values via <code>jump</code>.</li>
+  <li><strong><code>dock</code></strong>: A block that grants permission to use <code>jump</code>. You can use <code>if</code>, <code>when</code>, loops — anything inside a <code>dock</code>.</li>
+  <li><strong><code>jump</code></strong>: The transfer operator. Must always be inside a <code>dock</code>. Sends values to a target <code>marker</code> and transfers control.</li>
+</ul>
+<pre><code class="language-zith">flow fn run(data: Stream): void {
+    marker Process(chunk: Chunk, count: i32) {
+        transform(chunk);
+        // count carries over from the last jump unless you update it
+    }
+
+    for ( i = 0, item in data ) {
+        dock {                          // dock grants jump permission
+            if (item.isValid()) {
+                jump Process(item, i);  // transfer to marker
+            }
+        }
+        i += 1;
+    }
+}
+
+// Global marker — usable from any flow fn
+marker ContextSwitch(next: TaskId) {
+    saveRegisters();
+    loadTask(next);
+}
+
+// never: the return point is not altered — no resumption to protect
+flow fn scheduler(): never { ... }</code></pre>
+<h4 id="marker-rules">Marker Rules</h4>
+<table>
+  <thead>
+    <tr>
+      <th>Rule</th>
+      <th>Detail</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Hoisting</td>
+      <td>Markers are lifted to the top of the <code>flow fn</code>. Normal execution skips over them.</td>
+    </tr>
+    <tr>
+      <td>Scope</td>
+      <td>Markers cannot see outer variables or declare their own locals.</td>
+    </tr>
+    <tr>
+      <td>Arguments</td>
+      <td>Stored in a <code>thread_local</code> blob. Values persist between jumps unless you update them.</td>
+    </tr>
+    <tr>
+      <td>Input from dock</td>
+      <td>Markers receive values via <code>jump</code> from any <code>dock</code> in the same <code>flow fn</code>.</td>
+    </tr>
+    <tr>
+      <td>Global markers</td>
+      <td>May call regular functions, but not <code>flow</code> functions — unless the target is <code>never</code>. The <code>never</code> exception exists because a <code>never</code> flow function never alters the return point — there is no resumption to protect. If it did alter the return point, it would corrupt the state.</td>
+    </tr>
+  </tbody>
+</table>
+<h4 id="stackful-vs-stackless">Stackful vs Stackless</h4>
+<p>Markers are <strong>stackless</strong> by default — can't create local variables. Opt into <strong>stackful</strong> with the <code>stackful</code> modifier. Before the jump, all local variables are cleaned. The following rules apply:</p>
+<ul>
+  <li><strong>Values from outside</strong> (came via <code>dock</code>): always valid — the caller owns them.</li>
+  <li><strong>Local values</strong>: never allowed — they would dangle after cleanup.</li>
+</ul>
+<pre><code class="language-zith">flow fn run(data: Stream): void {
+    stackful marker Process(chunk: Chunk) {
+        let buffer = allocate(chunk.size);  // local — dropped before jump
+        jump transform(buffer);
+        // only chunk crosses the jump (it came from outside)
+    }
+}</code></pre>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

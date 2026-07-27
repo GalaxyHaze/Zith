@@ -1,27 +1,3 @@
-<h2>19. Project Configuration</h2>
-<h3>19.1 <code>ZithProject.toml</code> (per-project)</h3>
-<pre><code class="language-toml">[project]
-name    = "my_app"
-version = "0.1.0"
-
-[build]
-runtime = true            # default: true; set false for OS/embedded targets
-asm     = "x86_64_intel"  # required if using inline assembly
-                          # errors if it diverges from the host machine or other project files
-
-[assets]
-paths = ["assets/"]       # compile-time-validated asset paths
-
-[dependencies]
-std = "bundled"</code></pre>
-<h3>19.2 <code>ZithFlags</code> (compiler / global)</h3>
-<pre><code>--runtime=false     # disable the runtime globally: removes most allocators,
-                    # disables `must`, disables dynamically linked libraries and
-                    # anything that depends on them, and forces all available
-                    # std to be statically linked
---asm=arm64         # set the assembly dialect globally
---release           # release mode 
---debug             # debug mode (default)</code></pre>
-<blockquote><p><code>runtime = false</code> disables the heap, standard stack assumptions, and signal handlers. Any standard library feature that requires a runtime becomes unavailable at compile time.</p></blockquote>
-<hr>
-<p><em><a href="./D-overview.html">Zith Language Specification</a> — Draft v0.9</em></p>
+<div class="callout callout-info"><p><strong>Moved:</strong> This legacy URL is maintained for compatibility. Continue to <a href="./../reference/D-project-config.html">the current page</a>.</p></div>
+<h1>Documentation moved</h1>
+<p>This page is now maintained at <a href="./../reference/D-project-config.html">reference/D-project-config.html</a>.</p>

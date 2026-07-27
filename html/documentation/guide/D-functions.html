@@ -1,0 +1,7 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="functions">Functions</h1>
+<p>Declare a function with <code>fn</code>, typed parameters, and an optional return annotation. A final expression can provide the return value.</p>
+<pre><code class="language-zith">fn multiply(a: i32, b: i32): i32 {
+    a * b
+}</code></pre>
+<p><code>fn</code>, <code>flow fn</code>, <code>const fn</code>, and <code>raw fn</code> parse and lower. Compile-time evaluation for <code>const fn</code> remains specification-only, so use ordinary <code>fn</code> for code that must run today. See <a href="./../reference/D-implementation-status.html">Implementation Status</a>.</p>

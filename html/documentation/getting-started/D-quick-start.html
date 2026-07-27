@@ -1,0 +1,19 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="quick-start">Quick Start</h1>
+<p>Zith is experimental. This guide uses the working <code>zithc create</code>, <code>build</code>, and <code>run</code> commands described in <a href="./../reference/D-implementation-status.html">Implementation Status</a>.</p>
+<h2 id="create-a-project">Create a project</h2>
+<pre><code class="language-bash">zithc create hello-zith
+cd hello-zith</code></pre>
+<p><code>create</code> writes a <code>ZithProject.toml</code> and <code>src/main.zith</code> scaffold.</p>
+<h2 id="write-a-program">Write a program</h2>
+<p>Replace <code>src/main.zith</code> with a small program:</p>
+<pre><code class="language-zith">fn add(a: i32, b: i32): i32 { a + b }
+
+fn main() {
+    let total = add(20, 22);
+}</code></pre>
+<h2 id="build-and-run">Build and run</h2>
+<pre><code class="language-bash">zithc check
+zithc build
+zithc run</code></pre>
+<p><code>check</code> type-checks without emitting output. <code>run</code> compiles and executes in one step. Continue with the <a href="./D-introduction.html">Introduction</a> for the documentation map, or read <a href="./../guide/D-syntax.html">Syntax</a> before expanding the program.</p>

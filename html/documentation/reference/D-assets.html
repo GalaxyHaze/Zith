@@ -1,0 +1,32 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="12-assets">12. Assets</h1>
+<p>Assets are external files — JSON, images, other data — that the compiler validates and makes available at compile time.</p>
+<h3 id="121-configuration">12.1 Configuration</h3>
+<p>Declare asset paths in <code>ZithProject.toml</code>:</p>
+<pre><code class="language-toml">[project]
+name = &quot;my_game&quot;
+version = &quot;0.1.0&quot;
+
+[assets]
+assets = [&quot;assets/&quot;, &quot;../someOtherFolder&quot;]</code></pre>
+<p>The compiler verifies that every declared path exists and is readable.</p>
+<h3 id="122-importing-assets">12.2 Importing Assets</h3>
+<pre><code class="language-zith">import assets/data.json as Data;
+import assets/sprites/player.png as PlayerSprite;</code></pre>
+<blockquote><p><code>as</code> is mandatory here, to avoid conflicts between files that share a name but differ in extension.</p></blockquote>
+<p>Imported assets are available as compile-time constants.</p>
+<h3 id="123-processing-assets-at-compile-time">12.3 Processing Assets at Compile Time</h3>
+<p>Combine assets with <code>const fn</code> to process them before the program runs:</p>
+<pre><code class="language-zith">import assets/config.json as ConfigData;
+
+const fn parseConfig(data: []char): Config {
+    // parse JSON at compile time
+    JSON.parse(data)!
+}
+
+const CONFIG = parseConfig(ConfigData);   // runs at compile time</code></pre>
+<h3 id="124-runtime-assets">12.4 Runtime Assets</h3>
+<p>Assets not declared in <code>[assets]</code> are loaded at runtime with standard file I/O:</p>
+<pre><code class="language-zith">let runtimeData = fs.read(&quot;runtime/save.json&quot;)!;</code></pre>
+<hr>
+<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
