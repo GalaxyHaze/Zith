@@ -122,7 +122,7 @@ void test_cache_invalidation_and_overlays() {
             overlay.value()->findModule(SourceCatalog::canonicalPath(workspace.path("dep.zith")));
         CHECK(dep != nullptr, "overlay dependency is in snapshot");
         if (dep)
-            CHECK(dep->storage->source()->text.find("overlay") != std::string::npos,
+            CHECK(dep->source->text.find("overlay") != std::string::npos,
                   "open document content takes precedence over disk");
     }
 
@@ -134,7 +134,7 @@ void test_cache_invalidation_and_overlays() {
             closed.value()->findModule(SourceCatalog::canonicalPath(workspace.path("dep.zith")));
         CHECK(dep != nullptr, "disk dependency remains in snapshot after close");
         if (dep)
-            CHECK(dep->storage->source()->text.find("changed") != std::string::npos,
+            CHECK(dep->source->text.find("changed") != std::string::npos,
                   "closing an overlay restores disk content");
     }
 }

@@ -223,21 +223,15 @@ bool CompilationSession::lexStage() {
         mFilePath = (fs::path(mProjectRoot) / mProjectConfig.entry).string();
     }
 
-    // Initialize the persistent cache store and try a cache lookup before doing
-    // any source-level work.  On a hit we hydrate the session and skip lex/scan.
+    // Initialize the persistent cache store before source-level work. Until
+    // artifact hydration exists, hits are recorded but do not skip lexing.
     if (!mCacheStore) {
         const auto cache_root = (fs::path(mProjectRoot) / "cache").string();
-        mCacheStore = std::make_unique<cache::Store>(
-            cache_root, mFrontendContext ? mFrontendContext->config().cacheKey() : session::CacheKey{});
+        mCacheStore           = std::make_unique<cache::Store>(
+            cache_root,
+            mFrontendContext ? mFrontendContext->config().cacheKey() : session::CacheKey{});
     }
-    if (tryLoadPersistentCache()) {
-        mCacheLoaded = true;
-        auto lexDt = std::chrono::duration<double, std::milli>(
-                         std::chrono::steady_clock::now() - t0)
-                         .count();
-        mStageDurations[static_cast<size_t>(StageIndex::Lex)] = lexDt;
-        return true;
-    }
+    (void)tryLoadPersistentCache();
 
     if (mOpts.get().flags.verbose()) {
         std::error_code ec;
@@ -296,7 +290,7 @@ bool CompilationSession::lexStage() {
 }
 
 bool CompilationSession::importStage() {
-    auto t0      = std::chrono::steady_clock::now();
+    auto t0 = std::chrono::steady_clock::now();
     if (mCacheHydrated)
         return true;
     namespace fs = std::filesystem;
@@ -607,7 +601,7 @@ bool CompilationSession::codegenStage() {
 
 #ifdef ZITH_HAS_LLVM
     {
-        codegen::CodeGen cg(*mInterner, mSyms, mTypes, mOpts.get().targetTriple,
+        codegen::CodeGen cg(*mInterner, mTypes, mOpts.get().targetTriple,
                             mOpts.get().flags.optLevel(), &mDiags);
         cg.emit(mHirModule, mFilePath);
         cg.optimize();
@@ -675,8 +669,8 @@ bool CompilationSession::cacheStage() {
     mStageDurations[static_cast<size_t>(StageIndex::Cache)] = cacheDt;
     if (mOpts.get().flags.verbose()) {
         const auto m = mCacheStore ? mCacheStore->metrics() : cache::StoreMetrics{};
-        writeOutput("  [cache] hits=%zu misses=%zu writes=%zu invalid=%zu  (%5.1fms)\n",
-                    m.hits, m.misses, m.writes, m.invalid, cacheDt);
+        writeOutput("  [cache] hits=%zu misses=%zu writes=%zu invalid=%zu  (%5.1fms)\n", m.hits,
+                    m.misses, m.writes, m.invalid, cacheDt);
     }
 #endif
     return true;
@@ -874,7 +868,6 @@ bool CompilationSession::tryLoadPersistentCache() {
         return false;
 
     // Compute the canonical path and source fingerprint for the root file.
-    namespace fs = std::filesystem;
     mCanonicalPath = SourceCatalog::canonicalPath(mFilePath);
 
     // Read the source text to compute its fingerprint.
@@ -897,15 +890,15 @@ bool CompilationSession::tryLoadPersistentCache() {
     }
 
     if (mOpts.get().flags.verbose())
-        writeOutput("  [cache] hit for %s (%zu decls, %zu fns)\n",
-                    mCanonicalPath.c_str(), artifact->decls.size(), artifact->functions.size());
+        writeOutput("  [cache] hit for %s (%zu decls, %zu fns)\n", mCanonicalPath.c_str(),
+                    artifact->decls.size(), artifact->functions.size());
 
     // V1: record the hit for metrics but do not hydrate yet.  Full session
     // hydration (reconstructing AST/types/HIR from the artifact) is deferred
     // to a follow-up; the normal pipeline still runs to produce correct output.
-    // The artifact is validated and available; future work will short-circuit
-    // the frontend stages once hydration is complete.
-    return true;
+    // The artifact is validated and available; future work will hydrate it
+    // before short-circuiting the frontend stages.
+    return false;
 }
 
 void CompilationSession::writePersistentCache() {
@@ -914,15 +907,18 @@ void CompilationSession::writePersistentCache() {
     if (mDiags.hasErrors())
         return; // do not cache failed compilations
 
-    namespace fs = std::filesystem;
+    namespace fs          = std::filesystem;
     const auto cache_root = (fs::path(mProjectRoot) / "cache").string();
     if (!mCacheStore || mCacheStore->root() != cache_root) {
-        mCacheStore = std::make_unique<cache::Store>(cache_root, mFrontendContext ? mFrontendContext->config().cacheKey() : session::CacheKey{});
+        mCacheStore = std::make_unique<cache::Store>(
+            cache_root,
+            mFrontendContext ? mFrontendContext->config().cacheKey() : session::CacheKey{});
     }
 
     // Build the artifact from current session state.
     cache::ArtifactBuilder builder(mSyms, mTypes, mHirModule, *mInterner, mSourceFingerprint,
-                                   mFrontendContext ? mFrontendContext->config().cacheKey() : session::CacheKey{});
+                                   mFrontendContext ? mFrontendContext->config().cacheKey()
+                                                    : session::CacheKey{});
     std::vector<cache::DependencyRecord> deps;
     for (size_t i = 0; i < mImportMgr.fileCount(); ++i) {
         const auto &file = mImportMgr.get(i);
@@ -931,13 +927,13 @@ void CompilationSession::writePersistentCache() {
         dep.import_key     = file.import_key;
         // ABI hash unknown for deps in v1; store zero so validation treats it
         // as "no ABI constraint" rather than a mismatch.
-        dep.public_abi_hi  = 0;
-        dep.public_abi_lo  = 0;
+        dep.public_abi_hi = 0;
+        dep.public_abi_lo = 0;
         deps.push_back(std::move(dep));
     }
 
     std::string module_name = fs::path(mFilePath).stem().string();
-    auto artifact = builder.build(mCanonicalPath, module_name, deps);
+    auto artifact           = builder.build(mCanonicalPath, module_name, deps);
     mCacheStore->store(artifact);
 
     if (mOpts.get().flags.verbose())

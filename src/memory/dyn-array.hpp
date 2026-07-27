@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <type_traits>
 #include <utility>
 
@@ -84,19 +85,23 @@ public:
     void reserve(size_t new_cap) {
         if (new_cap <= capacity_)
             return;
+        if (new_cap > std::numeric_limits<size_t>::max() / sizeof(T))
+            allocationFailure_();
 
-        size_t old_bytes = capacity_ * sizeof(T);
-        size_t new_bytes = new_cap * sizeof(T);
-        size_t extra     = new_bytes - old_bytes;
+        const size_t old_bytes = capacity_ * sizeof(T);
+        const size_t new_bytes = new_cap * sizeof(T);
+        const size_t extra     = new_bytes - old_bytes;
 
-        auto *data_end = reinterpret_cast<char *>(data_) + old_bytes;
-        if (data_end == arena_->ptr() && arena_->remaining() >= extra) {
+        auto *data_end = data_ ? reinterpret_cast<char *>(data_) + old_bytes : nullptr;
+        if (data_end && data_end == arena_->ptr() && arena_->remaining() >= extra) {
             (void)arena_->alloc(extra, alignof(T));
             capacity_ = new_cap;
             return;
         }
 
         auto *new_data = static_cast<T *>(arena_->alloc(new_bytes, alignof(T)));
+        if (!new_data)
+            allocationFailure_();
 
         if (data_) {
             for (size_t i = 0; i < size_; i++) {
@@ -184,8 +189,15 @@ public:
 
 private:
     void grow_() {
-        size_t new_cap = capacity_ == 0 ? 4 : capacity_ * 2;
+        if (capacity_ > std::numeric_limits<size_t>::max() / 2)
+            allocationFailure_();
+        const size_t new_cap = capacity_ == 0 ? 4 : capacity_ * 2;
         reserve(new_cap);
+    }
+
+    [[noreturn]] static void allocationFailure_() {
+        std::fputs("[error] DynArray allocation failed or overflowed\n", stderr);
+        std::abort();
     }
 };
 

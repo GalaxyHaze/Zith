@@ -626,10 +626,18 @@ void FmtVisitor::emitEnumValue(const ast::EnumValueNode &node) {
 void FmtVisitor::emitRange(const ast::RangeNode &node) {
     visitExpr(node.lhs);
     switch (node.bounds) {
-    case ast::RangeBounds::OpenLeft:  emit(">..");  break;
-    case ast::RangeBounds::OpenRight: emit("..<");  break;
-    case ast::RangeBounds::Open:      emit(">..<"); break;
-    default:                          emit("..");   break;
+    case ast::RangeBounds::OpenLeft:
+        emit(">..");
+        break;
+    case ast::RangeBounds::OpenRight:
+        emit("..<");
+        break;
+    case ast::RangeBounds::Open:
+        emit(">..<");
+        break;
+    default:
+        emit("..");
+        break;
     }
     visitExpr(node.rhs);
 }
@@ -638,10 +646,10 @@ void FmtVisitor::emitWhen(const ast::WhenNode &node) {
     emit("when (");
     visitExpr(node.subject);
     emit(") {\n");
-    incIndent();
+    ++indent_;
     for (size_t i = 0; i < node.cases.size(); i++) {
         auto &c = node.cases[i];
-        emitIndent();
+        indent();
         emit("(");
         visitExpr(c.condition);
         emit(")");
@@ -652,8 +660,8 @@ void FmtVisitor::emitWhen(const ast::WhenNode &node) {
         else
             emit(",\n");
     }
-    decIndent();
-    emitIndent();
+    --indent_;
+    indent();
     emit("}");
 }
 

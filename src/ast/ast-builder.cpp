@@ -250,7 +250,7 @@ ExprId AstBuilder::enumValue(std::string_view enum_name, std::string_view varian
 }
 
 ExprId AstBuilder::range(ExprId lhs, ExprId rhs, memory::Span span) {
-    return addExpr(RangeNode{lhs, rhs, span});
+    return addExpr(RangeNode{lhs, rhs, RangeBounds::Closed, span});
 }
 
 ExprId AstBuilder::range(ExprId lhs, ExprId rhs, RangeBounds bounds, memory::Span span) {

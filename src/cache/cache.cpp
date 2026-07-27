@@ -35,8 +35,7 @@ std::string Store::artifactPath(std::string_view canonical_path) const {
     return oss.str();
 }
 
-bool Store::validateArtifact(const Artifact &art,
-                             const session::ContentFingerprint &fp) const {
+bool Store::validateArtifact(const Artifact &art, const session::ContentFingerprint &fp) const {
     if (art.cache_key_hash != cache_key_hash_)
         return false;
     // Source fingerprint (64-bit primary) must match the current file.
@@ -78,7 +77,7 @@ std::optional<Artifact> Store::load(std::string_view canonical_path,
         }
     }
     bumpHits();
-    return artifact;
+    return std::optional<Artifact>{std::in_place, std::move(*artifact)};
 }
 
 void Store::store(const Artifact &artifact) {
@@ -103,12 +102,12 @@ void Store::store(const Artifact &artifact) {
     }
 
     ManifestEntry entry;
-    entry.canonical_path  = artifact.canonical_path;
-    entry.artifact_path   = path;
-    entry.public_abi_hi   = artifact.public_abi_hi;
-    entry.public_abi_lo   = artifact.public_abi_lo;
-    entry.source_fp_hi    = artifact.source_fp_hi;
-    entry.source_fp_lo    = artifact.source_fp_lo;
+    entry.canonical_path = artifact.canonical_path;
+    entry.artifact_path  = path;
+    entry.public_abi_hi  = artifact.public_abi_hi;
+    entry.public_abi_lo  = artifact.public_abi_lo;
+    entry.source_fp_hi   = artifact.source_fp_hi;
+    entry.source_fp_lo   = artifact.source_fp_lo;
     for (const auto &dep : artifact.deps) {
         entry.dependencies.push_back(dep.canonical_path);
     }
@@ -130,13 +129,13 @@ void Store::invalidate(std::string_view canonical_path) {
         evict(dep);
     manifest_.save();
     {
-        std::lock_guard l(metrics_mutex_);
+        std::lock_guard<std::mutex> lock(metrics_mutex_);
         metrics_.evictions += 1 + deps.size();
     }
 }
 
 StoreMetrics Store::metrics() const {
-    std::lock_guard l(metrics_mutex_);
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     return metrics_;
 }
 

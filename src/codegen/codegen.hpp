@@ -5,7 +5,6 @@
 #include "diagnostics/diagnostic-engine.hpp"
 #include "hir/hir-module.hpp"
 #include "memory/string-interner.hpp"
-#include "symbols/symbol-table.hpp"
 #include "types/type-intern.hpp"
 
 #include <memory>
@@ -21,9 +20,9 @@ namespace zith::codegen {
 
 class CodeGen {
 public:
-    CodeGen(const memory::StringInterner &interner, const symbols::SymbolTable &syms,
-            const types::TypeIntern &types, std::string_view targetTriple = {},
-            uint8_t optLevel = 0, diagnostics::DiagnosticEngine *diags = nullptr);
+    CodeGen(const memory::StringInterner &interner, const types::TypeIntern &types,
+            std::string_view targetTriple = {}, uint8_t optLevel = 0,
+            diagnostics::DiagnosticEngine *diags = nullptr);
     ~CodeGen();
 
     void emit(const hir::HirModule &hirModule, std::string_view moduleName);
@@ -48,7 +47,6 @@ private:
     std::unique_ptr<llvm::LLVMContext> ctx_;
     std::unique_ptr<llvm::Module> module_;
     const memory::StringInterner &interner_;
-    const symbols::SymbolTable &syms_;
     const types::TypeIntern &types_;
     diagnostics::DiagnosticEngine *diags_;
     std::string targetTriple_;

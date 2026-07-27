@@ -6,7 +6,6 @@
 #include "hir/hir-types.hpp"
 #include "memory/flat-map.hpp"
 #include "memory/string-interner.hpp"
-#include "symbols/symbol-table.hpp"
 #include "types/type-intern.hpp"
 
 #include <string_view>
@@ -31,8 +30,7 @@ struct NamedValue {
 class CodeGenEmit {
 public:
     CodeGenEmit(llvm::IRBuilderBase &builder, CodeGenType &typeGen,
-                const memory::StringInterner &interner, const symbols::SymbolTable &syms,
-                const types::TypeIntern &types);
+                const memory::StringInterner &interner, const types::TypeIntern &types);
 
     void setBlocks(const std::vector<llvm::BasicBlock *> *blocks) {
         blocks_ = blocks;
@@ -60,7 +58,6 @@ private:
     llvm::IRBuilderBase &builder_;
     CodeGenType &typeGen_;
     const memory::StringInterner &interner_;
-    const symbols::SymbolTable &syms_;
     const types::TypeIntern &types_;
     memory::FlatMap<std::string_view, NamedValue> namedValues_;
     std::vector<llvm::Value *> slots_;

@@ -17,21 +17,27 @@ class ByteWriter {
     std::vector<uint8_t> buf_;
 
 public:
-    void writeU8(uint8_t v) { buf_.push_back(v); }
+    void writeU8(uint8_t v) {
+        buf_.push_back(v);
+    }
     void writeU16(uint16_t v) {
         buf_.push_back(static_cast<uint8_t>(v & 0xFFu));
         buf_.push_back(static_cast<uint8_t>((v >> 8u) & 0xFFu));
     }
     void writeU32(uint32_t v) {
-        for (int i = 0; i < 4; ++i)
+        for (uint32_t i = 0; i < 4; ++i)
             buf_.push_back(static_cast<uint8_t>((v >> (8u * i)) & 0xFFu));
     }
-    void writeI32(int32_t v) { writeU32(static_cast<uint32_t>(v)); }
+    void writeI32(int32_t v) {
+        writeU32(static_cast<uint32_t>(v));
+    }
     void writeU64(uint64_t v) {
-        for (int i = 0; i < 8; ++i)
+        for (uint32_t i = 0; i < 8; ++i)
             buf_.push_back(static_cast<uint8_t>((v >> (8u * i)) & 0xFFu));
     }
-    void writeI64(int64_t v) { writeU64(static_cast<uint64_t>(v)); }
+    void writeI64(int64_t v) {
+        writeU64(static_cast<uint64_t>(v));
+    }
     void writeF64(double v) {
         uint64_t bits = 0;
         std::memcpy(&bits, &v, sizeof(bits));
@@ -49,26 +55,38 @@ public:
         writeBytes(reinterpret_cast<const uint8_t *>(s.data()), s.size());
     }
 
-    [[nodiscard]] const std::vector<uint8_t> &data() const noexcept { return buf_; }
-    [[nodiscard]] size_t size() const noexcept { return buf_.size(); }
-    [[nodiscard]] const uint8_t *ptr() const noexcept { return buf_.data(); }
+    [[nodiscard]] const std::vector<uint8_t> &data() const noexcept {
+        return buf_;
+    }
+    [[nodiscard]] size_t size() const noexcept {
+        return buf_.size();
+    }
+    [[nodiscard]] const uint8_t *ptr() const noexcept {
+        return buf_.data();
+    }
 };
 
 // Little-endian reader.  All methods return false on truncation so callers can
 // treat any read failure as a corrupted artifact.
 class ByteReader {
-    const uint8_t *data_  = nullptr;
-    size_t size_          = 0;
-    size_t pos_           = 0;
+    const uint8_t *data_ = nullptr;
+    size_t size_         = 0;
+    size_t pos_          = 0;
 
 public:
     ByteReader(const uint8_t *data, size_t size) : data_(data), size_(size) {}
     explicit ByteReader(std::string_view blob)
         : data_(reinterpret_cast<const uint8_t *>(blob.data())), size_(blob.size()) {}
 
-    [[nodiscard]] bool empty() const noexcept { return pos_ >= size_; }
-    [[nodiscard]] size_t remaining() const noexcept { return size_ - pos_; }
-    [[nodiscard]] size_t position() const noexcept { return pos_; }
+    [[nodiscard]] bool empty() const noexcept {
+        return pos_ >= size_;
+    }
+    [[nodiscard]] size_t remaining() const noexcept {
+        return size_ - pos_;
+    }
+    [[nodiscard]] size_t position() const noexcept {
+        return pos_;
+    }
 
     bool readU8(uint8_t &out) {
         if (pos_ + 1 > size_)
@@ -79,7 +97,9 @@ public:
     bool readU16(uint16_t &out) {
         if (pos_ + 2 > size_)
             return false;
-        out = static_cast<uint16_t>(data_[pos_]) | (static_cast<uint16_t>(data_[pos_ + 1]) << 8u);
+        const uint16_t high =
+            static_cast<uint16_t>(static_cast<uint16_t>(data_[pos_ + size_t{1}]) << 8u);
+        out = static_cast<uint16_t>(static_cast<uint16_t>(data_[pos_]) | high);
         pos_ += 2;
         return true;
     }
@@ -87,7 +107,7 @@ public:
         if (pos_ + 4 > size_)
             return false;
         out = 0;
-        for (int i = 0; i < 4; ++i)
+        for (size_t i = 0; i < 4; ++i)
             out |= static_cast<uint32_t>(data_[pos_ + i]) << (8u * i);
         pos_ += 4;
         return true;
@@ -103,7 +123,7 @@ public:
         if (pos_ + 8 > size_)
             return false;
         out = 0;
-        for (int i = 0; i < 8; ++i)
+        for (size_t i = 0; i < 8; ++i)
             out |= static_cast<uint64_t>(data_[pos_ + i]) << (8u * i);
         pos_ += 8;
         return true;

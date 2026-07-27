@@ -68,14 +68,9 @@ public:
     }
 
     void reset() noexcept {
-        if constexpr (!std::is_trivially_destructible_v<T>) {
-            if (valid) {
-                reinterpret_cast<T *>(data)->~T();
-                valid = false;
-            }
-        } else {
-            valid = false;
-        }
+        if (valid && !std::is_trivially_destructible_v<T>)
+            std::launder(reinterpret_cast<T *>(data))->~T();
+        valid = false;
     }
 
     bool isValid() const noexcept {
@@ -90,23 +85,25 @@ public:
     }
 
     T &value() & {
-        return *reinterpret_cast<T *>(data);
+        requireValue_();
+        return *std::launder(reinterpret_cast<T *>(data));
     }
     const T &value() const & {
-        return *reinterpret_cast<const T *>(data);
+        requireValue_();
+        return *std::launder(reinterpret_cast<const T *>(data));
     }
     T &&value() && {
-        return std::move(*reinterpret_cast<T *>(data));
+        return std::move(value());
     }
     const T &&value() const && {
-        return std::move(*reinterpret_cast<const T *>(data));
+        return std::move(value());
     }
 
     T *operator->() {
-        return reinterpret_cast<T *>(data);
+        return &value();
     }
     const T *operator->() const {
-        return reinterpret_cast<const T *>(data);
+        return &value();
     }
 
     T &operator*() & {
@@ -120,6 +117,12 @@ public:
     }
     const T &&operator*() const && {
         return std::move(value());
+    }
+
+private:
+    void requireValue_() const noexcept {
+        if (!valid)
+            std::abort();
     }
 };
 

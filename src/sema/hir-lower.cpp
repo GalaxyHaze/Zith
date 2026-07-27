@@ -688,8 +688,7 @@ hir::HirExprId HirLower::visitWhile(const ast::WhileNode &n) {
 }
 
 hir::HirExprId HirLower::visitWhen(ast::ExprId id, const ast::WhenNode &n) {
-    auto origBlock  = currentBlock_;
-    auto result_type = astExprType(id);
+    auto result_type  = astExprType(id);
     auto subject_type = astExprType(n.subject);
 
     // Allocate slot for subject — evaluated exactly once
@@ -700,12 +699,13 @@ hir::HirExprId HirLower::visitWhen(ast::ExprId id, const ast::WhenNode &n) {
         current_fn_->blocks[currentBlock_].insts.push(emitSlotStore(subj_slot, subj_val));
 
     // Result slot for value-producing when
-    bool has_value        = result_type != types::kVoidType;
-    bool is_optional      = has_value && ctx_.types().kindOf(result_type) == types::TypeKind::Optional;
+    bool has_value   = result_type != types::kVoidType;
+    bool is_optional = has_value && ctx_.types().kindOf(result_type) == types::TypeKind::Optional;
     types::TypeId inner_t = types::kErrorType;
     if (is_optional) {
         auto *opt = std::get_if<types::TypeOptional>(&ctx_.types().lookup(result_type));
-        if (opt) inner_t = opt->inner;
+        if (opt)
+            inner_t = opt->inner;
     }
     hir::HirSlotId result_slot = hir::kInvalidHirSlot;
     if (has_value) {
@@ -714,8 +714,8 @@ hir::HirExprId HirLower::visitWhen(ast::ExprId id, const ast::WhenNode &n) {
             emitSlotAlloca(result_slot, is_optional ? inner_t : result_type));
     }
 
-    size_t merge_block = newBlock();
-    size_t no_match_block = merge_block;
+    size_t merge_block       = newBlock();
+    size_t no_match_block    = merge_block;
     bool need_no_match_block = is_optional && !n.cases.empty();
     if (need_no_match_block) {
         no_match_block = newBlock();
@@ -725,8 +725,8 @@ hir::HirExprId HirLower::visitWhen(ast::ExprId id, const ast::WhenNode &n) {
     }
 
     for (size_t i = 0; i < n.cases.size(); i++) {
-        auto &c       = n.cases[i];
-        bool is_last  = (i + 1 == n.cases.size());
+        auto &c         = n.cases[i];
+        bool is_last    = (i + 1 == n.cases.size());
         bool is_default = c.is_default;
 
         auto body_block = newBlock();
@@ -753,9 +753,8 @@ hir::HirExprId HirLower::visitWhen(ast::ExprId id, const ast::WhenNode &n) {
         // Body block
         setCurrentBlock(body_block);
         current_fn_->blocks[body_block].insts = memory::DynArray<hir::HirExprId>(hir_arena_);
-        auto body_val = visitExpr(c.body);
-        bool body_terminated =
-            current_fn_->blocks[body_block].terminator != hir::kInvalidHirExpr;
+        auto body_val                         = visitExpr(c.body);
+        bool body_terminated = current_fn_->blocks[body_block].terminator != hir::kInvalidHirExpr;
 
         if (!body_terminated) {
             if (result_slot != hir::kInvalidHirSlot && body_val != hir::kInvalidHirExpr) {
@@ -766,8 +765,7 @@ hir::HirExprId HirLower::visitWhen(ast::ExprId id, const ast::WhenNode &n) {
                         // Wrap T in ?T: store inner value, mark slot as "has value"
                         stored = body_val;
                     }
-                    current_fn_->blocks[body_block].insts.push(
-                        emitSlotStore(result_slot, stored));
+                    current_fn_->blocks[body_block].insts.push(emitSlotStore(result_slot, stored));
                 }
             }
             emitJump(merge_block);
@@ -801,10 +799,10 @@ hir::HirExprId HirLower::lowerWhenCondition(ast::ExprId cond, hir::HirSlotId sub
         auto rhs_val = visitExpr(range->rhs);
         auto subj    = emitSlotLoad(subj_slot, subject_type);
 
-        bool left_open =
-            (range->bounds == ast::RangeBounds::OpenLeft || range->bounds == ast::RangeBounds::Open);
-        bool right_open =
-            (range->bounds == ast::RangeBounds::OpenRight || range->bounds == ast::RangeBounds::Open);
+        bool left_open  = (range->bounds == ast::RangeBounds::OpenLeft ||
+                          range->bounds == ast::RangeBounds::Open);
+        bool right_open = (range->bounds == ast::RangeBounds::OpenRight ||
+                           range->bounds == ast::RangeBounds::Open);
 
         hir::HirBinary cmp_left;
         cmp_left.lhs  = subj;

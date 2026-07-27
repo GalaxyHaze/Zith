@@ -1,14 +1,9 @@
 #pragma once
 
-#include "ast/ast-builder.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
 #include "diagnostics/diagnostic.hpp"
-#include "lexer/token.hpp"
+#include "frontend/frontend.hpp"
 #include "memory/result.hpp"
-#include "memory/source-map.hpp"
-#include "memory/string-interner.hpp"
-#include "parser/scan-result.hpp"
-#include "symbols/symbol-table.hpp"
 
 #include <condition_variable>
 #include <cstddef>
@@ -56,7 +51,7 @@ struct SourceRecord {
 /// Append-only catalog shared by all frontend snapshots in a workspace.
 ///
 /// `SourceMap` is intentionally not shared: it remains a mutable parser detail
-/// inside each ModuleStorage.  The catalog is the authoritative identity and
+/// inside each module artifact.  The catalog is the authoritative identity and
 /// lifetime owner for source text exposed through snapshots.
 class SourceCatalog {
 public:
@@ -172,7 +167,7 @@ struct ImportRequest {
     bool isExport = false;
     bool isAsset  = false;
     int32_t depth = 1;
-    memory::Span span{};
+    frontend::TextSpan span{};
 
     [[nodiscard]] std::string importKey() const;
 };
@@ -187,11 +182,11 @@ struct ModuleDiagnostic {
 };
 
 struct LocalSymbolInfo {
-    symbols::SymId id = symbols::kInvalidSym;
+    frontend::SymbolId id;
     std::string name;
-    symbols::SymbolVisibility visibility = symbols::SymbolVisibility::Private;
-    symbols::SymKind kind                = symbols::SymKind::Variable;
-    memory::Span span{};
+    frontend::Visibility visibility = frontend::Visibility::Private;
+    frontend::DeclKind kind         = frontend::DeclKind::Error;
+    frontend::TextSpan span{};
 };
 
 struct ModuleTimings {
@@ -200,67 +195,12 @@ struct ModuleTimings {
     double expandMs = 0.0;
 };
 
-/// Per-module storage.  It is populated by one worker then published as const.
-/// No arena, interner, source map, or diagnostic engine is shared with another
-/// ModuleStorage instance.
-class ModuleStorage {
-public:
-    explicit ModuleStorage(SourceCatalog::SourcePtr source);
-
-    ModuleStorage(const ModuleStorage &)            = delete;
-    ModuleStorage &operator=(const ModuleStorage &) = delete;
-
-    [[nodiscard]] const SourceCatalog::SourcePtr &source() const noexcept {
-        return source_;
-    }
-    [[nodiscard]] const memory::SourceMap &sourceMap() const noexcept {
-        return source_map_;
-    }
-    [[nodiscard]] const lexer::TokenStream &tokens() const noexcept {
-        return tokens_;
-    }
-    [[nodiscard]] const ast::AstBuilder &builder() const noexcept {
-        return builder_;
-    }
-    [[nodiscard]] const symbols::SymbolTable &symbols() const noexcept {
-        return symbols_;
-    }
-    [[nodiscard]] const ast::ProgramNode &program() const noexcept {
-        return program_;
-    }
-    [[nodiscard]] const parser::ScanResult &scanResult() const noexcept {
-        return scan_result_;
-    }
-    [[nodiscard]] const diagnostics::DiagnosticEngine &diagnostics() const noexcept {
-        return diagnostics_;
-    }
-    [[nodiscard]] const memory::StringInterner &interner() const noexcept {
-        return interner_;
-    }
-    [[nodiscard]] size_t arenaBytes() const noexcept;
-
-private:
-    friend class FrontendContext;
-
-    SourceCatalog::SourcePtr source_;
-    memory::Arena scratch_arena_;
-    memory::Arena ast_arena_;
-    memory::Arena symbol_arena_;
-    memory::SourceMap source_map_;
-    diagnostics::DiagnosticEngine diagnostics_;
-    memory::StringInterner interner_;
-    ast::AstBuilder builder_;
-    symbols::SymbolTable symbols_;
-    lexer::TokenStream tokens_{};
-    ast::ProgramNode program_;
-    parser::ScanResult scan_result_;
-};
-
 struct ModuleArtifact {
     ModuleKey key;
     memory::FileId fileId = 0;
     ContentFingerprint fingerprint;
-    std::shared_ptr<const ModuleStorage> storage;
+    SourceCatalog::SourcePtr source;
+    std::shared_ptr<const frontend::FrontendSnapshot> frontend;
     std::vector<ImportRequest> imports;
     std::vector<LocalSymbolInfo> publicSymbols;
     std::vector<LocalSymbolInfo> moduleSymbols;
@@ -274,15 +214,15 @@ using ModuleArtifactPtr = std::shared_ptr<const ModuleArtifact>;
 
 struct ModuleSymbolRef {
     ModuleKey module;
-    symbols::SymId localSymbol = symbols::kInvalidSym;
+    frontend::SymbolId localSymbol;
 };
 
 struct MergedSymbol {
     std::string name;
-    symbols::SymbolVisibility visibility = symbols::SymbolVisibility::Private;
-    symbols::SymKind kind                = symbols::SymKind::Variable;
+    frontend::Visibility visibility = frontend::Visibility::Private;
+    frontend::DeclKind kind         = frontend::DeclKind::Error;
     ModuleSymbolRef origin;
-    memory::Span span{};
+    frontend::TextSpan span{};
 };
 
 struct SnapshotMetrics {

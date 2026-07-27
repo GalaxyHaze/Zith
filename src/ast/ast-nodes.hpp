@@ -126,6 +126,8 @@ struct EnumValueNode {
     ExprKind tag = ExprKind::EnumValue;
 };
 
+enum class RangeBounds : uint8_t { Closed, OpenLeft, OpenRight, Open };
+
 struct RangeNode {
     ExprId lhs;
     ExprId rhs;
@@ -133,8 +135,6 @@ struct RangeNode {
     memory::Span span{};
     ExprKind tag = ExprKind::Range;
 };
-
-enum class RangeBounds : uint8_t { Closed, OpenLeft, OpenRight, Open };
 
 struct WhenCase {
     ExprId condition;

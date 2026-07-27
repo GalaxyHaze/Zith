@@ -89,7 +89,6 @@ class CompilationSession {
     std::shared_ptr<FrontendContext> mFrontendContext;
     std::shared_ptr<const CompilationSnapshot> mSnapshot;
     std::unique_ptr<cache::Store> mCacheStore;
-    bool mCacheLoaded = false; // true when the root module was served from cache
     bool mCacheHydrated = false; // true when session state was restored from artifact
     std::string mCanonicalPath;
     session::ContentFingerprint mSourceFingerprint;

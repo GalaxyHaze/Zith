@@ -1,10 +1,6 @@
 #include "session/frontend-context.hpp"
 
-#include "diagnostics/diagnostic-engine.hpp"
 #include "diagnostics/error-codes.hpp"
-#include "lexer/lexer.hpp"
-#include "parser/parser.hpp"
-#include "symbols/import-resolver.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -183,7 +179,9 @@ size_t SourceCatalog::size() const noexcept {
 
 std::string CacheKey::identity() const {
     std::ostringstream output;
-    output << compilerVersion << '\n'
+    // The published module shape changed from legacy parser objects to frontend artifacts.
+    output << "frontend-artifact-v2\n"
+           << compilerVersion << '\n'
            << targetTriple << '\n'
            << parseFlags << '\n'
            << visibilityFlags << '\n';
@@ -255,16 +253,6 @@ void ModuleExecutor::workerLoop() {
 
 std::string ImportRequest::importKey() const {
     return joinPath(path);
-}
-
-ModuleStorage::ModuleStorage(SourceCatalog::SourcePtr source)
-    : source_(std::move(source)), scratch_arena_(), ast_arena_(), symbol_arena_(), source_map_(),
-      diagnostics_(scratch_arena_), interner_(ast_arena_), builder_(ast_arena_, interner_),
-      symbols_(symbol_arena_, &interner_), program_(ast_arena_), scan_result_(ast_arena_) {}
-
-size_t ModuleStorage::arenaBytes() const noexcept {
-    return scratch_arena_.allocatedBytes() + ast_arena_.allocatedBytes() +
-           symbol_arena_.allocatedBytes();
 }
 
 bool ModuleArtifact::hasErrors() const noexcept {
@@ -558,8 +546,30 @@ FrontendContext::resolveImport(const ModuleArtifact &artifact, const ImportReque
     (void)visible_roots;
     return {};
 #else
-    const auto imported =
-        symbols::import_resolver::findFile(request.importKey(), artifact.key, visible_roots);
+    std::vector<fs::path> candidates;
+    const fs::path import_path(request.importKey());
+    candidates.push_back(fs::path(artifact.key).parent_path() / import_path);
+    for (const auto &root : visible_roots)
+        candidates.push_back(fs::path(root) / import_path);
+
+    std::optional<fs::path> imported;
+    for (const auto &candidate : candidates) {
+        std::error_code error;
+        if (fs::exists(candidate, error)) {
+            imported = candidate;
+            break;
+        }
+        const auto zith_file = candidate.string() + ".zith";
+        if (fs::exists(zith_file, error)) {
+            imported = fs::path(zith_file);
+            break;
+        }
+        const auto module_file = candidate / "mod.zith";
+        if (fs::exists(module_file, error)) {
+            imported = module_file;
+            break;
+        }
+    }
     if (!imported)
         return {};
     const fs::path resolved(*imported);
@@ -574,104 +584,50 @@ FrontendContext::resolveImport(const ModuleArtifact &artifact, const ImportReque
 }
 
 ModuleArtifactPtr FrontendContext::buildModule(SourceCatalog::SourcePtr source) const {
-    auto storage          = std::make_shared<ModuleStorage>(source);
     auto artifact         = std::make_shared<ModuleArtifact>();
     artifact->key         = source->canonicalPath;
     artifact->fileId      = source->id;
     artifact->fingerprint = source->fingerprint;
+    artifact->source      = source;
 
-    const auto local_file = storage->source_map_.addFile(source->canonicalPath, source->text);
-    if (!local_file) {
-        artifact->diagnostics.push_back({diagnostics::Severity::Error,
-                                         diagnostics::err::UnknownToken, local_file.error().msg,
-                                         source->id, 0, 0});
-        artifact->storage = std::move(storage);
-        return artifact;
-    }
-
-    const auto lex_start = std::chrono::steady_clock::now();
-    auto tokens = lexer::tokenize(storage->source_map_, storage->scratch_arena_, local_file.value(),
-                                  storage->diagnostics_);
+    const auto parse_start = std::chrono::steady_clock::now();
+    artifact->frontend =
+        std::make_shared<const frontend::FrontendSnapshot>(frontend::parse(source->text));
     artifact->timings.lexMs =
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - lex_start)
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - parse_start)
             .count();
-    if (tokens) {
-        storage->tokens_      = std::move(tokens.value());
-        const auto scan_start = std::chrono::steady_clock::now();
-        parser::Parser parser(&storage->tokens_, &storage->builder_, &storage->diagnostics_);
-        storage->scan_result_ = parser::scan(parser, storage->symbols_);
-        storage->program_     = std::move(parser.program);
-        artifact->timings.scanMs =
-            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - scan_start)
-                .count();
 
-        const auto expand_start = std::chrono::steady_clock::now();
-        parser::Parser expand_parser(&storage->tokens_, &storage->builder_, &storage->diagnostics_);
-        expand_parser.program = std::move(storage->program_);
-        expand_parser.expandBodies(storage->scan_result_, storage->symbols_);
-        storage->program_          = std::move(expand_parser.program);
-        artifact->timings.expandMs = std::chrono::duration<double, std::milli>(
-                                         std::chrono::steady_clock::now() - expand_start)
-                                         .count();
-
-        for (const auto declaration_id : storage->program_.decls) {
-            const auto &declaration = storage->builder_.getDecl(declaration_id);
-            const auto *import      = ast::asImport(declaration);
-            if (!import)
-                continue;
-
-            ImportRequest request;
-            request.isFrom   = import->is_from;
-            request.isExport = import->is_export;
-            request.isAsset  = import->is_asset;
-            request.depth    = import->import_depth;
-            request.span     = import->span;
-            request.path.reserve(import->path.size());
-            for (const auto segment : import->path)
-                request.path.emplace_back(segment);
-            artifact->imports.push_back(std::move(request));
-        }
-
-        for (symbols::SymId id = 0;
-             id < static_cast<symbols::SymId>(storage->symbols_.symbolCount()); ++id) {
-            const auto &symbol = storage->symbols_.get(id);
-            if (symbol.visibility != symbols::SymbolVisibility::Public &&
-                symbol.visibility != symbols::SymbolVisibility::Module)
-                continue;
-
-            LocalSymbolInfo info{
-                id,
-                std::string(storage->interner_.lookup(symbol.name)),
-                symbol.visibility,
-                symbol.kind,
-                symbol.span,
-            };
-            if (symbol.visibility == symbols::SymbolVisibility::Public)
-                artifact->publicSymbols.push_back(std::move(info));
-            else
-                artifact->moduleSymbols.push_back(std::move(info));
-        }
-    } else {
-        artifact->diagnostics.push_back(
-            {diagnostics::Severity::Error, diagnostics::err::UnknownToken,
-             "failed to tokenize '" + source->canonicalPath + "'", source->id, 0, 0});
-    }
-
-    for (const auto &diagnostic : storage->diagnostics_.all()) {
+    for (const auto &diagnostic : artifact->frontend->diagnostics()) {
         artifact->diagnostics.push_back({
-            diagnostic.severity,
-            diagnostic.code,
+            diagnostics::Severity::Error,
+            diagnostics::err::UnknownToken,
             diagnostic.message,
             source->id,
-            diagnostic.primary.start,
-            diagnostic.primary.end,
+            diagnostic.span.start,
+            diagnostic.span.end,
         });
+    }
+    for (const auto &declaration : artifact->frontend->declarations()) {
+        if (declaration.kind == frontend::DeclKind::Import) {
+            artifact->imports.push_back({declaration.import.path, declaration.import.isFrom,
+                                         declaration.import.isExport, declaration.import.isAsset,
+                                         declaration.import.depth, declaration.span});
+            continue;
+        }
+        if (declaration.kind == frontend::DeclKind::Error ||
+            declaration.visibility == frontend::Visibility::Private)
+            continue;
+        LocalSymbolInfo symbol{frontend::SymbolId{declaration.id.value}, declaration.name,
+                               declaration.visibility, declaration.kind, declaration.span};
+        if (symbol.visibility == frontend::Visibility::Public)
+            artifact->publicSymbols.push_back(std::move(symbol));
+        else
+            artifact->moduleSymbols.push_back(std::move(symbol));
     }
     std::sort(artifact->imports.begin(), artifact->imports.end(),
               [](const ImportRequest &left, const ImportRequest &right) {
                   return left.importKey() < right.importKey();
               });
-    artifact->storage = std::move(storage);
     return artifact;
 }
 
@@ -699,7 +655,7 @@ FrontendContext::mergeSymbols(const std::vector<ModuleArtifactPtr> &modules) {
                       return left.name < right.name;
                   if (left.origin.module != right.origin.module)
                       return left.origin.module < right.origin.module;
-                  return left.origin.localSymbol < right.origin.localSymbol;
+                  return left.origin.localSymbol.value < right.origin.localSymbol.value;
               });
     return result;
 }
@@ -854,7 +810,11 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
     for (const auto &[key, module] : modules) {
         (void)key;
         ordered_modules.push_back(module);
-        snapshot_metrics.artifactBytes += module->storage->arenaBytes();
+        snapshot_metrics.artifactBytes +=
+            module->source->text.size() +
+            module->frontend->tokens().size() * sizeof(frontend::Token) +
+            module->frontend->trivia().size() * sizeof(frontend::Trivia) +
+            module->frontend->declarations().size() * sizeof(frontend::Declaration);
         snapshot_metrics.lexMs += module->timings.lexMs;
         snapshot_metrics.scanMs += module->timings.scanMs;
         snapshot_metrics.expandMs += module->timings.expandMs;

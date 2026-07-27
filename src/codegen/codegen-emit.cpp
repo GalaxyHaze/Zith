@@ -11,9 +11,8 @@
 namespace zith::codegen {
 
 CodeGenEmit::CodeGenEmit(llvm::IRBuilderBase &builder, CodeGenType &typeGen,
-                         const memory::StringInterner &interner, const symbols::SymbolTable &syms,
-                         const types::TypeIntern &types)
-    : builder_(builder), typeGen_(typeGen), interner_(interner), syms_(syms), types_(types) {}
+                         const memory::StringInterner &interner, const types::TypeIntern &types)
+    : builder_(builder), typeGen_(typeGen), interner_(interner), types_(types) {}
 
 llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod) {
     auto &expr = mod.getExpr(id);
@@ -80,7 +79,7 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
             [&](const hir::HirSlotAlloca &s) -> llvm::Value * {
                 if (s.slot >= slots_.size())
                     slots_.resize(s.slot + 1);
-                auto *alloc = builder_.CreateAlloca(typeGen_.lower(s.type));
+                auto *alloc    = builder_.CreateAlloca(typeGen_.lower(s.type));
                 slots_[s.slot] = alloc;
                 return alloc;
             },
@@ -88,7 +87,8 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 if (s.slot >= slots_.size())
                     return nullptr;
                 auto *val = emitExpr(s.value, mod);
-                if (!val) return nullptr;
+                if (!val)
+                    return nullptr;
                 builder_.CreateStore(val, slots_[s.slot]);
                 return val;
             },

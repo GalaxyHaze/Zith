@@ -27,10 +27,10 @@
 
 namespace zith::codegen {
 
-CodeGen::CodeGen(const memory::StringInterner &interner, const symbols::SymbolTable &syms,
-                 const types::TypeIntern &types, std::string_view targetTriple, uint8_t optLevel,
+CodeGen::CodeGen(const memory::StringInterner &interner, const types::TypeIntern &types,
+                 std::string_view targetTriple, uint8_t optLevel,
                  diagnostics::DiagnosticEngine *diags)
-    : ctx_(std::make_unique<llvm::LLVMContext>()), interner_(interner), syms_(syms), types_(types),
+    : ctx_(std::make_unique<llvm::LLVMContext>()), interner_(interner), types_(types),
       diags_(diags), targetTriple_(targetTriple), optLevel_(optLevel) {
     LLVMInitializeX86TargetInfo();
     LLVMInitializeX86Target();
@@ -188,7 +188,7 @@ void CodeGen::emitFnBody(const hir::HirFunction &fn, const hir::HirModule &mod) 
     auto *firstBB = llvmBlocks[0];
     llvm::IRBuilder<> builder(firstBB);
 
-    CodeGenEmit emit(builder, typeGen, interner_, syms_, types_);
+    CodeGenEmit emit(builder, typeGen, interner_, types_);
     emit.setBlocks(&llvmBlocks);
     emit.registerParams(fn, llvmFn);
     emit.emitBody(fn, mod);
