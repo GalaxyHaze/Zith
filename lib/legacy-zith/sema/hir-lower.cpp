@@ -1,5 +1,5 @@
-#include "sema/hir-lower.hpp"
-#include "ast/ast-node-utils.hpp"
+#include "legacy-zith/sema/hir-lower.hpp"
+#include "legacy-zith/ast/ast-node-utils.hpp"
 #include "common/overloaded.hpp"
 #include "diagnostics/error-codes.hpp"
 #include "symbols/symbol-id.hpp"

@@ -106,7 +106,7 @@ struct HirCall {
     HirExprKind tag            = HirExprKind::Call;
 };
 struct HirRet {
-    HirExprId value;
+    HirExprId value = kInvalidHirExpr;
     HirExprKind tag = HirExprKind::Ret;
 };
 struct HirBranch {

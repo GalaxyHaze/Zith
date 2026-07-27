@@ -1,14 +1,18 @@
 #include "sema/modern-types.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 
 namespace zith::sema::modern {
 
-TypeTable::TypeTable(memory::Arena &arena)
-    : entries_(arena), arena_(&arena) {}
+TypeTable::TypeTable(memory::Arena &arena) : entries_(arena), arena_(&arena), named_registry_() {}
 
 TypeTable::Entry &TypeTable::pushEntry(EntryKind kind) {
-    entries_.push(Entry{TypeId{next_seq_++}, kind, TypeKind::Error, {}, {}, {}, {}, {}, {}, nullptr, nullptr});
+    Entry entry{};
+    entry.id            = TypeId{next_seq_++};
+    entry.kind          = kind;
+    entry.reported_kind = TypeKind::Error;
+    entries_.push(entry);
     return entries_.back();
 }
 
@@ -16,11 +20,23 @@ memory::DynArray<TypeId> &TypeTable::makeStorage() {
     return *arena_->make<memory::DynArray<TypeId>>(*arena_);
 }
 
+memory::DynArray<std::string_view> &TypeTable::makeNameStorage() {
+    return *arena_->make<memory::DynArray<std::string_view>>(*arena_);
+}
+
+memory::DynArray<TypeId> &TypeTable::makeTypeStorage() {
+    return makeStorage();
+}
+
+memory::DynArray<std::string_view> &TypeTable::makeStringStorage() {
+    return makeNameStorage();
+}
+
 // --- Intern helpers ---
 
 TypeId TypeTable::internName(std::string_view name, TypeKind kind) {
-    auto &entry        = pushEntry(EntryKind::Name);
-    entry.name_view    = name;
+    auto &entry         = pushEntry(EntryKind::Name);
+    entry.name_view     = name;
     entry.reported_kind = kind;
     return entry.id;
 }
@@ -82,6 +98,107 @@ TypeId TypeTable::internStruct(std::string_view name, memory::DynArray<TypeId> &
     return entry.id;
 }
 
+TypeId TypeTable::internEnum(std::string_view name, memory::DynArray<TypeId> &variants) {
+    auto &entry         = pushEntry(EntryKind::Enum);
+    entry.reported_kind = TypeKind::Enum;
+    auto &storage       = makeStorage();
+    for (auto &v : variants)
+        storage.push(v);
+    entry.enum_ty = arena_->make<EnumType>(EnumType{name, storage});
+    entry.storage = &storage;
+    return entry.id;
+}
+
+TypeId TypeTable::internUnion(std::string_view name, memory::DynArray<TypeId> &members) {
+    auto &entry         = pushEntry(EntryKind::Union);
+    entry.reported_kind = TypeKind::Union;
+    auto &storage       = makeStorage();
+    for (auto &m : members)
+        storage.push(m);
+    entry.union_ty = arena_->make<UnionType>(UnionType{name, storage});
+    entry.storage  = &storage;
+    return entry.id;
+}
+
+TypeId TypeTable::internTrait(std::string_view name) {
+    auto &entry         = pushEntry(EntryKind::Trait);
+    entry.reported_kind = TypeKind::Trait;
+    entry.trait_ty      = arena_->make<TraitType>(TraitType{name});
+    return entry.id;
+}
+
+TypeId TypeTable::internTypeVar() {
+    auto &entry         = pushEntry(EntryKind::TypeVar);
+    entry.reported_kind = TypeKind::TypeVar;
+    entry.var_ty        = arena_->make<TypeVarType>(TypeVarType{next_var_++});
+    return entry.id;
+}
+
+TypeId TypeTable::internUnknown() {
+    auto &entry         = pushEntry(EntryKind::Unknown);
+    entry.reported_kind = TypeKind::Unknown;
+    return entry.id;
+}
+
+TypeId TypeTable::internIncomplete(TypeId base, memory::DynArray<TypeId> &args) {
+    auto &entry         = pushEntry(EntryKind::Incomplete);
+    entry.reported_kind = TypeKind::Incomplete;
+    auto &storage       = makeStorage();
+    for (auto &a : args)
+        storage.push(a);
+    entry.incomplete_ty = arena_->make<IncompleteType>(IncompleteType{base, storage});
+    entry.storage       = &storage;
+    return entry.id;
+}
+
+TypeId TypeTable::internSum(memory::DynArray<TypeId> &members) {
+    auto &entry         = pushEntry(EntryKind::Sum);
+    entry.reported_kind = TypeKind::Sum;
+    auto &storage       = makeStorage();
+    for (auto &m : members)
+        storage.push(m);
+    entry.sum_ty  = arena_->make<SumType>(SumType{storage});
+    entry.storage = &storage;
+    return entry.id;
+}
+
+TypeId TypeTable::internSlice(TypeId element) {
+    auto &entry         = pushEntry(EntryKind::Slice);
+    entry.reported_kind = TypeKind::Slice;
+    entry.slice_ty      = SliceType{element};
+    return entry.id;
+}
+
+TypeId TypeTable::internFailable(TypeId inner) {
+    auto &entry         = pushEntry(EntryKind::Failable);
+    entry.reported_kind = TypeKind::Failable;
+    entry.failable_ty   = FailableType{inner};
+    return entry.id;
+}
+
+TypeId TypeTable::internPack(memory::DynArray<TypeId> &members,
+                             memory::DynArray<std::string_view> &names) {
+    auto &entry         = pushEntry(EntryKind::Pack);
+    entry.reported_kind = TypeKind::Pack;
+    auto &type_storage  = makeStorage();
+    for (auto &m : members)
+        type_storage.push(m);
+    auto &name_storage = makeNameStorage();
+    for (auto &n : names)
+        name_storage.push(n);
+    entry.pack_ty      = arena_->make<PackType>(PackType{type_storage, name_storage});
+    entry.storage      = &type_storage;
+    entry.name_storage = &name_storage;
+    return entry.id;
+}
+
+TypeId TypeTable::internAlias(TypeId target) {
+    auto &entry         = pushEntry(EntryKind::Alias);
+    entry.reported_kind = TypeKind::Alias;
+    entry.alias_ty      = arena_->make<AliasType>(AliasType{target});
+    return entry.id;
+}
+
 // --- Queries ---
 
 TypeKind TypeTable::kindOf(TypeId id) const noexcept {
@@ -124,8 +241,120 @@ const StructType *TypeTable::struct_type(TypeId id) const noexcept {
     return entry && entry->kind == EntryKind::Struct ? entry->struct_ty : nullptr;
 }
 
+const EnumType *TypeTable::enum_type(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry && entry->kind == EntryKind::Enum ? entry->enum_ty : nullptr;
+}
+
+const UnionType *TypeTable::union_type(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry && entry->kind == EntryKind::Union ? entry->union_ty : nullptr;
+}
+
+const TraitType *TypeTable::trait(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry && entry->kind == EntryKind::Trait ? entry->trait_ty : nullptr;
+}
+
+const TypeVarType *TypeTable::type_var(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry && entry->kind == EntryKind::TypeVar ? entry->var_ty : nullptr;
+}
+
+const SumType *TypeTable::sum(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry && entry->kind == EntryKind::Sum ? entry->sum_ty : nullptr;
+}
+
+const SliceType *TypeTable::slice(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry && entry->kind == EntryKind::Slice ? &entry->slice_ty : nullptr;
+}
+
+const FailableType *TypeTable::failable(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry && entry->kind == EntryKind::Failable ? &entry->failable_ty : nullptr;
+}
+
+const PackType *TypeTable::pack(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry && entry->kind == EntryKind::Pack ? entry->pack_ty : nullptr;
+}
+
+const AliasType *TypeTable::alias(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry && entry->kind == EntryKind::Alias ? entry->alias_ty : nullptr;
+}
+
+const IncompleteType *TypeTable::incomplete(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry && entry->kind == EntryKind::Incomplete ? entry->incomplete_ty : nullptr;
+}
+
 size_t TypeTable::size() const noexcept {
     return entries_.size();
+}
+
+TypeId TypeTable::lookupNamed(std::string_view name) const noexcept {
+    const auto *value = named_registry_.get(name);
+    return value ? *value : kInvalidTypeId;
+}
+
+TypeId TypeTable::findOrCreateNamed(std::string_view name, TypeKind kind) {
+    const auto *existing = named_registry_.get(name);
+    if (existing)
+        return *existing;
+    auto id = internName(name, kind);
+    registerNamed(name, id);
+    return id;
+}
+
+void TypeTable::registerNamed(std::string_view name, TypeId id) {
+    named_registry_.insert(name, id);
+}
+
+TypeId TypeTable::lowerTypeExpr(const frontend::FrontendSnapshot &snapshot,
+                                frontend::TypeExprId id) noexcept {
+    if (!id)
+        return kInvalidTypeId;
+    const auto &type_expressions = snapshot.typeExpressions();
+    if (id.value > type_expressions.size())
+        return kInvalidTypeId;
+    const auto &type = type_expressions[id.value - 1U];
+
+    switch (type.kind) {
+    case frontend::TypeExprKind::Name: {
+        const auto *found = named_registry_.get(type.name);
+        if (found)
+            return *found;
+        auto id_name = internName(type.name, TypeKind::Unknown);
+        registerNamed(type.name, id_name);
+        return id_name;
+    }
+    case frontend::TypeExprKind::Pointer:
+        if (!type.arguments.empty())
+            return internPointer(lowerTypeExpr(snapshot, type.arguments[0]));
+        return internPointer(kInvalidTypeId);
+    case frontend::TypeExprKind::Optional:
+        if (!type.arguments.empty())
+            return internOptional(lowerTypeExpr(snapshot, type.arguments[0]));
+        return internOptional(kInvalidTypeId);
+    case frontend::TypeExprKind::Array:
+        if (!type.arguments.empty())
+            return internArray(lowerTypeExpr(snapshot, type.arguments[0]), 0);
+        return internArray(kInvalidTypeId, 0);
+    case frontend::TypeExprKind::Function: {
+        auto &params = makeStorage();
+        for (size_t i = 0; i + 1 < type.arguments.size(); ++i)
+            params.push(lowerTypeExpr(snapshot, type.arguments[i]));
+        TypeId result = type.arguments.empty() ? kInvalidTypeId
+                                               : lowerTypeExpr(snapshot, type.arguments.back());
+        return internFunction(params, result);
+    }
+    case frontend::TypeExprKind::Error:
+        return kInvalidTypeId;
+    }
+    return kInvalidTypeId;
 }
 
 const TypeTable::Entry *TypeTable::findEntry(TypeId id) const noexcept {

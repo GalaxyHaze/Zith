@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ast/ast-nodes.hpp"
+#include "legacy-zith/ast/ast-nodes.hpp"
 
 namespace zith::ast {
 

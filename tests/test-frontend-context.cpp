@@ -30,7 +30,9 @@ struct Workspace {
     }
 
     void write(const std::string &name, const std::string &text) const {
-        std::ofstream output(root / name, std::ios::binary | std::ios::trunc);
+        const auto destination = root / name;
+        fs::create_directories(destination.parent_path());
+        std::ofstream output(destination, std::ios::binary | std::ios::trunc);
         output << text;
     }
 
@@ -164,12 +166,87 @@ void test_partial_artifact_cycle_and_session_snapshot() {
     CHECK(session.snapshot() != nullptr, "session exposes shared immutable frontend snapshot");
 }
 
+void test_import_graph_and_resolution_table() {
+    Workspace workspace;
+    workspace.write("main.zith", "from dep { public_fn as renamed }\n"
+                                 "import package as namespace\n"
+                                 "from assets/data.txt as Data\n"
+                                 "fn main() { renamed() }\n");
+    workspace.write("dep.zith", "pub fn public_fn() { }\n");
+    workspace.write("package.zith", "pub fn exported() { }\n");
+    workspace.write("assets/data.txt", "asset contents\n");
+
+    auto config = workspace.config(1);
+    config.assetRoots.push_back((workspace.root / "assets").string());
+    FrontendContext context(std::move(config));
+    auto result = context.analyzeFile(workspace.path("main.zith"));
+    CHECK(result.isOk(), "frontend import graph analysis succeeds");
+    if (!result)
+        return;
+
+    const auto &snapshot = *result.value();
+    CHECK_EQ(snapshot.importGraph().size(), 3u, "each root import has one graph edge");
+    CHECK_EQ(snapshot.modules().size(), 3u, "asset dependency does not create a Zith module");
+    CHECK(!snapshot.hasErrors(), "resolved imports and selectors have no diagnostics");
+
+    bool saw_asset     = false;
+    bool saw_selector  = false;
+    bool saw_namespace = false;
+    for (const auto &edge : snapshot.importGraph()) {
+        if (edge.targetKind == ImportTargetKind::Asset)
+            saw_asset = edge.request.alias == "Data" && edge.targets.size() == 1u;
+        if (!edge.request.selectors.empty())
+            saw_selector = edge.request.selectors[0].alias == "renamed";
+        if (edge.request.alias == "namespace")
+            saw_namespace = edge.targets.size() == 1u;
+    }
+    CHECK(saw_asset, "asset edge keeps its alias and canonical target");
+    CHECK(saw_selector, "selector alias is represented by the graph request");
+    CHECK(saw_namespace, "module alias edge has its canonical target");
+
+    const auto *resolution =
+        snapshot.findResolution(SourceCatalog::canonicalPath(workspace.path("main.zith")));
+    CHECK(resolution != nullptr, "root module has a resolution table");
+    if (!resolution)
+        return;
+    bool has_renamed   = false;
+    bool has_namespace = false;
+    for (const auto &binding : resolution->bindings) {
+        has_renamed |= binding.name == "renamed" && binding.kind == ResolutionKind::Import;
+        has_namespace |= binding.name == "namespace" && binding.kind == ResolutionKind::ModuleAlias;
+    }
+    CHECK(has_renamed, "selective imported symbol resolves to its source module symbol");
+    CHECK(has_namespace, "module alias resolves as a namespace binding");
+}
+
+void test_session_materializes_dependency_overlays() {
+    Workspace workspace;
+    workspace.write("main.zith", "from dep\nfn main() { overlay_fn() }\n");
+    workspace.write("dep.zith", "pub fn disk_fn() { }\n");
+
+    auto context = std::make_shared<FrontendContext>(workspace.config(1));
+    context->setOverlay(workspace.path("dep.zith"), "pub fn overlay_fn() { }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = Stage::Imported;
+    CompilationSession session(options, workspace.path("main.zith"), context);
+    session.setBuffered(true);
+    CHECK(session.runTo(Stage::Imported), "session import stage accepts a frontend snapshot");
+    CHECK(session.symbolTable().lookup("overlay_fn") != symbols::kInvalidSym,
+          "legacy compatibility materializer consumes dependency overlay text");
+    CHECK(session.symbolTable().lookup("disk_fn") == symbols::kInvalidSym,
+          "legacy compatibility materializer does not reload the disk dependency");
+}
+
 } // namespace
 
 static void test_frontend_context() {
     test_worker_counts_and_determinism();
     test_cache_invalidation_and_overlays();
     test_partial_artifact_cycle_and_session_snapshot();
+    test_import_graph_and_resolution_table();
+    test_session_materializes_dependency_overlays();
 }
 
 TEST_MAIN(frontend_context)

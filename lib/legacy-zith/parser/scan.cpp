@@ -1,11 +1,11 @@
-#include "lexer/token.hpp"
+#include "legacy-zith/lexer/token.hpp"
 #include "memory/flat-map.hpp"
 #include "parser.hpp"
 
 #include "diagnostics/error-codes.hpp"
-#include "lexer/lexer.hpp"
-#include "parser/recovery.hpp"
-#include "parser/scan-helpers.hpp"
+#include "legacy-zith/lexer/lexer.hpp"
+#include "legacy-zith/parser/recovery.hpp"
+#include "legacy-zith/parser/scan-helpers.hpp"
 #include "symbols/symbol-table.hpp"
 
 #include <cstdint>

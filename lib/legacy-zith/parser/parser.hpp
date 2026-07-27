@@ -1,11 +1,11 @@
 #pragma once
 
-#include "ast/ast-builder.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
 #include "diagnostics/error-codes.hpp"
-#include "lexer/token.hpp"
-#include "parser/parse-result.hpp"
-#include "parser/scan-result.hpp"
+#include "legacy-zith/lexer/token.hpp"
+#include "legacy-zith/parser/parse-result.hpp"
+#include "legacy-zith/parser/scan-result.hpp"
 #include "symbols/symbol-table.hpp"
 
 #include <initializer_list>

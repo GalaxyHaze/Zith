@@ -56,11 +56,10 @@ static void test_recovery_creates_error_nodes() {
 }
 
 static void test_function_body_ast() {
-    auto snapshot = frontend::parse(
-        "fn add(left: i32, right: i32): i32 {\n"
-        "    var total: i32 = left + right;\n"
-        "    return total;\n"
-        "}\n");
+    auto snapshot = frontend::parse("fn add(left: i32, right: i32): i32 {\n"
+                                    "    var total: i32 = left + right;\n"
+                                    "    return total;\n"
+                                    "}\n");
 
     CHECK(snapshot.diagnostics().empty(), "function body is lowered without recovery diagnostics");
     CHECK_EQ(snapshot.declarations().size(), 1u, "function is the only top-level declaration");
@@ -79,26 +78,25 @@ static void test_function_body_ast() {
     CHECK_EQ(snapshot.statements().size(), 2u, "body has binding and return statements");
     CHECK_EQ(snapshot.statements()[0].kind, frontend::StmtKind::Binding,
              "variable declaration is a binding statement");
-    CHECK(snapshot.statements()[0].binding.initializer, "binding retains its initializer expression");
+    CHECK(snapshot.statements()[0].binding.initializer,
+          "binding retains its initializer expression");
     CHECK_EQ(snapshot.statements()[1].kind, frontend::StmtKind::Return,
              "return is represented as a statement");
 }
 
 static void test_control_flow_and_scopes() {
-    auto snapshot = frontend::parse(
-        "fn run(n: i32): i32 {\n"
-        "    if (n < 0) {\n"
-        "        return 0;\n"
-        "    }\n"
-        "    while (n > 0) {\n"
-        "        var step: i32 = 1;\n"
-        "    }\n"
-        "    return n;\n"
-        "}\n");
+    auto snapshot = frontend::parse("fn run(n: i32): i32 {\n"
+                                    "    if (n < 0) {\n"
+                                    "        return 0;\n"
+                                    "    }\n"
+                                    "    while (n > 0) {\n"
+                                    "        var step: i32 = 1;\n"
+                                    "    }\n"
+                                    "    return n;\n"
+                                    "}\n");
 
     CHECK(snapshot.diagnostics().empty(), "control flow lowers without diagnostics");
-    CHECK(snapshot.scopes().size() >= 3u,
-          "control flow introduces child scopes per block");
+    CHECK(snapshot.scopes().size() >= 3u, "control flow introduces child scopes per block");
     bool found_while = false;
     bool found_if    = false;
     for (const auto &expression : snapshot.expressions()) {
@@ -110,12 +108,44 @@ static void test_control_flow_and_scopes() {
     CHECK(found_if && found_while, "both if and while expressions are lowered");
 }
 
+static void test_structured_imports() {
+    auto snapshot = frontend::parse("from ../lib/utils(3) { render as draw, log } as utilities\n"
+                                    "from assets/data.json as Data\n"
+                                    "export core/math(..)\n");
+
+    CHECK(snapshot.diagnostics().empty(), "all supported import forms lower without diagnostics");
+    CHECK_EQ(snapshot.declarations().size(), 3u, "three imports are preserved");
+
+    const auto &selective = snapshot.declarations()[0].import;
+    CHECK_EQ(selective.path.size(), 3u, "relative import retains every path segment");
+    CHECK_EQ(selective.path[0], std::string(".."), "relative parent segment is retained");
+    CHECK_EQ(selective.path[1], std::string("lib"), "relative path retains directory");
+    CHECK_EQ(selective.depth, 3, "finite directory depth is retained");
+    CHECK_EQ(selective.alias, std::string("utilities"), "module alias is retained");
+    CHECK_EQ(selective.selectors.size(), 2u, "selective import list is retained");
+    CHECK_EQ(selective.selectors[0].name, std::string("render"), "selector name is retained");
+    CHECK_EQ(selective.selectors[0].alias, std::string("draw"), "selector alias is retained");
+    CHECK(selective.pathSpan.size() > 0 && selective.aliasSpan.size() > 0,
+          "import path and alias have individual spans");
+
+    const auto &asset = snapshot.declarations()[1].import;
+    CHECK(asset.isAsset, "assets prefix classifies the import as an asset");
+    CHECK_EQ(asset.alias, std::string("Data"), "asset alias is retained");
+    CHECK_EQ(asset.rawPath, std::string("assets/data.json"),
+             "asset path preserves its filename extension");
+
+    const auto &unlimited = snapshot.declarations()[2].import;
+    CHECK(unlimited.isExport, "export import is retained");
+    CHECK_EQ(unlimited.depth, -1, "unlimited directory depth is retained");
+}
+
 static void test_frontend() {
     test_lossless_trivia_and_spans();
     test_keywords_and_module_ast();
     test_recovery_creates_error_nodes();
     test_function_body_ast();
     test_control_flow_and_scopes();
+    test_structured_imports();
 }
 
 TEST_MAIN(frontend)

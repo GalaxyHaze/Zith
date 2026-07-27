@@ -1,9 +1,9 @@
 #include "parser.hpp"
 
 #include "diagnostics/error-codes.hpp"
-#include "lexer/lexer.hpp"
-#include "parser/recovery.hpp"
-#include "parser/scan-helpers.hpp"
+#include "legacy-zith/lexer/lexer.hpp"
+#include "legacy-zith/parser/recovery.hpp"
+#include "legacy-zith/parser/scan-helpers.hpp"
 
 #include <cstdint>
 #include <cstdlib>

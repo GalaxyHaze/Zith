@@ -1,7 +1,7 @@
 #include "symbol-table.hpp"
-#include "ast/ast-builder.hpp"
-#include "ast/ast-nodes.hpp"
-#include "ast/type-expr.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
+#include "legacy-zith/ast/ast-nodes.hpp"
+#include "legacy-zith/ast/type-expr.hpp"
 
 namespace zith::symbols {
 

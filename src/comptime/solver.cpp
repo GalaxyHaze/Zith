@@ -40,9 +40,10 @@ bool typeHasGenericParam(types::TypeId t, types::TypeIntern &types) {
 
 Solver::Solver(types::TypeIntern &types, ast::AstBuilder &ast, ast::ProgramNode &program,
                symbols::SymbolTable &syms, diagnostics::DiagnosticEngine &diags,
-               memory::Arena &hir_arena)
+               memory::Arena &hir_arena, sema::modern::TypeTable *modern_types)
     : types_(types), ast_(ast), program_(program), syms_(syms), diags_(diags),
-      hir_arena_(hir_arena), generic_fns_(hir_arena), monomorphs_(hir_arena) {}
+      modern_types_(modern_types), hir_arena_(hir_arena), generic_fns_(hir_arena),
+      monomorphs_(hir_arena) {}
 
 bool Solver::solve(hir::HirModule &hir) {
     if (!collectGenerics())

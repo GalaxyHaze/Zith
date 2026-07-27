@@ -1,7 +1,7 @@
 #include "module-loader.hpp"
 
-#include "lexer/lexer.hpp"
-#include "parser/parser.hpp"
+#include "legacy-zith/lexer/lexer.hpp"
+#include "legacy-zith/parser/parser.hpp"
 
 namespace zith::symbols {
 

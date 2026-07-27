@@ -1,9 +1,9 @@
 #include "parser.hpp"
 
-#include "ast/ast-node-utils.hpp"
+#include "legacy-zith/ast/ast-node-utils.hpp"
 #include "diagnostics/error-codes.hpp"
 #include "memory/flat-map.hpp"
-#include "parser/scan-helpers.hpp"
+#include "legacy-zith/parser/scan-helpers.hpp"
 
 #include <cstdlib>
 #include <cstring>

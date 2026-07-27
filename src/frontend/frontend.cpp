@@ -275,6 +275,11 @@ namespace {
            tokenText(snapshot, index) == std::string_view(&character, 1);
 }
 
+[[nodiscard]] bool matchesToken(const FrontendSnapshot &snapshot, uint32_t index,
+                                std::string_view text) {
+    return index < snapshot.tokens().size() && tokenText(snapshot, index) == text;
+}
+
 [[nodiscard]] std::optional<DeclKind> declarationKind(const std::string_view word) {
     if (word == "fn")
         return DeclKind::Function;
@@ -307,7 +312,7 @@ public:
         : snapshot_(snapshot), token_count_(static_cast<uint32_t>(snapshot.tokens_.size() - 1U)) {}
 
     void run() {
-        current_scope_ = addScope({}, {0, static_cast<uint32_t>(snapshot_.source_.size())});
+        current_scope_        = addScope({}, {0, static_cast<uint32_t>(snapshot_.source_.size())});
         Visibility visibility = Visibility::Private;
         while (index_ < token_count_) {
             const uint32_t start = index_;
@@ -342,7 +347,7 @@ public:
 private:
     FrontendSnapshot &snapshot_;
     uint32_t token_count_;
-    uint32_t index_ = 0;
+    uint32_t index_      = 0;
     uint32_t next_scope_ = 1;
     ScopeId current_scope_;
 
@@ -361,7 +366,8 @@ private:
     [[nodiscard]] TextSpan range(const uint32_t start, const uint32_t end) const {
         if (start >= token_count_)
             return {};
-        return {tokenSpan(start).start, end > start ? tokenSpan(end - 1U).end : tokenSpan(start).end};
+        return {tokenSpan(start).start,
+                end > start ? tokenSpan(end - 1U).end : tokenSpan(start).end};
     }
 
     [[nodiscard]] ExprId addExpression(Expression expression) {
@@ -394,11 +400,11 @@ private:
         const uint32_t start = index_;
         TypeExpression type;
         type.kind = TypeExprKind::Error;
-        if (punctuation(index_, '?')) {
+        if (matchesToken(snapshot_, index_, "?")) {
             ++index_;
             type.kind = TypeExprKind::Optional;
             type.arguments.push_back(parseType());
-        } else if (punctuation(index_, '*')) {
+        } else if (matchesToken(snapshot_, index_, "*")) {
             ++index_;
             type.kind = TypeExprKind::Pointer;
             type.arguments.push_back(parseType());
@@ -440,8 +446,13 @@ private:
 
         const auto kind = snapshot_.tokens_[index_].kind;
         if (kind == TokenKind::Identifier || kind == TokenKind::Keyword) {
-            expression.kind = ExprKind::Name;
-            expression.text = std::string(text(index_++));
+            const auto token_text = text(index_);
+            expression.kind =
+                (token_text == "true" || token_text == "false" || token_text == "null")
+                    ? ExprKind::Literal
+                    : ExprKind::Name;
+            expression.text = std::string(token_text);
+            ++index_;
         } else if (kind == TokenKind::Literal) {
             expression.kind = ExprKind::Literal;
             expression.text = std::string(text(index_++));
@@ -451,7 +462,7 @@ private:
             snapshot_.diagnostics_.push_back({range(start, index_), "expected an expression"});
         }
         expression.span = range(start, index_);
-        auto result      = addExpression(std::move(expression));
+        auto result     = addExpression(std::move(expression));
 
         while (punctuation(index_, '(')) {
             const uint32_t call_start = start;
@@ -494,8 +505,9 @@ private:
 
         const uint32_t start = index_;
         ExprId left;
-        if (snapshot_.tokens_[index_].kind == TokenKind::Operator &&
-            (text(index_) == "-" || text(index_) == "!" || text(index_) == "not")) {
+        if ((snapshot_.tokens_[index_].kind == TokenKind::Operator &&
+             (text(index_) == "-" || text(index_) == "!")) ||
+            text(index_) == "not") {
             const auto op = std::string(text(index_++));
             Expression unary;
             unary.kind  = ExprKind::Unary;
@@ -530,7 +542,7 @@ private:
     [[nodiscard]] ExprId parseBlock() {
         const uint32_t start = index_;
         Expression block;
-        block.kind  = ExprKind::Block;
+        block.kind           = ExprKind::Block;
         const ScopeId parent = current_scope_;
         if (punctuation(index_, '{'))
             ++index_;
@@ -542,7 +554,7 @@ private:
             snapshot_.diagnostics_.push_back({range(start, index_), "expected '}'"});
         else
             ++index_;
-        block.span = range(start, index_);
+        block.span                    = range(start, index_);
         snapshot_.scopes_.back().span = block.span;
         current_scope_                = parent;
         return addExpression(std::move(block));
@@ -556,7 +568,8 @@ private:
         if (punctuation(index_, ')'))
             ++index_;
         else if (!punctuation(index_, '{'))
-            snapshot_.diagnostics_.push_back({range(start, index_), "expected ')' after condition"});
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_), "expected ')' after condition"});
 
         Expression expression;
         expression.kind  = ExprKind::If;
@@ -587,7 +600,8 @@ private:
         if (punctuation(index_, ')'))
             ++index_;
         else if (!punctuation(index_, '{'))
-            snapshot_.diagnostics_.push_back({range(start, index_), "expected ')' after condition"});
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_), "expected ')' after condition"});
 
         Expression expression;
         expression.kind  = ExprKind::While;
@@ -610,8 +624,8 @@ private:
 
         const auto word = text(index_);
         if (word == "let" || word == "var" || word == "const") {
-            statement.kind                    = StmtKind::Binding;
-            statement.binding.mutableBinding  = word == "var";
+            statement.kind                   = StmtKind::Binding;
+            statement.binding.mutableBinding = word == "var";
             ++index_;
             if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
                 statement.binding.id   = LocalId{statementCountLocals_++};
@@ -650,37 +664,145 @@ private:
 
     void lowerImport(const uint32_t start, const Visibility visibility) {
         Declaration declaration;
-        declaration.id                 = DeclId{static_cast<uint32_t>(snapshot_.declarations_.size() + 1U)};
-        declaration.kind               = DeclKind::Import;
-        declaration.visibility         = visibility;
-        declaration.import.isExport    = text(index_) == "export";
-        declaration.import.isFrom      = text(index_) == "from";
+        declaration.id         = DeclId{static_cast<uint32_t>(snapshot_.declarations_.size() + 1U)};
+        declaration.kind       = DeclKind::Import;
+        declaration.visibility = visibility;
+        declaration.import.isExport = text(index_) == "export";
+        declaration.import.isFrom   = text(index_) == "from";
         ++index_;
         if (index_ < token_count_ && text(index_) == "asset") {
             declaration.import.isAsset = true;
             ++index_;
         }
-        while (index_ < token_count_) {
-            const auto segment = text(index_);
-            if (snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
-                if (segment == "as" || segment == "use")
-                    break;
-                declaration.import.path.emplace_back(segment);
-                ++index_;
-                continue;
+        const uint32_t path_start = index_;
+        parseImportPath(declaration.import);
+        declaration.import.pathSpan = range(path_start, index_);
+        declaration.import.rawPath  = std::string(snapshot_.source_.substr(
+            declaration.import.pathSpan.start, declaration.import.pathSpan.size()));
+        if (!declaration.import.path.empty() && declaration.import.path.front() == "assets")
+            declaration.import.isAsset = true;
+        parseImportDepth(declaration.import);
+        parseImportSelectors(declaration.import);
+        if (index_ < token_count_ && text(index_) == "as") {
+            ++index_;
+            if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+                declaration.import.alias     = std::string(text(index_));
+                declaration.import.aliasSpan = tokenSpan(index_++);
+            } else {
+                snapshot_.diagnostics_.push_back(
+                    {range(start, index_), "expected an import alias after 'as'"});
             }
-            if (punctuation(index_, '.') || punctuation(index_, '/')) {
-                ++index_;
-                continue;
-            }
-            break;
         }
         declaration.span = range(start, index_);
         if (declaration.import.path.empty()) {
             snapshot_.diagnostics_.push_back({declaration.span, "expected an import path"});
             declaration.kind = DeclKind::Error;
+        } else if (declaration.import.isAsset && declaration.import.alias.empty()) {
+            snapshot_.diagnostics_.push_back(
+                {declaration.span, "assets import requires an alias using 'as'"});
         }
         snapshot_.declarations_.push_back(std::move(declaration));
+    }
+
+    void parseImportPath(ImportDecl &import) {
+        bool expect_segment = true;
+        while (index_ < token_count_) {
+            const auto segment = text(index_);
+            const auto kind    = snapshot_.tokens_[index_].kind;
+            if (kind == TokenKind::Identifier) {
+                import.path.emplace_back(segment);
+                import.pathSpans.push_back(tokenSpan(index_++));
+                expect_segment = false;
+                continue;
+            }
+            if (segment == "." || segment == "/") {
+                if (segment == "." && expect_segment && index_ + 1U < token_count_ &&
+                    text(index_ + 1U) == ".") {
+                    import.path.emplace_back("..");
+                    import.pathSpans.push_back(range(index_, index_ + 2U));
+                    index_ += 2U;
+                    expect_segment = false;
+                    continue;
+                }
+                if (segment == "." && expect_segment) {
+                    import.path.emplace_back(".");
+                    import.pathSpans.push_back(tokenSpan(index_++));
+                    expect_segment = false;
+                    continue;
+                }
+                ++index_;
+                expect_segment = true;
+                continue;
+            }
+            break;
+        }
+    }
+
+    void parseImportDepth(ImportDecl &import) {
+        if (!punctuation(index_, '('))
+            return;
+        const uint32_t depth_start = index_++;
+        if (index_ < token_count_ && text(index_) == "." && index_ + 1U < token_count_ &&
+            text(index_ + 1U) == ".") {
+            import.depth = -1;
+            index_ += 2U;
+        } else if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Literal) {
+            try {
+                import.depth = std::stoi(std::string(text(index_)));
+            } catch (...) {
+                snapshot_.diagnostics_.push_back({tokenSpan(index_), "invalid import depth"});
+            }
+            ++index_;
+        } else {
+            snapshot_.diagnostics_.push_back({range(depth_start, index_), "expected import depth"});
+        }
+        if (punctuation(index_, ')'))
+            ++index_;
+        else
+            snapshot_.diagnostics_.push_back(
+                {range(depth_start, index_), "expected ')' after import depth"});
+    }
+
+    void parseImportSelectors(ImportDecl &import) {
+        if (!punctuation(index_, '{'))
+            return;
+        ++index_;
+        while (index_ < token_count_ && !punctuation(index_, '}')) {
+            if (punctuation(index_, ',')) {
+                ++index_;
+                continue;
+            }
+            if (snapshot_.tokens_[index_].kind != TokenKind::Identifier &&
+                snapshot_.tokens_[index_].kind != TokenKind::Keyword) {
+                snapshot_.diagnostics_.push_back(
+                    {tokenSpan(index_), "expected symbol name in import selector"});
+                ++index_;
+                continue;
+            }
+            ImportSelector selector;
+            selector.name = std::string(text(index_));
+            selector.span = tokenSpan(index_++);
+            if (index_ < token_count_ && text(index_) == "as") {
+                ++index_;
+                if (index_ < token_count_ &&
+                    snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+                    selector.alias     = std::string(text(index_));
+                    selector.aliasSpan = tokenSpan(index_++);
+                    selector.span.end  = selector.aliasSpan.end;
+                } else {
+                    snapshot_.diagnostics_.push_back(
+                        {selector.span, "expected alias in import selector"});
+                }
+            }
+            import.selectors.push_back(std::move(selector));
+            if (punctuation(index_, ','))
+                ++index_;
+        }
+        if (punctuation(index_, '}'))
+            ++index_;
+        else
+            snapshot_.diagnostics_.push_back(
+                {import.pathSpan, "expected '}' after import selectors"});
     }
 
     void lowerDeclaration(const uint32_t start, const DeclKind kind, const Visibility visibility) {
@@ -710,7 +832,8 @@ private:
                     }
                     declaration.parameters.push_back(std::move(parameter));
                 } else {
-                    snapshot_.diagnostics_.push_back({tokenSpan(index_), "expected a parameter name"});
+                    snapshot_.diagnostics_.push_back(
+                        {tokenSpan(index_), "expected a parameter name"});
                     ++index_;
                 }
                 if (punctuation(index_, ','))

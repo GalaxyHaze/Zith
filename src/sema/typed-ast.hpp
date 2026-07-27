@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ast/ast-ids.hpp"
+#include "common/ast-ids.hpp"
 #include "memory/arena.hpp"
 #include "memory/dyn-array.hpp"
 #include "types/type-id.hpp"

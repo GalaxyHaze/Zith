@@ -1,12 +1,14 @@
 #pragma once
 
-#include "ast/ast-builder.hpp"
-#include "ast/ast-nodes.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
+#include "legacy-zith/ast/ast-nodes.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
 #include "hir/hir-module.hpp"
 #include "memory/arena.hpp"
 #include "symbols/symbol-table.hpp"
 #include "types/type-intern.hpp"
+
+#include "sema/modern-types.hpp"
 
 #include <string_view>
 
@@ -34,6 +36,7 @@ class Solver {
     ast::ProgramNode &program_;
     symbols::SymbolTable &syms_ [[maybe_unused]];
     diagnostics::DiagnosticEngine &diags_;
+    sema::modern::TypeTable *modern_types_ [[maybe_unused]];
     memory::Arena &hir_arena_ [[maybe_unused]];
 
     memory::DynArray<GenericFnInfo> generic_fns_;
@@ -50,7 +53,7 @@ class Solver {
 public:
     explicit Solver(types::TypeIntern &types, ast::AstBuilder &ast, ast::ProgramNode &program,
                     symbols::SymbolTable &syms, diagnostics::DiagnosticEngine &diags,
-                    memory::Arena &hir_arena);
+                    memory::Arena &hir_arena, sema::modern::TypeTable *modern_types = nullptr);
 
     bool solve(hir::HirModule &hir);
 };

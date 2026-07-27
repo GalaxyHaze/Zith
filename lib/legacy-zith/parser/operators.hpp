@@ -1,7 +1,7 @@
 #pragma once
 
-#include "ast/ast-nodes.hpp"
-#include "lexer/token.hpp"
+#include "legacy-zith/ast/ast-nodes.hpp"
+#include "legacy-zith/lexer/token.hpp"
 
 namespace zith::parser::operators {
 

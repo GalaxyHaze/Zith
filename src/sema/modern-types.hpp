@@ -1,15 +1,15 @@
 #pragma once
 
+#include "frontend/frontend.hpp"
 #include "memory/arena.hpp"
 #include "memory/dyn-array.hpp"
+#include "memory/flat-map.hpp"
 
 #include <cstdint>
 #include <string_view>
 
 namespace zith::sema::modern {
 
-/// Stable identifier for concrete types shared by sema, solve and NRA.
-/// `intern_seq` is monotonic and unique within a `TypeTable`.
 struct TypeId {
     uint32_t intern_seq = 0;
 
@@ -21,18 +21,93 @@ struct TypeId {
 
 inline constexpr TypeId kInvalidTypeId{};
 
-enum class TypeKind : uint8_t { Error, Void, Never, Bool, Char, Integer, Float, String,
-                                Pointer, Optional, Array, Function, Struct, Unknown };
+enum class TypeKind : uint8_t {
+    Error,
+    Void,
+    Never,
+    Bool,
+    Char,
+    Integer,
+    Float,
+    String,
+    Pointer,
+    Optional,
+    Array,
+    Function,
+    Struct,
+    Enum,
+    Union,
+    Trait,
+    TypeVar,
+    Unknown,
+    Incomplete,
+    Sum,
+    Slice,
+    Failable,
+    Pack,
+    Alias
+};
 
-struct IntegerType { uint8_t bits = 0; bool isSigned = true; };
-struct FloatType   { uint8_t bits = 0; };
-struct PointerType { TypeId pointee; };
-struct OptionalType { TypeId inner; };
-struct ArrayType    { TypeId element; uint64_t size = 0; };
-struct FunctionType { memory::DynArray<TypeId> &params; TypeId result; };
-struct StructType   { std::string_view name; memory::DynArray<TypeId> &fields; };
+struct IntegerType {
+    uint8_t bits  = 0;
+    bool isSigned = true;
+};
+struct FloatType {
+    uint8_t bits = 0;
+};
+struct PointerType {
+    TypeId pointee;
+};
+struct OptionalType {
+    TypeId inner;
+};
+struct ArrayType {
+    TypeId element;
+    uint64_t size = 0;
+};
+struct FunctionType {
+    memory::DynArray<TypeId> &params;
+    TypeId result;
+};
+struct StructType {
+    std::string_view name;
+    memory::DynArray<TypeId> &fields;
+};
+struct EnumType {
+    std::string_view name;
+    memory::DynArray<TypeId> &variants;
+};
+struct UnionType {
+    std::string_view name;
+    memory::DynArray<TypeId> &members;
+};
+struct TraitType {
+    std::string_view name;
+};
+struct TypeVarType {
+    uint32_t id;
+};
+struct SumType {
+    memory::DynArray<TypeId> &members;
+};
+struct SliceType {
+    TypeId element;
+};
+struct FailableType {
+    TypeId inner;
+};
+struct PackType {
+    memory::DynArray<TypeId> &members;
+    memory::DynArray<std::string_view> &names;
+};
+struct AliasType {
+    TypeId target;
+};
+struct IncompleteType {
+    TypeId base;
+    memory::DynArray<TypeId> &args;
+};
 
-/// Append-only type table shared by sema, solve and NRA.
 class TypeTable {
 public:
     explicit TypeTable(memory::Arena &arena);
@@ -45,21 +120,74 @@ public:
     [[nodiscard]] TypeId internArray(TypeId element, uint64_t size);
     [[nodiscard]] TypeId internFunction(memory::DynArray<TypeId> &params, TypeId result);
     [[nodiscard]] TypeId internStruct(std::string_view name, memory::DynArray<TypeId> &fields);
+    [[nodiscard]] TypeId internEnum(std::string_view name, memory::DynArray<TypeId> &variants);
+    [[nodiscard]] TypeId internUnion(std::string_view name, memory::DynArray<TypeId> &members);
+    [[nodiscard]] TypeId internTrait(std::string_view name);
+    [[nodiscard]] TypeId internTypeVar();
+    [[nodiscard]] TypeId internUnknown();
+    [[nodiscard]] TypeId internIncomplete(TypeId base, memory::DynArray<TypeId> &args);
+    [[nodiscard]] TypeId internSum(memory::DynArray<TypeId> &members);
+    [[nodiscard]] TypeId internSlice(TypeId element);
+    [[nodiscard]] TypeId internFailable(TypeId inner);
+    [[nodiscard]] TypeId internPack(memory::DynArray<TypeId> &members,
+                                    memory::DynArray<std::string_view> &names);
+    [[nodiscard]] TypeId internAlias(TypeId target);
 
     [[nodiscard]] TypeKind kindOf(TypeId id) const noexcept;
 
-    [[nodiscard]] const PointerType  *pointer(TypeId id) const noexcept;
+    [[nodiscard]] const PointerType *pointer(TypeId id) const noexcept;
     [[nodiscard]] const OptionalType *optional(TypeId id) const noexcept;
-    [[nodiscard]] const ArrayType    *array(TypeId id) const noexcept;
-    [[nodiscard]] const IntegerType  *integer(TypeId id) const noexcept;
-    [[nodiscard]] const FloatType    *float_kind(TypeId id) const noexcept;
+    [[nodiscard]] const ArrayType *array(TypeId id) const noexcept;
+    [[nodiscard]] const IntegerType *integer(TypeId id) const noexcept;
+    [[nodiscard]] const FloatType *float_kind(TypeId id) const noexcept;
     [[nodiscard]] const FunctionType *function(TypeId id) const noexcept;
-    [[nodiscard]] const StructType   *struct_type(TypeId id) const noexcept;
+    [[nodiscard]] const StructType *struct_type(TypeId id) const noexcept;
+    [[nodiscard]] const EnumType *enum_type(TypeId id) const noexcept;
+    [[nodiscard]] const UnionType *union_type(TypeId id) const noexcept;
+    [[nodiscard]] const TraitType *trait(TypeId id) const noexcept;
+    [[nodiscard]] const TypeVarType *type_var(TypeId id) const noexcept;
+    [[nodiscard]] const SumType *sum(TypeId id) const noexcept;
+    [[nodiscard]] const SliceType *slice(TypeId id) const noexcept;
+    [[nodiscard]] const FailableType *failable(TypeId id) const noexcept;
+    [[nodiscard]] const PackType *pack(TypeId id) const noexcept;
+    [[nodiscard]] const AliasType *alias(TypeId id) const noexcept;
+    [[nodiscard]] const IncompleteType *incomplete(TypeId id) const noexcept;
 
     [[nodiscard]] size_t size() const noexcept;
 
+    [[nodiscard]] TypeId lookupNamed(std::string_view name) const noexcept;
+    [[nodiscard]] TypeId findOrCreateNamed(std::string_view name, TypeKind kind);
+    void registerNamed(std::string_view name, TypeId id);
+
+    [[nodiscard]] TypeId lowerTypeExpr(const frontend::FrontendSnapshot &snapshot,
+                                       frontend::TypeExprId id) noexcept;
+
+    // Public helpers used by sema-modern to build composite types.
+    [[nodiscard]] memory::DynArray<TypeId> &makeTypeStorage();
+    [[nodiscard]] memory::DynArray<std::string_view> &makeStringStorage();
+
 private:
-    enum class EntryKind : uint8_t { Name, Integer, Float, Pointer, Optional, Array, Function, Struct };
+    enum class EntryKind : uint8_t {
+        Name,
+        Integer,
+        Float,
+        Pointer,
+        Optional,
+        Array,
+        Function,
+        Struct,
+        Enum,
+        Union,
+        Trait,
+        TypeVar,
+        Unknown,
+        Incomplete,
+        Sum,
+        Slice,
+        Failable,
+        Pack,
+        Alias
+    };
 
     struct Entry {
         TypeId id;
@@ -71,17 +199,32 @@ private:
         PointerType pointer_ty{};
         OptionalType optional_ty{};
         ArrayType array_ty{};
-        FunctionType *fn = nullptr;
-        StructType *struct_ty = nullptr;
-        memory::DynArray<TypeId> *storage = nullptr;
+        FunctionType *fn              = nullptr;
+        StructType *struct_ty         = nullptr;
+        EnumType *enum_ty             = nullptr;
+        UnionType *union_ty           = nullptr;
+        TraitType *trait_ty           = nullptr;
+        TypeVarType *var_ty           = nullptr;
+        IncompleteType *incomplete_ty = nullptr;
+        SumType *sum_ty               = nullptr;
+        SliceType slice_ty{};
+        FailableType failable_ty{};
+        PackType *pack_ty                                = nullptr;
+        AliasType *alias_ty                              = nullptr;
+        memory::DynArray<TypeId> *storage                = nullptr;
+        memory::DynArray<TypeId> *storage2               = nullptr;
+        memory::DynArray<std::string_view> *name_storage = nullptr;
     };
 
     memory::DynArray<Entry> entries_;
     memory::Arena *arena_;
     uint32_t next_seq_ = 1;
+    uint32_t next_var_ = 1;
+    memory::FlatMap<std::string_view, TypeId> named_registry_;
 
     Entry &pushEntry(EntryKind kind);
     memory::DynArray<TypeId> &makeStorage();
+    memory::DynArray<std::string_view> &makeNameStorage();
     const Entry *findEntry(TypeId id) const noexcept;
 };
 

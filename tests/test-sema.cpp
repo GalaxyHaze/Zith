@@ -1,19 +1,24 @@
-#include "ast/ast-builder.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
 #include "cli/options.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
 #include "diagnostics/error-codes.hpp"
 #include "memory/arena.hpp"
 #include "memory/string-interner.hpp"
-#include "sema/sema-pipeline.hpp"
+#include "legacy-zith/sema/sema-pipeline.hpp"
 #include "session/compilation-session.hpp"
+#include "session/frontend-context.hpp"
 #include "session/pipeline-plan.hpp"
 #include "symbols/symbol-table.hpp"
 #include "test-common.hpp"
 #include "types/type-intern.hpp"
 
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string_view>
 #include <vector>
+
+#include <memory>
 
 using namespace zith;
 
@@ -66,6 +71,56 @@ struct SemaTest {
             } else if (d.severity == diagnostics::Severity::Warning) {
                 warns++;
                 std::printf("    [Warn] Code: %u, Message: %s\n", d.code, d.message.c_str());
+            }
+        }
+        return {ok && errs == 0, errs, warns, std::move(copied_diags)};
+    }
+};
+
+struct ModernSemaTest {
+    memory::Arena arena;
+    Options opts;
+    std::filesystem::path root;
+
+    ModernSemaTest()
+        : opts(arena), root(std::filesystem::temp_directory_path() / "zith-sema-modern-tests") {
+        std::filesystem::remove_all(root);
+        std::filesystem::create_directories(root);
+        opts.targetStage = session::Stage::TypeChecked;
+    }
+
+    ~ModernSemaTest() {
+        std::filesystem::remove_all(root);
+    }
+
+    void write(std::string_view name, std::string_view text) {
+        auto path = root / name;
+        std::filesystem::create_directories(path.parent_path());
+        std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        output << text;
+    }
+
+    SemaTest::Result run(std::string_view main, std::string_view main_name = "main.zith") {
+        write(main_name, main);
+        session::FrontendConfig config;
+        config.workspaceRoot      = root.string();
+        config.maxFrontendWorkers = 1;
+        config.compilerVersion    = "test";
+        auto context              = std::make_shared<session::FrontendContext>(config);
+        session::CompilationSession session(opts, (root / main_name).string(), context);
+        session.setBuffered(true);
+        bool ok      = session.runTo(session::Stage::TypeChecked);
+        size_t errs  = 0;
+        size_t warns = 0;
+        std::vector<SemaTest::Result::LightDiag> copied_diags;
+        for (const auto &d : session.diags().all()) {
+            copied_diags.push_back({d.severity, static_cast<diagnostics::ErrCode>(d.code)});
+            if (d.severity == diagnostics::Severity::Error) {
+                errs++;
+                std::printf("    [ModernDiag] Code: %u, Message: %s\n", d.code, d.message.c_str());
+            } else if (d.severity == diagnostics::Severity::Warning) {
+                warns++;
+                std::printf("    [ModernWarn] Code: %u, Message: %s\n", d.code, d.message.c_str());
             }
         }
         return {ok && errs == 0, errs, warns, std::move(copied_diags)};
@@ -442,6 +497,75 @@ static void test_struct_field_default_type_mismatch_fails() {
           "Reports TypeMismatch for invalid field default");
 }
 
+// ── Modern Sema tests (via FrontendContext) ─────────────────
+
+static void test_modern_basic_valid() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(): i32 {\n"
+                   "    42\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema accepts a simple integer-returning function");
+}
+
+static void test_modern_return_type_mismatch() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(): bool {\n"
+                   "    42\n"
+                   "}\n");
+    CHECK(!r.ok, "Modern sema rejects an expression body with the wrong return type");
+}
+
+static void test_modern_call_arity() {
+    ModernSemaTest t;
+    auto r = t.run("fn add(a: i32): i32 { a }\n"
+                   "fn main() {\n"
+                   "    add(1, 2)\n"
+                   "}\n");
+    CHECK(!r.ok, "Modern sema rejects a call with too many arguments");
+}
+
+static void test_modern_call_arg_type() {
+    ModernSemaTest t;
+    auto r = t.run("fn add(a: i32): i32 { a }\n"
+                   "fn main() {\n"
+                   "    add(true)\n"
+                   "}\n");
+    CHECK(!r.ok, "Modern sema rejects a call with a mismatched argument type");
+}
+
+static void test_modern_if_condition() {
+    ModernSemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    if (1) { }\n"
+                   "}\n");
+    CHECK(!r.ok, "Modern sema rejects an if condition that is not boolean");
+}
+
+static void test_modern_while_condition() {
+    ModernSemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    while (1) { }\n"
+                   "}\n");
+    CHECK(!r.ok, "Modern sema rejects a while condition that is not boolean");
+}
+
+static void test_modern_struct_decl() {
+    ModernSemaTest t;
+    auto r = t.run("struct Point { x: i32, y: i32 }\n"
+                   "fn main() { }\n");
+    CHECK(r.ok, "Modern sema accepts a struct declaration without errors");
+}
+
+static void test_modern_import_call() {
+    ModernSemaTest t;
+    t.write("dep.zith", "pub fn dep_fn(): i32 { 42 }\n");
+    auto r = t.run("from dep\n"
+                   "fn main() {\n"
+                   "    dep_fn()\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema resolves an imported function call");
+}
+
 static void test_sema() {
     test_basic_unification();
     test_type_mismatch();
@@ -477,6 +601,14 @@ static void test_sema() {
     test_named_struct_literal_mixed_form_fails();
     test_named_struct_literal_placeholder_without_default_fails();
     test_struct_field_default_type_mismatch_fails();
+    test_modern_basic_valid();
+    test_modern_return_type_mismatch();
+    test_modern_call_arity();
+    test_modern_call_arg_type();
+    test_modern_if_condition();
+    test_modern_while_condition();
+    test_modern_struct_decl();
+    test_modern_import_call();
 }
 
 TEST_MAIN(sema)

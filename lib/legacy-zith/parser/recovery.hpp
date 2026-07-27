@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lexer/token.hpp"
+#include "legacy-zith/lexer/token.hpp"
 
 #include <initializer_list>
 

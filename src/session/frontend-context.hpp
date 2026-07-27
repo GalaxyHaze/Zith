@@ -106,6 +106,7 @@ struct FrontendConfig {
     std::string visibilityFlags;
     std::vector<std::string> includeRoots;
     std::vector<std::string> stdlibRoots;
+    std::vector<std::string> assetRoots;
 
     [[nodiscard]] CacheKey cacheKey() const;
 };
@@ -161,13 +162,26 @@ private:
 
 using ModuleKey = std::string;
 
+struct ImportSelectorRequest {
+    std::string name;
+    std::string alias;
+    frontend::TextSpan span{};
+    frontend::TextSpan aliasSpan{};
+};
+
 struct ImportRequest {
     std::vector<std::string> path;
+    std::vector<frontend::TextSpan> pathSpans;
+    std::vector<ImportSelectorRequest> selectors;
+    std::string rawPath;
+    std::string alias;
     bool isFrom   = false;
     bool isExport = false;
     bool isAsset  = false;
     int32_t depth = 1;
     frontend::TextSpan span{};
+    frontend::TextSpan pathSpan{};
+    frontend::TextSpan aliasSpan{};
 
     [[nodiscard]] std::string importKey() const;
 };
@@ -217,6 +231,34 @@ struct ModuleSymbolRef {
     frontend::SymbolId localSymbol;
 };
 
+enum class ImportTargetKind : uint8_t { Zith, Directory, Header, Asset };
+
+struct ImportEdge {
+    ModuleKey importer;
+    ImportRequest request;
+    std::vector<ModuleKey> targets;
+    ImportTargetKind targetKind = ImportTargetKind::Zith;
+    std::string error;
+};
+
+enum class ResolutionKind : uint8_t { Declaration, Import, ModuleAlias, Unresolved };
+
+struct ResolvedName {
+    std::string name;
+    ResolutionKind kind = ResolutionKind::Unresolved;
+    frontend::TextSpan span{};
+    ModuleSymbolRef target;
+    frontend::DeclId declaration;
+    frontend::LocalId local;
+    frontend::ScopeId scope;
+};
+
+struct ModuleResolution {
+    ModuleKey module;
+    std::vector<ResolvedName> bindings;
+    std::vector<ResolvedName> expressions;
+};
+
 struct MergedSymbol {
     std::string name;
     frontend::Visibility visibility = frontend::Visibility::Private;
@@ -242,6 +284,8 @@ public:
     CompilationSnapshot(std::shared_ptr<const SourceCatalog> catalog, CacheKey cache_key,
                         std::vector<ModuleArtifactPtr> modules,
                         std::vector<MergedSymbol> merged_symbols,
+                        std::vector<ImportEdge> import_graph,
+                        std::vector<ModuleResolution> resolutions,
                         std::vector<ModuleDiagnostic> diagnostics, SnapshotMetrics metrics);
 
     [[nodiscard]] const SourceCatalog &sourceCatalog() const noexcept {
@@ -256,6 +300,13 @@ public:
     [[nodiscard]] const std::vector<MergedSymbol> &mergedSymbols() const noexcept {
         return merged_symbols_;
     }
+    [[nodiscard]] const std::vector<ImportEdge> &importGraph() const noexcept {
+        return import_graph_;
+    }
+    [[nodiscard]] const std::vector<ModuleResolution> &resolutions() const noexcept {
+        return resolutions_;
+    }
+    [[nodiscard]] const ModuleResolution *findResolution(std::string_view key) const noexcept;
     [[nodiscard]] const std::vector<ModuleDiagnostic> &diagnostics() const noexcept {
         return diagnostics_;
     }
@@ -270,6 +321,8 @@ private:
     CacheKey cache_key_;
     std::vector<ModuleArtifactPtr> modules_;
     std::vector<MergedSymbol> merged_symbols_;
+    std::vector<ImportEdge> import_graph_;
+    std::vector<ModuleResolution> resolutions_;
     std::vector<ModuleDiagnostic> diagnostics_;
     SnapshotMetrics metrics_;
 };
@@ -375,7 +428,8 @@ private:
 
     struct ResolvedImport {
         std::vector<ModuleKey> modules;
-        bool found = false;
+        ImportTargetKind targetKind = ImportTargetKind::Zith;
+        bool found                  = false;
     };
 
     [[nodiscard]] memory::Result<SourceCatalog::SourcePtr> sourceForPath(std::string_view path);
@@ -391,9 +445,14 @@ private:
     static void sortDiagnostics(std::vector<ModuleDiagnostic> &diagnostics,
                                 const SourceCatalog &catalog);
     static std::vector<MergedSymbol> mergeSymbols(const std::vector<ModuleArtifactPtr> &modules);
+    static std::vector<ModuleResolution>
+    buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
+                     const std::vector<ImportEdge> &import_graph,
+                     std::vector<ModuleDiagnostic> &diagnostics);
     static void
     appendCycleDiagnostics(const std::vector<ModuleArtifactPtr> &modules,
                            const std::map<ModuleKey, std::vector<ModuleKey>> &dependencies,
+                           const std::vector<ImportEdge> &import_graph,
                            std::vector<ModuleDiagnostic> &diagnostics);
 
     FrontendConfig config_;

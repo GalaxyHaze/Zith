@@ -1,5 +1,5 @@
 #include "sema-pipeline.hpp"
-#include "ast/ast-node-utils.hpp"
+#include "legacy-zith/ast/ast-node-utils.hpp"
 #ifdef ZITH_HAS_LLVM
 #include "codegen/codegen-type.hpp"
 #include <llvm/IR/LLVMContext.h>

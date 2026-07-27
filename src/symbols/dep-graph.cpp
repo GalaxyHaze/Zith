@@ -1,6 +1,6 @@
 #include "dep-graph.hpp"
 
-#include "ast/ast-node-utils.hpp"
+#include "legacy-zith/ast/ast-node-utils.hpp"
 #include "diagnostics/error-codes.hpp"
 
 #include <utility>

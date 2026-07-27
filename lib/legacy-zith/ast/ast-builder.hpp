@@ -1,8 +1,8 @@
 #pragma once
 
-#include "ast/ast-node-utils.hpp"
-#include "ast/ast-nodes.hpp"
-#include "ast/type-expr.hpp"
+#include "legacy-zith/ast/ast-node-utils.hpp"
+#include "legacy-zith/ast/ast-nodes.hpp"
+#include "legacy-zith/ast/type-expr.hpp"
 #include "memory/arena.hpp"
 #include "memory/dyn-array.hpp"
 #include "memory/string-interner.hpp"

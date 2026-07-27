@@ -72,6 +72,17 @@ void normalizeRoots(std::vector<std::string> &roots) {
     return extension == ".h" || extension == ".hpp";
 }
 
+[[nodiscard]] bool isWithinRoots(const fs::path &path, const std::vector<std::string> &roots) {
+    const auto normalized_path = fs::weakly_canonical(path).lexically_normal();
+    for (const auto &root : roots) {
+        std::error_code error;
+        const auto relative = fs::relative(normalized_path, fs::path(root), error);
+        if (!error && (relative.empty() || *relative.begin() != ".."))
+            return true;
+    }
+    return false;
+}
+
 [[nodiscard]] ModuleDiagnostic makeImportDiagnostic(const ModuleArtifact &artifact,
                                                     const ImportRequest &request,
                                                     std::string message) {
@@ -266,10 +277,13 @@ bool ModuleArtifact::hasErrors() const noexcept {
 CompilationSnapshot::CompilationSnapshot(std::shared_ptr<const SourceCatalog> catalog,
                                          CacheKey cache_key, std::vector<ModuleArtifactPtr> modules,
                                          std::vector<MergedSymbol> merged_symbols,
+                                         std::vector<ImportEdge> import_graph,
+                                         std::vector<ModuleResolution> resolutions,
                                          std::vector<ModuleDiagnostic> diagnostics,
                                          SnapshotMetrics metrics)
     : catalog_(std::move(catalog)), cache_key_(std::move(cache_key)), modules_(std::move(modules)),
-      merged_symbols_(std::move(merged_symbols)), diagnostics_(std::move(diagnostics)),
+      merged_symbols_(std::move(merged_symbols)), import_graph_(std::move(import_graph)),
+      resolutions_(std::move(resolutions)), diagnostics_(std::move(diagnostics)),
       metrics_(metrics) {}
 
 const ModuleArtifact *CompilationSnapshot::findModule(const std::string_view key) const noexcept {
@@ -279,6 +293,18 @@ const ModuleArtifact *CompilationSnapshot::findModule(const std::string_view key
     if (found == modules_.end() || (*found)->key != key)
         return nullptr;
     return found->get();
+}
+
+const ModuleResolution *
+CompilationSnapshot::findResolution(const std::string_view key) const noexcept {
+    const auto found =
+        std::lower_bound(resolutions_.begin(), resolutions_.end(), key,
+                         [](const ModuleResolution &resolution, std::string_view name) {
+                             return resolution.module < name;
+                         });
+    if (found == resolutions_.end() || found->module != key)
+        return nullptr;
+    return &*found;
 }
 
 bool CompilationSnapshot::hasErrors() const noexcept {
@@ -432,6 +458,7 @@ FrontendContext::FrontendContext(FrontendConfig config)
     config_.workspaceRoot = stableRoot(config_.workspaceRoot);
     normalizeRoots(config_.includeRoots);
     normalizeRoots(config_.stdlibRoots);
+    normalizeRoots(config_.assetRoots);
     cache_key_ = config_.cacheKey();
 }
 
@@ -537,15 +564,34 @@ std::vector<std::string> FrontendContext::collectDirectoryModules(const std::str
 FrontendContext::ResolvedImport
 FrontendContext::resolveImport(const ModuleArtifact &artifact, const ImportRequest &request,
                                const std::vector<std::string> &visible_roots) const {
-    if (request.isAsset)
-        return {{}, true};
-
 #ifdef ZITH_IS_WASM
     (void)artifact;
     (void)request;
     (void)visible_roots;
     return {};
 #else
+    if (request.isAsset) {
+        std::vector<std::string> asset_roots = config_.assetRoots;
+        if (!config_.workspaceRoot.empty())
+            asset_roots.push_back((fs::path(config_.workspaceRoot) / "assets").generic_string());
+        asset_roots.push_back(fs::path(artifact.key).parent_path().generic_string());
+        normalizeRoots(asset_roots);
+
+        std::string asset_key = request.rawPath.empty() ? request.importKey() : request.rawPath;
+        if (asset_key.starts_with("assets/"))
+            asset_key.erase(0, std::string_view{"assets/"}.size());
+        const fs::path asset_path(asset_key);
+        for (const auto &root : asset_roots) {
+            const auto candidate = fs::weakly_canonical(fs::path(root) / asset_path);
+            std::error_code error;
+            if (fs::is_regular_file(candidate, error) && isWithinRoots(candidate, asset_roots))
+                return {{SourceCatalog::canonicalPath(candidate.generic_string())},
+                        ImportTargetKind::Asset,
+                        true};
+        }
+        return {{}, ImportTargetKind::Asset, false};
+    }
+
     std::vector<fs::path> candidates;
     const fs::path import_path(request.importKey());
     candidates.push_back(fs::path(artifact.key).parent_path() / import_path);
@@ -573,13 +619,21 @@ FrontendContext::resolveImport(const ModuleArtifact &artifact, const ImportReque
     if (!imported)
         return {};
     const fs::path resolved(*imported);
+    if (!isWithinRoots(resolved, visible_roots))
+        return {};
     if (isHeaderFile(resolved))
-        return {{}, true};
+        return {{SourceCatalog::canonicalPath(resolved.generic_string())},
+                ImportTargetKind::Header,
+                true};
     if (fs::is_directory(resolved))
-        return {collectDirectoryModules(resolved.generic_string(), request.depth), true};
+        return {collectDirectoryModules(resolved.generic_string(), request.depth),
+                ImportTargetKind::Directory, true};
     if (!isZithFile(resolved))
-        return {{}, true};
-    return {{SourceCatalog::canonicalPath(resolved.generic_string())}, true};
+        return {{SourceCatalog::canonicalPath(resolved.generic_string())},
+                ImportTargetKind::Header,
+                true};
+    return {
+        {SourceCatalog::canonicalPath(resolved.generic_string())}, ImportTargetKind::Zith, true};
 #endif
 }
 
@@ -609,9 +663,23 @@ ModuleArtifactPtr FrontendContext::buildModule(SourceCatalog::SourcePtr source) 
     }
     for (const auto &declaration : artifact->frontend->declarations()) {
         if (declaration.kind == frontend::DeclKind::Import) {
-            artifact->imports.push_back({declaration.import.path, declaration.import.isFrom,
-                                         declaration.import.isExport, declaration.import.isAsset,
-                                         declaration.import.depth, declaration.span});
+            ImportRequest request;
+            request.path      = declaration.import.path;
+            request.pathSpans = declaration.import.pathSpans;
+            request.rawPath   = declaration.import.rawPath;
+            request.alias     = declaration.import.alias;
+            request.isFrom    = declaration.import.isFrom;
+            request.isExport  = declaration.import.isExport;
+            request.isAsset   = declaration.import.isAsset;
+            request.depth     = declaration.import.depth;
+            request.span      = declaration.span;
+            request.pathSpan  = declaration.import.pathSpan;
+            request.aliasSpan = declaration.import.aliasSpan;
+            for (const auto &selector : declaration.import.selectors) {
+                request.selectors.push_back(
+                    {selector.name, selector.alias, selector.span, selector.aliasSpan});
+            }
+            artifact->imports.push_back(std::move(request));
             continue;
         }
         if (declaration.kind == frontend::DeclKind::Error ||
@@ -624,10 +692,6 @@ ModuleArtifactPtr FrontendContext::buildModule(SourceCatalog::SourcePtr source) 
         else
             artifact->moduleSymbols.push_back(std::move(symbol));
     }
-    std::sort(artifact->imports.begin(), artifact->imports.end(),
-              [](const ImportRequest &left, const ImportRequest &right) {
-                  return left.importKey() < right.importKey();
-              });
     return artifact;
 }
 
@@ -660,10 +724,176 @@ FrontendContext::mergeSymbols(const std::vector<ModuleArtifactPtr> &modules) {
     return result;
 }
 
+std::vector<ModuleResolution>
+FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
+                                  const std::vector<ImportEdge> &import_graph,
+                                  std::vector<ModuleDiagnostic> &diagnostics) {
+    std::unordered_map<ModuleKey, const ModuleArtifact *> module_by_key;
+    for (const auto &module : modules)
+        module_by_key.emplace(module->key, module.get());
+
+    std::vector<ModuleResolution> result;
+    result.reserve(modules.size());
+    for (const auto &module : modules) {
+        ModuleResolution resolution;
+        resolution.module = module->key;
+        std::unordered_map<std::string, size_t> bindings;
+        auto add_binding = [&](ResolvedName binding) {
+            if (const auto existing = bindings.find(binding.name); existing != bindings.end()) {
+                diagnostics.push_back({diagnostics::Severity::Error,
+                                       diagnostics::err::DuplicateDecl,
+                                       "imported binding '" + binding.name +
+                                           "' conflicts with an "
+                                           "existing binding",
+                                       module->fileId, binding.span.start, binding.span.end});
+                return;
+            }
+            bindings.emplace(binding.name, resolution.bindings.size());
+            resolution.bindings.push_back(std::move(binding));
+        };
+
+        for (const auto &declaration : module->frontend->declarations()) {
+            if (declaration.kind == frontend::DeclKind::Import ||
+                declaration.kind == frontend::DeclKind::Error || declaration.name.empty())
+                continue;
+            add_binding({declaration.name,
+                         ResolutionKind::Declaration,
+                         declaration.span,
+                         {module->key, frontend::SymbolId{declaration.id.value}},
+                         declaration.id,
+                         {},
+                         {}});
+            for (const auto &parameter : declaration.parameters) {
+                add_binding({parameter.name,
+                             ResolutionKind::Declaration,
+                             parameter.span,
+                             {},
+                             {},
+                             parameter.id,
+                             {}});
+            }
+        }
+        for (const auto &statement : module->frontend->statements()) {
+            if (statement.kind != frontend::StmtKind::Binding || statement.binding.name.empty())
+                continue;
+            add_binding({statement.binding.name,
+                         ResolutionKind::Declaration,
+                         statement.binding.span,
+                         {},
+                         {},
+                         statement.binding.id,
+                         {}});
+        }
+
+        for (const auto &edge : import_graph) {
+            if (edge.importer != module->key || !edge.error.empty())
+                continue;
+            const auto default_name =
+                edge.request.path.empty() ? std::string{} : edge.request.path.back();
+            if (!edge.request.alias.empty()) {
+                add_binding({edge.request.alias,
+                             ResolutionKind::ModuleAlias,
+                             edge.request.aliasSpan,
+                             {edge.targets.empty() ? ModuleKey{} : edge.targets.front(), {}},
+                             {},
+                             {},
+                             {}});
+            }
+            if (!edge.request.selectors.empty()) {
+                for (const auto &selector : edge.request.selectors) {
+                    bool found = false;
+                    for (const auto &target : edge.targets) {
+                        const auto module_it = module_by_key.find(target);
+                        if (module_it == module_by_key.end())
+                            continue;
+                        for (const auto &symbol : module_it->second->publicSymbols) {
+                            if (symbol.name != selector.name)
+                                continue;
+                            add_binding({selector.alias.empty() ? selector.name : selector.alias,
+                                         ResolutionKind::Import,
+                                         selector.span,
+                                         {target, symbol.id},
+                                         {},
+                                         {},
+                                         {}});
+                            found = true;
+                            break;
+                        }
+                        if (found)
+                            break;
+                    }
+                    if (!found) {
+                        diagnostics.push_back(
+                            {diagnostics::Severity::Error, diagnostics::err::ImportError,
+                             "import selector '" + selector.name + "' was not found in '" +
+                                 edge.request.importKey() + "'",
+                             module->fileId, selector.span.start, selector.span.end});
+                    }
+                }
+                continue;
+            }
+            if (edge.request.isFrom) {
+                for (const auto &target : edge.targets) {
+                    const auto module_it = module_by_key.find(target);
+                    if (module_it == module_by_key.end())
+                        continue;
+                    for (const auto &symbol : module_it->second->publicSymbols) {
+                        add_binding({symbol.name,
+                                     ResolutionKind::Import,
+                                     edge.request.span,
+                                     {target, symbol.id},
+                                     {},
+                                     {},
+                                     {}});
+                    }
+                }
+            } else if (edge.request.alias.empty() && !default_name.empty()) {
+                add_binding({default_name,
+                             ResolutionKind::ModuleAlias,
+                             edge.request.pathSpan,
+                             {edge.targets.empty() ? ModuleKey{} : edge.targets.front(), {}},
+                             {},
+                             {},
+                             {}});
+            }
+        }
+
+        for (const auto &expression : module->frontend->expressions()) {
+            if (expression.kind != frontend::ExprKind::Name)
+                continue;
+            ResolvedName name{
+                expression.text, ResolutionKind::Unresolved, expression.span, {}, {}, {},
+                expression.scope};
+            if (const auto found = bindings.find(expression.text); found != bindings.end()) {
+                name       = resolution.bindings[found->second];
+                name.span  = expression.span;
+                name.scope = expression.scope;
+            }
+            resolution.expressions.push_back(std::move(name));
+        }
+        std::sort(resolution.bindings.begin(), resolution.bindings.end(),
+                  [](const ResolvedName &left, const ResolvedName &right) {
+                      return left.name < right.name;
+                  });
+        std::sort(resolution.expressions.begin(), resolution.expressions.end(),
+                  [](const ResolvedName &left, const ResolvedName &right) {
+                      if (left.span.start != right.span.start)
+                          return left.span.start < right.span.start;
+                      return left.name < right.name;
+                  });
+        result.push_back(std::move(resolution));
+    }
+    std::sort(result.begin(), result.end(),
+              [](const ModuleResolution &left, const ModuleResolution &right) {
+                  return left.module < right.module;
+              });
+    return result;
+}
+
 void FrontendContext::appendCycleDiagnostics(
     const std::vector<ModuleArtifactPtr> &modules,
     const std::map<ModuleKey, std::vector<ModuleKey>> &dependencies,
-    std::vector<ModuleDiagnostic> &diagnostics) {
+    const std::vector<ImportEdge> &import_graph, std::vector<ModuleDiagnostic> &diagnostics) {
     std::unordered_map<ModuleKey, const ModuleArtifact *> by_key;
     std::unordered_map<ModuleKey, std::vector<ModuleKey>> edges;
     for (const auto &module : modules)
@@ -699,8 +929,16 @@ void FrontendContext::appendCycleDiagnostics(
             if (!reported.insert(message.str()).second)
                 continue;
             const auto *module = by_key[key];
+            frontend::TextSpan span{};
+            for (const auto &edge : import_graph) {
+                if (edge.importer == key && std::find(edge.targets.begin(), edge.targets.end(),
+                                                      next) != edge.targets.end()) {
+                    span = edge.request.span;
+                    break;
+                }
+            }
             diagnostics.push_back({diagnostics::Severity::Error, diagnostics::err::ImportError,
-                                   message.str(), module->fileId, 0, 0});
+                                   message.str(), module->fileId, span.start, span.end});
         }
         stack.pop_back();
         marks[key] = Mark::Done;
@@ -735,6 +973,7 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
     std::map<ModuleKey, SourceCatalog::SourcePtr> pending;
     std::map<ModuleKey, ModuleArtifactPtr> modules;
     std::map<ModuleKey, std::vector<ModuleKey>> resolved_dependencies;
+    std::vector<ImportEdge> import_graph;
     std::vector<ModuleDiagnostic> diagnostics;
     pending.emplace(root_source->canonicalPath, std::move(root_source));
 
@@ -774,12 +1013,21 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
             std::vector<ModuleKey> dependencies;
             for (const auto &request : module->imports) {
                 const auto resolved = resolveImport(*module, request, visible_roots);
+                ImportEdge edge;
+                edge.importer   = module->key;
+                edge.request    = request;
+                edge.targets    = resolved.modules;
+                edge.targetKind = resolved.targetKind;
                 if (!resolved.found) {
-                    diagnostics.push_back(makeImportDiagnostic(*module, request,
-                                                               "could not resolve import '" +
-                                                                   request.importKey() + "'"));
+                    edge.error = "could not resolve import '" + request.importKey() + "'";
+                    diagnostics.push_back(makeImportDiagnostic(*module, request, edge.error));
+                    import_graph.push_back(std::move(edge));
                     continue;
                 }
+                import_graph.push_back(std::move(edge));
+                if (resolved.targetKind == ImportTargetKind::Asset ||
+                    resolved.targetKind == ImportTargetKind::Header)
+                    continue;
                 for (const auto &path : resolved.modules) {
                     auto source = sourceForPath(path);
                     if (!source) {
@@ -824,12 +1072,21 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
     snapshot_metrics.cacheHits   = cache_metrics.hits;
     snapshot_metrics.cacheMisses = cache_metrics.misses;
 
-    appendCycleDiagnostics(ordered_modules, resolved_dependencies, diagnostics);
+    std::sort(import_graph.begin(), import_graph.end(),
+              [](const ImportEdge &left, const ImportEdge &right) {
+                  if (left.importer != right.importer)
+                      return left.importer < right.importer;
+                  if (left.request.span.start != right.request.span.start)
+                      return left.request.span.start < right.request.span.start;
+                  return left.request.importKey() < right.request.importKey();
+              });
+    appendCycleDiagnostics(ordered_modules, resolved_dependencies, import_graph, diagnostics);
+    auto resolutions = buildResolutions(ordered_modules, import_graph, diagnostics);
     sortDiagnostics(diagnostics, *catalog_);
     auto merged_symbols = mergeSymbols(ordered_modules);
     return std::make_shared<const CompilationSnapshot>(
         catalog_, cache_key_, std::move(ordered_modules), std::move(merged_symbols),
-        std::move(diagnostics), snapshot_metrics);
+        std::move(import_graph), std::move(resolutions), std::move(diagnostics), snapshot_metrics);
 }
 
 memory::Result<bool> FrontendContext::initializeStdlib() {

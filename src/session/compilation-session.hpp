@@ -1,15 +1,17 @@
 #pragma once
 
-#include "ast/ast-builder.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
 #include "cli/options.hpp"
 #include "cli/project-config.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
 #include "hir/hir-module.hpp"
-#include "lexer/token.hpp"
+#include "legacy-zith/lexer/token.hpp"
 #include "memory/source-map.hpp"
 #include "memory/string-interner.hpp"
-#include "parser/scan-result.hpp"
-#include "sema/hir-lower.hpp"
+#include "legacy-zith/parser/scan-result.hpp"
+#include "legacy-zith/sema/hir-lower.hpp"
+#include "sema/hir-lower-modern.hpp"
+#include "sema/sema-modern.hpp"
 #include "sema/typed-ast.hpp"
 #include "session/frontend-context.hpp"
 #include "session/pipeline-plan.hpp"
@@ -78,6 +80,8 @@ class CompilationSession {
     sema::TypedAst mTypedAst;
 
     memory::FileId mFileId = 0;
+    std::unique_ptr<sema::modern::SemaPipeline> mModernSemaPipeline;
+    std::unique_ptr<sema::modern::TypeTable> mModernTypeTable;
     lexer::TokenStream mTokens{};
     ast::ProgramNode mProgram{mAstArena};
     parser::ScanResult mScanResult{mAstArena};
@@ -96,6 +100,8 @@ class CompilationSession {
     bool tryLoadPersistentCache();
     void writePersistentCache();
     void hydrateFromArtifact(const cache::Artifact &art);
+    void ensureFrontendContext();
+    bool materializeFrontendSymbols();
     // Per-stage wall-clock durations in milliseconds; 0.0 = stage not executed.
     std::array<double, static_cast<size_t>(StageIndex::Count)> mStageDurations{};
 

@@ -1,5 +1,5 @@
 #include "compilation-session.hpp"
-#include "ast/ast-printer.hpp"
+#include "legacy-zith/ast/ast-printer.hpp"
 #include "cli/terminal.hpp"
 #ifdef ZITH_HAS_LLVM
 #include "codegen/codegen.hpp"
@@ -8,12 +8,14 @@
 #include "comptime/solver.hpp"
 #include "diagnostics/error-codes.hpp"
 #include "formatter/fmt-visitor.hpp"
-#include "lexer/lexer.hpp"
+#include "legacy-zith/lexer/lexer.hpp"
 #include "memory/source-map.hpp"
-#include "parser/parser.hpp"
+#include "legacy-zith/parser/parser.hpp"
 #include "sema/heuristic-engine.hpp"
-#include "sema/hir-lower.hpp"
-#include "sema/sema-pipeline.hpp"
+#include "legacy-zith/sema/hir-lower.hpp"
+#include "sema/hir-lower-modern.hpp"
+#include "sema/sema-modern.hpp"
+#include "legacy-zith/sema/sema-pipeline.hpp"
 #include "symbols/resolver.hpp"
 #include "types/type-lower.hpp"
 
@@ -42,6 +44,52 @@
 #endif
 
 namespace zith::session {
+
+namespace {
+
+symbols::SymKind mapFrontendDeclKind(const frontend::DeclKind kind) {
+    switch (kind) {
+    case frontend::DeclKind::Function:
+        return symbols::SymKind::Fn;
+    case frontend::DeclKind::TypeAlias:
+        return symbols::SymKind::Alias;
+    case frontend::DeclKind::Struct:
+        return symbols::SymKind::Struct;
+    case frontend::DeclKind::Enum:
+        return symbols::SymKind::Enum;
+    case frontend::DeclKind::Union:
+        return symbols::SymKind::Union;
+    case frontend::DeclKind::Trait:
+        return symbols::SymKind::Trait;
+    case frontend::DeclKind::Interface:
+        return symbols::SymKind::Interface;
+    case frontend::DeclKind::Variable:
+        return symbols::SymKind::Variable;
+    case frontend::DeclKind::Context:
+        return symbols::SymKind::Context;
+    case frontend::DeclKind::Word:
+        return symbols::SymKind::Word;
+    case frontend::DeclKind::Import:
+        return symbols::SymKind::Module;
+    case frontend::DeclKind::Error:
+        break;
+    }
+    return symbols::SymKind::Variable;
+}
+
+symbols::SymbolVisibility mapFrontendVisibility(const frontend::Visibility visibility) {
+    switch (visibility) {
+    case frontend::Visibility::Public:
+        return symbols::SymbolVisibility::Public;
+    case frontend::Visibility::Module:
+        return symbols::SymbolVisibility::Module;
+    case frontend::Visibility::Private:
+        return symbols::SymbolVisibility::Private;
+    }
+    return symbols::SymbolVisibility::Private;
+}
+
+} // namespace
 
 CompilationSession::CompilationSession(const Options &options, std::string filePath,
                                        std::shared_ptr<FrontendContext> frontend_context)
@@ -112,6 +160,51 @@ CompilationSession::CompilationSession(const Options &options, std::string fileP
 #endif
     }
 #endif
+}
+
+void CompilationSession::ensureFrontendContext() {
+    if (mFrontendContext)
+        return;
+
+    FrontendConfig config;
+    config.maxFrontendWorkers = 1;
+    config.workspaceRoot      = mProjectRoot;
+#ifdef ZITH_VERSION
+    config.compilerVersion = ZITH_VERSION;
+#else
+    config.compilerVersion = "dev";
+#endif
+    config.targetTriple = mOpts.get().targetTriple;
+    config.parseFlags   = mOpts.get().flags.strict() ? "strict" : "";
+
+    for (const auto &dir : mOpts.get().includeDirs)
+        config.includeRoots.push_back(dir);
+    for (const auto &dir : mOpts.get().assetDirs)
+        config.assetRoots.push_back(dir);
+    if (!mProjectConfig.assetDir.empty())
+        config.assetRoots.push_back(
+            (std::filesystem::path(mProjectRoot) / mProjectConfig.assetDir).string());
+
+    mFrontendContext = std::make_shared<FrontendContext>(std::move(config));
+}
+
+bool CompilationSession::materializeFrontendSymbols() {
+    if (!mSnapshot)
+        return true;
+
+    for (const auto &module : mSnapshot->modules()) {
+        if (module->frontend == nullptr)
+            continue;
+        for (const auto &decl : module->frontend->declarations()) {
+            if (decl.kind == frontend::DeclKind::Import || decl.kind == frontend::DeclKind::Error ||
+                decl.name.empty()) {
+                continue;
+            }
+            mSyms.declare(decl.name, mapFrontendVisibility(decl.visibility), 0,
+                          mapFrontendDeclKind(decl.kind), ast::kInvalidDecl, {});
+        }
+    }
+    return true;
 }
 
 bool CompilationSession::run() {
@@ -244,6 +337,11 @@ bool CompilationSession::lexStage() {
     }
 #endif
 
+    const bool wants_legacy_frontend =
+        mOpts.get().command == Options::Command::Fmt || mOpts.get().flags.emitAst() ||
+        mOpts.get().flags.emitTokens() || mOpts.get().flags.printTokens();
+    if (!wants_legacy_frontend && mContentOverride.empty())
+        ensureFrontendContext();
     if (mFrontendContext && !mSnapshot) {
         auto snapshot = mContentOverride.empty()
                             ? mFrontendContext->analyzeFile(mFilePath)
@@ -257,33 +355,62 @@ bool CompilationSession::lexStage() {
         mSnapshot = std::move(snapshot.value());
     }
 
-    auto file_result = !mContentOverride.empty() ? mSourceMap.addFile(mFilePath, mContentOverride)
-                                                 : mSourceMap.loadFile(mFilePath);
-    if (!file_result) {
-        writeOutput("%s[error]%s failed to load file '%s'\n", ansicolor("\033[31m"),
-                    ansicolor("\033[0m"), mFilePath.c_str());
-        return false;
+    if (mSnapshot) {
+        for (const auto &module : mSnapshot->modules()) {
+            const auto materialized = mSourceMap.addFile(module->key, module->source->text);
+            if (!materialized) {
+                writeOutput("%s[error]%s failed to materialize frontend source '%s'\n",
+                            ansicolor("\033[31m"), ansicolor("\033[0m"), module->key.c_str());
+                return false;
+            }
+        }
+        const auto root_key = SourceCatalog::canonicalPath(mFilePath);
+        const auto *root    = mSnapshot->findModule(root_key);
+        if (!root) {
+            writeOutput("%s[error]%s frontend snapshot has no root module '%s'\n",
+                        ansicolor("\033[31m"), ansicolor("\033[0m"), mFilePath.c_str());
+            return false;
+        }
+        const auto root_file = mSourceMap.addFile(root->key, root->source->text);
+        if (!root_file) {
+            writeOutput("%s[error]%s failed to materialize root source '%s'\n",
+                        ansicolor("\033[31m"), ansicolor("\033[0m"), root->key.c_str());
+            return false;
+        }
+        mFileId = root_file.value();
+    } else {
+        auto file_result = !mContentOverride.empty()
+                               ? mSourceMap.addFile(mFilePath, mContentOverride)
+                               : mSourceMap.loadFile(mFilePath);
+        if (!file_result) {
+            writeOutput("%s[error]%s failed to load file '%s'\n", ansicolor("\033[31m"),
+                        ansicolor("\033[0m"), mFilePath.c_str());
+            return false;
+        }
+        mFileId = file_result.value();
     }
-    mFileId = file_result.value();
 
-    auto token_result = lexer::tokenize(mSourceMap, mScratchArena, mFileId, mDiags);
-    if (!token_result) {
-        mDiags.emit();
-        return false;
-    }
-    mTokens = token_result.value();
+    if (!mSnapshot) {
+        auto token_result = lexer::tokenize(mSourceMap, mScratchArena, mFileId, mDiags);
+        if (!token_result) {
+            mDiags.emit();
+            return false;
+        }
+        mTokens = token_result.value();
 
-    if (mOpts.get().flags.printTokens() || mOpts.get().flags.emitTokens()) {
-        std::fputs("--- Tokens ---\n", stdout);
-        lexer::printTokens(mTokens);
-        std::fputs("---\n", stdout);
+        if (mOpts.get().flags.printTokens() || mOpts.get().flags.emitTokens()) {
+            std::fputs("--- Tokens ---\n", stdout);
+            lexer::printTokens(mTokens);
+            std::fputs("---\n", stdout);
+        }
     }
 
     auto lexDt =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     mStageDurations[static_cast<size_t>(StageIndex::Lex)] = lexDt;
     if (mOpts.get().flags.verbose()) {
-        writeOutput("  [lex] %6u tokens  (%5.1fms)\n", mTokens.len, lexDt);
+        const auto token_count = mSnapshot ? 0U : mTokens.len;
+        writeOutput("  [lex] %6u tokens  (%5.1fms)\n", token_count, lexDt);
     }
 
     return true;
@@ -293,6 +420,17 @@ bool CompilationSession::importStage() {
     auto t0 = std::chrono::steady_clock::now();
     if (mCacheHydrated)
         return true;
+    if (mSnapshot) {
+        const auto ok = materializeFrontendSymbols();
+        auto importDt =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
+                .count();
+        mStageDurations[static_cast<size_t>(StageIndex::Import)] = importDt;
+        if (mOpts.get().flags.verbose()) {
+            writeOutput("  [import] %zu symbols  (%5.1fms)\n", mSyms.symbolCount(), importDt);
+        }
+        return ok;
+    }
     namespace fs = std::filesystem;
 
     // ── Compute visible roots ──────────────────────────────────────
@@ -442,6 +580,16 @@ bool CompilationSession::resolveStage() {
     auto t0 = std::chrono::steady_clock::now();
     if (mCacheHydrated)
         return true;
+    if (mSnapshot) {
+        auto resolveDt =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
+                .count();
+        mStageDurations[static_cast<size_t>(StageIndex::Resolve)] = resolveDt;
+        if (mOpts.get().flags.verbose()) {
+            writeOutput("  [resolve] %5.1fms\n", resolveDt);
+        }
+        return !mSnapshot->hasErrors();
+    }
 
     symbols::Resolver resolver(mSyms, mImportMgr, mAstBuilder, mDiags);
     resolver.resolveProgram(mProgram);
@@ -461,6 +609,21 @@ bool CompilationSession::scanStage() {
     auto t0 = std::chrono::steady_clock::now();
     if (mCacheHydrated)
         return true;
+    if (mSnapshot) {
+        auto scanDt =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
+                .count();
+        mStageDurations[static_cast<size_t>(StageIndex::Scan)] = scanDt;
+        if (mOpts.get().flags.verbose()) {
+            writeOutput("  [scan] %6zu top-level decls  (%5.1fms, %zu errors)\n",
+                        mSnapshot->modules().empty() ? 0U
+                                                     : mSnapshot->modules().front()->frontend
+                                                           ->declarations()
+                                                           .size(),
+                        scanDt, mSnapshot->diagnostics().size());
+        }
+        return !mSnapshot->hasErrors();
+    }
     parser::Parser parser(&mTokens, &mAstBuilder, &mDiags);
     mScanResult = parser::scan(parser, mSyms);
     mProgram    = std::move(parser.program);
@@ -483,6 +646,31 @@ bool CompilationSession::semaStage() {
     auto t0 = std::chrono::steady_clock::now();
     if (mCacheHydrated)
         return true;
+
+    if (mSnapshot) {
+        if (mSnapshot->hasErrors()) {
+            for (const auto &diagnostic : mSnapshot->diagnostics()) {
+                mDiags.report(diagnostic.severity, diagnostic.code, diagnostic.message,
+                              memory::Span{diagnostic.file, diagnostic.start, diagnostic.end});
+            }
+            mDiags.emit();
+            return false;
+        }
+        mModernSemaPipeline =
+            std::make_unique<sema::modern::SemaPipeline>(mScratchArena, mDiags, *mSnapshot);
+        if (!mModernSemaPipeline->run()) {
+            mDiags.emit();
+            return false;
+        }
+        auto semaDt =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
+                .count();
+        mStageDurations[static_cast<size_t>(StageIndex::Sema)] = semaDt;
+        if (mOpts.get().flags.verbose()) {
+            writeOutput("  [sema] modern types ready  (%5.1fms)\n", semaDt);
+        }
+        return !mDiags.hasErrors();
+    }
 
     if (mDiags.hasErrors()) {
         mDiags.emit();
@@ -510,6 +698,19 @@ bool CompilationSession::semaStage() {
         std::printf("---\n");
     }
 
+    // Run the modern type checker when a frontend snapshot is available.  If it
+    // reports errors we stop here and surface those diagnostics; otherwise we
+    // fall through to the legacy pipeline so HIR lowering/codegen remain usable.
+    if (mFrontendContext && mSnapshot) {
+        sema::modern::SemaPipeline modern(mScratchArena, mDiags, *mSnapshot);
+        if (!modern.run()) {
+            mDiags.emit();
+            return false;
+        }
+        mModernTypeTable =
+            std::make_unique<sema::modern::TypeTable>(std::move(modern).takeTypeTable());
+    }
+
     sema::SemaPipeline pipeline(mSyms, mTypes, mDiags, mAstBuilder, mHirArena, &mResolvedSyms,
                                 &mImportMgr);
     if (!pipeline.run(mProgram)) {
@@ -533,6 +734,41 @@ bool CompilationSession::lowerStage() {
     auto t0 = std::chrono::steady_clock::now();
     if (mCacheHydrated)
         return true;
+
+    if (mSnapshot) {
+        if (mDiags.hasErrors() || !mModernSemaPipeline) {
+            mDiags.emit();
+            return false;
+        }
+
+        sema::modern::HirLowerModern lower(mHirArena, mDiags, *mSnapshot, *mModernSemaPipeline,
+                                           mTypes, *mInterner);
+        if (!lower.run()) {
+            mDiags.emit();
+            return false;
+        }
+
+        mHirModule = lower.takeHir();
+        mModernTypeTable =
+            std::make_unique<sema::modern::TypeTable>(mModernSemaPipeline->takeTypeTable());
+        mModernSemaPipeline.reset();
+
+        if (mOpts.get().flags.emitHir()) {
+            std::fputs("--- HIR ---\n", stdout);
+            mHirModule.dump(stdout, *mInterner);
+            std::fputs("---\n", stdout);
+        }
+
+        auto lowerDt =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
+                .count();
+        mStageDurations[static_cast<size_t>(StageIndex::Lower)] = lowerDt;
+        if (mOpts.get().flags.verbose()) {
+            writeOutput("  [lower] %zu fns lowered  (%5.1fms)\n", mHirModule.getFnCount(),
+                        lowerDt);
+        }
+        return !mDiags.hasErrors();
+    }
 
     if (mDiags.hasErrors()) {
         mDiags.emit();
@@ -566,7 +802,12 @@ bool CompilationSession::lowerStage() {
 
 bool CompilationSession::solveStage() {
     auto t0 = std::chrono::steady_clock::now();
-    comptime::Solver solver(mTypes, mAstBuilder, mProgram, mSyms, mDiags, mHirArena);
+    if (mSnapshot && mDiags.hasErrors()) {
+        mDiags.emit();
+        return false;
+    }
+    comptime::Solver solver(mTypes, mAstBuilder, mProgram, mSyms, mDiags, mHirArena,
+                            mModernTypeTable.get());
     if (!solver.solve(mHirModule)) {
         mDiags.emit();
         return false;
@@ -584,6 +825,9 @@ bool CompilationSession::nraStage() {
     auto t0 = std::chrono::steady_clock::now();
     auto nraDt =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    if (mModernTypeTable && mOpts.get().flags.verbose()) {
+        writeOutput("  [nra] modern types: %zu  (%5.1fms)\n", mModernTypeTable->size(), nraDt);
+    }
     mStageDurations[static_cast<size_t>(StageIndex::Nra)] = nraDt;
     if (mOpts.get().flags.verbose()) {
         writeOutput("  [nra] \xe2\x80\x94 (stub)  (%5.1fms)\n", nraDt);

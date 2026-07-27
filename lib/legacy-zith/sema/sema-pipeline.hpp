@@ -1,11 +1,11 @@
 #pragma once
 
-#include "ast/ast-builder.hpp"
-#include "ast/ast-nodes.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
+#include "legacy-zith/ast/ast-nodes.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
 #include "memory/dyn-array.hpp"
 #include "memory/flat-map.hpp"
-#include "sema/sema-context.hpp"
+#include "legacy-zith/sema/sema-context.hpp"
 #include "sema/typed-ast.hpp"
 #include "symbols/import-manager.hpp"
 #include "symbols/symbol-table.hpp"

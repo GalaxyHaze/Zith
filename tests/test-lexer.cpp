@@ -1,5 +1,5 @@
 #include "diagnostics/diagnostic-engine.hpp"
-#include "lexer/lexer.hpp"
+#include "legacy-zith/lexer/lexer.hpp"
 #include "memory/arena.hpp"
 #include "memory/source-map.hpp"
 #include "test-common.hpp"

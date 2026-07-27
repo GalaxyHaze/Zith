@@ -1,7 +1,7 @@
 #include "lexer.hpp"
 
 #include "diagnostics/error-codes.hpp"
-#include "lexer/keyword-table.hpp"
+#include "legacy-zith/lexer/keyword-table.hpp"
 #include "memory/source-file.hpp"
 #include "memory/source-map.hpp"
 #include "memory/span.hpp"

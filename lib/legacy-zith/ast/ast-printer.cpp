@@ -1,4 +1,4 @@
-#include "ast/ast-printer.hpp"
+#include "legacy-zith/ast/ast-printer.hpp"
 #include "common/overloaded.hpp"
 
 namespace zith::ast {

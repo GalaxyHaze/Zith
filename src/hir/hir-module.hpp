@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ast/ast-ids.hpp"
+#include "common/ast-ids.hpp"
 #include "hir/hir-expr.hpp"
 #include "hir/hir-types.hpp"
 #include "memory/arena.hpp"

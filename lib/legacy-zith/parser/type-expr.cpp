@@ -1,8 +1,8 @@
 #include "parser.hpp"
 
 #include "diagnostics/error-codes.hpp"
-#include "parser/operators.hpp"
-#include "parser/scan-helpers.hpp"
+#include "legacy-zith/parser/operators.hpp"
+#include "legacy-zith/parser/scan-helpers.hpp"
 
 #include <array>
 #include <cstdlib>

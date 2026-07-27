@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ast/ast-builder.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
 #include "memory/dyn-array.hpp"
 #include "memory/span.hpp"
 #include "symbols/symbol-table.hpp"

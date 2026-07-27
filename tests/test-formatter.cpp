@@ -1,4 +1,4 @@
-#include "ast/ast-builder.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
 #include "formatter/fmt-visitor.hpp"
 #include "memory/arena.hpp"
 #include "memory/string-interner.hpp"

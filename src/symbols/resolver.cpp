@@ -1,5 +1,5 @@
 #include "resolver.hpp"
-#include "ast/ast-node-utils.hpp"
+#include "legacy-zith/ast/ast-node-utils.hpp"
 #include "common/format.hpp"
 #include "common/overloaded.hpp"
 #include "diagnostics/error-codes.hpp"

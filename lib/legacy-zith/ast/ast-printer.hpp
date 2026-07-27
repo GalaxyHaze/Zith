@@ -1,7 +1,7 @@
 #pragma once
 
-#include "ast/ast-builder.hpp"
-#include "ast/ast-nodes.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
+#include "legacy-zith/ast/ast-nodes.hpp"
 
 #include <cstdio>
 

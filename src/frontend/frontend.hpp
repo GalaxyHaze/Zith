@@ -171,12 +171,25 @@ struct Parameter {
     TypeExprId type;
 };
 
+struct ImportSelector {
+    std::string name;
+    std::string alias;
+    TextSpan span;
+    TextSpan aliasSpan;
+};
+
 struct ImportDecl {
     std::vector<std::string> path;
+    std::vector<TextSpan> pathSpans;
+    std::vector<ImportSelector> selectors;
+    std::string rawPath;
+    std::string alias;
     bool isFrom   = false;
     bool isExport = false;
     bool isAsset  = false;
     int32_t depth = 1;
+    TextSpan pathSpan;
+    TextSpan aliasSpan;
 };
 
 struct Declaration {

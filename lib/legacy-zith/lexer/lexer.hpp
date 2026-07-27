@@ -1,7 +1,7 @@
 #pragma once
 
 #include "diagnostics/diagnostic-engine.hpp"
-#include "lexer/token.hpp"
+#include "legacy-zith/lexer/token.hpp"
 #include "memory/dyn-array.hpp"
 #include "memory/result.hpp"
 #include <string>

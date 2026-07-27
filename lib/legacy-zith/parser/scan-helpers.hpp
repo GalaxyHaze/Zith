@@ -1,10 +1,10 @@
 #pragma once
 
-#include "ast/ast-builder.hpp"
-#include "ast/ast-nodes.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
+#include "legacy-zith/ast/ast-nodes.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
 #include "diagnostics/error-codes.hpp"
-#include "lexer/token.hpp"
+#include "legacy-zith/lexer/token.hpp"
 #include "memory/arena.hpp"
 #include "memory/dyn-array.hpp"
 #include "memory/span.hpp"
