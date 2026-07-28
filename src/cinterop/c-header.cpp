@@ -1,0 +1,247 @@
+#include "cinterop/c-header.hpp"
+
+#include <algorithm>
+#include <filesystem>
+#include <utility>
+
+#ifdef ZITH_ENABLE_C_INTEROP
+#include <clang-c/Index.h>
+#endif
+
+namespace zith::cinterop {
+namespace {
+
+#ifdef ZITH_ENABLE_C_INTEROP
+
+std::string takeString(const CXString value) {
+    const char *text   = clang_getCString(value);
+    std::string result = text != nullptr ? text : "";
+    clang_disposeString(value);
+    return result;
+}
+
+bool isMainFile(const CXCursor cursor, const CXFile main_file) {
+    CXFile file = nullptr;
+    clang_getSpellingLocation(clang_getCursorLocation(cursor), &file, nullptr, nullptr, nullptr);
+    return file != nullptr && clang_File_isEqual(file, main_file) != 0;
+}
+
+bool lowerType(const CXType source, Type &result, std::string &unsupported) {
+    const CXType type = clang_getCanonicalType(source);
+    result.isConst    = clang_isConstQualifiedType(source) != 0;
+    switch (type.kind) {
+    case CXType_Void:
+        result.kind = TypeKind::Void;
+        return true;
+    case CXType_Bool:
+        result.kind = TypeKind::Bool;
+        result.bits = 1;
+        return true;
+    case CXType_Char_S:
+    case CXType_SChar:
+    case CXType_Short:
+    case CXType_Int:
+    case CXType_Long:
+    case CXType_LongLong:
+    case CXType_Int128:
+        result.kind     = TypeKind::Integer;
+        result.isSigned = true;
+        result.bits     = static_cast<uint8_t>(clang_Type_getSizeOf(type) * 8);
+        return result.bits != 0;
+    case CXType_Char_U:
+    case CXType_UChar:
+    case CXType_UShort:
+    case CXType_UInt:
+    case CXType_ULong:
+    case CXType_ULongLong:
+    case CXType_UInt128:
+        result.kind     = TypeKind::Integer;
+        result.isSigned = false;
+        result.bits     = static_cast<uint8_t>(clang_Type_getSizeOf(type) * 8);
+        return result.bits != 0;
+    case CXType_Float:
+    case CXType_Double:
+    case CXType_LongDouble:
+    case CXType_Float16:
+    case CXType_Float128:
+        result.kind = TypeKind::Float;
+        result.bits = static_cast<uint8_t>(clang_Type_getSizeOf(type) * 8);
+        return result.bits != 0;
+    case CXType_Pointer: {
+        Type pointee;
+        if (!lowerType(clang_getPointeeType(type), pointee, unsupported))
+            return false;
+        result.kind    = TypeKind::Pointer;
+        result.pointee = std::make_shared<Type>(std::move(pointee));
+        return true;
+    }
+    case CXType_Record:
+        result.kind = TypeKind::Record;
+        result.name = takeString(clang_getTypeSpelling(source));
+        return true;
+    case CXType_Enum:
+        result.kind = TypeKind::Enum;
+        result.name = takeString(clang_getTypeSpelling(source));
+        return true;
+    default:
+        unsupported = takeString(clang_getTypeSpelling(source));
+        return false;
+    }
+}
+
+struct ParseState {
+    CXFile mainFile = nullptr;
+    CHeaderArtifact &artifact;
+};
+
+void collectInclusion(const CXFile included_file, CXSourceLocation *, const unsigned,
+                      CXClientData data) {
+    auto &artifact  = *static_cast<CHeaderArtifact *>(data);
+    const auto path = takeString(clang_getFileName(included_file));
+    if (path.empty())
+        return;
+
+    std::error_code error;
+    const auto canonical = std::filesystem::weakly_canonical(path, error);
+    artifact.dependencies.push_back(error ? path : canonical.generic_string());
+}
+
+CXChildVisitResult visitCursor(const CXCursor cursor, const CXCursor, CXClientData data) {
+    auto &state = *static_cast<ParseState *>(data);
+    if (clang_getCursorKind(cursor) != CXCursor_FunctionDecl ||
+        !isMainFile(cursor, state.mainFile)) {
+        return CXChildVisit_Continue;
+    }
+
+    const auto linkage = clang_getCursorLinkage(cursor);
+    if (linkage != CXLinkage_External && linkage != CXLinkage_UniqueExternal)
+        return CXChildVisit_Continue;
+    if (clang_Cursor_getStorageClass(cursor) == CX_SC_Static ||
+        clang_Cursor_isFunctionInlined(cursor) != 0) {
+        return CXChildVisit_Continue;
+    }
+
+    const auto type = clang_getCursorType(cursor);
+    if (clang_isFunctionTypeVariadic(type) != 0) {
+        state.artifact.diagnostics.push_back({"variadic C functions are not supported", 0, 0});
+        return CXChildVisit_Continue;
+    }
+
+    Function function;
+    function.name        = takeString(clang_getCursorSpelling(cursor));
+    function.linkageName = takeString(clang_Cursor_getMangling(cursor));
+    if (function.linkageName.empty())
+        function.linkageName = function.name;
+
+    std::string unsupported;
+    if (!lowerType(clang_getResultType(type), function.result, unsupported)) {
+        state.artifact.diagnostics.push_back({"C function '" + function.name +
+                                                  "' has an unsupported return type '" +
+                                                  unsupported + "'",
+                                              0, 0});
+        return CXChildVisit_Continue;
+    }
+
+    const int arguments = clang_Cursor_getNumArguments(cursor);
+    for (unsigned index = 0; index < static_cast<unsigned>(arguments); ++index) {
+        Type parameter;
+        if (!lowerType(clang_getCursorType(clang_Cursor_getArgument(cursor, index)), parameter,
+                       unsupported)) {
+            state.artifact.diagnostics.push_back({"C function '" + function.name +
+                                                      "' has an unsupported parameter type '" +
+                                                      unsupported + "'",
+                                                  0, 0});
+            return CXChildVisit_Continue;
+        }
+        function.parameters.push_back(std::move(parameter));
+    }
+    state.artifact.functions.push_back(std::move(function));
+    return CXChildVisit_Continue;
+}
+
+#endif
+
+} // namespace
+
+bool available() noexcept {
+#ifdef ZITH_ENABLE_C_INTEROP
+    return true;
+#else
+    return false;
+#endif
+}
+
+std::shared_ptr<const CHeaderArtifact> parseHeader(const std::string &headerPath,
+                                                   const ParseOptions &options) {
+    auto artifact        = std::make_shared<CHeaderArtifact>();
+    artifact->headerPath = headerPath;
+    artifact->dependencies.push_back(headerPath);
+#ifndef ZITH_ENABLE_C_INTEROP
+    (void)options;
+    artifact->diagnostics.push_back(
+        {"automatic C header imports require a native build with libclang; use 'extern fn' "
+         "instead",
+         0, 0});
+    return artifact;
+#else
+    std::vector<std::string> arguments{"-x", "c", "-std=c17"};
+    if (!options.targetTriple.empty())
+        arguments.push_back("--target=" + options.targetTriple);
+    if (!options.sysroot.empty())
+        arguments.push_back("--sysroot=" + options.sysroot);
+    for (const auto &directory : options.includeDirs)
+        arguments.push_back("-I" + directory);
+    for (const auto &define : options.defines)
+        arguments.push_back("-D" + define);
+
+    std::vector<const char *> argv;
+    argv.reserve(arguments.size());
+    for (const auto &argument : arguments)
+        argv.push_back(argument.c_str());
+
+    const CXIndex index    = clang_createIndex(0, 0);
+    CXTranslationUnit unit = nullptr;
+    const auto error       = clang_parseTranslationUnit2(
+        index, headerPath.c_str(), argv.data(), static_cast<int>(argv.size()), nullptr, 0,
+        CXTranslationUnit_DetailedPreprocessingRecord, &unit);
+    if (error != CXError_Success || unit == nullptr) {
+        artifact->diagnostics.push_back(
+            {"failed to parse C header with libclang (error " + std::to_string(error) + ")", 0, 0});
+        clang_disposeIndex(index);
+        return artifact;
+    }
+
+    const auto diagnostic_count = clang_getNumDiagnostics(unit);
+    for (unsigned index_value = 0; index_value < diagnostic_count; ++index_value) {
+        const CXDiagnostic diagnostic = clang_getDiagnostic(unit, index_value);
+        const auto severity           = clang_getDiagnosticSeverity(diagnostic);
+        if (severity >= CXDiagnostic_Error) {
+            CXFile file     = nullptr;
+            unsigned line   = 0;
+            unsigned column = 0;
+            clang_getSpellingLocation(clang_getDiagnosticLocation(diagnostic), &file, &line,
+                                      &column, nullptr);
+            artifact->diagnostics.push_back(
+                {takeString(
+                     clang_formatDiagnostic(diagnostic, clang_defaultDiagnosticDisplayOptions())),
+                 line, column});
+        }
+        clang_disposeDiagnostic(diagnostic);
+    }
+
+    const auto main_file = clang_getFile(unit, headerPath.c_str());
+    ParseState state{main_file, *artifact};
+    clang_visitChildren(clang_getTranslationUnitCursor(unit), visitCursor, &state);
+    clang_getInclusions(unit, collectInclusion, artifact.get());
+    std::sort(artifact->dependencies.begin(), artifact->dependencies.end());
+    artifact->dependencies.erase(
+        std::unique(artifact->dependencies.begin(), artifact->dependencies.end()),
+        artifact->dependencies.end());
+
+    clang_disposeTranslationUnit(unit);
+    clang_disposeIndex(index);
+    return artifact;
+#endif
+}
+
+} // namespace zith::cinterop

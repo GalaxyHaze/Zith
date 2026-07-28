@@ -1,72 +1,240 @@
-#include "legacy-zith/ast/ast-builder.hpp"
+#include "cli/options.hpp"
 #include "formatter/fmt-visitor.hpp"
+#include "frontend/frontend.hpp"
 #include "memory/arena.hpp"
-#include "memory/string-interner.hpp"
+#include "session/compilation-session.hpp"
 #include "test-common.hpp"
 
 #include <string>
 
 using namespace zith;
 
-static void test_formatter_preserves_experimental_ast_nodes() {
-    memory::Arena arena;
-    memory::StringInterner interner(arena);
-    ast::AstBuilder builder(arena, interner);
+static void test_formatter_normalizes_supported_snapshot_nodes() {
+    const std::string source = "pub   fn  main( left:i32,right : i32):i32{var "
+                               "total:i32=left+right;while(total>0){total=total-1;}if(total<0){"
+                               "return 1;}else{return total;} }\n";
+    auto snapshot            = frontend::parse(source);
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
 
-    memory::DynArray<std::string_view> word_params(arena);
-    word_params.push("lhs");
-    word_params.push("rhs");
-    memory::DynArray<ast::StmtId> word_stmts(arena);
-    auto word_body = builder.block(std::move(word_stmts), builder.litExpr(ast::LitKind::Int, "0"));
-    auto word =
-        builder.wordDecl("SELECT", ast::WordCategory::Infix, std::move(word_params), word_body);
+    const std::string expected = "pub fn main(left: i32, right: i32): i32 {\n"
+                                 "    var total: i32 = left + right;\n"
+                                 "    while (total > 0) {\n"
+                                 "        total = total - 1;\n"
+                                 "    }\n"
+                                 "    if (total < 0) {\n"
+                                 "        return 1;\n"
+                                 "    } else {\n"
+                                 "        return total;\n"
+                                 "    }\n"
+                                 "}\n";
 
-    memory::DynArray<ast::DeclId> context_decls(arena);
-    context_decls.push(word);
-    auto context = builder.contextDecl("SQL", std::move(context_decls));
+    CHECK_EQ(formatter.result(), expected, "formats stable modern-frontend syntax structurally");
+}
 
-    memory::DynArray<ast::ExprId> word_call_args(arena);
-    word_call_args.push(builder.ident("table"));
-    word_call_args.push(builder.ident("column"));
-    auto word_call = builder.wordCall("SELECT", std::move(word_call_args));
-    memory::DynArray<ast::StmtId> use_block_stmts(arena);
-    auto use_block = builder.block(std::move(use_block_stmts), word_call);
-    auto use_context =
-        builder.useStmt("SQL", memory::DynArray<std::string_view>{arena}, {}, {}, use_block);
-    auto use_word =
-        builder.useStmt({}, memory::DynArray<std::string_view>{arena}, "DOT", "math.vec.dot");
+static void test_formatter_normalizes_extern_and_unary() {
+    const std::string source = "extern    fn   putchar(c:i32):i32\n"
+                               "fn   main(){\n"
+                               "    var flag: bool = true;\n"
+                               "    if (not flag) {\n"
+                               "        return 0;\n"
+                               "    }\n"
+                               "    return   1;\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
 
-    memory::DynArray<ast::ExprId> operands(arena);
-    operands.push(builder.ident("left"));
-    operands.push(builder.ident("right"));
-    memory::DynArray<ast::OpMarker> ops(arena);
-    ops.push({{}, ast::BinaryOp::Add, "SELECT", 0, true});
-    auto sequence = builder.seq(std::move(operands), std::move(ops));
+    const std::string expected = "extern fn putchar(c: i32): i32;\n"
+                                 "\n"
+                                 "fn main() {\n"
+                                 "    var flag: bool = true;\n"
+                                 "    if (not flag) {\n"
+                                 "        return 0;\n"
+                                 "    }\n"
+                                 "    return 1;\n"
+                                 "}\n";
 
-    memory::DynArray<ast::StmtId> main_stmts(arena);
-    main_stmts.push(use_context);
-    main_stmts.push(use_word);
-    auto main_body = builder.block(std::move(main_stmts), sequence);
-    auto main      = builder.fnDecl("main", memory::DynArray<std::string_view>{arena}, main_body);
+    CHECK_EQ(formatter.result(), expected, "formats extern declarations without body");
+}
 
-    ast::ProgramNode program(arena);
-    program.decls.push(context);
-    program.decls.push(main);
+static void test_formatter_normalizes_pointer_types() {
+    const std::string source = "fn  write(ptr:*i32,val:i32){\n"
+                               "    ptr = -val;\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
 
-    formatter::FmtVisitor formatter(builder, program);
+    const std::string expected = "fn write(ptr: *i32, val: i32) {\n"
+                                 "    ptr = -val;\n"
+                                 "}\n";
+
+    CHECK_EQ(formatter.result(), expected, "formats pointer type annotations and unary negation");
+}
+
+static void test_formatter_nested_if_else() {
+    const std::string source = "fn classify(x:i32):i32{if(x>0){if(x>10){return 2;}return "
+                               "1;}else{if(x<0){return -1;}return 0;}}\n";
+    auto snapshot            = frontend::parse(source);
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+
+    const std::string expected = "fn classify(x: i32): i32 {\n"
+                                 "    if (x > 0) {\n"
+                                 "        if (x > 10) {\n"
+                                 "            return 2;\n"
+                                 "        }\n"
+                                 "        return 1;\n"
+                                 "    } else {\n"
+                                 "        if (x < 0) {\n"
+                                 "            return -1;\n"
+                                 "        }\n"
+                                 "        return 0;\n"
+                                 "    }\n"
+                                 "}\n";
+
+    CHECK_EQ(formatter.result(), expected, "formats deeply nested control flow");
+}
+
+static void test_formatter_normalizes_simple_import() {
+    const std::string source = "import   std/io/console  as  con\n";
+    auto snapshot            = frontend::parse(source);
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+
+    const std::string expected = "import std/io/console as con\n";
+
+    CHECK_EQ(formatter.result(), expected, "formats simple import declarations");
+}
+
+static void test_formatter_break_continue() {
+    const std::string source = "fn search(): i32 {\n"
+                               "    while (true) {\n"
+                               "        break;\n"
+                               "        continue;\n"
+                               "    }\n"
+                               "    return 0;\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+
+    const std::string &output = formatter.result();
+
+    CHECK(output.find("break;\n") != std::string::npos, "keeps break statement");
+    CHECK(output.find("continue;\n") != std::string::npos, "keeps continue statement");
+}
+
+static void test_formatter_empty_file_produces_newline() {
+    const std::string source = "\n";
+    auto snapshot            = frontend::parse(source);
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+
+    CHECK_EQ(formatter.result(), "\n", "empty source produces a single newline");
+}
+
+static void test_formatter_multiple_top_level_decls_with_comments() {
+    const std::string source = "// Copyright notice\n"
+                               "\n"
+                               "fn one(): i32 {\n"
+                               "    1\n"
+                               "}\n"
+                               "\n"
+                               "/// Doc comment\n"
+                               "fn two(): i32 {\n"
+                               "    2\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+    const std::string expected = "// Copyright notice\n"
+                                 "\n"
+                                 "fn one(): i32 {\n"
+                                 "    1;\n"
+                                 "}\n"
+                                 "\n"
+                                 "/// Doc comment\n"
+                                 "fn two(): i32 {\n"
+                                 "    2;\n"
+                                 "}\n";
+
+    CHECK_EQ(formatter.result(), expected,
+             "multiple declarations separated by blank line preserve comments");
+}
+
+static void test_formatter_parse_error_produces_empty() {
+    const std::string source = "fn broken { missing paren";
+    auto snapshot            = frontend::parse(source);
+    CHECK(!snapshot.diagnostics().empty(), "source with syntax errors still parses");
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+
+    CHECK(!formatter.result().empty(), "formatter still produces output for parse error input");
+}
+
+static void test_formatter_preserves_unsupported_subtrees() {
+    const std::string source = "pub   struct   Pair{ left :i32,\n"
+                               "    right : i32,\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    formatter::FmtVisitor formatter(snapshot);
     formatter.format();
     const std::string &output = formatter.result();
 
-    CHECK(output.find("context SQL {") != std::string::npos, "formats context declaration");
-    CHECK(output.find("infix SELECT(lhs, rhs) {") != std::string::npos, "formats word declaration");
-    CHECK(output.find("use SQL {") != std::string::npos, "formats scoped use statement");
-    CHECK(output.find("SELECT(table, column)") != std::string::npos, "formats word call");
-    CHECK(output.find("use math.vec.dot as DOT;") != std::string::npos, "formats aliased word use");
-    CHECK(output.find("left SELECT right") != std::string::npos, "formats word sequence");
+    CHECK(output.starts_with("pub struct Pair {"), "normalizes the supported outer declaration");
+    CHECK(output.find("{ left :i32,\n    right : i32,\n}") != std::string::npos,
+          "preserves the unsupported subtree verbatim");
+}
+
+static void test_formatter_preserves_comments() {
+    const std::string source = "/// docs\n"
+                               "fn main() {\n"
+                               "    // keep line\n"
+                               "    return 42;\n"
+                               "}\n"
+                               "\n"
+                               "struct Pair{/* keep block */ left:i32 }\n";
+    auto snapshot            = frontend::parse(source);
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+    const std::string &output = formatter.result();
+
+    CHECK(output.find("/// docs") != std::string::npos, "preserves doc comments");
+    CHECK(output.find("// keep line") != std::string::npos, "preserves line comments");
+    CHECK(output.find("/* keep block */") != std::string::npos, "preserves block comments");
+}
+
+static void test_compilation_session_fmt_uses_frontend_snapshot() {
+    memory::Arena arena;
+    Options opts(arena);
+    opts.command = Options::Command::Fmt;
+
+    session::CompilationSession session(opts, "formatter-session.zith");
+    session.setBuffered(true);
+    session.setContent("fn main(){return 42;}\n");
+
+    const std::string formatted = session.fmtStage();
+
+    CHECK(!formatted.empty(), "fmt stage produces output through the modern formatter");
+    CHECK(session.snapshot() != nullptr, "fmt stage builds a modern frontend snapshot");
+    CHECK_EQ(session.tokens().len, 0u, "fmt stage does not require legacy tokenization");
 }
 
 static void test_formatter() {
-    test_formatter_preserves_experimental_ast_nodes();
+    test_formatter_normalizes_supported_snapshot_nodes();
+    test_formatter_normalizes_extern_and_unary();
+    test_formatter_normalizes_pointer_types();
+    test_formatter_nested_if_else();
+    test_formatter_normalizes_simple_import();
+    test_formatter_break_continue();
+    test_formatter_empty_file_produces_newline();
+    test_formatter_multiple_top_level_decls_with_comments();
+    test_formatter_parse_error_produces_empty();
+    test_formatter_preserves_unsupported_subtrees();
+    test_formatter_preserves_comments();
+    test_compilation_session_fmt_uses_frontend_snapshot();
 }
 
 TEST_MAIN(formatter)

@@ -82,3 +82,8 @@ CMakeFiles/
 cmake_install.cmake
 CTestTestfile.cmake
 DartConfiguration.tcl
+
+# Examples
+**/hello-world.zith.o
+examples/cache/
+examples/target/

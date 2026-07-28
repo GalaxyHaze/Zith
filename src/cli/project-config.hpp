@@ -20,6 +20,12 @@ struct ProjectConfig {
     std::string testDir;
     std::string assetDir;
 
+    // [ffi]
+    memory::DynArray<std::string> includeDirs;
+    memory::DynArray<std::string> libraryDirs;
+    memory::DynArray<std::string> libraries;
+    memory::DynArray<std::string> defines;
+
     std::string projectRoot; // directory containing ZithProject.toml
 
     // [project]
@@ -30,7 +36,9 @@ struct ProjectConfig {
     std::string license;
     std::string homepage;
 
-    explicit ProjectConfig(memory::Arena &arena) : srcDirs(arena) {}
+    explicit ProjectConfig(memory::Arena &arena)
+        : srcDirs(arena), includeDirs(arena), libraryDirs(arena), libraries(arena), defines(arena) {
+    }
 };
 
 } // namespace zith

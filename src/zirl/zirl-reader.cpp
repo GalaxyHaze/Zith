@@ -6,9 +6,9 @@ bool Reader::readCompactType(ByteReader &r, cache::CompactType &out) {
     uint8_t kind = 0, w = 0, flags = 0, reserved = 0;
     if (!r.readU8(kind) || !r.readU8(w) || !r.readU8(flags) || !r.readU8(reserved))
         return false;
-    out.kind  = static_cast<cache::CompactTypeKind>(kind);
+    out.kind      = static_cast<cache::CompactTypeKind>(kind);
     out.int_width = w;
-    out.flags = flags;
+    out.flags     = flags;
     if (!r.readU32(out.ref0) || !r.readU32(out.ref1))
         return false;
     uint32_t n = 0;
@@ -166,7 +166,8 @@ bool Reader::readCode(ByteReader &r, cache::Artifact &out) {
     out.functions.resize(n);
     for (auto &fn : out.functions) {
         uint8_t ext = 0, a = 0, b = 0, c = 0;
-        if (!r.readU32(fn.name_id) || !r.readU8(ext) || !r.readU8(a) || !r.readU8(b) || !r.readU8(c))
+        if (!r.readU32(fn.name_id) || !r.readU8(ext) || !r.readU8(a) || !r.readU8(b) ||
+            !r.readU8(c))
             return false;
         fn.is_extern = ext != 0;
         if (!r.readU32(fn.return_type_id))
@@ -224,8 +225,9 @@ std::optional<cache::Artifact> Reader::read(std::string_view bytes) {
     uint32_t dep_count = 0, decl_count = 0, template_count = 0, fn_count = 0, path_len = 0;
     if (!r.readU32(header_size) || !r.readU32(checksum) || !r.readU32(cache_key_hash) ||
         !r.readU32(mod_hi) || !r.readU32(mod_lo) || !r.readU32(src_hi) || !r.readU32(src_lo) ||
-        !r.readU32(abi_hi) || !r.readU32(abi_lo) || !r.readU32(dep_count) || !r.readU32(decl_count) ||
-        !r.readU32(template_count) || !r.readU32(fn_count) || !r.readU32(path_len))
+        !r.readU32(abi_hi) || !r.readU32(abi_lo) || !r.readU32(dep_count) ||
+        !r.readU32(decl_count) || !r.readU32(template_count) || !r.readU32(fn_count) ||
+        !r.readU32(path_len))
         return std::nullopt;
 
     if (header_size > bytes.size() || path_len > bytes.size())
@@ -248,14 +250,14 @@ std::optional<cache::Artifact> Reader::read(std::string_view bytes) {
     }
 
     cache::Artifact out;
-    out.canonical_path  = std::move(canonical_path);
-    out.cache_key_hash  = cache_key_hash;
-    out.module_id_hi    = mod_hi;
-    out.module_id_lo    = mod_lo;
-    out.source_fp_hi    = src_hi;
-    out.source_fp_lo    = src_lo;
-    out.public_abi_hi   = abi_hi;
-    out.public_abi_lo   = abi_lo;
+    out.canonical_path = std::move(canonical_path);
+    out.cache_key_hash = cache_key_hash;
+    out.module_id_hi   = mod_hi;
+    out.module_id_lo   = mod_lo;
+    out.source_fp_hi   = src_hi;
+    out.source_fp_lo   = src_lo;
+    out.public_abi_hi  = abi_hi;
+    out.public_abi_lo  = abi_lo;
 
     out.deps.resize(dep_count);
     for (auto &dep : out.deps) {
@@ -277,13 +279,13 @@ std::optional<cache::Artifact> Reader::read(std::string_view bytes) {
 
     // Verify checksum over payloads.
     const uint8_t *base = reinterpret_cast<const uint8_t *>(bytes.data());
-    const size_t total = bytes.size();
+    const size_t total  = bytes.size();
     for (int i = 0; i < 4; ++i) {
         if (entries[i].offset + entries[i].size > total)
             return std::nullopt;
     }
     uint32_t calc = 0;
-    calc = fnv1a32(base + entries[0].offset, static_cast<size_t>(entries[0].size));
+    calc          = fnv1a32(base + entries[0].offset, static_cast<size_t>(entries[0].size));
     calc ^= fnv1a32(base + entries[1].offset, static_cast<size_t>(entries[1].size));
     calc ^= fnv1a32(base + entries[2].offset, static_cast<size_t>(entries[2].size));
     calc ^= fnv1a32(base + entries[3].offset, static_cast<size_t>(entries[3].size));
@@ -298,9 +300,8 @@ std::optional<cache::Artifact> Reader::read(std::string_view bytes) {
 
     // Read sections by offset.
     auto sectionView = [&](int i) {
-        return std::string_view(
-            reinterpret_cast<const char *>(base + entries[i].offset),
-            static_cast<size_t>(entries[i].size));
+        return std::string_view(reinterpret_cast<const char *>(base + entries[i].offset),
+                                static_cast<size_t>(entries[i].size));
     };
     ByteReader mr(sectionView(0));
     if (!readMetadata(mr, out))

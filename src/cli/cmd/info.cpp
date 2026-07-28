@@ -76,6 +76,9 @@ int help(FILE *dest) {
     p.flag("-m, --mode <debug|dev|release|fast|small>", "Build mode [default: debug]");
     p.flag("-o, --output <FILE>", "Output file path");
     p.flag("-I, --include <DIR>", "Add include directory (repeatable)");
+    p.flag("-L <DIR>", "Add library search directory (repeatable)");
+    p.flag("-l <NAME>", "Link library by validated name (repeatable)");
+    p.flag("-D <NAME[=VALUE]>", "Define a C preprocessor value for header imports");
     p.flag("-A, --assets <DIR>", "Add asset directory (repeatable)");
     p.flag("    --check", "Check formatting without modifying");
     p.flag("-i, --in-place", "Format files in-place");

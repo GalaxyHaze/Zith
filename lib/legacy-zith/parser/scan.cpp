@@ -121,6 +121,14 @@ static memory::DynArray<ast::GenericParam> tryParseGenericParams(Parser &parser,
 
 // ── import path parsing ──────────────────────────────────────────────
 static void parseImportPath(lexer::TokenStream &tok, memory::DynArray<std::string_view> &path) {
+    if (tok.peek().is(lexer::TokenKind::LitVal)) {
+        const auto literal = tok.lexeme();
+        if (literal.size() >= 2U && literal.front() == '"' && literal.back() == '"') {
+            path.push(std::string_view{literal.data() + 1, literal.size() - 2U});
+            tok.advance();
+            return;
+        }
+    }
     while (!tok.is_empty() && !tok.peek().is_eof()) {
         if (tok.peek().is(lexer::TokenKind::Identifier)) {
             auto first            = tok.lexeme();

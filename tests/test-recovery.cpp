@@ -4,15 +4,15 @@
 // that valid declarations after an error are still collected, that error nodes
 // are correctly produced, and that the per-file error limit is respected.
 
-#include "legacy-zith/ast/ast-builder.hpp"
-#include "legacy-zith/ast/ast-nodes.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
 #include "diagnostics/error-codes.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
+#include "legacy-zith/ast/ast-nodes.hpp"
 #include "legacy-zith/lexer/lexer.hpp"
+#include "legacy-zith/parser/parser.hpp"
 #include "memory/arena.hpp"
 #include "memory/source-map.hpp"
 #include "memory/string-interner.hpp"
-#include "legacy-zith/parser/parser.hpp"
 #include "symbols/symbol-table.hpp"
 #include "test-common.hpp"
 

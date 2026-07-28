@@ -1,6 +1,6 @@
 #include "compilation-session.hpp"
-#include "legacy-zith/ast/ast-printer.hpp"
 #include "cli/terminal.hpp"
+#include "legacy-zith/ast/ast-printer.hpp"
 #ifdef ZITH_HAS_LLVM
 #include "codegen/codegen.hpp"
 #include <llvm/TargetParser/Host.h>
@@ -9,13 +9,13 @@
 #include "diagnostics/error-codes.hpp"
 #include "formatter/fmt-visitor.hpp"
 #include "legacy-zith/lexer/lexer.hpp"
-#include "memory/source-map.hpp"
 #include "legacy-zith/parser/parser.hpp"
-#include "sema/heuristic-engine.hpp"
 #include "legacy-zith/sema/hir-lower.hpp"
+#include "legacy-zith/sema/sema-pipeline.hpp"
+#include "memory/source-map.hpp"
+#include "sema/heuristic-engine.hpp"
 #include "sema/hir-lower-modern.hpp"
 #include "sema/sema-modern.hpp"
-#include "legacy-zith/sema/sema-pipeline.hpp"
 #include "symbols/resolver.hpp"
 #include "types/type-lower.hpp"
 
@@ -26,6 +26,9 @@
 #include "codegen/codegen.hpp"
 #endif
 
+#include <algorithm>
+#include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -35,6 +38,7 @@
 #include <vector>
 #ifdef _WIN32
 #include <Windows.h>
+#include <process.h>
 #elif defined(__APPLE__)
 #include <mach-o/dyld.h>
 #include <sys/wait.h>
@@ -89,6 +93,58 @@ symbols::SymbolVisibility mapFrontendVisibility(const frontend::Visibility visib
     return symbols::SymbolVisibility::Private;
 }
 
+bool isValidLibraryName(const std::string_view name) {
+    if (name.empty())
+        return false;
+    return std::all_of(name.begin(), name.end(), [](const unsigned char character) {
+        return std::isalnum(character) != 0 || character == '_' || character == '+' ||
+               character == '-' || character == '.';
+    });
+}
+
+int runProgram(const std::vector<std::string> &arguments) {
+    if (arguments.empty())
+        return -1;
+
+    std::vector<char *> argv;
+    argv.reserve(arguments.size() + 1U);
+    for (const auto &argument : arguments)
+        argv.push_back(const_cast<char *>(argument.c_str()));
+    argv.push_back(nullptr);
+
+#ifdef _WIN32
+    return _spawnvp(_P_WAIT, argv.front(), argv.data());
+#elif defined(ZITH_IS_WASM)
+    (void)argv;
+    return -1;
+#else
+    const pid_t child = fork();
+    if (child < 0)
+        return -1;
+    if (child == 0) {
+        execvp(argv.front(), argv.data());
+        _exit(127);
+    }
+
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno != EINTR)
+            return -1;
+    }
+    return status;
+#endif
+}
+
+std::string displayCommand(const std::vector<std::string> &arguments) {
+    std::string command;
+    for (const auto &argument : arguments) {
+        if (!command.empty())
+            command += ' ';
+        command += argument;
+    }
+    return command;
+}
+
 } // namespace
 
 CompilationSession::CompilationSession(const Options &options, std::string filePath,
@@ -128,6 +184,19 @@ CompilationSession::CompilationSession(const Options &options, std::string fileP
                     if (auto s = v->value<std::string>())
                         mProjectConfig.binDir = *s;
             }
+            if (auto *ffi = tbl["ffi"].as_table()) {
+                const auto loadArray = [](const toml::table &table, const char *key,
+                                          memory::DynArray<std::string> &destination) {
+                    if (const auto *values = table[key].as_array())
+                        for (const auto &value : *values)
+                            if (const auto text = value.value<std::string>())
+                                destination.push(*text);
+                };
+                loadArray(*ffi, "include_dirs", mProjectConfig.includeDirs);
+                loadArray(*ffi, "library_dirs", mProjectConfig.libraryDirs);
+                loadArray(*ffi, "libraries", mProjectConfig.libraries);
+                loadArray(*ffi, "defines", mProjectConfig.defines);
+            }
             if (auto *proj = tbl["project"].as_table()) {
                 if (auto v = proj->get("name"))
                     if (auto s = v->value<std::string>())
@@ -150,6 +219,19 @@ CompilationSession::CompilationSession(const Options &options, std::string fileP
                 if (auto v = paths->get("bin_dir"))
                     if (auto s = v->value<std::string>())
                         mProjectConfig.binDir = *s;
+            }
+            if (auto *ffi = result["ffi"].as_table()) {
+                const auto loadArray = [](const toml::table &table, const char *key,
+                                          memory::DynArray<std::string> &destination) {
+                    if (const auto *values = table[key].as_array())
+                        for (const auto &value : *values)
+                            if (const auto text = value.value<std::string>())
+                                destination.push(*text);
+                };
+                loadArray(*ffi, "include_dirs", mProjectConfig.includeDirs);
+                loadArray(*ffi, "library_dirs", mProjectConfig.libraryDirs);
+                loadArray(*ffi, "libraries", mProjectConfig.libraries);
+                loadArray(*ffi, "defines", mProjectConfig.defines);
             }
             if (auto *proj = result["project"].as_table()) {
                 if (auto v = proj->get("name"))
@@ -176,9 +258,17 @@ void CompilationSession::ensureFrontendContext() {
 #endif
     config.targetTriple = mOpts.get().targetTriple;
     config.parseFlags   = mOpts.get().flags.strict() ? "strict" : "";
+    config.sysroot      = mOpts.get().sysroot;
 
+    for (const auto &dir : mProjectConfig.includeDirs)
+        config.includeRoots.push_back(
+            (std::filesystem::path(mProjectRoot) / dir).lexically_normal().string());
     for (const auto &dir : mOpts.get().includeDirs)
         config.includeRoots.push_back(dir);
+    for (const auto &define : mProjectConfig.defines)
+        config.cDefines.push_back(define);
+    for (const auto &define : mOpts.get().defines)
+        config.cDefines.push_back(define);
     for (const auto &dir : mOpts.get().assetDirs)
         config.assetRoots.push_back(dir);
     if (!mProjectConfig.assetDir.empty())
@@ -337,10 +427,11 @@ bool CompilationSession::lexStage() {
     }
 #endif
 
-    const bool wants_legacy_frontend =
-        mOpts.get().command == Options::Command::Fmt || mOpts.get().flags.emitAst() ||
-        mOpts.get().flags.emitTokens() || mOpts.get().flags.printTokens();
-    if (!wants_legacy_frontend && mContentOverride.empty())
+    const bool wants_legacy_frontend = mOpts.get().flags.emitAst() ||
+                                       mOpts.get().flags.emitTokens() ||
+                                       mOpts.get().flags.printTokens();
+    if (!wants_legacy_frontend &&
+        (mContentOverride.empty() || mOpts.get().command == Options::Command::Fmt))
         ensureFrontendContext();
     if (mFrontendContext && !mSnapshot) {
         auto snapshot = mContentOverride.empty()
@@ -581,6 +672,14 @@ bool CompilationSession::resolveStage() {
     if (mCacheHydrated)
         return true;
     if (mSnapshot) {
+        if (mSnapshot->hasErrors()) {
+            for (const auto &diagnostic : mSnapshot->diagnostics()) {
+                mDiags.report(diagnostic.severity, diagnostic.code, diagnostic.message,
+                              memory::Span{diagnostic.file, diagnostic.start, diagnostic.end});
+            }
+            mDiags.emit();
+            return false;
+        }
         auto resolveDt =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
                 .count();
@@ -588,7 +687,7 @@ bool CompilationSession::resolveStage() {
         if (mOpts.get().flags.verbose()) {
             writeOutput("  [resolve] %5.1fms\n", resolveDt);
         }
-        return !mSnapshot->hasErrors();
+        return true;
     }
 
     symbols::Resolver resolver(mSyms, mImportMgr, mAstBuilder, mDiags);
@@ -616,10 +715,9 @@ bool CompilationSession::scanStage() {
         mStageDurations[static_cast<size_t>(StageIndex::Scan)] = scanDt;
         if (mOpts.get().flags.verbose()) {
             writeOutput("  [scan] %6zu top-level decls  (%5.1fms, %zu errors)\n",
-                        mSnapshot->modules().empty() ? 0U
-                                                     : mSnapshot->modules().front()->frontend
-                                                           ->declarations()
-                                                           .size(),
+                        mSnapshot->modules().empty()
+                            ? 0U
+                            : mSnapshot->modules().front()->frontend->declarations().size(),
                         scanDt, mSnapshot->diagnostics().size());
         }
         return !mSnapshot->hasErrors();
@@ -698,19 +796,6 @@ bool CompilationSession::semaStage() {
         std::printf("---\n");
     }
 
-    // Run the modern type checker when a frontend snapshot is available.  If it
-    // reports errors we stop here and surface those diagnostics; otherwise we
-    // fall through to the legacy pipeline so HIR lowering/codegen remain usable.
-    if (mFrontendContext && mSnapshot) {
-        sema::modern::SemaPipeline modern(mScratchArena, mDiags, *mSnapshot);
-        if (!modern.run()) {
-            mDiags.emit();
-            return false;
-        }
-        mModernTypeTable =
-            std::make_unique<sema::modern::TypeTable>(std::move(modern).takeTypeTable());
-    }
-
     sema::SemaPipeline pipeline(mSyms, mTypes, mDiags, mAstBuilder, mHirArena, &mResolvedSyms,
                                 &mImportMgr);
     if (!pipeline.run(mProgram)) {
@@ -736,7 +821,7 @@ bool CompilationSession::lowerStage() {
         return true;
 
     if (mSnapshot) {
-        if (mDiags.hasErrors() || !mModernSemaPipeline) {
+        if (mDiags.hasErrors()) {
             mDiags.emit();
             return false;
         }
@@ -764,8 +849,7 @@ bool CompilationSession::lowerStage() {
                 .count();
         mStageDurations[static_cast<size_t>(StageIndex::Lower)] = lowerDt;
         if (mOpts.get().flags.verbose()) {
-            writeOutput("  [lower] %zu fns lowered  (%5.1fms)\n", mHirModule.getFnCount(),
-                        lowerDt);
+            writeOutput("  [lower] %zu fns lowered  (%5.1fms)\n", mHirModule.getFnCount(), lowerDt);
         }
         return !mDiags.hasErrors();
     }
@@ -806,7 +890,7 @@ bool CompilationSession::solveStage() {
         mDiags.emit();
         return false;
     }
-    comptime::Solver solver(mTypes, mAstBuilder, mProgram, mSyms, mDiags, mHirArena,
+    comptime::Solver solver(mTypes, &mAstBuilder, &mProgram, mSyms, mDiags, mHirArena,
                             mModernTypeTable.get());
     if (!solver.solve(mHirModule)) {
         mDiags.emit();
@@ -991,24 +1075,48 @@ bool CompilationSession::linkAndExec() {
     if (mOpts.get().flags.verbose())
         writeOutput("  [link] %s -> %s\n", mObjectPath.c_str(), exePath.c_str());
 
-    std::string linkCmd;
+    std::vector<std::string> link_args;
     if (isWasm) {
         bool isWasi = triple.find("wasi") != std::string::npos;
-        linkCmd     = "wasm-ld ";
+        link_args.emplace_back("wasm-ld");
         if (!isWasi)
-            linkCmd += "--no-entry --export-all ";
-        linkCmd += "-o " + exePath + " " + mObjectPath;
+            link_args.insert(link_args.end(), {"--no-entry", "--export-all"});
+        link_args.insert(link_args.end(), {"-o", exePath, mObjectPath});
     } else {
-        linkCmd = "/usr/bin/cc -o " + exePath + " " + mObjectPath;
+        link_args = {"/usr/bin/cc", "-o", exePath, mObjectPath};
     }
 
     if (!mOpts.get().sysroot.empty())
-        linkCmd += " --sysroot=" + mOpts.get().sysroot;
+        link_args.push_back("--sysroot=" + mOpts.get().sysroot);
+
+    if (!isWasm) {
+        for (const auto &directory : mProjectConfig.libraryDirs) {
+            const auto path =
+                (std::filesystem::path(mProjectRoot) / directory).lexically_normal().string();
+            link_args.push_back("-L" + path);
+        }
+        for (const auto &directory : mOpts.get().libraryDirs)
+            link_args.push_back("-L" + directory);
+
+        const auto addLibraries = [this, &link_args](const auto &libraries) {
+            for (const auto &library : libraries) {
+                if (!isValidLibraryName(library)) {
+                    writeOutput("%s[error]%s invalid library name '%s'\n", ansicolor("\033[31m"),
+                                ansicolor("\033[0m"), library.c_str());
+                    return false;
+                }
+                link_args.push_back("-l" + library);
+            }
+            return true;
+        };
+        if (!addLibraries(mProjectConfig.libraries) || !addLibraries(mOpts.get().libraries))
+            return false;
+    }
 
     if (mOpts.get().flags.verbose())
-        writeOutput("  [link] %s\n", linkCmd.c_str());
+        writeOutput("  [link] %s\n", displayCommand(link_args).c_str());
 
-    int linkResult = std::system(linkCmd.c_str());
+    const int linkResult = runProgram(link_args);
     if (linkResult != 0) {
         writeOutput("%s[error]%s linking failed (exit code %d)\n", ansicolor("\033[31m"),
                     ansicolor("\033[0m"), linkResult);
@@ -1026,7 +1134,7 @@ bool CompilationSession::linkAndExec() {
     }
 
     // Execute the binary and propagate its exit code
-    int execResult = std::system(exePath.c_str());
+    const int execResult = runProgram({exePath});
     if (execResult == -1) {
         writeOutput("%s[error]%s failed to launch executable\n", ansicolor("\033[31m"),
                     ansicolor("\033[0m"));
@@ -1060,14 +1168,21 @@ std::string CompilationSession::fmtStage() {
     if (!scanStage())
         return {};
 
-    {
-        parser::Parser parser(&mTokens, &mAstBuilder, &mDiags);
-        parser.program = std::move(mProgram);
-        parser.expandBodies(mScanResult, mSyms);
-        mProgram = std::move(parser.program);
+    if (!mSnapshot) {
+        writeOutput("%s[error]%s formatter requires a frontend snapshot for '%s'\n",
+                    ansicolor("\033[31m"), ansicolor("\033[0m"), mFilePath.c_str());
+        return {};
     }
 
-    formatter::FmtVisitor visitor(mAstBuilder, mProgram);
+    const auto root_key = SourceCatalog::canonicalPath(mFilePath);
+    const auto *root    = mSnapshot->findModule(root_key);
+    if (root == nullptr || root->frontend == nullptr) {
+        writeOutput("%s[error]%s formatter could not find root frontend module '%s'\n",
+                    ansicolor("\033[31m"), ansicolor("\033[0m"), mFilePath.c_str());
+        return {};
+    }
+
+    formatter::FmtVisitor visitor(*root->frontend);
     visitor.format();
     return visitor.result();
 }

@@ -23,6 +23,9 @@ struct Options {
     std::string outputFile;
     memory::DynArray<std::string> includeDirs;
     memory::DynArray<std::string> assetDirs;
+    memory::DynArray<std::string> libraryDirs;
+    memory::DynArray<std::string> libraries;
+    memory::DynArray<std::string> defines;
 
     enum class Mode : uint8_t { Custom, Debug, Develop, Release, Fast, Small };
 
@@ -225,7 +228,8 @@ struct Options {
 
     explicit Options(memory::Arena &allocator)
         : inputFiles(allocator), outputFile(), includeDirs(allocator), assetDirs(allocator),
-          targetTriple(), sysroot(), flags() {}
+          libraryDirs(allocator), libraries(allocator), defines(allocator), targetTriple(),
+          sysroot(), flags() {}
 
     memory::StringInterner *stringPool = nullptr;
 

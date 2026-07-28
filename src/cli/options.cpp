@@ -322,6 +322,24 @@ void Cli::parseArgs(int argc, char **argv) {
             continue;
         }
 
+        if (std::strcmp(argv[i], "-L") == 0) {
+            requireValue(i, "-L");
+            opts.libraryDirs.push(std::string(argv[++i]));
+            continue;
+        }
+
+        if (std::strcmp(argv[i], "-l") == 0) {
+            requireValue(i, "-l");
+            opts.libraries.push(std::string(argv[++i]));
+            continue;
+        }
+
+        if (std::strcmp(argv[i], "-D") == 0) {
+            requireValue(i, "-D");
+            opts.defines.push(std::string(argv[++i]));
+            continue;
+        }
+
         if (compare(argv[i], "-A", "--assets")) {
             requireValue(i, "--assets/-A");
             std::string_view arg = argv[++i];
@@ -631,6 +649,19 @@ void Cli::loadProject() {
                     if (auto v = paths->get("asset_dir"))
                         if (auto s = v->value<std::string>())
                             config.assetDir = *s;
+                }
+                if (auto *ffi = tbl["ffi"].as_table()) {
+                    const auto loadArray = [](const toml::table &table, const char *key,
+                                              memory::DynArray<std::string> &destination) {
+                        if (const auto *values = table[key].as_array())
+                            for (const auto &value : *values)
+                                if (const auto text = value.value<std::string>())
+                                    destination.push(*text);
+                    };
+                    loadArray(*ffi, "include_dirs", config.includeDirs);
+                    loadArray(*ffi, "library_dirs", config.libraryDirs);
+                    loadArray(*ffi, "libraries", config.libraries);
+                    loadArray(*ffi, "defines", config.defines);
                 }
                 if (auto *proj = tbl["project"].as_table()) {
                     if (auto v = proj->get("name"))

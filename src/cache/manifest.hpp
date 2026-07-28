@@ -22,7 +22,7 @@ struct ManifestEntry {
     uint32_t public_abi_lo = 0;
     uint32_t source_fp_hi  = 0;
     uint32_t source_fp_lo  = 0;
-    std::vector<std::string> dependencies;   // modules this one imports
+    std::vector<std::string> dependencies; // modules this one imports
 };
 
 class Manifest {
@@ -46,7 +46,9 @@ public:
     void save() const;
     void load();
 
-    [[nodiscard]] const std::string &root() const noexcept { return root_; }
+    [[nodiscard]] const std::string &root() const noexcept {
+        return root_;
+    }
 };
 
 } // namespace zith::cache

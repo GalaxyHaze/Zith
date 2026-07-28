@@ -68,8 +68,11 @@ void normalizeRoots(std::vector<std::string> &roots) {
 }
 
 [[nodiscard]] bool isHeaderFile(const fs::path &path) {
-    const auto extension = path.extension();
-    return extension == ".h" || extension == ".hpp";
+    return path.extension() == ".h";
+}
+
+[[nodiscard]] bool isCppHeaderFile(const fs::path &path) {
+    return path.extension() == ".hpp";
 }
 
 [[nodiscard]] bool isWithinRoots(const fs::path &path, const std::vector<std::string> &roots) {
@@ -195,20 +198,26 @@ std::string CacheKey::identity() const {
            << compilerVersion << '\n'
            << targetTriple << '\n'
            << parseFlags << '\n'
-           << visibilityFlags << '\n';
+           << visibilityFlags << '\n'
+           << sysroot << '\n';
     for (const auto &root : includeRoots)
         output << "I:" << root << '\n';
     for (const auto &root : stdlibRoots)
         output << "S:" << root << '\n';
+    for (const auto &define : cDefines)
+        output << "D:" << define << '\n';
     return output.str();
 }
 
 CacheKey FrontendConfig::cacheKey() const {
     CacheKey key{
-        compilerVersion, targetTriple, parseFlags, visibilityFlags, includeRoots, stdlibRoots,
+        compilerVersion, targetTriple, parseFlags,  visibilityFlags,
+        sysroot,         includeRoots, stdlibRoots, cDefines,
     };
     normalizeRoots(key.includeRoots);
     normalizeRoots(key.stdlibRoots);
+    std::sort(key.cDefines.begin(), key.cDefines.end());
+    key.cDefines.erase(std::unique(key.cDefines.begin(), key.cDefines.end()), key.cDefines.end());
     return key;
 }
 
@@ -274,17 +283,17 @@ bool ModuleArtifact::hasErrors() const noexcept {
                        });
 }
 
-CompilationSnapshot::CompilationSnapshot(std::shared_ptr<const SourceCatalog> catalog,
-                                         CacheKey cache_key, std::vector<ModuleArtifactPtr> modules,
-                                         std::vector<MergedSymbol> merged_symbols,
-                                         std::vector<ImportEdge> import_graph,
-                                         std::vector<ModuleResolution> resolutions,
-                                         std::vector<ModuleDiagnostic> diagnostics,
-                                         SnapshotMetrics metrics)
+CompilationSnapshot::CompilationSnapshot(
+    std::shared_ptr<const SourceCatalog> catalog, CacheKey cache_key,
+    std::vector<ModuleArtifactPtr> modules, std::vector<MergedSymbol> merged_symbols,
+    std::vector<ImportEdge> import_graph,
+    std::vector<std::shared_ptr<const cinterop::CHeaderArtifact>> c_headers,
+    std::vector<ModuleResolution> resolutions, std::vector<ModuleDiagnostic> diagnostics,
+    SnapshotMetrics metrics)
     : catalog_(std::move(catalog)), cache_key_(std::move(cache_key)), modules_(std::move(modules)),
       merged_symbols_(std::move(merged_symbols)), import_graph_(std::move(import_graph)),
-      resolutions_(std::move(resolutions)), diagnostics_(std::move(diagnostics)),
-      metrics_(metrics) {}
+      c_headers_(std::move(c_headers)), resolutions_(std::move(resolutions)),
+      diagnostics_(std::move(diagnostics)), metrics_(metrics) {}
 
 const ModuleArtifact *CompilationSnapshot::findModule(const std::string_view key) const noexcept {
     const auto found = std::lower_bound(
@@ -593,7 +602,7 @@ FrontendContext::resolveImport(const ModuleArtifact &artifact, const ImportReque
     }
 
     std::vector<fs::path> candidates;
-    const fs::path import_path(request.importKey());
+    const fs::path import_path(request.isHeader ? request.headerPath : request.importKey());
     candidates.push_back(fs::path(artifact.key).parent_path() / import_path);
     for (const auto &root : visible_roots)
         candidates.push_back(fs::path(root) / import_path);
@@ -623,15 +632,17 @@ FrontendContext::resolveImport(const ModuleArtifact &artifact, const ImportReque
         return {};
     if (isHeaderFile(resolved))
         return {{SourceCatalog::canonicalPath(resolved.generic_string())},
-                ImportTargetKind::Header,
+                ImportTargetKind::CHeader,
+                true};
+    if (isCppHeaderFile(resolved))
+        return {{SourceCatalog::canonicalPath(resolved.generic_string())},
+                ImportTargetKind::CppHeader,
                 true};
     if (fs::is_directory(resolved))
         return {collectDirectoryModules(resolved.generic_string(), request.depth),
                 ImportTargetKind::Directory, true};
     if (!isZithFile(resolved))
-        return {{SourceCatalog::canonicalPath(resolved.generic_string())},
-                ImportTargetKind::Header,
-                true};
+        return {};
     return {
         {SourceCatalog::canonicalPath(resolved.generic_string())}, ImportTargetKind::Zith, true};
 #endif
@@ -664,17 +675,19 @@ ModuleArtifactPtr FrontendContext::buildModule(SourceCatalog::SourcePtr source) 
     for (const auto &declaration : artifact->frontend->declarations()) {
         if (declaration.kind == frontend::DeclKind::Import) {
             ImportRequest request;
-            request.path      = declaration.import.path;
-            request.pathSpans = declaration.import.pathSpans;
-            request.rawPath   = declaration.import.rawPath;
-            request.alias     = declaration.import.alias;
-            request.isFrom    = declaration.import.isFrom;
-            request.isExport  = declaration.import.isExport;
-            request.isAsset   = declaration.import.isAsset;
-            request.depth     = declaration.import.depth;
-            request.span      = declaration.span;
-            request.pathSpan  = declaration.import.pathSpan;
-            request.aliasSpan = declaration.import.aliasSpan;
+            request.path       = declaration.import.path;
+            request.pathSpans  = declaration.import.pathSpans;
+            request.rawPath    = declaration.import.rawPath;
+            request.headerPath = declaration.import.headerPath;
+            request.alias      = declaration.import.alias;
+            request.isFrom     = declaration.import.isFrom;
+            request.isExport   = declaration.import.isExport;
+            request.isAsset    = declaration.import.isAsset;
+            request.isHeader   = declaration.import.isHeader;
+            request.depth      = declaration.import.depth;
+            request.span       = declaration.span;
+            request.pathSpan   = declaration.import.pathSpan;
+            request.aliasSpan  = declaration.import.aliasSpan;
             for (const auto &selector : declaration.import.selectors) {
                 request.selectors.push_back(
                     {selector.name, selector.alias, selector.span, selector.aliasSpan});
@@ -788,6 +801,31 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
         for (const auto &edge : import_graph) {
             if (edge.importer != module->key || !edge.error.empty())
                 continue;
+            if (edge.targetKind == ImportTargetKind::CHeader) {
+                if (edge.cHeader == nullptr)
+                    continue;
+                for (const auto &function : edge.cHeader->functions) {
+                    add_binding({function.name,
+                                 ResolutionKind::Foreign,
+                                 edge.request.pathSpan,
+                                 {},
+                                 {},
+                                 {},
+                                 {},
+                                 &function});
+                }
+                if (!edge.request.alias.empty()) {
+                    add_binding({edge.request.alias,
+                                 ResolutionKind::ModuleAlias,
+                                 edge.request.aliasSpan,
+                                 {},
+                                 {},
+                                 {},
+                                 {},
+                                 {}});
+                }
+                continue;
+            }
             const auto default_name =
                 edge.request.path.empty() ? std::string{} : edge.request.path.back();
             if (!edge.request.alias.empty()) {
@@ -973,6 +1011,7 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
     std::map<ModuleKey, SourceCatalog::SourcePtr> pending;
     std::map<ModuleKey, ModuleArtifactPtr> modules;
     std::map<ModuleKey, std::vector<ModuleKey>> resolved_dependencies;
+    std::map<std::string, std::shared_ptr<const cinterop::CHeaderArtifact>> c_headers_by_path;
     std::vector<ImportEdge> import_graph;
     std::vector<ModuleDiagnostic> diagnostics;
     pending.emplace(root_source->canonicalPath, std::move(root_source));
@@ -1019,14 +1058,54 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
                 edge.targets    = resolved.modules;
                 edge.targetKind = resolved.targetKind;
                 if (!resolved.found) {
-                    edge.error = "could not resolve import '" + request.importKey() + "'";
+                    const auto import_name =
+                        request.isHeader ? request.headerPath : request.importKey();
+                    edge.error = "could not resolve import '" + import_name + "'";
                     diagnostics.push_back(makeImportDiagnostic(*module, request, edge.error));
                     import_graph.push_back(std::move(edge));
                     continue;
                 }
+                if (resolved.targetKind == ImportTargetKind::CppHeader) {
+                    edge.error = "C++ headers are not supported in this version";
+                    diagnostics.push_back(makeImportDiagnostic(*module, request, edge.error));
+                    import_graph.push_back(std::move(edge));
+                    continue;
+                }
+                if (resolved.targetKind == ImportTargetKind::CHeader) {
+                    const auto &header_path = resolved.modules.front();
+                    auto header             = c_headers_by_path[header_path];
+                    if (!header) {
+                        cinterop::ParseOptions options;
+                        options.targetTriple = config_.targetTriple;
+                        options.sysroot      = config_.sysroot;
+                        options.includeDirs  = config_.includeRoots;
+                        options.defines      = config_.cDefines;
+                        header               = cinterop::parseHeader(header_path, options);
+                        c_headers_by_path[header_path] = header;
+                    }
+                    edge.cHeader = header;
+                    for (const auto &dependency : header->dependencies) {
+                        auto source = catalog_->loadFile(dependency);
+                        if (!source)
+                            continue;
+                        cache_.noteSource(source.value());
+                        dependencies.push_back(source.value()->canonicalPath);
+                    }
+                    for (const auto &diagnostic : header->diagnostics) {
+                        const auto location = diagnostic.line == 0U
+                                                  ? ""
+                                                  : " (" + header_path + ":" +
+                                                        std::to_string(diagnostic.line) + ":" +
+                                                        std::to_string(diagnostic.column) + ")";
+                        diagnostics.push_back(makeImportDiagnostic(
+                            *module, request,
+                            "C header import failed: " + diagnostic.message + location));
+                    }
+                    import_graph.push_back(std::move(edge));
+                    continue;
+                }
                 import_graph.push_back(std::move(edge));
-                if (resolved.targetKind == ImportTargetKind::Asset ||
-                    resolved.targetKind == ImportTargetKind::Header)
+                if (resolved.targetKind == ImportTargetKind::Asset)
                     continue;
                 for (const auto &path : resolved.modules) {
                     auto source = sourceForPath(path);
@@ -1084,9 +1163,16 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
     auto resolutions = buildResolutions(ordered_modules, import_graph, diagnostics);
     sortDiagnostics(diagnostics, *catalog_);
     auto merged_symbols = mergeSymbols(ordered_modules);
+    std::vector<std::shared_ptr<const cinterop::CHeaderArtifact>> c_headers;
+    c_headers.reserve(c_headers_by_path.size());
+    for (const auto &[path, header] : c_headers_by_path) {
+        (void)path;
+        c_headers.push_back(header);
+    }
     return std::make_shared<const CompilationSnapshot>(
         catalog_, cache_key_, std::move(ordered_modules), std::move(merged_symbols),
-        std::move(import_graph), std::move(resolutions), std::move(diagnostics), snapshot_metrics);
+        std::move(import_graph), std::move(c_headers), std::move(resolutions),
+        std::move(diagnostics), snapshot_metrics);
 }
 
 memory::Result<bool> FrontendContext::initializeStdlib() {

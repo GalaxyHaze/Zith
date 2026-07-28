@@ -154,36 +154,36 @@ uint32_t Writer::write(const cache::Artifact &artifact, ByteWriter &out) {
     writeCode(artifact, code);
 
     const uint32_t section_count = 4;
-    const uint32_t path_len = static_cast<uint32_t>(artifact.canonical_path.size());
+    const uint32_t path_len      = static_cast<uint32_t>(artifact.canonical_path.size());
 
     FileHeader hdr;
-    hdr.magic             = kMagic;
-    hdr.format_version    = kFormatVersion;
-    hdr.endianness        = kEndianLittle;
-    hdr.section_count     = static_cast<uint8_t>(section_count);
+    hdr.magic          = kMagic;
+    hdr.format_version = kFormatVersion;
+    hdr.endianness     = kEndianLittle;
+    hdr.section_count  = static_cast<uint8_t>(section_count);
     // header = FileHeader fields + canonical path + section table
-    hdr.header_size       = static_cast<uint32_t>(sizeof(FileHeader) + path_len +
-                                            section_count * sizeof(SectionEntry));
-    hdr.cache_key_hash    = artifact.cache_key_hash;
-    hdr.module_id_hi      = artifact.module_id_hi;
-    hdr.module_id_lo      = artifact.module_id_lo;
-    hdr.source_fp_hi      = artifact.source_fp_hi;
-    hdr.source_fp_lo      = artifact.source_fp_lo;
-    hdr.public_abi_hi     = artifact.public_abi_hi;
-    hdr.public_abi_lo     = artifact.public_abi_lo;
-    hdr.dep_count         = static_cast<uint32_t>(artifact.deps.size());
-    hdr.decl_count        = static_cast<uint32_t>(artifact.decls.size());
-    hdr.template_count    = static_cast<uint32_t>(artifact.templates.size());
-    hdr.fn_count          = static_cast<uint32_t>(artifact.functions.size());
+    hdr.header_size =
+        static_cast<uint32_t>(sizeof(FileHeader) + path_len + section_count * sizeof(SectionEntry));
+    hdr.cache_key_hash     = artifact.cache_key_hash;
+    hdr.module_id_hi       = artifact.module_id_hi;
+    hdr.module_id_lo       = artifact.module_id_lo;
+    hdr.source_fp_hi       = artifact.source_fp_hi;
+    hdr.source_fp_lo       = artifact.source_fp_lo;
+    hdr.public_abi_hi      = artifact.public_abi_hi;
+    hdr.public_abi_lo      = artifact.public_abi_lo;
+    hdr.dep_count          = static_cast<uint32_t>(artifact.deps.size());
+    hdr.decl_count         = static_cast<uint32_t>(artifact.decls.size());
+    hdr.template_count     = static_cast<uint32_t>(artifact.templates.size());
+    hdr.fn_count           = static_cast<uint32_t>(artifact.functions.size());
     hdr.canonical_path_len = path_len;
 
     // Checksum over all section payloads (meta, decls, templates, code) plus
     // the dependency records, which live in the header region.
     uint32_t checksum = 0;
-    checksum = fnv1a32(meta.ptr(), meta.size());
-    checksum = fnv1a32(decls.ptr(), decls.size()) ^ checksum;
-    checksum = fnv1a32(templates.ptr(), templates.size()) ^ checksum;
-    checksum = fnv1a32(code.ptr(), code.size()) ^ checksum;
+    checksum          = fnv1a32(meta.ptr(), meta.size());
+    checksum          = fnv1a32(decls.ptr(), decls.size()) ^ checksum;
+    checksum          = fnv1a32(templates.ptr(), templates.size()) ^ checksum;
+    checksum          = fnv1a32(code.ptr(), code.size()) ^ checksum;
     // Fold dependencies into the checksum so a changed dependency list is caught.
     for (const auto &dep : artifact.deps) {
         checksum ^= fnv1a32(dep.canonical_path);

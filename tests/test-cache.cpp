@@ -24,7 +24,7 @@ namespace fs = std::filesystem;
 
 // ── Helper: build a minimal artifact ──────────────────────────────
 Artifact makeMinimalArtifact(std::string_view path, std::string_view name,
-                              uint32_t cache_key_hash = 0x12345678u) {
+                             uint32_t cache_key_hash = 0x12345678u) {
     Artifact art;
     art.canonical_path = std::string(path);
     art.module_name    = std::string(name);
@@ -35,8 +35,8 @@ Artifact makeMinimalArtifact(std::string_view path, std::string_view name,
     art.public_abi_lo  = 0x22334455u;
     art.module_id_hi   = art.public_abi_hi ^ 0x55AAu;
     art.module_id_lo   = art.public_abi_lo ^ 0x66BBu;
-    art.strings = {"main", "println", "i32"};
-    art.paths   = {std::string(path)};
+    art.strings        = {"main", "println", "i32"};
+    art.paths          = {std::string(path)};
     // One primitive type (i32) and one struct type.
     CompactType int_type;
     int_type.kind      = CompactTypeKind::Int;
@@ -63,8 +63,8 @@ Artifact makeMinimalArtifact(std::string_view path, std::string_view name,
     fn.return_type_id = 0;
     CompactBasicBlock blk;
     CompactExpr ret;
-    ret.kind     = CompactExprKind::Ret;
-    ret.ref_a    = ~uint32_t{0};
+    ret.kind       = CompactExprKind::Ret;
+    ret.ref_a      = ~uint32_t{0};
     blk.terminator = 0;
     fn.blocks.push_back(blk);
     fn.exprs.push_back(ret);
@@ -79,8 +79,8 @@ static void test_binary_round_trip() {
     ByteWriter writer;
     Writer::write(original, writer);
 
-    auto decoded = Reader::read(
-        std::string_view(reinterpret_cast<const char *>(writer.ptr()), writer.size()));
+    auto decoded =
+        Reader::read(std::string_view(reinterpret_cast<const char *>(writer.ptr()), writer.size()));
     CHECK(decoded.has_value(), "artifact round-trips through binary format");
     if (!decoded)
         return;
@@ -112,8 +112,8 @@ static void test_corrupted_artifact_rejected() {
     Writer::write(art, writer);
 
     // Truncate the buffer.
-    auto truncated = std::string_view(reinterpret_cast<const char *>(writer.ptr()),
-                                      writer.size() / 2);
+    auto truncated =
+        std::string_view(reinterpret_cast<const char *>(writer.ptr()), writer.size() / 2);
     auto decoded = Reader::read(truncated);
     CHECK(!decoded.has_value(), "truncated artifact is rejected");
 
@@ -149,7 +149,7 @@ static void test_store_hit_miss() {
     // Different fingerprint -> miss/invalid.
     session::ContentFingerprint wrong_fp;
     wrong_fp.primary = 0xDEADBEEFu;
-    auto missed = store.load("/test/store.zith", wrong_fp);
+    auto missed      = store.load("/test/store.zith", wrong_fp);
     CHECK(!missed.has_value(), "different fingerprint causes invalidation");
 
     // Nonexistent path -> miss.
@@ -187,7 +187,8 @@ static void test_store_invalidation() {
     session::ContentFingerprint dep_fp;
     dep_fp.primary = (static_cast<uint64_t>(dep.source_fp_hi) << 32u) | dep.source_fp_lo;
     session::ContentFingerprint main_fp;
-    main_fp.primary = (static_cast<uint64_t>(dependent.source_fp_hi) << 32u) | dependent.source_fp_lo;
+    main_fp.primary =
+        (static_cast<uint64_t>(dependent.source_fp_hi) << 32u) | dependent.source_fp_lo;
 
     auto dep_loaded = store.load("/test/dep.zith", dep_fp);
     CHECK(dep_loaded.has_value(), "dependency loads before invalidation");
@@ -231,7 +232,7 @@ static void test_artifact_builder() {
     // Declare a public function.
     syms.declare("main", symbols::SymbolVisibility::Public, 0, symbols::SymKind::Fn);
     // Add a concrete HIR function.
-    auto &fn = hir.addFn(interner.intern("main"));
+    auto &fn       = hir.addFn(interner.intern("main"));
     fn.return_type = types::kVoidType;
     (void)fn.blocks;
 

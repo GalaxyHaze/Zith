@@ -1,10 +1,10 @@
-#include "legacy-zith/ast/ast-builder.hpp"
 #include "cli/options.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
 #include "diagnostics/error-codes.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
+#include "legacy-zith/sema/sema-pipeline.hpp"
 #include "memory/arena.hpp"
 #include "memory/string-interner.hpp"
-#include "legacy-zith/sema/sema-pipeline.hpp"
 #include "session/compilation-session.hpp"
 #include "session/frontend-context.hpp"
 #include "session/pipeline-plan.hpp"
@@ -566,6 +566,182 @@ static void test_modern_import_call() {
     CHECK(r.ok, "Modern sema resolves an imported function call");
 }
 
+static void test_modern_void_fn() {
+    ModernSemaTest t;
+    auto r = t.run("fn log(msg: *char) { }\n"
+                   "fn main() {\n"
+                   "    log(\"ok\");\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema accepts a void function from snapshot without a return type");
+}
+
+static void test_modern_binary_arithmetic() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(): i32 {\n"
+                   "    var x: i32 = 1 + 2 * 3;\n"
+                   "    x\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema accepts binary arithmetic expression body");
+}
+
+static void test_modern_unary_not_on_bool() {
+    ModernSemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    var flag: bool = true;\n"
+                   "    if (not flag) { }\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema accepts not on a boolean");
+}
+
+static void test_modern_unary_invalid_type() {
+    ModernSemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    var b: bool = true;\n"
+                   "    var x: i32 = -b;\n"
+                   "}\n");
+    CHECK(!r.ok, "Modern sema rejects unary minus on a boolean variable");
+}
+
+static void test_modern_assign_retype() {
+    ModernSemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    var x: i32 = 0;\n"
+                   "    x = true;\n"
+                   "}\n");
+    CHECK(!r.ok, "Modern sema rejects assignment with incompatible type");
+}
+
+static void test_modern_two_modules_at_once() {
+    ModernSemaTest t;
+    t.write("dep.zith", "pub fn dep_fn(): i32 { 42 }\n");
+    t.write("sub/dep2.zith", "pub fn dep2_fn(): i32 { 7 }\n");
+    auto r = t.run("from dep\n"
+                   "from sub/dep2\n"
+                   "fn main(): i32 {\n"
+                   "    dep_fn() + dep2_fn()\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema resolves imports from two distinct sub-modules");
+}
+
+static void test_modern_let_binding_without_annotation() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(): i32 {\n"
+                   "    let x = 42;\n"
+                   "    x\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema handles let binding without type annotation");
+}
+
+static void test_modern_pointer_type_param() {
+    ModernSemaTest t;
+    auto r = t.run("extern fn puts(msg: *char)\n"
+                   "fn main() {\n"
+                   "    puts(\"hello\");\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema type-checks a pointer-type call through extern");
+}
+
+static void test_modern_type_alias_use() {
+    ModernSemaTest t;
+    auto r = t.run("type MyInt = i32\n"
+                   "fn main(): MyInt {\n"
+                   "    var x: MyInt = 42;\n"
+                   "    x\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema resolves a type alias in variable annotation and return type");
+}
+
+static void test_modern_unary_minus_on_literal() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(): i32 {\n"
+                   "    -42\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema accepts unary minus on an integer literal");
+}
+
+static void test_modern_break_in_while() {
+    ModernSemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    var i: i32 = 0;\n"
+                   "    while (true) {\n"
+                   "        if (i > 5) { break; }\n"
+                   "        i = i + 1;\n"
+                   "    }\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema accepts break statement inside a while loop");
+}
+
+static void test_modern_continue_in_while() {
+    ModernSemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    var i: i32 = 0;\n"
+                   "    while (i < 10) {\n"
+                   "        i = i + 1;\n"
+                   "        continue;\n"
+                   "    }\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema accepts continue statement inside a while loop");
+}
+
+static void test_modern_empty_block_is_void() {
+    ModernSemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    { }\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema accepts empty block in void context");
+}
+
+static void test_modern_if_else_unified_type() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(): i32 {\n"
+                   "    var flag: bool = true;\n"
+                   "    if (flag) {\n"
+                   "        1\n"
+                   "    } else {\n"
+                   "        2\n"
+                   "    }\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema accepts if/else with same-type branches as function body");
+}
+
+static void test_modern_nested_block_type() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(): i32 {\n"
+                   "    {\n"
+                   "        var x: i32 = 99;\n"
+                   "        x\n"
+                   "    }\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema infers the block type from the last expression");
+}
+
+static void test_modern_multi_param_call() {
+    ModernSemaTest t;
+    auto r = t.run("fn sum(a: i32, b: i32, c: i32): i32 { a + b + c }\n"
+                   "fn main(): i32 {\n"
+                   "    sum(1, 2, 3)\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema type-checks a three-argument call correctly");
+}
+
+static void test_modern_reassign_same_type() {
+    ModernSemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    var x: i32 = 0;\n"
+                   "    x = 42;\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema accepts assignment with matching types");
+}
+
+static void test_modern_extern_call_return() {
+    ModernSemaTest t;
+    auto r = t.run("extern fn strlen(msg: *char): i32\n"
+                   "fn main(): i32 {\n"
+                   "    strlen(\"hello\")\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema resolves an extern fn call returning a concrete type");
+}
+
 static void test_sema() {
     test_basic_unification();
     test_type_mismatch();
@@ -609,6 +785,24 @@ static void test_sema() {
     test_modern_while_condition();
     test_modern_struct_decl();
     test_modern_import_call();
+    test_modern_void_fn();
+    test_modern_binary_arithmetic();
+    test_modern_unary_not_on_bool();
+    test_modern_unary_invalid_type();
+    test_modern_assign_retype();
+    test_modern_two_modules_at_once();
+    test_modern_let_binding_without_annotation();
+    test_modern_pointer_type_param();
+    test_modern_type_alias_use();
+    test_modern_unary_minus_on_literal();
+    test_modern_break_in_while();
+    test_modern_continue_in_while();
+    test_modern_empty_block_is_void();
+    test_modern_if_else_unified_type();
+    test_modern_nested_block_type();
+    test_modern_multi_param_call();
+    test_modern_reassign_same_type();
+    test_modern_extern_call_return();
 }
 
 TEST_MAIN(sema)

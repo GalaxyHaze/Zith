@@ -6,9 +6,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(ZITH_BUILD_CLI "Build the zithc CLI executable" ON)
 option(ZITH_BUILD_CAPI "Build the C ABI library" ON)
+option(ZITH_BUILD_BENCHMARKS "Build local benchmark executables" OFF)
 option(ZITH_IS_WASM "Build for WebAssembly target" OFF)
 option(ZITH_HAS_LLVM "Enable LLVM codegen backend" ON)
 option(ZITH_BUILD_LEGACY_LIB "Build the legacy parser/sema compatibility library" ON)
+if(ZITH_IS_WASM OR CMAKE_CROSSCOMPILING)
+    set(_zith_c_interop_default OFF)
+else()
+    set(_zith_c_interop_default ON)
+endif()
+option(ZITH_ENABLE_C_INTEROP "Enable automatic C header bindings through libclang"
+       ${_zith_c_interop_default})
 
 if(ZITH_HAS_LLVM AND NOT ZITH_IS_WASM)
     find_package(ZLIB QUIET)
@@ -33,6 +41,25 @@ if(ZITH_HAS_LLVM AND NOT ZITH_IS_WASM)
     elseif(LLVM_PACKAGE_VERSION VERSION_LESS 18)
         message(WARNING "LLVM ${LLVM_PACKAGE_VERSION} found, but LLVM 18+ is required — disabling codegen backend")
         set(ZITH_HAS_LLVM OFF)
+    endif()
+endif()
+
+set(ZITH_C_INTEROP_AVAILABLE OFF)
+if(ZITH_ENABLE_C_INTEROP AND NOT ZITH_IS_WASM AND NOT CMAKE_CROSSCOMPILING)
+    find_path(ZITH_LIBCLANG_INCLUDE_DIR clang-c/Index.h
+        HINTS ${LLVM_INCLUDE_DIRS}
+        PATH_SUFFIXES include
+    )
+    find_library(ZITH_LIBCLANG_LIBRARY NAMES clang libclang
+        HINTS ${LLVM_LIBRARY_DIRS} /usr/lib/llvm-21/lib /usr/lib
+    )
+    if(ZITH_LIBCLANG_INCLUDE_DIR AND ZITH_LIBCLANG_LIBRARY)
+        set(ZITH_C_INTEROP_AVAILABLE ON)
+    else()
+        message(WARNING
+            "libclang was not found; automatic C header imports are disabled. "
+            "Manual 'extern fn' declarations remain available."
+        )
     endif()
 endif()
 
@@ -137,30 +164,35 @@ if(NOT ZITH_IS_WASM)
 endif()
 
 if(ZITH_HAS_LLVM AND NOT ZITH_IS_WASM)
-    llvm_map_components_to_libnames(
-        LLVM_LIBS
-        core
-        support
-        irreader
-        passes
-        target
-        X86CodeGen
-        X86AsmParser
-        X86Desc
-        X86Info
-        MC
-        MCDisassembler
-        MCParser
-        AsmPrinter
-        SelectionDAG
-        GlobalISel
-        WebAssemblyCodeGen
-        WebAssemblyAsmParser
-        WebAssemblyDesc
-        WebAssemblyInfo
-    )
-
-    target_link_libraries(zithcLib PUBLIC ${LLVM_LIBS})
+    if(ZITH_C_INTEROP_AVAILABLE AND TARGET LLVM)
+        # libclang depends on libLLVM.so.  Linking LLVM components statically here
+        # would load a second LLVM runtime and corrupt process teardown.
+        target_link_libraries(zithcLib PUBLIC LLVM)
+    else()
+        llvm_map_components_to_libnames(
+            LLVM_LIBS
+            core
+            support
+            irreader
+            passes
+            target
+            X86CodeGen
+            X86AsmParser
+            X86Desc
+            X86Info
+            MC
+            MCDisassembler
+            MCParser
+            AsmPrinter
+            SelectionDAG
+            GlobalISel
+            WebAssemblyCodeGen
+            WebAssemblyAsmParser
+            WebAssemblyDesc
+            WebAssemblyInfo
+        )
+        target_link_libraries(zithcLib PUBLIC ${LLVM_LIBS})
+    endif()
     target_include_directories(zithcLib SYSTEM PUBLIC ${LLVM_INCLUDE_DIRS})
     target_compile_definitions(zithcLib PUBLIC ZITH_HAS_LLVM=1)
     if(TARGET legacy-zith)
@@ -170,12 +202,27 @@ if(ZITH_HAS_LLVM AND NOT ZITH_IS_WASM)
 endif()
 target_compile_definitions(zithcLib PUBLIC ZITH_VERSION="${ZITH_VERSION}")
 
+if(ZITH_C_INTEROP_AVAILABLE)
+    target_include_directories(zithcLib SYSTEM PRIVATE ${ZITH_LIBCLANG_INCLUDE_DIR})
+    target_link_libraries(zithcLib PRIVATE ${ZITH_LIBCLANG_LIBRARY})
+    target_compile_definitions(zithcLib PUBLIC ZITH_ENABLE_C_INTEROP=1)
+    message(STATUS "C header interop enabled with ${ZITH_LIBCLANG_LIBRARY}")
+endif()
+
 if(ZITH_BUILD_CLI AND NOT ZITH_IS_WASM)
     add_executable(zithc src/cli/zithc-main.cpp)
     target_link_libraries(zithc PRIVATE zithcLib)
     if(TARGET legacy-zith)
         target_link_libraries(zithc PRIVATE legacy-zith zithcLib)
     endif()
+endif()
+
+if(ZITH_BUILD_BENCHMARKS AND NOT ZITH_IS_WASM)
+    if(NOT TARGET legacy-zith)
+        message(FATAL_ERROR "ZITH_BUILD_BENCHMARKS requires ZITH_BUILD_LEGACY_LIB=ON")
+    endif()
+    add_executable(bench-lexer bench/bench-lexer.cpp bench/lexer-benchmark.cpp)
+    target_link_libraries(bench-lexer PRIVATE legacy-zith zithcLib)
 endif()
 
 include(CTest)
@@ -206,8 +253,22 @@ if(BUILD_TESTING AND NOT ZITH_IS_WASM)
     add_zith_test(test-cache tests/test-cache.cpp)
     add_zith_test(test-modern-types tests/test-modern-types.cpp)
     add_zith_test(test-frontend-modern-pipeline tests/test-frontend-modern-pipeline.cpp)
+    add_zith_test(test-hir-lower-modern tests/test-hir-lower-modern.cpp)
+    add_executable(test-lexer-benchmark tests/test-lexer-benchmark.cpp bench/lexer-benchmark.cpp)
+    target_include_directories(test-lexer-benchmark PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test-lexer-benchmark PRIVATE legacy-zith zithcLib)
+    add_test(NAME test-lexer-benchmark COMMAND test-lexer-benchmark)
     if(ZITH_HAS_LLVM)
         add_zith_test(test-codegen tests/test-codegen.cpp)
+    endif()
+
+    if(TARGET bench-lexer)
+        add_test(NAME bench-lexer-text-smoke COMMAND bench-lexer --warmup 0 --samples 1)
+        set_tests_properties(bench-lexer-text-smoke PROPERTIES PASS_REGULAR_EXPRESSION "MiB/s")
+        add_test(NAME bench-lexer-json-smoke
+            COMMAND bench-lexer --format json --warmup 0 --samples 1)
+        set_tests_properties(bench-lexer-json-smoke PROPERTIES
+            PASS_REGULAR_EXPRESSION "\"scenario\":\"mixed-valid\".*\"host\":")
     endif()
 endif()
 
@@ -276,6 +337,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             test-parser-expr
             test-modern-types
             test-frontend-modern-pipeline
+            test-lexer-benchmark
         )
             if(TARGET ${TARGET})
                 target_compile_options(${TARGET} PRIVATE ${ZITH_CLANG_WARNINGS})

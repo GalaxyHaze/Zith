@@ -1,9 +1,9 @@
 #pragma once
 
-#include "legacy-zith/ast/ast-builder.hpp"
-#include "legacy-zith/ast/type-expr.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
 #include "diagnostics/error-codes.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
+#include "legacy-zith/ast/type-expr.hpp"
 #include "memory/flat-map.hpp"
 #include "symbols/symbol-table.hpp"
 #include "types/type-intern.hpp"

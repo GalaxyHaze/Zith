@@ -95,7 +95,7 @@ void Manifest::save() const {
     std::error_code ec;
     fs::create_directories(root_, ec);
     const auto path = fs::path(root_) / "manifest";
-    std::FILE *fp = std::fopen(path.c_str(), "wb");
+    std::FILE *fp   = std::fopen(path.c_str(), "wb");
     if (!fp)
         return;
     for (const auto &[key, entry] : by_path_) {
@@ -125,7 +125,7 @@ void Manifest::load() {
         if (raw.empty())
             continue;
         // Split on \x1e into [header, deps].
-        auto sep = raw.find('\x1e');
+        auto sep                = raw.find('\x1e');
         std::string_view header = (sep == std::string_view::npos) ? raw : raw.substr(0, sep);
         std::string_view deps   = (sep == std::string_view::npos) ? "" : raw.substr(sep + 1);
         // Parse header fields separated by \x1f.
@@ -140,12 +140,14 @@ void Manifest::load() {
         if (fields.size() < 6)
             continue;
         ManifestEntry entry;
-        entry.canonical_path  = unescapeField(fields[0]);
-        entry.artifact_path   = unescapeField(fields[1]);
-        entry.public_abi_hi   = static_cast<uint32_t>(std::stoul(std::string(fields[2]), nullptr, 16));
-        entry.public_abi_lo   = static_cast<uint32_t>(std::stoul(std::string(fields[3]), nullptr, 16));
-        entry.source_fp_hi    = static_cast<uint32_t>(std::stoul(std::string(fields[4]), nullptr, 16));
-        entry.source_fp_lo    = static_cast<uint32_t>(std::stoul(std::string(fields[5]), nullptr, 16));
+        entry.canonical_path = unescapeField(fields[0]);
+        entry.artifact_path  = unescapeField(fields[1]);
+        entry.public_abi_hi =
+            static_cast<uint32_t>(std::stoul(std::string(fields[2]), nullptr, 16));
+        entry.public_abi_lo =
+            static_cast<uint32_t>(std::stoul(std::string(fields[3]), nullptr, 16));
+        entry.source_fp_hi = static_cast<uint32_t>(std::stoul(std::string(fields[4]), nullptr, 16));
+        entry.source_fp_lo = static_cast<uint32_t>(std::stoul(std::string(fields[5]), nullptr, 16));
         // Parse deps separated by \x1d.
         if (!deps.empty()) {
             size_t dstart = 0;

@@ -55,11 +55,15 @@ link here for status information so it does not need to be maintained in multipl
 | `if` / `when` (pattern matching) / `for` | Full control flow |
 | `->` chain operator | Left-to-right pipelines |
 | `import`, `from`, `export`, `alias`, `type` | Module system |
-| `extern fn` / `import "header.h"` | C interop |
+| `extern fn` | Manual C interop on every target |
 | `pub` / `mod` / `mod(..)` / `mod(N)` | Visibility modifiers |
 | `marker` / `dock` / `jump` | Structured goto inside `flow fn` |
 
 ### Partial / Warnings
+
+| Feature | Status | Notes |
+|---|---|---|
+| C header imports (`import "header.h"`) | **Partial** | Native libclang only; C++ headers, macros, callbacks, variadics, and complex layouts are unsupported |
 
 | Feature | Status | Notes |
 |---|---|---|

@@ -155,6 +155,12 @@ public:
         offset_  = 0;
     }
 
+    void reset() noexcept {
+        destroyUntil_(nullptr);
+        current_ = head_;
+        offset_  = 0;
+    }
+
     friend class MarkPoint;
 
 private:

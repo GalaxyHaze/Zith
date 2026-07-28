@@ -139,6 +139,126 @@ static void test_structured_imports() {
     CHECK_EQ(unlimited.depth, -1, "unlimited directory depth is retained");
 }
 
+static void test_c_header_import_syntax() {
+    auto valid = frontend::parse("import \"fixture.h\";\n"
+                                 "import \"fixture.h\" as c;\n");
+    CHECK(valid.diagnostics().empty(), "C header import syntax parses without diagnostics");
+    CHECK_EQ(valid.declarations().size(), 2u, "both C header imports are retained");
+    CHECK(valid.declarations()[0].import.isHeader, "quoted .h import is classified as a C header");
+    CHECK_EQ(valid.declarations()[0].import.headerPath, std::string("fixture.h"),
+             "C header path is stored without quotes");
+    CHECK_EQ(valid.declarations()[1].import.alias, std::string("c"),
+             "C header import retains its optional alias");
+
+    for (const std::string_view source : {
+             "import \"fixture.hpp\";\n",
+             "from \"fixture.h\";\n",
+             "export \"fixture.h\";\n",
+             "import \"fixture.h\" { c_add };\n",
+             "import \"fixture.h\"(2);\n",
+         }) {
+        const auto invalid = frontend::parse(std::string(source));
+        CHECK(!invalid.diagnostics().empty(), "unsupported C header import form is rejected");
+    }
+}
+
+static void test_variable_declarations() {
+    auto snapshot = frontend::parse("var x: i32 = 42;\n"
+                                    "let y = 100;\n"
+                                    "const z: f64 = 3.14;\n"
+                                    "global g: i32 = 1;\n");
+
+    CHECK(snapshot.diagnostics().empty(), "variable declarations lower without diagnostics");
+    CHECK_EQ(snapshot.declarations().size(), 4u, "four variable declarations are lowered");
+    CHECK_EQ(snapshot.declarations()[0].kind, frontend::DeclKind::Variable,
+             "var keyword produces a variable declaration");
+    CHECK_EQ(snapshot.declarations()[1].kind, frontend::DeclKind::Variable,
+             "let keyword produces a variable declaration");
+    CHECK_EQ(snapshot.declarations()[2].kind, frontend::DeclKind::Variable,
+             "const keyword produces a variable declaration");
+    CHECK_EQ(snapshot.declarations()[3].kind, frontend::DeclKind::Variable,
+             "global keyword produces a variable declaration");
+    CHECK_EQ(snapshot.declarations()[0].name, std::string("x"), "var name is preserved");
+    CHECK_EQ(snapshot.declarations()[1].name, std::string("y"), "let name is preserved");
+    CHECK_EQ(snapshot.declarations()[2].name, std::string("z"), "const name is preserved");
+    CHECK_EQ(snapshot.declarations()[3].name, std::string("g"), "global name is preserved");
+}
+
+static void test_type_alias_and_struct_enum_union() {
+    auto snapshot = frontend::parse("type Age = i32;\n"
+                                    "struct Point { x: i32, y: i32 }\n"
+                                    "enum Color { Red, Green, Blue }\n"
+                                    "union Value { Int: i32, Float: f64 }\n");
+
+    CHECK(snapshot.diagnostics().empty(), "type declarations lower without diagnostics");
+    CHECK_EQ(snapshot.declarations().size(), 4u, "four declarations are lowered");
+    CHECK_EQ(snapshot.declarations()[0].kind, frontend::DeclKind::TypeAlias,
+             "type is lowered as a type alias");
+    CHECK_EQ(snapshot.declarations()[0].name, std::string("Age"), "type alias name is preserved");
+    CHECK_EQ(snapshot.declarations()[1].kind, frontend::DeclKind::Struct,
+             "struct is lowered as a struct declaration");
+    CHECK_EQ(snapshot.declarations()[1].name, std::string("Point"), "struct name is preserved");
+    CHECK_EQ(snapshot.declarations()[2].kind, frontend::DeclKind::Enum,
+             "enum is lowered as an enum declaration");
+    CHECK_EQ(snapshot.declarations()[2].name, std::string("Color"), "enum name is preserved");
+    CHECK_EQ(snapshot.declarations()[3].kind, frontend::DeclKind::Union,
+             "union is lowered as a union declaration");
+    CHECK_EQ(snapshot.declarations()[3].name, std::string("Value"), "union name is preserved");
+}
+
+static void test_unary_and_nested_expressions() {
+    auto snapshot = frontend::parse("fn calc(x: i32): i32 {\n"
+                                    "    return -x;\n"
+                                    "}\n");
+
+    CHECK(snapshot.diagnostics().empty(), "unary expression lowers without diagnostics");
+    bool found_unary = false;
+    for (const auto &expression : snapshot.expressions()) {
+        if (expression.kind == frontend::ExprKind::Unary && expression.text == "-")
+            found_unary = true;
+    }
+    CHECK(found_unary, "unary negation is lowered to an expression node");
+}
+
+static void test_multiple_top_level_decls_with_visibility() {
+    auto snapshot = frontend::parse("pub fn main() {}\n"
+                                    "mod fn helper(): i32 { 42 }\n"
+                                    "fn internal() {}\n");
+
+    CHECK(snapshot.diagnostics().empty(), "multiple visibility-hinted decls lower without errors");
+    CHECK_EQ(snapshot.declarations().size(), 3u, "three top-level function declarations");
+    CHECK_EQ(snapshot.declarations()[0].visibility, frontend::Visibility::Public,
+             "pub fn has public visibility");
+    CHECK_EQ(snapshot.declarations()[1].visibility, frontend::Visibility::Module,
+             "mod fn has module visibility");
+    CHECK_EQ(snapshot.declarations()[2].visibility, frontend::Visibility::Private,
+             "unqualified fn has private visibility");
+}
+
+static void test_import_form_with_depth_and_export() {
+    auto snapshot = frontend::parse("import core/math(2) as math\n"
+                                    "export io/fs\n");
+
+    CHECK(snapshot.diagnostics().empty(), "import with depth and export lower without errors");
+    CHECK_EQ(snapshot.declarations().size(), 2u, "two import declarations");
+    CHECK_EQ(snapshot.declarations()[0].import.depth, 2, "depth is retained for import");
+    CHECK(snapshot.declarations()[1].import.isExport, "export import flag is retained");
+}
+
+static void test_error_diagnostic_span_preserved() {
+    auto snapshot = frontend::parse("fn broken(}\n"
+                                    "pub fn ok(): i32 { 0 }\n");
+
+    CHECK(!snapshot.diagnostics().empty(), "bad syntax still produces a diagnostic");
+    CHECK(snapshot.declarations().size() >= 1u, "error recovery produces at least one declaration");
+    bool found_ok = false;
+    for (const auto &d : snapshot.declarations()) {
+        if (d.name == "ok" && d.kind == frontend::DeclKind::Function)
+            found_ok = true;
+    }
+    CHECK(found_ok, "valid declaration after delimiter error is preserved");
+}
+
 static void test_frontend() {
     test_lossless_trivia_and_spans();
     test_keywords_and_module_ast();
@@ -146,6 +266,13 @@ static void test_frontend() {
     test_function_body_ast();
     test_control_flow_and_scopes();
     test_structured_imports();
+    test_c_header_import_syntax();
+    test_variable_declarations();
+    test_type_alias_and_struct_enum_union();
+    test_unary_and_nested_expressions();
+    test_multiple_top_level_decls_with_visibility();
+    test_import_form_with_depth_and_export();
+    test_error_diagnostic_span_preserved();
 }
 
 TEST_MAIN(frontend)

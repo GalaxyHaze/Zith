@@ -183,10 +183,12 @@ struct ImportDecl {
     std::vector<TextSpan> pathSpans;
     std::vector<ImportSelector> selectors;
     std::string rawPath;
+    std::string headerPath;
     std::string alias;
     bool isFrom   = false;
     bool isExport = false;
     bool isAsset  = false;
+    bool isHeader = false;
     int32_t depth = 1;
     TextSpan pathSpan;
     TextSpan aliasSpan;

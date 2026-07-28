@@ -1,7 +1,7 @@
 #pragma once
 
-#include "legacy-zith/ast/ast-builder.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
 #include "memory/arena.hpp"
 #include "memory/dyn-array.hpp"
 #include "memory/result.hpp"

@@ -169,7 +169,7 @@ struct HirEnumValue {
 
 /// Internal compiler temporary slot — allocated once, loaded/stored as needed.
 /// These identifiers are synthetic and never collide with user names.
-using HirSlotId = uint32_t;
+using HirSlotId                            = uint32_t;
 inline constexpr HirSlotId kInvalidHirSlot = ~HirSlotId{0};
 
 struct HirSlotAlloca {
@@ -190,10 +190,10 @@ struct HirSlotLoad {
     HirExprKind tag = HirExprKind::SlotLoad;
 };
 
-using HirExpr = std::variant<HirLiteral, HirBinary, HirUnary, HirLet, HirVar, HirCall, HirRet,
-                             HirBranch, HirJump, HirPhi, HirAssign, HirIndex, HirField,
-                             HirStructLiteral, HirArrayLiteral, HirEnumValue,
-                             HirSlotAlloca, HirSlotStore, HirSlotLoad>;
+using HirExpr =
+    std::variant<HirLiteral, HirBinary, HirUnary, HirLet, HirVar, HirCall, HirRet, HirBranch,
+                 HirJump, HirPhi, HirAssign, HirIndex, HirField, HirStructLiteral, HirArrayLiteral,
+                 HirEnumValue, HirSlotAlloca, HirSlotStore, HirSlotLoad>;
 
 inline HirExprKind exprKind(const HirExpr &expr) {
     return std::visit([](const auto &entry) { return entry.tag; }, expr);

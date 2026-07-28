@@ -1,7 +1,7 @@
 #pragma once
 
-#include "legacy-zith/ast/ast-builder.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
 #include "symbols/import-manager.hpp"
 #include "symbols/symbol-table.hpp"
 

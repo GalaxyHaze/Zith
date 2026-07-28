@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cinterop/c-header.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
 #include "diagnostics/diagnostic.hpp"
 #include "frontend/frontend.hpp"
@@ -90,8 +91,10 @@ struct CacheKey {
     std::string targetTriple;
     std::string parseFlags;
     std::string visibilityFlags;
+    std::string sysroot;
     std::vector<std::string> includeRoots;
     std::vector<std::string> stdlibRoots;
+    std::vector<std::string> cDefines;
 
     [[nodiscard]] std::string identity() const;
     bool operator==(const CacheKey &) const noexcept = default;
@@ -104,9 +107,11 @@ struct FrontendConfig {
     std::string targetTriple;
     std::string parseFlags;
     std::string visibilityFlags;
+    std::string sysroot;
     std::vector<std::string> includeRoots;
     std::vector<std::string> stdlibRoots;
     std::vector<std::string> assetRoots;
+    std::vector<std::string> cDefines;
 
     [[nodiscard]] CacheKey cacheKey() const;
 };
@@ -174,10 +179,12 @@ struct ImportRequest {
     std::vector<frontend::TextSpan> pathSpans;
     std::vector<ImportSelectorRequest> selectors;
     std::string rawPath;
+    std::string headerPath;
     std::string alias;
     bool isFrom   = false;
     bool isExport = false;
     bool isAsset  = false;
+    bool isHeader = false;
     int32_t depth = 1;
     frontend::TextSpan span{};
     frontend::TextSpan pathSpan{};
@@ -231,17 +238,18 @@ struct ModuleSymbolRef {
     frontend::SymbolId localSymbol;
 };
 
-enum class ImportTargetKind : uint8_t { Zith, Directory, Header, Asset };
+enum class ImportTargetKind : uint8_t { Zith, Directory, CHeader, CppHeader, Asset };
 
 struct ImportEdge {
     ModuleKey importer;
     ImportRequest request;
     std::vector<ModuleKey> targets;
     ImportTargetKind targetKind = ImportTargetKind::Zith;
+    std::shared_ptr<const cinterop::CHeaderArtifact> cHeader;
     std::string error;
 };
 
-enum class ResolutionKind : uint8_t { Declaration, Import, ModuleAlias, Unresolved };
+enum class ResolutionKind : uint8_t { Declaration, Import, Foreign, ModuleAlias, Unresolved };
 
 struct ResolvedName {
     std::string name;
@@ -251,6 +259,7 @@ struct ResolvedName {
     frontend::DeclId declaration;
     frontend::LocalId local;
     frontend::ScopeId scope;
+    const cinterop::Function *foreignFunction = nullptr;
 };
 
 struct ModuleResolution {
@@ -285,6 +294,7 @@ public:
                         std::vector<ModuleArtifactPtr> modules,
                         std::vector<MergedSymbol> merged_symbols,
                         std::vector<ImportEdge> import_graph,
+                        std::vector<std::shared_ptr<const cinterop::CHeaderArtifact>> c_headers,
                         std::vector<ModuleResolution> resolutions,
                         std::vector<ModuleDiagnostic> diagnostics, SnapshotMetrics metrics);
 
@@ -302,6 +312,10 @@ public:
     }
     [[nodiscard]] const std::vector<ImportEdge> &importGraph() const noexcept {
         return import_graph_;
+    }
+    [[nodiscard]] const std::vector<std::shared_ptr<const cinterop::CHeaderArtifact>> &
+    cHeaders() const noexcept {
+        return c_headers_;
     }
     [[nodiscard]] const std::vector<ModuleResolution> &resolutions() const noexcept {
         return resolutions_;
@@ -322,6 +336,7 @@ private:
     std::vector<ModuleArtifactPtr> modules_;
     std::vector<MergedSymbol> merged_symbols_;
     std::vector<ImportEdge> import_graph_;
+    std::vector<std::shared_ptr<const cinterop::CHeaderArtifact>> c_headers_;
     std::vector<ModuleResolution> resolutions_;
     std::vector<ModuleDiagnostic> diagnostics_;
     SnapshotMetrics metrics_;

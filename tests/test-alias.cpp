@@ -1,11 +1,11 @@
+#include "diagnostics/diagnostic-engine.hpp"
 #include "legacy-zith/ast/ast-builder.hpp"
 #include "legacy-zith/ast/type-expr.hpp"
-#include "diagnostics/diagnostic-engine.hpp"
 #include "legacy-zith/lexer/lexer.hpp"
+#include "legacy-zith/parser/parser.hpp"
 #include "memory/arena.hpp"
 #include "memory/source-map.hpp"
 #include "memory/string-interner.hpp"
-#include "legacy-zith/parser/parser.hpp"
 #include "symbols/symbol-table.hpp"
 #include "test-common.hpp"
 

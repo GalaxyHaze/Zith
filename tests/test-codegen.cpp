@@ -11,6 +11,8 @@
 #include <llvm/IR/LLVMContext.h>
 
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <string_view>
 
@@ -23,9 +25,9 @@ struct CodegenTest {
     CodegenTest() : opts(arena) {}
 
     struct Result {
-        bool ok;
-        size_t errorCount;
-        int exitCode;
+        bool ok           = false;
+        size_t errorCount = 0;
+        int exitCode      = 0;
         std::string output;
     };
 
@@ -49,6 +51,59 @@ struct CodegenTest {
             ok = session.linkAndExec();
 
         return {ok && errs == 0, errs, session.childExitCode(), session.flushOutput()};
+    }
+};
+
+struct ModernFileCodegenTest {
+    memory::Arena arena;
+    Options opts;
+    std::filesystem::path root;
+
+    ModernFileCodegenTest()
+        : opts(arena), root(std::filesystem::temp_directory_path() / "zith-codegen-modern-tests") {
+        std::filesystem::remove_all(root);
+        std::filesystem::create_directories(root);
+    }
+
+    ~ModernFileCodegenTest() {
+        std::filesystem::remove_all(root);
+    }
+
+    void write(std::string_view name, std::string_view text) {
+        auto path = root / name;
+        std::filesystem::create_directories(path.parent_path());
+        std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        output << text;
+    }
+
+    struct Result {
+        bool ok           = false;
+        bool usedModern   = false;
+        size_t errorCount = 0;
+        int exitCode      = 0;
+        std::string output;
+    };
+
+    Result run(std::string_view main_name = "main.zith") {
+        session::CompilationSession session(opts, (root / main_name).string());
+        session.setBuffered(true);
+        session.setAlwaysEmitObject(true);
+
+        bool ok     = session.run();
+        size_t errs = 0;
+        for (const auto &d : session.diags().all()) {
+            if (d.severity == diagnostics::Severity::Error) {
+                errs++;
+                std::printf("    [ModernCodegenDiag] Code: %u, Message: %s\n", d.code,
+                            d.message.c_str());
+            }
+        }
+
+        if (ok && errs == 0)
+            ok = session.linkAndExec();
+
+        return {ok && errs == 0, session.snapshot() != nullptr, errs, session.childExitCode(),
+                session.flushOutput()};
     }
 };
 
@@ -340,6 +395,46 @@ static void test_console_alias_resolves_member_without_global_import() {
     CHECK(missing.errorCount > 0, "Unqualified println reports a diagnostic");
 }
 
+static void test_modern_file_pipeline_executes_program() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn main(): i32 {\n"
+                         "    return 31;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "Real-file codegen test used the modern frontend pipeline");
+    CHECK(r.ok, "Real-file program compiles and executes");
+    CHECK_EQ(r.exitCode, 31, "Real-file program preserves exit status");
+}
+
+static void test_modern_file_import_codegen_executes() {
+    ModernFileCodegenTest t;
+    t.write("math.zith", "pub fn add(a: i32, b: i32): i32 { a + b }\n");
+    t.write("main.zith", "from math\n"
+                         "fn main(): i32 {\n"
+                         "    return add(20, 22);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "Imported real-file program uses the modern frontend pipeline");
+    CHECK(r.ok, "Imported real-file program compiles and executes");
+    CHECK_EQ(r.exitCode, 42, "Imported function call returns the expected result");
+}
+
+static void test_modern_file_type_alias_codegen_executes() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "type MyInt = i32\n"
+                         "fn main(): MyInt {\n"
+                         "    var x: MyInt = 44;\n"
+                         "    x\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "Type-alias real-file program uses the modern frontend pipeline");
+    CHECK(r.ok, "Type alias program compiles and executes through modern codegen");
+    CHECK_EQ(r.exitCode, 44, "Type alias lowers to the aliased runtime representation");
+}
+
 static void test_run_emit_hir_still_executes() {
     CodegenTest t;
     t.opts.command = Options::Command::Run;
@@ -448,6 +543,12 @@ static void test_codegen() {
     test_from_console_lowers_println_body();
     printf("Running test_console_alias_resolves_member_without_global_import\n");
     test_console_alias_resolves_member_without_global_import();
+    printf("Running test_modern_file_pipeline_executes_program\n");
+    test_modern_file_pipeline_executes_program();
+    printf("Running test_modern_file_import_codegen_executes\n");
+    test_modern_file_import_codegen_executes();
+    printf("Running test_modern_file_type_alias_codegen_executes\n");
+    test_modern_file_type_alias_codegen_executes();
     printf("Running test_run_emit_hir_still_executes\n");
     test_run_emit_hir_still_executes();
     printf("Running test_layout_api_matches_llvm\n");

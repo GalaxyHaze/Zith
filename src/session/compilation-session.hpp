@@ -1,15 +1,15 @@
 #pragma once
 
-#include "legacy-zith/ast/ast-builder.hpp"
 #include "cli/options.hpp"
 #include "cli/project-config.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
 #include "hir/hir-module.hpp"
+#include "legacy-zith/ast/ast-builder.hpp"
 #include "legacy-zith/lexer/token.hpp"
-#include "memory/source-map.hpp"
-#include "memory/string-interner.hpp"
 #include "legacy-zith/parser/scan-result.hpp"
 #include "legacy-zith/sema/hir-lower.hpp"
+#include "memory/source-map.hpp"
+#include "memory/string-interner.hpp"
 #include "sema/hir-lower-modern.hpp"
 #include "sema/sema-modern.hpp"
 #include "sema/typed-ast.hpp"

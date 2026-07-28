@@ -1,25 +1,43 @@
 ## 18. C Interop
 
-Zith offers three modes of C interop, designed to make using existing C libraries as frictionless as possible.
+Zith supports manual `extern fn` bindings on every target. Native builds which find libclang also
+support a restricted, automatic C-header import path.
 
 ### 18.1 Automatic Binding via `.h`
 
-Including a C header automatically generates bindings. Every function becomes a `raw fn` by default, and pointer types are inferred:
+Native builds with libclang can import a `.h` file. The importer exposes supported external,
+non-variadic C functions directly; it does not generate Zith source.
 
 ```zith
-import "openssl/ssl.h";
+import "mylib.h";
 
-// All C functions are now available as raw fn
-SSL_CTX_new(method);
+// Supported functions from mylib.h are available by their C linkage name.
+my_function();
 ```
 
-| C type | Inferred Zith type |
+Only C ABI headers are accepted. `.hpp` files report that C++ headers are unsupported. Macros,
+callbacks/function pointers, variadic functions, globals, bitfields, packed or anonymous records,
+flexible arrays, and other non-representable layouts are not imported. Use manual `extern fn` for
+APIs outside this surface and for all builds without libclang, including WASM and cross builds.
+
+| C type | Imported Zith type |
 |---|---|
-| `T*` | `mut *T` (mutable pointer) |
-| `const T*` | `*T` (read-only pointer) |
-| `T**` | `mut *mut *T` |
-| `void*` | `raw opaque` |
-| `int`, `float`, etc. | direct primitive equivalents |
+| `void`, `_Bool`, integers, floats | ABI-width primitive equivalent |
+| `T*`, `const T*` | Pointer preserving pointee constness |
+| simple records and enums | Named foreign type |
+
+The project may configure C parsing and linking in `ZithProject.toml`:
+
+```toml
+[ffi]
+include_dirs = ["vendor/include"]
+library_dirs = ["vendor/lib"]
+libraries = ["mylib"]
+defines = ["MYLIB_FEATURE=1"]
+```
+
+`-I`, `-D`, `-L`, and `-l` add command-line values after project values. Library names are
+validated and linked without passing a shell command string.
 
 ### 18.2 Manual Binding with Semantic Annotation
 

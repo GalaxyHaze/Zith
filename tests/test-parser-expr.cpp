@@ -3,16 +3,16 @@
 // Atua como um Engenheiro de Testes de Software Especialista em Compiladores.
 // Garante cobertura exaustiva de testes para indexação de arrays e sequências de word operators.
 
+#include "diagnostics/diagnostic-engine.hpp"
+#include "diagnostics/error-codes.hpp"
 #include "legacy-zith/ast/ast-builder.hpp"
 #include "legacy-zith/ast/ast-node-utils.hpp"
 #include "legacy-zith/ast/ast-nodes.hpp"
-#include "diagnostics/diagnostic-engine.hpp"
-#include "diagnostics/error-codes.hpp"
 #include "legacy-zith/lexer/lexer.hpp"
+#include "legacy-zith/parser/parser.hpp"
 #include "memory/arena.hpp"
 #include "memory/source-map.hpp"
 #include "memory/string-interner.hpp"
-#include "legacy-zith/parser/parser.hpp"
 #include "test-common.hpp"
 
 #include <cstdio>

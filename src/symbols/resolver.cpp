@@ -1,8 +1,8 @@
 #include "resolver.hpp"
-#include "legacy-zith/ast/ast-node-utils.hpp"
 #include "common/format.hpp"
 #include "common/overloaded.hpp"
 #include "diagnostics/error-codes.hpp"
+#include "legacy-zith/ast/ast-node-utils.hpp"
 
 namespace zith::symbols {
 

@@ -38,7 +38,7 @@ bool typeHasGenericParam(types::TypeId t, types::TypeIntern &types) {
 
 } // anonymous namespace
 
-Solver::Solver(types::TypeIntern &types, ast::AstBuilder &ast, ast::ProgramNode &program,
+Solver::Solver(types::TypeIntern &types, ast::AstBuilder *ast, ast::ProgramNode *program,
                symbols::SymbolTable &syms, diagnostics::DiagnosticEngine &diags,
                memory::Arena &hir_arena, sema::modern::TypeTable *modern_types)
     : types_(types), ast_(ast), program_(program), syms_(syms), diags_(diags),
@@ -62,8 +62,11 @@ bool Solver::solve(hir::HirModule &hir) {
 }
 
 bool Solver::collectGenerics() {
-    for (auto decl_id : program_.decls) {
-        auto &decl = ast_.getDecl(decl_id);
+    if (!ast_ || !program_)
+        return true;
+
+    for (auto decl_id : program_->decls) {
+        auto &decl = ast_->getDecl(decl_id);
 
         if (auto *fn = std::get_if<ast::FnDeclNode>(&decl)) {
             if (fn->generic_params.empty())

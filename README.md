@@ -122,7 +122,7 @@ fn main() {
 | `->` chain operator | **Working** | |
 | Module imports (`import`, `from`, `export`) | **Working** | |
 | `alias`, `type` | **Working** | |
-| C interop (`extern fn`, `import ".h"`) | **Working** | |
+| C interop (`extern fn`, `import ".h"`) | **Partial** | Manual `extern fn` works everywhere; `.h` imports require native libclang and support a restricted C ABI surface |
 | Field access (`.field`) | Semantic warning | Parses, HIR lowering not yet complete |
 | Index access (`a[i]`) | Semantic warning | Parses, HIR lowering not yet complete |
 | `is` / `as` | **Blocked (E2010)** | Parsed; sema rejects before HIR |
@@ -195,6 +195,24 @@ cmake --build build -j
 scoop bucket add zithc https://github.com/GalaxyHaze/Zith.git
 scoop install zithc
 ```
+
+## Lexer Benchmark
+
+The local lexer benchmark is opt-in and has no external benchmark dependency:
+
+```bash
+cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DZITH_BUILD_BENCHMARKS=ON
+cmake --build build-release --target bench-lexer -j
+./build-release/bench-lexer
+./build-release/bench-lexer --format json
+```
+
+`bench-lexer` measures `lexer::tokenize` over the synthetic `mixed-valid` scenario. Source-map
+file registration and host-information collection are outside the timed region; each tokenization
+includes a new temporary arena, diagnostics state, and token stream allocation. Text and JSON
+output identify the operating system, CPU model, logical CPU count, total memory, and compiler.
+Compare results only on the same machine, with the same compiler and build flags. The JSON output
+is intended for local automation and is not a versioned public API.
 
 **Homebrew (macOS/Linux):**
 ```bash

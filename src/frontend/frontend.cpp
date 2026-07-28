@@ -677,8 +677,10 @@ private:
         const uint32_t path_start = index_;
         parseImportPath(declaration.import);
         declaration.import.pathSpan = range(path_start, index_);
-        declaration.import.rawPath  = std::string(snapshot_.source_.substr(
-            declaration.import.pathSpan.start, declaration.import.pathSpan.size()));
+        if (!declaration.import.isHeader) {
+            declaration.import.rawPath = std::string(snapshot_.source_.substr(
+                declaration.import.pathSpan.start, declaration.import.pathSpan.size()));
+        }
         if (!declaration.import.path.empty() && declaration.import.path.front() == "assets")
             declaration.import.isAsset = true;
         parseImportDepth(declaration.import);
@@ -694,17 +696,40 @@ private:
             }
         }
         declaration.span = range(start, index_);
-        if (declaration.import.path.empty()) {
+        if (declaration.import.path.empty() && !declaration.import.isHeader) {
             snapshot_.diagnostics_.push_back({declaration.span, "expected an import path"});
             declaration.kind = DeclKind::Error;
         } else if (declaration.import.isAsset && declaration.import.alias.empty()) {
             snapshot_.diagnostics_.push_back(
                 {declaration.span, "assets import requires an alias using 'as'"});
         }
+        if (declaration.import.isHeader) {
+            if (declaration.import.headerPath.ends_with(".hpp")) {
+                snapshot_.diagnostics_.push_back(
+                    {declaration.import.pathSpan, "C++ headers are not supported in this version"});
+            }
+            if (declaration.import.isFrom || declaration.import.isExport ||
+                !declaration.import.selectors.empty() || declaration.import.depth != 1) {
+                snapshot_.diagnostics_.push_back(
+                    {declaration.span,
+                     "C header imports only support 'import \"header.h\"' and an optional 'as' "
+                     "alias"});
+            }
+        }
         snapshot_.declarations_.push_back(std::move(declaration));
     }
 
     void parseImportPath(ImportDecl &import) {
+        if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Literal) {
+            const auto literal = text(index_);
+            if (literal.size() >= 2U && literal.front() == '"' && literal.back() == '"') {
+                import.isHeader   = true;
+                import.headerPath = std::string(literal.substr(1U, literal.size() - 2U));
+                import.rawPath    = import.headerPath;
+                import.pathSpans.push_back(tokenSpan(index_++));
+                return;
+            }
+        }
         bool expect_segment = true;
         while (index_ < token_count_) {
             const auto segment = text(index_);
@@ -847,6 +872,9 @@ private:
                 snapshot_.diagnostics_.push_back({range(start, index_), "expected ')'"});
         }
         if (punctuation(index_, ':')) {
+            ++index_;
+            declaration.declaredType = parseType();
+        } else if (kind == DeclKind::TypeAlias && index_ < token_count_ && text(index_) == "=") {
             ++index_;
             declaration.declaredType = parseType();
         }

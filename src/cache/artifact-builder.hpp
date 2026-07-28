@@ -27,8 +27,7 @@ public:
                     const session::ContentFingerprint &source_fp,
                     const session::CacheKey &cache_key);
 
-    [[nodiscard]] Artifact build(std::string_view canonical_path,
-                                 std::string_view module_name,
+    [[nodiscard]] Artifact build(std::string_view canonical_path, std::string_view module_name,
                                  const std::vector<DependencyRecord> &deps);
 
 private:
