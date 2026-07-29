@@ -126,7 +126,7 @@ jobs:
               -DZITH_HAS_LLVM=OFF
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
@@ -245,7 +245,7 @@ jobs:
             zig_target: aarch64-linux-musl
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Zig
         shell: bash
@@ -291,7 +291,7 @@ jobs:
     name: Package stdlib
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Create stdlib archives
         shell: bash
@@ -366,7 +366,7 @@ jobs:
 
     steps:
       - name: Checkout zith-lsp
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: GalaxyHaze/zith-lsp
           ref: main
@@ -374,7 +374,7 @@ jobs:
           path: lsp
 
       - name: Checkout Zith (local for ZITHC_SOURCE_DIR)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: zithc-src
 
@@ -483,7 +483,7 @@ jobs:
     name: Build zithc-wasm
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Emscripten
         uses: emscripten-core/setup-emsdk@v16
