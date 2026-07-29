@@ -1,5 +1,41 @@
 # Changelog
 
+
+## [Não Lançado] - 2026-07-29 (late)
+
+### Pipeline Moderno — Structs, Ponteiros, e Acessos a Campos
+
+#### Frontend Parser
+- `ExprKind::Field`, `ExprKind::Arrow`, `ExprKind::StructLiteral` — três novos tipos de expressão.
+- `Expression::field_names` — vetor paralelo de nomes de campos para literais de struct.
+- Suporte a parsing de declarações de campos em structs (`{ nome: Tipo, ... }`) no `AstLowerer::lowerDeclaration`.
+- Suporte a acesso `.campo` (dot), `->campo` (arrow, dessugar para deref + dot), e literais de struct `Nome { campo: expr, ... }`.
+- Operadores unários de prefixo `&` (addr-of) e `*` (deref) adicionados ao `parseExpression`.
+
+#### Tabela de Tipos
+- `StructType::field_names` — array paralelo de nomes de campos no tipo struct.
+- `TypeTable::internStruct` aceita um parâmetro opcional `field_names`.
+- `TypeTable::fieldIndex` — novo helper para lookup de índice de campo por nome.
+
+#### Sema Moderno
+- `lowerDeclarationTypes` para structs agora popula tipos e nomes de campos via `internStruct`.
+- `inferField`, `inferArrow`, `inferStructLiteral` — inferência de tipos para os três novos `ExprKind`s.
+- `inferUnary` estendido para `&` (produz ponteiro) e `*` (desreferencia ponteiro).
+
+#### HIR Lowering Moderno
+- `lowerField` — emite `HirField` com índice de campo resolvido por nome.
+- `lowerArrow` — emite `HirUnary{Deref}` seguido de `HirField`.
+- `lowerStructLiteral` — emite `HirStructLiteral` com os valores dos campos.
+- `lowerAssign` estendido para suportar alvos lvalue do tipo `Field`/`Arrow`.
+- `mapUnaryOp` estendido com `Ref` e `Deref`.
+
+#### Formatter
+- Suporte a `Field`, `Arrow`, e `StructLiteral` no `FmtVisitor` (16 `ExprKind`s cobertos).
+
+#### Testes
+- `test-hir-lower-modern.cpp`: 4 novos casos — struct literal, dot field read, addrof/deref, arrow access.
+- Suite completa: 23/23 testes passam.
+
 ## [Não Lançado] - 2026-07-15
 
 ### Modificações Realizadas
