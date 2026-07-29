@@ -1,5 +1,9 @@
 ## 18. C Interop
 
+> **Implementation status:** `extern fn` bindings are **working** on all targets. Native libclang
+> C header import is **partial** — macros, variadics, callbacks, and complex layouts are
+> unsupported. See [impl-status.md](impl-status.md).
+
 Zith supports manual `extern fn` bindings on every target. Native builds which find libclang also
 support a restricted, automatic C-header import path.
 

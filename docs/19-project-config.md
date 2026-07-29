@@ -1,5 +1,9 @@
 ## 19. Project Configuration
 
+> **Implementation status:** `ZithProject.toml` project scaffolding is **working** via
+> `zithc create`. Dependency management (`zithc deps`) is a **stub**.
+> See [impl-status.md](impl-status.md).
+
 ### 19.1 `ZithProject.toml` (per-project)
 
 ```toml

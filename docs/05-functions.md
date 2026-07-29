@@ -1,5 +1,10 @@
 ## 5. Functions
 
+> **Implementation status:** `fn`, `flow fn`, `raw fn`, `extern fn`, and `async fn` (body skipped)
+> are **working** or **parse skipped**. `const fn` is a **parse error** — `const` is a binding
+> keyword; `const fn f()` is parsed as a `const` binding named `fn`. `async fn` body lowering and
+> `yield` are **spec-only**. See [impl-status.md](impl-status.md).
+
 ### 5.1 Return Types & Implicit Returns
 
 ```zith

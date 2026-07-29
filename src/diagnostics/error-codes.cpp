@@ -48,6 +48,10 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
             "Avoid overusing globals \u2014 prefer passing values via function parameters",
             "`let` bindings are for function/block scope only"};
 
+    case err::DeprecatedSyntax:
+        return ErrorInfo{code, 'W', "parse", "Deprecated syntax",
+                         "Use the replacement form shown in the message"};
+
     // Semantic
     case err::UndefinedIdent:
         return ErrorInfo{code, 'E', "semantic", "Undefined identifier",

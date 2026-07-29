@@ -163,7 +163,12 @@ int FmtVisitor::exprPrecedence(const frontend::Expression &expr) const noexcept 
         return binaryPrecedence(expr.text);
     case frontend::ExprKind::Unary:
         return 5;
+    case frontend::ExprKind::IsNull:
+        return 2;
     case frontend::ExprKind::Call:
+    case frontend::ExprKind::Index:
+    case frontend::ExprKind::OptionalProp:
+    case frontend::ExprKind::Cast:
         return 6;
     default:
         return 7;
@@ -283,6 +288,7 @@ void FmtVisitor::emitType(const frontend::TypeExprId id) {
         break;
     case frontend::TypeExprKind::Array:
     case frontend::TypeExprKind::Function:
+    case frontend::TypeExprKind::Slice:
     case frontend::TypeExprKind::Error:
         emitOriginal(type->span);
         break;
@@ -556,6 +562,70 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
             emit(" ");
             visitExpr(expr->operands.front());
         }
+        break;
+    case frontend::ExprKind::OptionalProp:
+        if (!expr->operands.empty())
+            visitExpr(expr->operands.front(), current_prec);
+        emit("?");
+        break;
+    case frontend::ExprKind::Index:
+        if (expr->operands.size() < 2U) {
+            emitOriginal(expr->span);
+            break;
+        }
+        visitExpr(expr->operands[0], current_prec);
+        emit("[");
+        visitExpr(expr->operands[1]);
+        emit("]");
+        break;
+    case frontend::ExprKind::Field:
+        if (!expr->operands.empty()) {
+            visitExpr(expr->operands[0], current_prec);
+            emit(".");
+            emit(expr->text);
+        } else {
+            emitOriginal(expr->span);
+        }
+        break;
+    case frontend::ExprKind::Arrow:
+        if (!expr->operands.empty()) {
+            visitExpr(expr->operands[0], current_prec);
+            emit("->");
+            emit(expr->text);
+        } else {
+            emitOriginal(expr->span);
+        }
+        break;
+    case frontend::ExprKind::StructLiteral:
+        emit(expr->text);
+        emit(" { ");
+        for (std::size_t i = 0; i < expr->operands.size(); ++i) {
+            if (i != 0U)
+                emit(", ");
+            if (i < expr->field_names.size()) {
+                emit(expr->field_names[i]);
+                emit(": ");
+            }
+            visitExpr(expr->operands[i]);
+        }
+        emit(" }");
+        break;
+    case frontend::ExprKind::Cast:
+        if (expr->operands.empty()) {
+            emitOriginal(expr->span);
+            break;
+        }
+        visitExpr(expr->operands[0], current_prec);
+        emit(" as ");
+        emitType(expr->cast_type);
+        break;
+    case frontend::ExprKind::IsNull:
+        if (expr->operands.empty()) {
+            emitOriginal(expr->span);
+            break;
+        }
+        visitExpr(expr->operands[0], current_prec);
+        emit(" is null");
         break;
     case frontend::ExprKind::Error:
         emitOriginal(expr->span);

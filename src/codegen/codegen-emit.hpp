@@ -54,6 +54,8 @@ private:
     llvm::Value *emitFieldAddr(const hir::HirField &field, const hir::HirModule &mod);
     llvm::Value *emitLValueAddr(hir::HirExprId target_id, const hir::HirModule &mod);
     llvm::Value *emitBranch(const hir::HirBranch &branch, const hir::HirModule &mod);
+    /// True for signed integers; false for unsigned integers and all other types.
+    bool isSignedType(types::TypeId id) const;
 
     llvm::IRBuilderBase &builder_;
     CodeGenType &typeGen_;

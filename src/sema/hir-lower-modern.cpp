@@ -54,6 +54,10 @@ hir::HirUnaryOp mapUnaryOp(std::string_view text) {
         return hir::HirUnaryOp::Neg;
     if (text == "!" || text == "not")
         return hir::HirUnaryOp::Not;
+    if (text == "&")
+        return hir::HirUnaryOp::Ref;
+    if (text == "*")
+        return hir::HirUnaryOp::Deref;
     return hir::HirUnaryOp::Neg;
 }
 
@@ -209,6 +213,8 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
 types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
     if (!type)
         return types::kErrorType;
+    // Nominal placeholders must lower to the completed type, not to Unknown.
+    type = sema_.typeTable().canonical(type);
     if (const auto *cached = lowered_types_.get(type.intern_seq))
         return *cached;
 
@@ -279,9 +285,22 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
     }
     case TypeKind::Struct: {
         const auto *structure = sema_.typeTable().struct_type(type);
-        lowered               = structure != nullptr
-                                    ? types_.registerNamedType(structure->name, types::TypeKind::Struct)
-                                    : types::kErrorType;
+        if (structure == nullptr) {
+            lowered = types::kErrorType;
+            break;
+        }
+        lowered = types_.registerNamedType(structure->name, types::TypeKind::Struct);
+        // Register the name (done above) before lowering field types so self-referential
+        // structs (`next: *Node`) terminate. Fields are copied once, on first lowering.
+        if (types_.fieldCount(lowered) == 0U && structure->fields.size() != 0U) {
+            lowered_types_.insert(type.intern_seq, lowered);
+            for (size_t index = 0; index < structure->fields.size(); ++index) {
+                const auto field_name = index < structure->field_names.size()
+                                            ? structure->field_names[index]
+                                            : std::string_view{};
+                types_.addField(lowered, field_name, lowerType(structure->fields[index]));
+            }
+        }
         break;
     }
     case TypeKind::Enum: {
@@ -501,6 +520,20 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
         return lowerWhile(expr);
     case frontend::ExprKind::Assign:
         return lowerAssign(expr, type);
+    case frontend::ExprKind::OptionalProp:
+        return lowerOptionalProp(expr, type);
+    case frontend::ExprKind::Index:
+        return lowerIndex(expr, type);
+    case frontend::ExprKind::Field:
+        return lowerField(expr, type);
+    case frontend::ExprKind::Arrow:
+        return lowerArrow(expr, type);
+    case frontend::ExprKind::StructLiteral:
+        return lowerStructLiteral(expr, type);
+    case frontend::ExprKind::Cast:
+        return lowerCast(expr, type);
+    case frontend::ExprKind::IsNull:
+        return lowerIsNull(expr);
     case frontend::ExprKind::Return:
     case frontend::ExprKind::Error:
         return hir::kInvalidHirExpr;
@@ -510,6 +543,12 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
 
 hir::HirExprId HirLowerModern::lowerLiteral(const frontend::Expression &expr,
                                             const types::TypeId type) {
+    // null literal maps to HirMakeNone when the target type is optional
+    if (expr.text == "null" && types_.kindOf(type) == types::TypeKind::Optional) {
+        hir::HirMakeNone make_none;
+        make_none.type = type;
+        return addExpr(std::move(make_none));
+    }
     hir::HirLiteral literal{};
     literal.type = type;
     switch (types_.kindOf(type)) {
@@ -534,15 +573,8 @@ hir::HirExprId HirLowerModern::lowerLiteral(const frontend::Expression &expr,
 }
 
 hir::HirExprId HirLowerModern::lowerName(const frontend::Expression &expr) {
-    for (const auto &binding : current_resolution_->bindings) {
-        if (binding.name != expr.text)
-            continue;
-        if (binding.local) {
-            const auto slot = localSlot(binding.local);
-            return emitSlotLoad(slot, typeOfLocal(binding.local));
-        }
-    }
-
+    // Prefer the per-expression resolution: it is keyed by span, so it cannot
+    // pick up a same-named binding from another function.
     if (const auto *resolved = findResolvedExpr(expr.id)) {
         if (resolved->local) {
             const auto slot = localSlot(resolved->local);
@@ -559,6 +591,17 @@ hir::HirExprId HirLowerModern::lowerName(const frontend::Expression &expr) {
             var.name    = interner_.intern(decl->name);
             var.version = 0;
             return addExpr(std::move(var));
+        }
+    }
+
+    if (current_resolution_ != nullptr && current_module_ != nullptr &&
+        current_module_->frontend != nullptr) {
+        if (const auto *binding = session::lookupBinding(
+                *current_resolution_, expr.text, expr.scope, current_module_->frontend->scopes())) {
+            if (binding->local) {
+                const auto slot = localSlot(binding->local);
+                return emitSlotLoad(slot, typeOfLocal(binding->local));
+            }
         }
     }
 
@@ -730,6 +773,20 @@ hir::HirExprId HirLowerModern::lowerAssign(const frontend::Expression &expr,
                                                  : hir::kInvalidHirExpr;
         }
     }
+    // For field/arrow lvalue targets, lower the lhs normally (produces HirField) then assign.
+    if (lhs_expr.kind == frontend::ExprKind::Field || lhs_expr.kind == frontend::ExprKind::Arrow) {
+        const auto target_type = typeOfExpr(expr.operands[0]);
+        const auto target      = lhs_expr.kind == frontend::ExprKind::Field
+                                     ? lowerField(lhs_expr, target_type)
+                                     : lowerArrow(lhs_expr, target_type);
+        const auto value       = lowerExpr(expr.operands[1]);
+        if (target == hir::kInvalidHirExpr || value == hir::kInvalidHirExpr)
+            return hir::kInvalidHirExpr;
+        hir::HirAssign assign;
+        assign.target = target;
+        assign.value  = value;
+        return addExpr(std::move(assign));
+    }
 
     const auto target = lowerExpr(expr.operands[0]);
     const auto value  = lowerExpr(expr.operands[1]);
@@ -740,6 +797,219 @@ hir::HirExprId HirLowerModern::lowerAssign(const frontend::Expression &expr,
     assign.target = target;
     assign.value  = value;
     return addExpr(std::move(assign));
+}
+
+hir::HirExprId HirLowerModern::lowerOptionalProp(const frontend::Expression &expr,
+                                                 const types::TypeId type) {
+    if (expr.operands.empty())
+        return hir::kInvalidHirExpr;
+    const auto operand = lowerExpr(expr.operands[0]);
+    if (operand == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+
+    const auto operand_type = typeOfExpr(expr.operands[0]);
+    if (types_.kindOf(operand_type) != types::TypeKind::Optional)
+        return hir::kInvalidHirExpr;
+
+    // Spill the optional so its payload and tag can be addressed as fields.
+    const auto slot = next_slot_++;
+    current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, operand_type));
+    current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, operand));
+
+    // The result of `x?` is stored here so both paths agree on one location.
+    const auto result_slot = next_slot_++;
+    current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(result_slot, type));
+
+    const auto is_some = addExpr(hir::HirField{addExpr(hir::HirSlotAddr{slot, operand_type}), 1U,
+                                               types::kBoolType, operand_type});
+
+    const auto some_block = newBlock();
+    const auto none_block = newBlock();
+
+    hir::HirBranch branch;
+    branch.cond       = is_some;
+    branch.then_block = static_cast<hir::HirDeclId>(some_block);
+    branch.else_block = static_cast<hir::HirDeclId>(none_block);
+    setTerminator(addExpr(std::move(branch)));
+
+    // None: propagate by returning None from the enclosing function.
+    setCurrentBlock(none_block);
+    current_fn_->blocks[none_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    {
+        hir::HirRet ret;
+        hir::HirMakeNone make_none;
+        make_none.type = current_fn_->return_type;
+        ret.value      = addExpr(std::move(make_none));
+        setTerminator(addExpr(std::move(ret)));
+    }
+
+    // Some: unwrap the payload into the result slot and carry on.
+    setCurrentBlock(some_block);
+    current_fn_->blocks[some_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    const auto payload                    = addExpr(
+        hir::HirField{addExpr(hir::HirSlotAddr{slot, operand_type}), 0U, type, operand_type});
+    current_fn_->blocks[some_block].insts.push(emitSlotStore(result_slot, payload));
+    return emitSlotLoad(result_slot, type);
+}
+
+hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,
+                                         const types::TypeId type) {
+    if (expr.operands.empty())
+        return hir::kInvalidHirExpr;
+    const auto value = lowerExpr(expr.operands[0]);
+    if (value == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+    const auto from = typeOfExpr(expr.operands[0]);
+    if (from == type)
+        return value;
+    return addExpr(hir::HirCast{value, from, type});
+}
+
+/// `x is null` lowers to a tag/pointer comparison; no dedicated HIR node is needed.
+hir::HirExprId HirLowerModern::lowerIsNull(const frontend::Expression &expr) {
+    if (expr.operands.empty())
+        return hir::kInvalidHirExpr;
+    const auto operand = lowerExpr(expr.operands[0]);
+    if (operand == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+    const auto operand_type = typeOfExpr(expr.operands[0]);
+    if (types_.kindOf(operand_type) != types::TypeKind::Optional)
+        return hir::kInvalidHirExpr;
+
+    const auto *optional = std::get_if<types::TypeOptional>(&types_.lookup(operand_type));
+    const bool niche =
+        optional != nullptr && types_.kindOf(optional->inner) == types::TypeKind::Ptr;
+    if (niche) {
+        // ?*T uses nullptr as the None sentinel: compare against MakeNone directly.
+        hir::HirMakeNone none;
+        none.type = operand_type;
+        return addExpr(hir::HirBinary{operand, addExpr(std::move(none)), hir::HirBinaryOp::Eq,
+                                      types::kBoolType});
+    }
+
+    // {payload, tag} layout: spill, read the tag, and negate it.
+    const auto slot = next_slot_++;
+    current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, operand_type));
+    current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, operand));
+    const auto tag = addExpr(hir::HirField{addExpr(hir::HirSlotAddr{slot, operand_type}), 1U,
+                                           types::kBoolType, operand_type});
+    return addExpr(hir::HirUnary{hir::HirUnaryOp::Not, tag, types::kBoolType});
+}
+
+hir::HirExprId HirLowerModern::lowerIndex(const frontend::Expression &expr,
+                                          const types::TypeId type) {
+    if (expr.operands.size() < 2U)
+        return hir::kInvalidHirExpr;
+    const auto object = lowerExpr(expr.operands[0]);
+    const auto index  = lowerExpr(expr.operands[1]);
+    if (object == hir::kInvalidHirExpr || index == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+
+    const auto object_type = typeOfExpr(expr.operands[0]);
+    hir::HirIndex indexing;
+    indexing.object   = object;
+    indexing.index    = index;
+    indexing.type     = type;
+    indexing.obj_type = object_type;
+    indexing.is_array = types_.kindOf(object_type) == types::TypeKind::Array;
+    return addExpr(std::move(indexing));
+}
+
+hir::HirExprId HirLowerModern::lowerField(const frontend::Expression &expr,
+                                          const types::TypeId type) {
+    if (expr.operands.empty())
+        return hir::kInvalidHirExpr;
+    const auto object      = lowerExpr(expr.operands[0]);
+    const auto object_type = typeOfExpr(expr.operands[0]);
+    if (object == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+    // Resolve the sema struct type to find the field index by name
+    const auto sema_type = sema_.typeTable().canonical(semaTypeOfExpr(expr.operands[0]));
+    const int idx        = sema_.typeTable().fieldIndex(sema_type, expr.text);
+    if (idx < 0)
+        return hir::kInvalidHirExpr;
+    return addExpr(hir::HirField{object, static_cast<uint32_t>(idx), type, object_type});
+}
+
+hir::HirExprId HirLowerModern::lowerArrow(const frontend::Expression &expr,
+                                          const types::TypeId type) {
+    if (expr.operands.empty())
+        return hir::kInvalidHirExpr;
+    const auto ptr = lowerExpr(expr.operands[0]);
+    if (ptr == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+    // Deref the pointer first
+    auto sema_ptr_type = sema_.typeTable().canonical(semaTypeOfExpr(expr.operands[0]));
+    // Match sema: `?*T` behaves as `*T` here because None is represented as nullptr.
+    if (const auto *opt = sema_.typeTable().optional(sema_ptr_type))
+        sema_ptr_type = sema_.typeTable().canonical(opt->inner);
+    const auto *pt = sema_.typeTable().pointer(sema_ptr_type);
+    if (pt == nullptr)
+        return hir::kInvalidHirExpr;
+    const auto sema_struct = sema_.typeTable().canonical(pt->pointee);
+    const auto struct_type = lowerType(sema_struct);
+    const auto deref       = addExpr(hir::HirUnary{hir::HirUnaryOp::Deref, ptr, struct_type});
+    const int idx          = sema_.typeTable().fieldIndex(sema_struct, expr.text);
+    if (idx < 0)
+        return hir::kInvalidHirExpr;
+    return addExpr(hir::HirField{deref, static_cast<uint32_t>(idx), type, struct_type});
+}
+
+hir::HirExprId HirLowerModern::lowerStructLiteral(const frontend::Expression &expr,
+                                                  const types::TypeId type) {
+    hir::HirStructLiteral lit(arena_);
+    lit.type = type;
+    const size_t field_count =
+        types_.kindOf(type) == types::TypeKind::Struct ? types_.fieldCount(type) : 0U;
+    // Values are emitted in declaration order, not in the order the literal was written.
+    std::vector<hir::HirExprId> ordered(field_count == 0U ? expr.operands.size() : field_count,
+                                        hir::kInvalidHirExpr);
+    for (size_t i = 0; i < expr.operands.size(); ++i) {
+        auto value = lowerExpr(expr.operands[i]);
+        if (value == hir::kInvalidHirExpr)
+            continue;
+        size_t slot_index = i;
+        if (field_count != 0U && i < expr.field_names.size()) {
+            slot_index = types_.fieldIndex(type, expr.field_names[i]);
+            if (slot_index >= field_count)
+                continue;
+        }
+        if (field_count != 0U) {
+            // A bare `T` value assigned to a `?T` field must be wrapped in Some.
+            const auto field_type = types_.getField(type, slot_index).type;
+            const auto value_type = typeOfExpr(expr.operands[i]);
+            if (types_.kindOf(field_type) == types::TypeKind::Optional &&
+                types_.kindOf(value_type) != types::TypeKind::Optional) {
+                value = lowerCoerceToOptional(field_type, value);
+            }
+        }
+        if (slot_index < ordered.size())
+            ordered[slot_index] = value;
+    }
+    for (const auto value : ordered) {
+        if (value != hir::kInvalidHirExpr)
+            lit.values.push(value);
+    }
+    return addExpr(std::move(lit));
+}
+
+hir::HirExprId HirLowerModern::lowerCoerceToOptional(types::TypeId target, hir::HirExprId value) {
+    if (value == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+    // This is a simple wrapper: wrap any T value into ?T (Some)
+    hir::HirMakeSome some;
+    some.type  = target;
+    some.value = value;
+    return addExpr(std::move(some));
+}
+
+sema::modern::TypeId HirLowerModern::semaTypeOfExpr(frontend::ExprId id) {
+    if (!id || current_types_ == nullptr)
+        return kInvalidTypeId;
+    const auto *sema_id_ptr = current_types_->exprTypes.get(id.value);
+    if (!sema_id_ptr)
+        return kInvalidTypeId;
+    return *sema_id_ptr;
 }
 
 bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_value) {
@@ -759,7 +1029,14 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
         const auto type = typeOfLocal(statement.binding.id);
         current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, type));
         if (statement.binding.initializer) {
-            const auto init = lowerExpr(statement.binding.initializer);
+            auto init = lowerExpr(statement.binding.initializer);
+            // Coerce T → ?T if the annotation is optional but init is not
+            if (init != hir::kInvalidHirExpr && types_.kindOf(type) == types::TypeKind::Optional) {
+                const auto init_type = typeOfExpr(statement.binding.initializer);
+                if (types_.kindOf(init_type) != types::TypeKind::Optional) {
+                    init = lowerCoerceToOptional(type, init);
+                }
+            }
             if (init != hir::kInvalidHirExpr)
                 current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, init));
         }
@@ -768,8 +1045,18 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
     }
     case frontend::StmtKind::Return: {
         hir::HirRet ret;
-        if (statement.expression)
-            ret.value = lowerExpr(statement.expression);
+        if (statement.expression) {
+            auto value = lowerExpr(statement.expression);
+            // Coerce T → ?T if return type is optional but value is not
+            if (value != hir::kInvalidHirExpr &&
+                types_.kindOf(current_fn_->return_type) == types::TypeKind::Optional) {
+                const auto val_type = typeOfExpr(statement.expression);
+                if (types_.kindOf(val_type) != types::TypeKind::Optional) {
+                    value = lowerCoerceToOptional(current_fn_->return_type, value);
+                }
+            }
+            ret.value = value;
+        }
         setTerminator(addExpr(std::move(ret)));
         return true;
     }

@@ -88,6 +88,15 @@ private:
     hir::HirExprId lowerIf(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerWhile(const frontend::Expression &expr);
     hir::HirExprId lowerAssign(const frontend::Expression &expr, types::TypeId type);
+    hir::HirExprId lowerOptionalProp(const frontend::Expression &expr, types::TypeId type);
+    hir::HirExprId lowerIndex(const frontend::Expression &expr, types::TypeId type);
+    hir::HirExprId lowerField(const frontend::Expression &expr, types::TypeId type);
+    hir::HirExprId lowerArrow(const frontend::Expression &expr, types::TypeId type);
+    hir::HirExprId lowerStructLiteral(const frontend::Expression &expr, types::TypeId type);
+    hir::HirExprId lowerCast(const frontend::Expression &expr, types::TypeId type);
+    hir::HirExprId lowerIsNull(const frontend::Expression &expr);
+    hir::HirExprId lowerCoerceToOptional(types::TypeId target, hir::HirExprId value);
+    sema::modern::TypeId semaTypeOfExpr(frontend::ExprId id);
     bool lowerStatement(frontend::StmtId id, hir::HirExprId &last_value);
 
     hir::HirExprId addExpr(hir::HirExpr expr);

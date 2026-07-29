@@ -1,5 +1,13 @@
 ## 9. Control Flow
 
+> **Implementation status:** `if`/`else`, `break`, `continue`, and `return` are **working**.
+> `for` is the canonical loop: `for { ... }` and `for (cond) { ... }` are **working** and lower to
+> the same CFG as the old `while`. The iterator (`in`) and 3-clause (`init`, `cond`, `step`) forms
+> are recognised but report "not implemented yet". `while` still works but emits a deprecation
+> warning (`W1008`) pointing at `for (cond) { }`. `when` pattern matching is a **parse error** —
+> arm syntax `0 => { }` is not recognised. `marker`/`dock`/`jump` parse inside `flow fn` but
+> lowering is not verified. See [impl-status.md](impl-status.md).
+
 ### 9.1 Syntax Rules
 
 Parentheses `()` are mandatory on every control structure's condition except function calls. Logical operators use English keywords; bitwise operators use standard symbols followed by `.`:

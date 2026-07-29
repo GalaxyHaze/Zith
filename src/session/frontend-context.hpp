@@ -268,6 +268,12 @@ struct ModuleResolution {
     std::vector<ResolvedName> expressions;
 };
 
+/// Resolves `name` starting at scope `from`, walking the parent chain and
+/// finally the module scope (`ScopeId{}`).  Returns nullptr when unresolved.
+[[nodiscard]] const ResolvedName *
+lookupBinding(const ModuleResolution &resolution, std::string_view name, frontend::ScopeId from,
+              const std::vector<frontend::Scope> &scopes) noexcept;
+
 struct MergedSymbol {
     std::string name;
     frontend::Visibility visibility = frontend::Visibility::Private;

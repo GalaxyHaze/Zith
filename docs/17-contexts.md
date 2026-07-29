@@ -1,7 +1,7 @@
 ## 17. Contexts
 
-> **Implementation status:** `context` declarations and `use` activation are **blocked (E2010)**.
-> Parsed; rejected at sema. See [impl-status.md](impl-status.md).
+> **Implementation status:** `context` declarations and `use` activation are **parse skipped** —
+> declarations parse but bodies are dropped. No semantic support. See [impl-status.md](impl-status.md).
 
 A context bundles macros, constants, words, and other declarations into a reusable package. You can apply it to a single block or activate it globally — only one context may be active at a time in a given scope.
 

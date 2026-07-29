@@ -11,6 +11,7 @@
 #include <llvm/IR/LLVMContext.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -395,6 +396,95 @@ static void test_console_alias_resolves_member_without_global_import() {
     CHECK(missing.errorCount > 0, "Unqualified println reports a diagnostic");
 }
 
+static void test_struct_type_has_fields_in_ir() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "struct P { x: i32, y: i32, }\n"
+                         "fn main(): i32 {\n"
+                         "    var p: P = P { x: 1, y: 2, };\n"
+                         "    return p.y;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "a struct with fields compiles and executes");
+    CHECK_EQ(r.exitCode, 2, "reading a struct field returns the stored value");
+    // Regression: struct types used to reach LLVM empty (`%zith.struct.0 = type {}`).
+    CHECK(r.output.find("type {}") == std::string::npos,
+          "no lowered struct type reaches LLVM without fields");
+    CHECK(r.output.find("type { i32, i32 }") != std::string::npos,
+          "the two-field struct lowers to an LLVM type carrying both fields");
+}
+
+static void test_struct_field_read_through_parameter() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "struct P { x: i32, y: i32, }\n"
+                         "fn get_y(p: P): i32 { return p.y; }\n"
+                         "fn main(): i32 {\n"
+                         "    var p: P = P { x: 4, y: 9, };\n"
+                         "    return get_y(p);\n"
+                         "}\n");
+
+    auto r = t.run();
+    // Regression: this used to fail with E5001 "Basic Block does not have terminator".
+    CHECK(r.ok, "returning a struct field of a parameter produces valid IR");
+    CHECK_EQ(r.exitCode, 9, "the field read through a struct parameter returns the right value");
+    CHECK(r.output.find("@get_y") != std::string::npos, "the accessor function is emitted");
+}
+
+static void test_numeric_cast_codegen() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "fn main(): i32 {\n"
+                         "    var n: i32 = 21;\n"
+                         "    let f: f64 = n as f64;\n"
+                         "    return f as i32;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "numeric 'as' conversions compile and execute");
+    CHECK_EQ(r.exitCode, 21, "round-tripping through f64 preserves the value");
+    CHECK(r.output.find("sitofp") != std::string::npos, "i32 -> f64 emits sitofp");
+    CHECK(r.output.find("fptosi") != std::string::npos, "f64 -> i32 emits fptosi");
+}
+
+static void test_linked_list_acceptance_program() {
+    // Mirrors examples/linked-list.zith: nullable pointers, `is null`, conditional `for`,
+    // two-character comparison operators, and explicit numeric `as` conversions.
+    ModernFileCodegenTest t;
+    t.write("main.zith", "struct Node {\n"
+                         "    value: i32,\n"
+                         "    next: ?*Node,\n"
+                         "}\n"
+                         "fn sum(start: ?*Node): i32 {\n"
+                         "    var total: i32 = 0;\n"
+                         "    var cur: ?*Node = start;\n"
+                         "    for (not (cur is null)) {\n"
+                         "        total = total + cur->value;\n"
+                         "        cur = cur->next;\n"
+                         "    }\n"
+                         "    return total;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    var tail: Node = Node { value: 3, next: null };\n"
+                         "    var head: Node = Node { value: 4, next: &tail };\n"
+                         "    let total: i32 = sum(&head);\n"
+                         "    if (total != 7) {\n"
+                         "        return 1;\n"
+                         "    }\n"
+                         "    let scaled: f64 = total as f64;\n"
+                         "    let back: i32 = scaled as i32;\n"
+                         "    if (back == total) {\n"
+                         "        return back;\n"
+                         "    }\n"
+                         "    return 2;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "the linked-list acceptance program compiles, links, and executes");
+    CHECK_EQ(r.exitCode, 7, "traversing the list through ?*Node sums both node values");
+}
+
 static void test_modern_file_pipeline_executes_program() {
     ModernFileCodegenTest t;
     t.write("main.zith", "fn main(): i32 {\n"
@@ -503,6 +593,83 @@ static void test_layout_api_matches_llvm() {
              "Raw union alignment matches its lowered LLVM storage struct");
 }
 
+/// Builds a tiny C static library that returns a `{ptr, len}` aggregate and
+/// checks that a Zith slice parameter indexes it correctly at runtime.
+static void test_slice_abi_matches_c_runtime() {
+    ModernFileCodegenTest t;
+    const auto c_path   = (t.root / "slice-abi.c").string();
+    const auto lib_path = (t.root / "libzithsliceabi.a").string();
+    const auto obj_path = (t.root / "slice-abi.o").string();
+    {
+        std::ofstream c_source(c_path, std::ios::binary | std::ios::trunc);
+        c_source << "#include <stdint.h>\n"
+                    "typedef struct { int32_t *ptr; int64_t len; } Slice;\n"
+                    "static int32_t data[3] = {10, 20, 30};\n"
+                    "Slice zith_test_slice(void) { Slice s = {data, 3}; return s; }\n";
+    }
+    const auto compile = "cc -c " + c_path + " -o " + obj_path + " 2>/dev/null";
+    const auto archive = "ar rcs " + lib_path + " " + obj_path + " 2>/dev/null";
+    if (std::system(compile.c_str()) != 0 || std::system(archive.c_str()) != 0) {
+        std::printf("  SKIP: no C toolchain for the slice ABI runtime test\n");
+        return;
+    }
+
+    t.opts.libraryDirs.push(t.root.string());
+    t.opts.libraries.push("zithsliceabi");
+    t.write("main.zith", "extern fn zith_test_slice(): []i32\n"
+                         "fn main(): i32 {\n"
+                         "    var s: []i32 = zith_test_slice();\n"
+                         "    return s[1];\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "slice returned from C compiles, links and executes");
+    CHECK_EQ(r.exitCode, 20, "indexing a C-provided slice reads the expected element");
+}
+
+static void test_optional_and_slice_layouts() {
+    memory::Arena arena;
+    memory::StringInterner interner(arena);
+    types::TypeIntern types(arena, interner);
+
+    const auto i32_type     = types.internInt(types::IntWidth::I32);
+    const auto optional_i32 = types.internOptional(i32_type);
+    const auto optional_ptr = types.internOptional(types.internPtr(i32_type, false));
+    const auto slice_i32    = types.internSlice(i32_type);
+
+    auto layout = codegen::makeTargetDataLayout({});
+    CHECK(layout.has_value(), "Target data layout is available for optional/slice layout tests");
+    if (!layout)
+        return;
+
+    llvm::LLVMContext llvm_ctx;
+    codegen::CodeGenType type_gen(llvm_ctx, types, &*layout);
+
+    auto *optional_llvm = type_gen.lower(optional_i32);
+    CHECK(optional_llvm->isStructTy(), "?i32 lowers to a struct");
+    if (auto *as_struct = llvm::dyn_cast<llvm::StructType>(optional_llvm)) {
+        CHECK_EQ(as_struct->getNumElements(), 2u, "?i32 has a payload and a discriminant");
+        CHECK(as_struct->getElementType(0)->isIntegerTy(32), "?i32 payload is an i32");
+        CHECK(as_struct->getElementType(1)->isIntegerTy(1), "?i32 discriminant is an i1");
+    }
+
+    CHECK(type_gen.lower(optional_ptr)->isPointerTy(),
+          "?*i32 uses the nullptr niche and stays a pointer");
+
+    auto *slice_llvm = type_gen.lower(slice_i32);
+    CHECK(slice_llvm->isStructTy(), "[]i32 lowers to a struct");
+    if (auto *as_struct = llvm::dyn_cast<llvm::StructType>(slice_llvm)) {
+        CHECK_EQ(as_struct->getNumElements(), 2u, "[]i32 is a pointer and a length");
+        CHECK(as_struct->getElementType(0)->isPointerTy(), "[]i32 field 0 is the data pointer");
+        CHECK(as_struct->getElementType(1)->isIntegerTy(64), "[]i32 field 1 is an i64 length");
+        const auto *slice_layout = layout->getStructLayout(as_struct);
+        CHECK_EQ(slice_layout->getElementOffset(0), 0u, "[]i32 data pointer is at offset 0");
+        CHECK_EQ(slice_layout->getElementOffset(1),
+                 layout->getTypeAllocSize(as_struct->getElementType(0)).getFixedValue(),
+                 "[]i32 length follows the data pointer");
+    }
+}
+
 static void test_codegen() {
     setbuf(stdout, NULL);
     printf("Running test_return_literal\n");
@@ -543,6 +710,14 @@ static void test_codegen() {
     test_from_console_lowers_println_body();
     printf("Running test_console_alias_resolves_member_without_global_import\n");
     test_console_alias_resolves_member_without_global_import();
+    printf("Running test_struct_type_has_fields_in_ir\n");
+    test_struct_type_has_fields_in_ir();
+    printf("Running test_struct_field_read_through_parameter\n");
+    test_struct_field_read_through_parameter();
+    printf("Running test_numeric_cast_codegen\n");
+    test_numeric_cast_codegen();
+    printf("Running test_linked_list_acceptance_program\n");
+    test_linked_list_acceptance_program();
     printf("Running test_modern_file_pipeline_executes_program\n");
     test_modern_file_pipeline_executes_program();
     printf("Running test_modern_file_import_codegen_executes\n");
@@ -553,6 +728,10 @@ static void test_codegen() {
     test_run_emit_hir_still_executes();
     printf("Running test_layout_api_matches_llvm\n");
     test_layout_api_matches_llvm();
+    printf("Running test_optional_and_slice_layouts\n");
+    test_optional_and_slice_layouts();
+    printf("Running test_slice_abi_matches_c_runtime\n");
+    test_slice_abi_matches_c_runtime();
 }
 
 TEST_MAIN(codegen)

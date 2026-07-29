@@ -1,6 +1,7 @@
 #include "frontend/frontend.hpp"
 
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <optional>
@@ -167,6 +168,14 @@ void lex(FrontendSnapshot &snapshot) {
 
         ++position;
         if (isOperator(source[start])) {
+            // Maximal munch over a closed set of two-character operators. Deliberately limited to
+            // these five: tokens the expression parser has no precedence for (`&&`, `+=`, ...) must
+            // stay single-character, otherwise the binary loop would stop without consuming them.
+            if (position < source.size()) {
+                const std::string_view pair = source.substr(start, 2);
+                if (pair == "==" || pair == "!=" || pair == "<=" || pair == ">=" || pair == "->")
+                    ++position;
+            }
             snapshot.tokens_.push_back(
                 Token{TokenKind::Operator, TextSpan{start, position}, triviaStart,
                       static_cast<uint32_t>(snapshot.trivia_.size()) - triviaStart});
@@ -404,6 +413,29 @@ private:
             ++index_;
             type.kind = TypeExprKind::Optional;
             type.arguments.push_back(parseType());
+        } else if (matchesToken(snapshot_, index_, "[")) {
+            ++index_;
+            if (matchesToken(snapshot_, index_, "]")) {
+                ++index_;
+                type.kind = TypeExprKind::Slice;
+            } else {
+                // `[N]T` is a fixed-size array; the length must be an integer literal.
+                type.kind = TypeExprKind::Array;
+                if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Literal) {
+                    type.arrayLength =
+                        std::strtoull(std::string(text(index_)).c_str(), nullptr, 10);
+                    ++index_;
+                } else {
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_), "expected an array length"});
+                }
+                if (matchesToken(snapshot_, index_, "]"))
+                    ++index_;
+                else
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_), "expected ']' after array length"});
+            }
+            type.arguments.push_back(parseType());
         } else if (matchesToken(snapshot_, index_, "*")) {
             ++index_;
             type.kind = TypeExprKind::Pointer;
@@ -434,6 +466,8 @@ private:
             return parseIf();
         if (text(index_) == "while")
             return parseWhile();
+        if (text(index_) == "for")
+            return parseFor();
         if (punctuation(index_, '(')) {
             ++index_;
             auto nested = parseExpression();
@@ -441,18 +475,60 @@ private:
                 snapshot_.diagnostics_.push_back({range(start, index_), "expected ')'"});
             else
                 ++index_;
-            return nested;
+            return parsePostfix(nested, start);
         }
 
         const auto kind = snapshot_.tokens_[index_].kind;
         if (kind == TokenKind::Identifier || kind == TokenKind::Keyword) {
             const auto token_text = text(index_);
-            expression.kind =
-                (token_text == "true" || token_text == "false" || token_text == "null")
-                    ? ExprKind::Literal
-                    : ExprKind::Name;
+            const bool is_literal =
+                token_text == "true" || token_text == "false" || token_text == "null";
+            expression.kind = is_literal ? ExprKind::Literal : ExprKind::Name;
             expression.text = std::string(token_text);
             ++index_;
+            // Struct literal: Name { field: expr, ... }
+            // Only treat as struct literal when immediately followed by '{' after a Name.
+            if (!is_literal && punctuation(index_, '{')) {
+                const std::string struct_name = expression.text;
+                ++index_; // consume '{'
+                Expression struct_lit;
+                struct_lit.kind  = ExprKind::StructLiteral;
+                struct_lit.scope = current_scope_;
+                struct_lit.text  = struct_name;
+                while (index_ < token_count_ && !punctuation(index_, '}')) {
+                    if (punctuation(index_, ',')) {
+                        ++index_;
+                        continue;
+                    }
+                    if (snapshot_.tokens_[index_].kind != TokenKind::Identifier &&
+                        snapshot_.tokens_[index_].kind != TokenKind::Keyword) {
+                        snapshot_.diagnostics_.push_back(
+                            {tokenSpan(index_), "expected a field name in struct literal"});
+                        ++index_;
+                        continue;
+                    }
+                    const std::string field_name = std::string(text(index_++));
+                    if (!punctuation(index_, ':')) {
+                        snapshot_.diagnostics_.push_back(
+                            {tokenSpan(index_), "expected ':' after field name in struct literal"});
+                    } else {
+                        ++index_;
+                    }
+                    struct_lit.field_names.push_back(field_name);
+                    struct_lit.operands.push_back(parseExpression());
+                    if (punctuation(index_, ','))
+                        ++index_;
+                    else if (!punctuation(index_, '}'))
+                        break;
+                }
+                if (punctuation(index_, '}'))
+                    ++index_;
+                else
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_), "expected '}' after struct literal fields"});
+                struct_lit.span = range(start, index_);
+                return parsePostfix(addExpression(std::move(struct_lit)), start);
+            }
         } else if (kind == TokenKind::Literal) {
             expression.kind = ExprKind::Literal;
             expression.text = std::string(text(index_++));
@@ -463,8 +539,91 @@ private:
         }
         expression.span = range(start, index_);
         auto result     = addExpression(std::move(expression));
+        return parsePostfix(result, start);
+    }
 
-        while (punctuation(index_, '(')) {
+    [[nodiscard]] bool isOperatorToken(const std::string_view op) const {
+        return index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Operator &&
+               text(index_) == op;
+    }
+
+    [[nodiscard]] bool isKeywordToken(const std::string_view word) const {
+        return index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Keyword &&
+               text(index_) == word;
+    }
+
+    /// Parses the postfix chain (calls, indexing, casts, `?`) applied to `result`.
+    [[nodiscard]] ExprId parsePostfix(ExprId result, const uint32_t start) {
+        while (punctuation(index_, '(') || punctuation(index_, '[') || punctuation(index_, '.') ||
+               isOperatorToken("->") || isKeywordToken("as")) {
+            // Dot field access: expr.field
+            if (punctuation(index_, '.')) {
+                ++index_;
+                if (index_ < token_count_ &&
+                    (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
+                     snapshot_.tokens_[index_].kind == TokenKind::Keyword)) {
+                    Expression field_expr;
+                    field_expr.kind  = ExprKind::Field;
+                    field_expr.scope = current_scope_;
+                    field_expr.text  = std::string(text(index_++));
+                    field_expr.operands.push_back(result);
+                    field_expr.span = range(start, index_);
+                    result          = addExpression(std::move(field_expr));
+                } else {
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_), "expected field name after '.'"});
+                }
+                continue;
+            }
+            // Cast: expr as Type
+            if (isKeywordToken("as")) {
+                ++index_;
+                Expression cast_expr;
+                cast_expr.kind      = ExprKind::Cast;
+                cast_expr.scope     = current_scope_;
+                cast_expr.cast_type = parseType();
+                cast_expr.operands.push_back(result);
+                cast_expr.span = range(start, index_);
+                result         = addExpression(std::move(cast_expr));
+                continue;
+            }
+            // Arrow access: expr->field (sugar for (*expr).field)
+            if (isOperatorToken("->")) {
+                ++index_;
+                if (index_ < token_count_ &&
+                    (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
+                     snapshot_.tokens_[index_].kind == TokenKind::Keyword)) {
+                    Expression arrow_expr;
+                    arrow_expr.kind  = ExprKind::Arrow;
+                    arrow_expr.scope = current_scope_;
+                    arrow_expr.text  = std::string(text(index_++));
+                    arrow_expr.operands.push_back(result);
+                    arrow_expr.span = range(start, index_);
+                    result          = addExpression(std::move(arrow_expr));
+                } else {
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_), "expected field name after '->'"});
+                }
+                continue;
+            }
+            if (punctuation(index_, '[')) {
+                const uint32_t index_start = start;
+                ++index_;
+                Expression indexing;
+                indexing.kind  = ExprKind::Index;
+                indexing.scope = current_scope_;
+                indexing.operands.push_back(result);
+                indexing.operands.push_back(parseExpression());
+                if (!punctuation(index_, ']'))
+                    snapshot_.diagnostics_.push_back(
+                        {range(index_start, index_), "expected ']' after index"});
+                else
+                    ++index_;
+                indexing.span = range(index_start, index_);
+                result        = addExpression(std::move(indexing));
+                continue;
+            }
+
             const uint32_t call_start = start;
             ++index_;
             Expression call;
@@ -483,6 +642,17 @@ private:
                 ++index_;
             call.span = range(call_start, index_);
             result    = addExpression(std::move(call));
+        }
+        // Postfix '?' for optional propagation
+        if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Operator &&
+            text(index_) == "?") {
+            ++index_;
+            Expression prop;
+            prop.kind  = ExprKind::OptionalProp;
+            prop.scope = current_scope_;
+            prop.operands.push_back(result);
+            prop.span = range(start, index_);
+            result    = addExpression(std::move(prop));
         }
         return result;
     }
@@ -506,7 +676,8 @@ private:
         const uint32_t start = index_;
         ExprId left;
         if ((snapshot_.tokens_[index_].kind == TokenKind::Operator &&
-             (text(index_) == "-" || text(index_) == "!")) ||
+             (text(index_) == "-" || text(index_) == "!" || text(index_) == "&" ||
+              text(index_) == "*")) ||
             text(index_) == "not") {
             const auto op = std::string(text(index_++));
             Expression unary;
@@ -520,7 +691,29 @@ private:
             left = parsePrimary();
         }
 
-        while (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Operator) {
+        while (index_ < token_count_) {
+            // `x is null` sits at comparison precedence; no other `is` form exists yet.
+            if (isKeywordToken("is")) {
+                if (2 < minimum_precedence)
+                    break;
+                ++index_;
+                Expression is_null;
+                is_null.scope = current_scope_;
+                if (isKeywordToken("null")) {
+                    ++index_;
+                    is_null.kind = ExprKind::IsNull;
+                    is_null.operands.push_back(left);
+                } else {
+                    is_null.kind = ExprKind::Error;
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_), "only 'is null' is supported in this version"});
+                }
+                is_null.span = range(start, index_);
+                left         = addExpression(std::move(is_null));
+                continue;
+            }
+            if (snapshot_.tokens_[index_].kind != TokenKind::Operator)
+                break;
             const auto op         = text(index_);
             const int op_priority = precedence(op);
             if (op_priority < minimum_precedence)
@@ -592,8 +785,66 @@ private:
         return addExpression(std::move(expression));
     }
 
+    /// `for` is the canonical loop: `for { }` (infinite) and `for (cond) { }` (conditional).
+    /// Iterator forms are not implemented yet and report a dedicated diagnostic.
+    [[nodiscard]] ExprId parseFor() {
+        const uint32_t start = index_++;
+        Expression expression;
+        expression.kind  = ExprKind::While;
+        expression.scope = current_scope_;
+
+        if (punctuation(index_, '{')) {
+            // `for { ... }` desugars to `while (true) { ... }`.
+            Expression always;
+            always.kind  = ExprKind::Literal;
+            always.text  = "true";
+            always.scope = current_scope_;
+            always.span  = tokenSpan(start);
+            expression.operands.push_back(addExpression(std::move(always)));
+        } else if (punctuation(index_, '(')) {
+            ++index_;
+            const uint32_t clause_start = index_;
+            const ExprId condition      = parseExpression();
+            if (isKeywordToken("in") || punctuation(index_, ';')) {
+                snapshot_.diagnostics_.push_back(
+                    {range(clause_start, index_), "for iterator form is not implemented yet"});
+                expression.span = range(start, index_);
+                expression.kind = ExprKind::Error;
+                return addExpression(std::move(expression));
+            }
+            if (punctuation(index_, ')'))
+                ++index_;
+            else
+                snapshot_.diagnostics_.push_back(
+                    {range(start, index_), "expected ')' after condition"});
+            if (punctuation(index_, ',')) {
+                snapshot_.diagnostics_.push_back(
+                    {range(start, index_), "for 3-clause form is not implemented yet"});
+                expression.span = range(start, index_);
+                expression.kind = ExprKind::Error;
+                return addExpression(std::move(expression));
+            }
+            expression.operands.push_back(condition);
+        } else {
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_), "expected '(' or a block after 'for'"});
+            expression.span = range(start, index_);
+            expression.kind = ExprKind::Error;
+            return addExpression(std::move(expression));
+        }
+
+        if (punctuation(index_, '{'))
+            expression.operands.push_back(parseBlock());
+        else
+            snapshot_.diagnostics_.push_back({range(start, index_), "expected for body"});
+        expression.span = range(start, index_);
+        return addExpression(std::move(expression));
+    }
+
     [[nodiscard]] ExprId parseWhile() {
         const uint32_t start = index_++;
+        snapshot_.diagnostics_.push_back(
+            {tokenSpan(start), "'while' is deprecated; use 'for (cond) { }'", true});
         if (punctuation(index_, '('))
             ++index_;
         const ExprId condition = parseExpression();
@@ -883,6 +1134,37 @@ private:
         } else if (kind == DeclKind::Variable && index_ < token_count_ && text(index_) == "=") {
             ++index_;
             declaration.initializer = parseExpression();
+        } else if (kind == DeclKind::Struct && punctuation(index_, '{')) {
+            // Parse struct field declarations: { name: Type, ... }
+            ++index_;
+            while (index_ < token_count_ && !punctuation(index_, '}')) {
+                if (punctuation(index_, ',')) {
+                    ++index_;
+                    continue;
+                }
+                if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
+                    snapshot_.diagnostics_.push_back({tokenSpan(index_), "expected a field name"});
+                    ++index_;
+                    continue;
+                }
+                Parameter field;
+                field.name = std::string(text(index_));
+                field.span = tokenSpan(index_++);
+                if (punctuation(index_, ':')) {
+                    ++index_;
+                    field.type = parseType();
+                }
+                declaration.parameters.push_back(std::move(field));
+                if (punctuation(index_, ','))
+                    ++index_;
+                else if (!punctuation(index_, '}'))
+                    break;
+            }
+            if (punctuation(index_, '}'))
+                ++index_;
+            else
+                snapshot_.diagnostics_.push_back(
+                    {range(start, index_), "expected '}' after struct fields"});
         } else if (punctuation(index_, '{')) {
             skipDelimited('{', '}');
         }

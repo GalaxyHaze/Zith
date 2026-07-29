@@ -1,5 +1,10 @@
 ## 14. Runtime: Polymorphism & Dynamic Behaviour
 
+> **Implementation status:** Static dispatch via generics and `implement T as Trait {}` is
+> **working**. `dyn Trait` dynamic dispatch is **spec-only** — `dyn` is a parse error in type
+> position. Vtable layout and runtime dispatch are not implemented.
+> See [impl-status.md](impl-status.md).
+
 ### 14.1 Static vs Dynamic Dispatch
 
 By default, Zith uses static dispatch — the compiler knows the exact implementation at compile time. Zero overhead.

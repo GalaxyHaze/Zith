@@ -26,6 +26,7 @@ inline constexpr ErrCode const ExpectedIdent         = 1004;
 inline constexpr ErrCode const InvalidImportDepth    = 1005;
 inline constexpr ErrCode const ImportError           = 1006;
 inline constexpr ErrCode const TopLevelLetNotAllowed = 1007;
+inline constexpr ErrCode const DeprecatedSyntax      = 1008;
 
 // Semantic (2001-2999)
 inline constexpr ErrCode const UndefinedIdent    = 2001;

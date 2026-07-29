@@ -118,9 +118,17 @@ llvm::Type *CodeGenType::lower(types::TypeId id) {
                     {llvm::ArrayType::get(llvm::Type::getInt8Ty(ctx_), max_bytes),
                      llvm::ArrayType::get(max_aligned_member, 0)},
                     false);
-            } else if constexpr (std::is_same_v<T, types::TypeOptional> ||
-                                 std::is_same_v<T, types::TypeFailable>) {
+            } else if constexpr (std::is_same_v<T, types::TypeFailable>) {
                 return llvm::PointerType::get(ctx_, 0);
+            } else if constexpr (std::is_same_v<T, types::TypeOptional>) {
+                auto *inner = lower(t.inner);
+                // Niche optimization: ?*T uses nullptr as None sentinel
+                if (inner->isPointerTy())
+                    return inner;
+                return llvm::StructType::get(ctx_, {inner, llvm::Type::getInt1Ty(ctx_)});
+            } else if constexpr (std::is_same_v<T, types::TypeSlice>) {
+                return llvm::StructType::get(
+                    ctx_, {llvm::PointerType::get(ctx_, 0), llvm::Type::getInt64Ty(ctx_)});
             } else {
                 return llvm::PointerType::get(ctx_, 0);
             }

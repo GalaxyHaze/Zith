@@ -87,15 +87,34 @@ TypeId TypeTable::internFunction(memory::DynArray<TypeId> &params, TypeId result
     return entry.id;
 }
 
-TypeId TypeTable::internStruct(std::string_view name, memory::DynArray<TypeId> &fields) {
+TypeId TypeTable::internStruct(std::string_view name, memory::DynArray<TypeId> &fields,
+                               memory::DynArray<std::string_view> *field_names) {
     auto &entry         = pushEntry(EntryKind::Struct);
     entry.reported_kind = TypeKind::Struct;
     auto &storage       = makeStorage();
     for (auto &f : fields)
         storage.push(f);
-    entry.struct_ty = arena_->make<StructType>(StructType{name, storage});
-    entry.storage   = &storage;
+    auto &name_storage = makeNameStorage();
+    if (field_names != nullptr) {
+        for (auto &n : *field_names)
+            name_storage.push(n);
+    }
+    entry.struct_ty    = arena_->make<StructType>(StructType{name, storage, name_storage});
+    entry.storage      = &storage;
+    entry.name_storage = &name_storage;
     return entry.id;
+}
+
+int TypeTable::fieldIndex(TypeId struct_type, std::string_view name) const noexcept {
+    const auto *entry = findEntry(struct_type);
+    if (entry == nullptr || entry->struct_ty == nullptr)
+        return -1;
+    const auto &names = entry->struct_ty->field_names;
+    for (size_t i = 0; i < names.size(); ++i) {
+        if (names[i] == name)
+            return static_cast<int>(i);
+    }
+    return -1;
 }
 
 TypeId TypeTable::internEnum(std::string_view name, memory::DynArray<TypeId> &variants) {
@@ -300,6 +319,19 @@ TypeId TypeTable::lookupNamed(std::string_view name) const noexcept {
     return value ? *value : kInvalidTypeId;
 }
 
+TypeId TypeTable::canonical(TypeId id) const noexcept {
+    for (unsigned guard = 0; guard < 8U; ++guard) {
+        const auto *entry = findEntry(id);
+        if (entry == nullptr || entry->kind != EntryKind::Name || entry->name_view.empty())
+            break;
+        const auto *registered = named_registry_.get(entry->name_view);
+        if (registered == nullptr || *registered == id)
+            break;
+        id = *registered;
+    }
+    return id;
+}
+
 TypeId TypeTable::findOrCreateNamed(std::string_view name, TypeKind kind) {
     const auto *existing = named_registry_.get(name);
     if (existing)
@@ -341,8 +373,8 @@ TypeId TypeTable::lowerTypeExpr(const frontend::FrontendSnapshot &snapshot,
         return internOptional(kInvalidTypeId);
     case frontend::TypeExprKind::Array:
         if (!type.arguments.empty())
-            return internArray(lowerTypeExpr(snapshot, type.arguments[0]), 0);
-        return internArray(kInvalidTypeId, 0);
+            return internArray(lowerTypeExpr(snapshot, type.arguments[0]), type.arrayLength);
+        return internArray(kInvalidTypeId, type.arrayLength);
     case frontend::TypeExprKind::Function: {
         auto &params = makeStorage();
         for (size_t i = 0; i + 1 < type.arguments.size(); ++i)
@@ -351,6 +383,10 @@ TypeId TypeTable::lowerTypeExpr(const frontend::FrontendSnapshot &snapshot,
                                                : lowerTypeExpr(snapshot, type.arguments.back());
         return internFunction(params, result);
     }
+    case frontend::TypeExprKind::Slice:
+        if (!type.arguments.empty())
+            return internSlice(lowerTypeExpr(snapshot, type.arguments[0]));
+        return internSlice(kInvalidTypeId);
     case frontend::TypeExprKind::Error:
         return kInvalidTypeId;
     }

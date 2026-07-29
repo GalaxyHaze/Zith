@@ -77,6 +77,8 @@ struct Token {
 struct Diagnostic {
     TextSpan span;
     std::string message;
+    /// When set the session reports this as a warning instead of an error.
+    bool isWarning = false;
 };
 
 enum class SyntaxKind : uint8_t { Root, Token, Error };
@@ -110,6 +112,13 @@ enum class ExprKind : uint8_t {
     While,
     Return,
     Assign,
+    OptionalProp,
+    Index,
+    Field,
+    Arrow,
+    StructLiteral,
+    Cast,
+    IsNull,
 };
 
 enum class StmtKind : uint8_t {
@@ -121,7 +130,7 @@ enum class StmtKind : uint8_t {
     Continue,
 };
 
-enum class TypeExprKind : uint8_t { Error, Name, Pointer, Optional, Array, Function };
+enum class TypeExprKind : uint8_t { Error, Name, Pointer, Optional, Array, Function, Slice };
 
 struct TypeExpression {
     TypeExprId id;
@@ -129,6 +138,7 @@ struct TypeExpression {
     TextSpan span;
     std::string name;
     std::vector<TypeExprId> arguments;
+    uint64_t arrayLength = 0;
 };
 
 struct Binding {
@@ -156,6 +166,10 @@ struct Expression {
     std::vector<ExprId> operands;
     std::vector<StmtId> statements;
     ScopeId scope;
+    // Used by ExprKind::StructLiteral: parallel field name per operand
+    std::vector<std::string> field_names;
+    // Used by ExprKind::Cast: the target type written after `as`
+    TypeExprId cast_type;
 };
 
 struct Scope {

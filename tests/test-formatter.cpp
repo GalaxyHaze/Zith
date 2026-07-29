@@ -206,6 +206,28 @@ static void test_formatter_preserves_comments() {
     CHECK(output.find("/* keep block */") != std::string::npos, "preserves block comments");
 }
 
+static void test_formatter_index_and_optional_round_trip() {
+    const std::string source = "fn f(s: []i32, x: ?i32): ?i32 {\n"
+                               "    var a: i32 = s[1]\n"
+                               "    return x?\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+    const std::string &output = formatter.result();
+
+    CHECK(output.find("s[1]") != std::string::npos, "formats index expressions without parens");
+    CHECK(output.find("return x?;") != std::string::npos,
+          "formats the postfix '?' without wrapping the operand");
+
+    auto reparsed = frontend::parse(output);
+    CHECK(reparsed.diagnostics().empty(), "formatter output re-parses without diagnostics");
+
+    formatter::FmtVisitor second(reparsed);
+    second.format();
+    CHECK_EQ(second.result(), output, "formatting is idempotent for index and optional");
+}
+
 static void test_compilation_session_fmt_uses_frontend_snapshot() {
     memory::Arena arena;
     Options opts(arena);
@@ -234,6 +256,7 @@ static void test_formatter() {
     test_formatter_parse_error_produces_empty();
     test_formatter_preserves_unsupported_subtrees();
     test_formatter_preserves_comments();
+    test_formatter_index_and_optional_round_trip();
     test_compilation_session_fmt_uses_frontend_snapshot();
 }
 

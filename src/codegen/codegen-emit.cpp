@@ -97,6 +97,70 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                     return nullptr;
                 return builder_.CreateLoad(typeGen_.lower(s.type), slots_[s.slot]);
             },
+            [&](const hir::HirSlotAddr &s) -> llvm::Value * {
+                if (s.slot >= slots_.size())
+                    return nullptr;
+                return slots_[s.slot];
+            },
+            [&](const hir::HirMakeNone &m) -> llvm::Value * {
+                auto *llvm_type = typeGen_.lower(m.type);
+                // For optional pointers, None == nullptr
+                if (llvm_type->isPointerTy())
+                    return llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(llvm_type));
+                return llvm::ConstantAggregateZero::get(llvm_type);
+            },
+            [&](const hir::HirCast &cast) -> llvm::Value * {
+                auto *value = emitExpr(cast.value, mod);
+                if (!value)
+                    return nullptr;
+                auto *to_type          = typeGen_.lower(cast.to);
+                const auto from_kind   = types_.kindOf(cast.from);
+                const auto to_kind     = types_.kindOf(cast.to);
+                const bool from_signed = isSignedType(cast.from);
+                const bool to_signed   = isSignedType(cast.to);
+                if (from_kind == types::TypeKind::Int && to_kind == types::TypeKind::Int) {
+                    const unsigned from_bits = value->getType()->getIntegerBitWidth();
+                    const unsigned to_bits   = to_type->getIntegerBitWidth();
+                    if (to_bits == from_bits)
+                        return value;
+                    if (to_bits < from_bits)
+                        return builder_.CreateTrunc(value, to_type);
+                    return from_signed ? builder_.CreateSExt(value, to_type)
+                                       : builder_.CreateZExt(value, to_type);
+                }
+                if (from_kind == types::TypeKind::Float && to_kind == types::TypeKind::Float) {
+                    const auto from_bits = value->getType()->getPrimitiveSizeInBits();
+                    const auto to_bits   = to_type->getPrimitiveSizeInBits();
+                    if (to_bits == from_bits)
+                        return value;
+                    return to_bits < from_bits ? builder_.CreateFPTrunc(value, to_type)
+                                               : builder_.CreateFPExt(value, to_type);
+                }
+                if (from_kind == types::TypeKind::Int && to_kind == types::TypeKind::Float) {
+                    return from_signed ? builder_.CreateSIToFP(value, to_type)
+                                       : builder_.CreateUIToFP(value, to_type);
+                }
+                if (from_kind == types::TypeKind::Float && to_kind == types::TypeKind::Int) {
+                    return to_signed ? builder_.CreateFPToSI(value, to_type)
+                                     : builder_.CreateFPToUI(value, to_type);
+                }
+                return value;
+            },
+            [&](const hir::HirMakeSome &m) -> llvm::Value * {
+                auto *val = emitExpr(m.value, mod);
+                if (!val)
+                    return nullptr;
+                auto *llvm_type = typeGen_.lower(m.type);
+                // For optional pointers, Some is just the pointer itself
+                if (llvm_type->isPointerTy())
+                    return val;
+                llvm::Value *result = llvm::ConstantAggregateZero::get(llvm_type);
+                result              = builder_.CreateInsertValue(result, val, {0u});
+                result              = builder_.CreateInsertValue(
+                    result,
+                    llvm::ConstantInt::get(llvm::Type::getInt1Ty(builder_.getContext()), 1u), {1u});
+                return result;
+            },
         });
 }
 
@@ -201,6 +265,11 @@ llvm::Value *CodeGenEmit::emitLiteral(const hir::HirLiteral &lit) {
         });
 }
 
+bool CodeGenEmit::isSignedType(const types::TypeId id) const {
+    const auto *int_type = std::get_if<types::TypeInt>(&types_.lookup(id));
+    return int_type != nullptr && types::isSignedWidth(int_type->width);
+}
+
 llvm::Value *CodeGenEmit::emitBinary(const hir::HirBinary &bin, const hir::HirModule &mod) {
     auto *lhs = emitExpr(bin.lhs, mod);
     auto *rhs = emitExpr(bin.rhs, mod);
@@ -279,6 +348,27 @@ llvm::Value *CodeGenEmit::emitBinary(const hir::HirBinary &bin, const hir::HirMo
 }
 
 llvm::Value *CodeGenEmit::emitUnary(const hir::HirUnary &un, const hir::HirModule &mod) {
+    // Address-of must not evaluate (load) its operand; it needs the operand's address.
+    if (un.op == hir::HirUnaryOp::Ref) {
+        auto &operandExpr = mod.getExpr(un.operand);
+        if (auto *var = std::get_if<hir::HirVar>(&operandExpr))
+            return emitVarAddr(*var);
+        if (auto *slot_load = std::get_if<hir::HirSlotLoad>(&operandExpr)) {
+            if (slot_load->slot >= slots_.size())
+                return nullptr;
+            return slots_[slot_load->slot];
+        }
+        if (auto *field = std::get_if<hir::HirField>(&operandExpr))
+            return emitFieldAddr(*field, mod);
+        if (auto *index = std::get_if<hir::HirIndex>(&operandExpr))
+            return emitIndexAddr(*index, mod);
+        if (auto *unary = std::get_if<hir::HirUnary>(&operandExpr);
+            unary != nullptr && unary->op == hir::HirUnaryOp::Deref) {
+            return emitExpr(unary->operand, mod);
+        }
+        return nullptr;
+    }
+
     auto *operand = emitExpr(un.operand, mod);
     if (!operand)
         return nullptr;
@@ -295,6 +385,16 @@ llvm::Value *CodeGenEmit::emitUnary(const hir::HirUnary &un, const hir::HirModul
         auto &operandExpr = mod.getExpr(un.operand);
         if (auto *var = std::get_if<hir::HirVar>(&operandExpr))
             return emitVarAddr(*var);
+        if (auto *slot_load = std::get_if<hir::HirSlotLoad>(&operandExpr)) {
+            // Locals live in slots; `&local` is the slot address.
+            if (slot_load->slot >= slots_.size())
+                return nullptr;
+            return slots_[slot_load->slot];
+        }
+        if (auto *field = std::get_if<hir::HirField>(&operandExpr))
+            return emitFieldAddr(*field, mod);
+        if (auto *index = std::get_if<hir::HirIndex>(&operandExpr))
+            return emitIndexAddr(*index, mod);
         if (auto *unary = std::get_if<hir::HirUnary>(&operandExpr)) {
             if (unary->op == hir::HirUnaryOp::Deref)
                 return emitExpr(unary->operand, mod);
@@ -409,6 +509,16 @@ llvm::Value *CodeGenEmit::emitBranch(const hir::HirBranch &branch, const hir::Hi
 }
 
 llvm::Value *CodeGenEmit::emitIndexAddr(const hir::HirIndex &idx, const hir::HirModule &mod) {
+    // A slice is a `{ *T, i64 }` aggregate: index through its data pointer.
+    if (idx.obj_type && types_.kindOf(idx.obj_type) == types::TypeKind::Slice) {
+        auto *aggregate = emitExpr(idx.object, mod);
+        auto *index_val = emitExpr(idx.index, mod);
+        if (!aggregate || !index_val)
+            return nullptr;
+        auto *data = builder_.CreateExtractValue(aggregate, {0U});
+        return builder_.CreateGEP(typeGen_.lower(idx.type), data, index_val);
+    }
+
     llvm::Value *addr = nullptr;
     if (idx.is_array) {
         auto &objExpr = mod.getExpr(idx.object);
@@ -443,12 +553,31 @@ llvm::Value *CodeGenEmit::emitFieldAddr(const hir::HirField &field, const hir::H
     const auto &object = mod.getExpr(field.object);
     if (auto *var = std::get_if<hir::HirVar>(&object))
         base = emitVarAddr(*var);
-    else if (auto *index = std::get_if<hir::HirIndex>(&object))
+    else if (auto *slot_addr = std::get_if<hir::HirSlotAddr>(&object)) {
+        if (slot_addr->slot >= slots_.size())
+            return nullptr;
+        base = slots_[slot_addr->slot];
+    } else if (auto *slot_load = std::get_if<hir::HirSlotLoad>(&object)) {
+        // A load from a slot is addressable: use the slot itself.
+        if (slot_load->slot >= slots_.size())
+            return nullptr;
+        base = slots_[slot_load->slot];
+    } else if (auto *index = std::get_if<hir::HirIndex>(&object))
         base = emitIndexAddr(*index, mod);
     else if (auto *nested = std::get_if<hir::HirField>(&object))
         base = emitFieldAddr(*nested, mod);
-    if (!base)
-        return nullptr;
+    else if (auto *unary = std::get_if<hir::HirUnary>(&object);
+             unary != nullptr && unary->op == hir::HirUnaryOp::Deref)
+        base = emitExpr(unary->operand, mod); // `*p` is addressed by the pointer itself
+    if (!base) {
+        // Fall back to spilling the aggregate value so its fields can be addressed.
+        auto *value = emitExpr(field.object, mod);
+        if (!value)
+            return nullptr;
+        auto *spill = builder_.CreateAlloca(value->getType());
+        builder_.CreateStore(value, spill);
+        base = spill;
+    }
     return builder_.CreateStructGEP(typeGen_.lower(field.object_type), base, field.index);
 }
 
@@ -458,6 +587,11 @@ llvm::Value *CodeGenEmit::emitLValueAddr(hir::HirExprId target_id, const hir::Hi
         expr,
         common::overloaded{
             [&](const hir::HirVar &var) -> llvm::Value * { return emitVarAddr(var); },
+            [&](const hir::HirSlotAddr &s) -> llvm::Value * {
+                if (s.slot >= slots_.size())
+                    return nullptr;
+                return slots_[s.slot];
+            },
             [&](const hir::HirIndex &idx) -> llvm::Value * { return emitIndexAddr(idx, mod); },
             [&](const hir::HirField &field) -> llvm::Value * { return emitFieldAddr(field, mod); },
             [&](const hir::HirUnary &un) -> llvm::Value * {

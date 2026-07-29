@@ -231,6 +231,8 @@ private:
     bool nraStage();
     bool codegenStage();
     bool cacheStage();
+    void forwardSnapshotDiagnostics();
+    bool mSnapshotDiagsForwarded = false;
 };
 
 } // namespace zith::session

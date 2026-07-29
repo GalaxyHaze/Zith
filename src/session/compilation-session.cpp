@@ -667,17 +667,24 @@ bool CompilationSession::importStage() {
     return true;
 }
 
+void CompilationSession::forwardSnapshotDiagnostics() {
+    if (!mSnapshot || mSnapshotDiagsForwarded)
+        return;
+    mSnapshotDiagsForwarded = true;
+    for (const auto &diagnostic : mSnapshot->diagnostics()) {
+        mDiags.report(diagnostic.severity, diagnostic.code, diagnostic.message,
+                      memory::Span{diagnostic.file, diagnostic.start, diagnostic.end});
+    }
+    mDiags.emit();
+}
+
 bool CompilationSession::resolveStage() {
     auto t0 = std::chrono::steady_clock::now();
     if (mCacheHydrated)
         return true;
     if (mSnapshot) {
         if (mSnapshot->hasErrors()) {
-            for (const auto &diagnostic : mSnapshot->diagnostics()) {
-                mDiags.report(diagnostic.severity, diagnostic.code, diagnostic.message,
-                              memory::Span{diagnostic.file, diagnostic.start, diagnostic.end});
-            }
-            mDiags.emit();
+            forwardSnapshotDiagnostics();
             return false;
         }
         auto resolveDt =
@@ -720,7 +727,10 @@ bool CompilationSession::scanStage() {
                             : mSnapshot->modules().front()->frontend->declarations().size(),
                         scanDt, mSnapshot->diagnostics().size());
         }
-        return !mSnapshot->hasErrors();
+        const bool snapshot_failed = mSnapshot->hasErrors();
+        // Warnings (e.g. deprecated `while`) must reach the user even on success.
+        forwardSnapshotDiagnostics();
+        return !snapshot_failed;
     }
     parser::Parser parser(&mTokens, &mAstBuilder, &mDiags);
     mScanResult = parser::scan(parser, mSyms);
@@ -747,11 +757,7 @@ bool CompilationSession::semaStage() {
 
     if (mSnapshot) {
         if (mSnapshot->hasErrors()) {
-            for (const auto &diagnostic : mSnapshot->diagnostics()) {
-                mDiags.report(diagnostic.severity, diagnostic.code, diagnostic.message,
-                              memory::Span{diagnostic.file, diagnostic.start, diagnostic.end});
-            }
-            mDiags.emit();
+            forwardSnapshotDiagnostics();
             return false;
         }
         mModernSemaPipeline =

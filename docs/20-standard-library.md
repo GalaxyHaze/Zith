@@ -1,5 +1,9 @@
 ## 20. Standard Library
 
+> **Implementation status:** `stdlib/c/io.zith` and `stdlib/std/io/console.zith` are the only
+> shipped modules. `puts` and `println` work. All other standard library content is **spec-only**.
+> See [impl-status.md](impl-status.md).
+
 ### 20.1 Three-Part Structure
 
 | Namespace | Stability | Use when |

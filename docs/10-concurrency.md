@@ -1,7 +1,8 @@
 ## 10. Concurrency & Threads
 
-> **Implementation status:** `spawn`, `await`, and `#wont_remain` are **spec-only**.
-> No compiler support exists yet. See [impl-status.md](impl-status.md).
+> **Implementation status:** `async fn` is accepted by the parser but the body is skipped
+> (**parse skipped**). `yield`, `spawn`, and `await` are **spec-only** with no compiler support.
+> See [impl-status.md](impl-status.md).
 
 ### 10.1 Spawning
 

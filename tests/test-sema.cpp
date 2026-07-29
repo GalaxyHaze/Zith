@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -35,7 +36,16 @@ struct SemaTest {
         struct LightDiag {
             diagnostics::Severity severity;
             diagnostics::ErrCode code;
+            std::string message;
         };
+        bool hasMessage(std::string_view needle) const {
+            for (const auto &d : diags) {
+                if (d.message.find(needle) != std::string::npos) {
+                    return true;
+                }
+            }
+            return false;
+        }
         bool hasErrorCode(diagnostics::ErrCode code) const {
             for (const auto &d : diags) {
                 if (d.severity == diagnostics::Severity::Error && d.code == code) {
@@ -64,7 +74,8 @@ struct SemaTest {
         size_t warns = 0;
         std::vector<Result::LightDiag> copied_diags;
         for (const auto &d : session.diags().all()) {
-            copied_diags.push_back({d.severity, static_cast<diagnostics::ErrCode>(d.code)});
+            copied_diags.push_back(
+                {d.severity, static_cast<diagnostics::ErrCode>(d.code), d.message});
             if (d.severity == diagnostics::Severity::Error) {
                 errs++;
                 std::printf("    [Diag] Code: %u, Message: %s\n", d.code, d.message.c_str());
@@ -114,7 +125,8 @@ struct ModernSemaTest {
         size_t warns = 0;
         std::vector<SemaTest::Result::LightDiag> copied_diags;
         for (const auto &d : session.diags().all()) {
-            copied_diags.push_back({d.severity, static_cast<diagnostics::ErrCode>(d.code)});
+            copied_diags.push_back(
+                {d.severity, static_cast<diagnostics::ErrCode>(d.code), d.message});
             if (d.severity == diagnostics::Severity::Error) {
                 errs++;
                 std::printf("    [ModernDiag] Code: %u, Message: %s\n", d.code, d.message.c_str());
@@ -742,6 +754,112 @@ static void test_modern_extern_call_return() {
     CHECK(r.ok, "Modern sema resolves an extern fn call returning a concrete type");
 }
 
+static void test_modern_numeric_cast_ok() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(): f64 {\n"
+                   "    var n: i32 = 3;\n"
+                   "    let f: f64 = n as f64;\n"
+                   "    return f;\n"
+                   "}\n");
+    CHECK(r.ok, "'as' between numeric types is accepted");
+}
+
+static void test_modern_implicit_numeric_conversion_rejected() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(): f64 {\n"
+                   "    var n: i32 = 3;\n"
+                   "    let g: f64 = n;\n"
+                   "    return g;\n"
+                   "}\n");
+    CHECK(!r.ok, "implicit numeric conversion between variables is rejected");
+    CHECK(r.hasMessage("use 'as'"), "the diagnostic suggests an explicit 'as' cast");
+}
+
+static void test_modern_pointer_cast_rejected() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(p: *i32): i32 {\n"
+                   "    let s: *i32 = p as *i32;\n"
+                   "    return 0;\n"
+                   "}\n");
+    CHECK(!r.ok, "'as' on pointer types is rejected");
+    CHECK(r.hasMessage("only supports numeric conversions"),
+          "pointer casts report the numeric-only restriction");
+}
+
+static void test_modern_pointer_to_void_rejected() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(p: *void): i32 {\n"
+                   "    return 0;\n"
+                   "}\n");
+    CHECK(!r.ok, "'*void' is rejected");
+    CHECK(r.hasMessage("pointer to 'void' is not allowed"),
+          "'*void' reports the dedicated diagnostic");
+}
+
+static void test_modern_null_needs_optional_pointer() {
+    ModernSemaTest init;
+    auto r = init.run("fn main(): i32 {\n"
+                      "    var q: *i32 = null;\n"
+                      "    return 0;\n"
+                      "}\n");
+    CHECK(!r.ok, "'null' cannot initialize a non-optional pointer");
+    CHECK(r.hasMessage("non-optional pointer"), "the initializer diagnostic mentions '?*T'");
+
+    ModernSemaTest assign;
+    auto a = assign.run("fn main(p: *i32): i32 {\n"
+                        "    var q: *i32 = p;\n"
+                        "    q = null;\n"
+                        "    return 0;\n"
+                        "}\n");
+    CHECK(!a.ok, "'null' cannot be assigned to a non-optional pointer");
+    CHECK(a.hasMessage("non-optional pointer"), "the assignment diagnostic mentions '?*T'");
+}
+
+static void test_modern_is_null_on_optional_pointer() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(): bool {\n"
+                   "    var r: ?*i32 = null;\n"
+                   "    let empty: bool = r is null;\n"
+                   "    return empty;\n"
+                   "}\n");
+    CHECK(r.ok, "'is null' on an optional pointer type-checks as bool");
+}
+
+static void test_modern_is_null_requires_optional() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(): bool {\n"
+                   "    var n: i32 = 1;\n"
+                   "    return n is null;\n"
+                   "}\n");
+    CHECK(!r.ok, "'is null' on a non-optional operand is rejected");
+    CHECK(r.hasMessage("requires an optional operand"),
+          "'is null' reports the optional-operand requirement");
+}
+
+static void test_modern_loop_body_infers_locals() {
+    ModernSemaTest while_loop;
+    auto w = while_loop.run("fn main(): i32 {\n"
+                            "    var b: i32 = 0;\n"
+                            "    while (b < 3) {\n"
+                            "        var t: i32 = b + 1;\n"
+                            "        b = t;\n"
+                            "    }\n"
+                            "    return b;\n"
+                            "}\n");
+    CHECK(w.errorCount == 0, "the body of a 'while' loop infers its own locals");
+
+    ModernSemaTest for_loop;
+    auto f = for_loop.run("fn main(): i32 {\n"
+                          "    var b: i32 = 0;\n"
+                          "    for (b < 3) {\n"
+                          "        var t: i32 = b + 1;\n"
+                          "        b = t;\n"
+                          "    }\n"
+                          "    return b;\n"
+                          "}\n");
+    CHECK(f.ok, "the body of a 'for' loop infers its own locals");
+}
+
 static void test_sema() {
     test_basic_unification();
     test_type_mismatch();
@@ -803,6 +921,14 @@ static void test_sema() {
     test_modern_multi_param_call();
     test_modern_reassign_same_type();
     test_modern_extern_call_return();
+    test_modern_numeric_cast_ok();
+    test_modern_implicit_numeric_conversion_rejected();
+    test_modern_pointer_cast_rejected();
+    test_modern_pointer_to_void_rejected();
+    test_modern_null_needs_optional_pointer();
+    test_modern_is_null_on_optional_pointer();
+    test_modern_is_null_requires_optional();
+    test_modern_loop_body_infers_locals();
 }
 
 TEST_MAIN(sema)

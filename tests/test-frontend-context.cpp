@@ -1,4 +1,5 @@
 #include "cli/options.hpp"
+#include "diagnostics/error-codes.hpp"
 #include "session/compilation-session.hpp"
 #include "session/frontend-context.hpp"
 #include "session/pipeline-plan.hpp"
@@ -239,6 +240,121 @@ void test_session_materializes_dependency_overlays() {
           "legacy compatibility materializer does not reload the disk dependency");
 }
 
+size_t duplicateDeclCount(const CompilationSnapshot &snapshot) {
+    size_t count = 0;
+    for (const auto &diagnostic : snapshot.diagnostics()) {
+        if (diagnostic.code == diagnostics::err::DuplicateDecl)
+            ++count;
+    }
+    return count;
+}
+
+const ModuleResolution *rootResolution(const CompilationSnapshot &snapshot,
+                                       const Workspace &workspace) {
+    return snapshot.findResolution(SourceCatalog::canonicalPath(workspace.path("main.zith")));
+}
+
+void test_parameter_names_are_scoped_per_function() {
+    Workspace workspace;
+    workspace.write("main.zith",
+                    "fn f(x: i32): i32 { return x }\nfn g(x: i32): i32 { return x }\n");
+
+    FrontendContext context(workspace.config(1));
+    auto result = context.analyzeFile(workspace.path("main.zith"));
+    CHECK(result.isOk(), "analysis of two functions with the same parameter name succeeds");
+    if (!result)
+        return;
+
+    const auto &snapshot = *result.value();
+    CHECK_EQ(duplicateDeclCount(snapshot), 0u,
+             "same parameter name in two functions is not a duplicate declaration");
+
+    const auto *resolution = rootResolution(snapshot, workspace);
+    CHECK(resolution != nullptr, "root module has a resolution table");
+    if (!resolution)
+        return;
+    std::vector<uint32_t> scopes;
+    for (const auto &binding : resolution->bindings) {
+        if (binding.name == "x")
+            scopes.push_back(binding.scope.value);
+    }
+    CHECK_EQ(scopes.size(), 2u, "both parameters named 'x' are recorded as bindings");
+    CHECK(scopes.size() == 2u && scopes[0] != scopes[1],
+          "parameters named 'x' live in distinct scopes");
+    CHECK(scopes.size() == 2u && scopes[0] != 0u && scopes[1] != 0u,
+          "parameters are not placed in the module scope");
+}
+
+void test_local_bindings_are_scoped() {
+    Workspace workspace;
+    workspace.write("main.zith", "fn f(): i32 { let v = 1\nreturn v }\n"
+                                 "fn g(): i32 { let v = 2\nreturn v }\n");
+
+    FrontendContext context(workspace.config(1));
+    auto result = context.analyzeFile(workspace.path("main.zith"));
+    CHECK(result.isOk(), "analysis of the same local name in two functions succeeds");
+    if (!result)
+        return;
+    CHECK_EQ(duplicateDeclCount(*result.value()), 0u,
+             "the same local name in two functions is not a duplicate declaration");
+
+    Workspace duplicate;
+    duplicate.write("main.zith", "fn f(): i32 { let v = 1\nlet v = 2\nreturn v }\n");
+    FrontendContext duplicate_context(duplicate.config(1));
+    auto duplicate_result = duplicate_context.analyzeFile(duplicate.path("main.zith"));
+    CHECK(duplicate_result.isOk(), "analysis still produces a snapshot for duplicate locals");
+    if (!duplicate_result)
+        return;
+    CHECK_EQ(duplicateDeclCount(*duplicate_result.value()), 1u,
+             "two locals named 'v' in one block report exactly one duplicate declaration");
+}
+
+void test_nested_block_shadowing_is_allowed() {
+    Workspace workspace;
+    workspace.write("main.zith", "fn f(): i32 { let v = 1\n{ let v = 2\n}\nreturn v }\n");
+
+    FrontendContext context(workspace.config(1));
+    auto result = context.analyzeFile(workspace.path("main.zith"));
+    CHECK(result.isOk(), "analysis of a shadowing nested block succeeds");
+    if (!result)
+        return;
+    CHECK_EQ(duplicateDeclCount(*result.value()), 0u,
+             "shadowing a local in a nested block is allowed");
+}
+
+void test_parameter_shadowing_in_body_is_a_duplicate() {
+    Workspace workspace;
+    workspace.write("main.zith", "fn f(x: i32): i32 { let x = 2\nreturn x }\n");
+
+    FrontendContext context(workspace.config(1));
+    auto result = context.analyzeFile(workspace.path("main.zith"));
+    CHECK(result.isOk(), "analysis still produces a snapshot when a parameter is shadowed");
+    if (!result)
+        return;
+    CHECK_EQ(duplicateDeclCount(*result.value()), 1u,
+             "a body local may not shadow a parameter of the same function");
+}
+
+void test_syntax_errors_reach_the_diagnostic_engine() {
+    Workspace workspace;
+    workspace.write("main.zith", "fn f( {\n");
+
+    auto context = std::make_shared<FrontendContext>(workspace.config(1));
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = Stage::TypeChecked;
+    CompilationSession session(options, workspace.path("main.zith"), context);
+    session.setBuffered(true);
+    CHECK(!session.runTo(Stage::TypeChecked), "a syntax error fails the sema stage");
+
+    size_t errors = 0;
+    for (const auto &diagnostic : session.diags().all()) {
+        if (diagnostic.severity == diagnostics::Severity::Error && !diagnostic.message.empty())
+            ++errors;
+    }
+    CHECK(errors > 0u, "snapshot syntax errors are forwarded to the diagnostic engine");
+}
+
 } // namespace
 
 static void test_frontend_context() {
@@ -247,6 +363,11 @@ static void test_frontend_context() {
     test_partial_artifact_cycle_and_session_snapshot();
     test_import_graph_and_resolution_table();
     test_session_materializes_dependency_overlays();
+    test_parameter_names_are_scoped_per_function();
+    test_local_bindings_are_scoped();
+    test_nested_block_shadowing_is_allowed();
+    test_parameter_shadowing_in_body_is_a_duplicate();
+    test_syntax_errors_reach_the_diagnostic_engine();
 }
 
 TEST_MAIN(frontend_context)

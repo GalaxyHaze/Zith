@@ -72,6 +72,7 @@ struct FunctionType {
 struct StructType {
     std::string_view name;
     memory::DynArray<TypeId> &fields;
+    memory::DynArray<std::string_view> &field_names;
 };
 struct EnumType {
     std::string_view name;
@@ -119,7 +120,9 @@ public:
     [[nodiscard]] TypeId internOptional(TypeId inner);
     [[nodiscard]] TypeId internArray(TypeId element, uint64_t size);
     [[nodiscard]] TypeId internFunction(memory::DynArray<TypeId> &params, TypeId result);
-    [[nodiscard]] TypeId internStruct(std::string_view name, memory::DynArray<TypeId> &fields);
+    [[nodiscard]] TypeId internStruct(std::string_view name, memory::DynArray<TypeId> &fields,
+                                      memory::DynArray<std::string_view> *field_names = nullptr);
+    [[nodiscard]] int fieldIndex(TypeId struct_type, std::string_view name) const noexcept;
     [[nodiscard]] TypeId internEnum(std::string_view name, memory::DynArray<TypeId> &variants);
     [[nodiscard]] TypeId internUnion(std::string_view name, memory::DynArray<TypeId> &members);
     [[nodiscard]] TypeId internTrait(std::string_view name);
@@ -155,6 +158,9 @@ public:
 
     [[nodiscard]] size_t size() const noexcept;
 
+    /// Maps a nominal placeholder (created before the declaration was seen) onto the
+    /// completed type registered under the same name. Idempotent for every other type.
+    [[nodiscard]] TypeId canonical(TypeId id) const noexcept;
     [[nodiscard]] TypeId lookupNamed(std::string_view name) const noexcept;
     [[nodiscard]] TypeId findOrCreateNamed(std::string_view name, TypeKind kind);
     void registerNamed(std::string_view name, TypeId id);

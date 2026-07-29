@@ -61,6 +61,7 @@ struct PerModuleSema {
     TypeId i64_type;
     TypeId f32_type;
     TypeId f64_type;
+    TypeId null_type;
 
     PerModuleSema(session::ModuleKey mod, const frontend::FrontendSnapshot &snap,
                   const session::ModuleResolution &res, TypeTable &tt, TypedMap &tm,
@@ -89,7 +90,9 @@ private:
     void registerNamedTypes();
     void lowerDeclarationTypes();
     void inferExpressionTypes();
+    void inferExpressionTypesForDecls();
     void checkReturnsAndCalls();
+    TypeId currentReturnType_ = kInvalidTypeId;
 
     TypeId lowerTypeExpr(frontend::TypeExprId id) noexcept;
     TypeId lowerForeignType(const cinterop::Type &type);
@@ -104,9 +107,29 @@ private:
     TypeId inferWhile(frontend::ExprId id);
     TypeId inferReturn(frontend::ExprId id);
     TypeId inferAssign(frontend::ExprId id);
+    TypeId inferOptionalProp(frontend::ExprId id);
+    TypeId inferIndex(frontend::ExprId id);
+    TypeId inferField(frontend::ExprId id);
+    TypeId inferArrow(frontend::ExprId id);
+    TypeId inferStructLiteral(frontend::ExprId id);
+    TypeId inferCast(frontend::ExprId id);
+    TypeId inferIsNull(frontend::ExprId id);
+
+    /// Adapts a numeric literal operand to `target` when possible. This is the only implicit
+    /// numeric conversion the language keeps; conversions between variables need `as`.
+    bool adaptNumericLiteral(frontend::ExprId value, TypeId target);
+    /// `coercesTo` plus literal adaptation, for sites that know the source expression.
+    bool coerceValue(frontend::ExprId value, TypeId target, TypeId source);
+
+    /// Emits the most specific diagnostic for a failed `source -> target` coercion.
+    void reportCoercionFailure(frontend::TextSpan span, TypeId target, TypeId source,
+                               std::string_view context);
 
     bool unify(TypeId expected, TypeId actual);
     bool sameType(TypeId a, TypeId b) const noexcept;
+    /// True when a value of `source` is acceptable where `target` is expected,
+    /// including the implicit `T -> ?T` and `null -> ?T` coercions.
+    bool coercesTo(TypeId target, TypeId source) const noexcept;
     TypeId resolve(TypeId t) const noexcept;
     TypeId concreteBase(TypeId t) const noexcept;
 

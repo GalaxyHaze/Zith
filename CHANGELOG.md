@@ -1,6 +1,76 @@
 # Changelog
 
 
+## [Não Lançado] - 2026-07-29 (correções de linguagem)
+
+### Operadores multi-char, `for` vs `while`, `as` explícito, ponteiros não-nuláveis, `is null`
+
+#### Lexer
+- Maximal-munch para `==`, `!=`, `<=`, `>=`, `->`: passam a ser um único token. Antes o lexer
+  emitia um token por caractere, pelo que **todos** os operadores de comparação de dois
+  caracteres eram rejeitados pelo parser.
+- Os restantes operadores multi-char (`&&`, `||`, `+=`, `<<`, `>>`, `..`) continuam divididos por
+  caractere: a sua `precedence()` é -1 e tokenizá-los penduraria o loop binário.
+
+#### Frontend Parser
+- `ExprKind::Cast` (`expr as Tipo`, com `Expression::cast_type`) e `ExprKind::IsNull`
+  (`expr is null`). `as` é postfix, logo liga mais forte que qualquer operador binário;
+  `is null` tem a precedência das comparações.
+- `is` com qualquer outro operando reporta "only 'is null' is supported in this version".
+- Novo `parseFor()`: `for { ... }` (condição sintética `true`) e `for (cond) { ... }` produzem
+  `ExprKind::While` — mesma estrutura de blocos, sem novo lowering. As formas iteradoras
+  (`for (x in xs)`) e de 3 cláusulas reportam "not implemented yet".
+- `while` continua funcional mas emite um aviso de deprecação (`Diagnostic::isWarning`).
+
+#### Diagnósticos
+- `err::DeprecatedSyntax` (W1008) e encaminhamento de avisos do snapshot mesmo quando o
+  `check` passa — antes o aviso era forçado a erro e nunca chegava ao utilizador.
+
+#### Sema Moderno
+- `classifyCast(from, to)` — único ponto de decisão da política de conversão; nesta iteração só
+  aceita pares numéricos (Integer/Float) e identidade. Casts de ponteiro e definidos pelo
+  utilizador entram depois como um ramo novo aqui.
+- `inferCast` e `inferIsNull` (`is null` exige operando `?T`; produz `bool`).
+- `inferWhile` passa a inferir também o corpo do loop — sem isto os locais declarados dentro de
+  um loop não tinham tipo registado.
+- Sem conversões numéricas implícitas: só literais se adaptam ao tipo anotado
+  (`adaptNumericLiteral`). `reportCoercionFailure` centraliza a mensagem em todos os call sites
+  (atribuição, inicializador, argumento, campo de literal, retorno).
+- `*void` e `?*void` rejeitados: "use 'raw opaque' for C interop".
+- `null` num ponteiro simples rejeitado com "cannot assign 'null' to a non-optional pointer;
+  use '?*T'".
+
+#### Tabela de Tipos
+- `TypeTable::canonical(TypeId)` — resolve um placeholder nominal para o tipo completo registado
+  com o mesmo nome. Corrige structs auto-referenciais via `?*Node`.
+
+#### HIR Lowering Moderno
+- `HirCast` (`value`, `from`, `to`) no `HirExprKind`, na variante `HirExpr`, e no dump.
+- `lowerIsNull`: `?*T` usa o niche do nullptr (`Eq` contra `MakeNone`); `?T` não-ponteiro lê o
+  discriminante (`Field{index 1}`) e nega-o (`Unary{Not}`).
+- `lowerType` para structs passa a copiar os campos para o tipo lowered — antes as structs
+  chegavam ao LLVM vazias (`%zith.struct.0 = type {}`).
+- `lowerStructLiteral` reordena os valores para a ordem de declaração e embrulha `T` em Some
+  para campos `?T`.
+
+#### Codegen
+- Visitor de `HirCast`: Trunc/SExt/ZExt, FPTrunc/FPExt, SIToFP/UIToFP, FPToSI/FPToUI.
+- `emitFieldAddr` trata slots, ponteiros e agregados em registo — corrige o erro E5001
+  "Basic Block does not have terminator" em `return p.y;`.
+- `emitUnary` trata address-of antes de avaliar o operando, para que `&local` não emita um load.
+
+#### Formatter
+- Casos para `Cast` (`expr as Tipo`) e `IsNull` (`expr is null`).
+
+#### Testes e Exemplos
+- `examples/linked-list.zith` — programa de aceitação end-to-end: lista ligada com `?*Node`,
+  travessia com `for (not (cur is null))`, `==`/`!=`, e conversões `as`. Sai com código 7.
+- 21 novos casos: 7 em `test-frontend.cpp`, 8 em `test-sema.cpp`, 4 em
+  `test-hir-lower-modern.cpp`, 4 em `test-codegen.cpp` (incluindo as regressões do
+  `type {}` e do `return p.y`).
+- Suite completa: 23/23 testes passam.
+
+
 ## [Não Lançado] - 2026-07-29 (late)
 
 ### Pipeline Moderno — Structs, Ponteiros, e Acessos a Campos

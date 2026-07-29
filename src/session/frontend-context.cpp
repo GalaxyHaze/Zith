@@ -664,8 +664,9 @@ ModuleArtifactPtr FrontendContext::buildModule(SourceCatalog::SourcePtr source) 
 
     for (const auto &diagnostic : artifact->frontend->diagnostics()) {
         artifact->diagnostics.push_back({
-            diagnostics::Severity::Error,
-            diagnostics::err::UnknownToken,
+            diagnostic.isWarning ? diagnostics::Severity::Warning : diagnostics::Severity::Error,
+            diagnostic.isWarning ? diagnostics::err::DeprecatedSyntax
+                                 : diagnostics::err::UnknownToken,
             diagnostic.message,
             source->id,
             diagnostic.span.start,
@@ -737,6 +738,34 @@ FrontendContext::mergeSymbols(const std::vector<ModuleArtifactPtr> &modules) {
     return result;
 }
 
+const ResolvedName *lookupBinding(const ModuleResolution &resolution, std::string_view name,
+                                  frontend::ScopeId from,
+                                  const std::vector<frontend::Scope> &scopes) noexcept {
+    const ResolvedName *result = nullptr;
+    frontend::ScopeId current  = from;
+    bool exhausted             = false;
+    while (result == nullptr && !exhausted) {
+        for (const auto &binding : resolution.bindings) {
+            if (binding.scope == current && binding.name == name) {
+                result = &binding;
+                break;
+            }
+        }
+        if (result != nullptr)
+            break;
+        if (!current) {
+            exhausted = true;
+            break;
+        }
+        if (current.value > scopes.size()) {
+            current = frontend::ScopeId{};
+            continue;
+        }
+        current = scopes[current.value - 1U].parent;
+    }
+    return result;
+}
+
 std::vector<ModuleResolution>
 FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                                   const std::vector<ImportEdge> &import_graph,
@@ -750,18 +779,20 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
     for (const auto &module : modules) {
         ModuleResolution resolution;
         resolution.module = module->key;
-        std::unordered_map<std::string, size_t> bindings;
-        auto add_binding = [&](ResolvedName binding) {
-            if (const auto existing = bindings.find(binding.name); existing != bindings.end()) {
+        // Bindings are keyed by (scope, name): a name only conflicts with another
+        // binding declared in the *same* scope.  The module scope is ScopeId{}.
+        std::map<std::pair<uint32_t, std::string>, size_t> bindings;
+        auto add_binding = [&](ResolvedName binding, const frontend::ScopeId scope) {
+            binding.scope  = scope;
+            const auto key = std::make_pair(scope.value, binding.name);
+            if (const auto existing = bindings.find(key); existing != bindings.end()) {
                 diagnostics.push_back({diagnostics::Severity::Error,
                                        diagnostics::err::DuplicateDecl,
-                                       "imported binding '" + binding.name +
-                                           "' conflicts with an "
-                                           "existing binding",
+                                       "duplicate binding '" + binding.name + "' in this scope",
                                        module->fileId, binding.span.start, binding.span.end});
                 return;
             }
-            bindings.emplace(binding.name, resolution.bindings.size());
+            bindings.emplace(key, resolution.bindings.size());
             resolution.bindings.push_back(std::move(binding));
         };
 
@@ -775,7 +806,16 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                          {module->key, frontend::SymbolId{declaration.id.value}},
                          declaration.id,
                          {},
-                         {}});
+                         {}},
+                        frontend::ScopeId{});
+            // Parameters live in the scope of the function body block, so two
+            // functions may reuse the same parameter name.
+            frontend::ScopeId parameter_scope;
+            if (declaration.body &&
+                declaration.body.value <= module->frontend->expressions().size()) {
+                parameter_scope =
+                    module->frontend->expressions()[declaration.body.value - 1U].scope;
+            }
             for (const auto &parameter : declaration.parameters) {
                 add_binding({parameter.name,
                              ResolutionKind::Declaration,
@@ -783,19 +823,37 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                              {},
                              {},
                              parameter.id,
-                             {}});
+                             {}},
+                            parameter_scope);
+            }
+        }
+        // Local bindings take the scope of the block that contains them; the
+        // statement list itself carries no scope information.
+        std::unordered_map<uint32_t, frontend::ScopeId> statement_scopes;
+        for (const auto &expression : module->frontend->expressions()) {
+            if (expression.kind != frontend::ExprKind::Block)
+                continue;
+            for (const auto statement_id : expression.statements) {
+                if (statement_id)
+                    statement_scopes.emplace(statement_id.value, expression.scope);
             }
         }
         for (const auto &statement : module->frontend->statements()) {
             if (statement.kind != frontend::StmtKind::Binding || statement.binding.name.empty())
                 continue;
+            frontend::ScopeId statement_scope;
+            if (const auto found = statement_scopes.find(statement.id.value);
+                found != statement_scopes.end()) {
+                statement_scope = found->second;
+            }
             add_binding({statement.binding.name,
                          ResolutionKind::Declaration,
                          statement.binding.span,
                          {},
                          {},
                          statement.binding.id,
-                         {}});
+                         {}},
+                        statement_scope);
         }
 
         for (const auto &edge : import_graph) {
@@ -812,7 +870,8 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                                  {},
                                  {},
                                  {},
-                                 &function});
+                                 &function},
+                                frontend::ScopeId{});
                 }
                 if (!edge.request.alias.empty()) {
                     add_binding({edge.request.alias,
@@ -822,7 +881,8 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                                  {},
                                  {},
                                  {},
-                                 {}});
+                                 {}},
+                                frontend::ScopeId{});
                 }
                 continue;
             }
@@ -835,7 +895,8 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                              {edge.targets.empty() ? ModuleKey{} : edge.targets.front(), {}},
                              {},
                              {},
-                             {}});
+                             {}},
+                            frontend::ScopeId{});
             }
             if (!edge.request.selectors.empty()) {
                 for (const auto &selector : edge.request.selectors) {
@@ -853,7 +914,8 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                                          {target, symbol.id},
                                          {},
                                          {},
-                                         {}});
+                                         {}},
+                                        frontend::ScopeId{});
                             found = true;
                             break;
                         }
@@ -882,7 +944,8 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                                      {target, symbol.id},
                                      {},
                                      {},
-                                     {}});
+                                     {}},
+                                    frontend::ScopeId{});
                     }
                 }
             } else if (edge.request.alias.empty() && !default_name.empty()) {
@@ -892,7 +955,8 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                              {edge.targets.empty() ? ModuleKey{} : edge.targets.front(), {}},
                              {},
                              {},
-                             {}});
+                             {}},
+                            frontend::ScopeId{});
             }
         }
 
@@ -902,8 +966,9 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
             ResolvedName name{
                 expression.text, ResolutionKind::Unresolved, expression.span, {}, {}, {},
                 expression.scope};
-            if (const auto found = bindings.find(expression.text); found != bindings.end()) {
-                name       = resolution.bindings[found->second];
+            if (const auto *found = lookupBinding(resolution, expression.text, expression.scope,
+                                                  module->frontend->scopes())) {
+                name       = *found;
                 name.span  = expression.span;
                 name.scope = expression.scope;
             }
@@ -911,7 +976,9 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
         }
         std::sort(resolution.bindings.begin(), resolution.bindings.end(),
                   [](const ResolvedName &left, const ResolvedName &right) {
-                      return left.name < right.name;
+                      if (left.name != right.name)
+                          return left.name < right.name;
+                      return left.scope.value < right.scope.value;
                   });
         std::sort(resolution.expressions.begin(), resolution.expressions.end(),
                   [](const ResolvedName &left, const ResolvedName &right) {

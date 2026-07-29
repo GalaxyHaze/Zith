@@ -135,6 +135,18 @@ void HirModule::dump(FILE *out, const memory::StringInterner &interner) const {
                         [&](const HirSlotLoad &s) {
                             std::fprintf(out, "slot_load s%u : %%t%u", s.slot, s.type);
                         },
+                        [&](const HirSlotAddr &s) {
+                            std::fprintf(out, "slot_addr s%u : %%t%u", s.slot, s.type);
+                        },
+                        [&](const HirMakeNone &m) {
+                            std::fprintf(out, "make_none : %%t%u", m.type);
+                        },
+                        [&](const HirMakeSome &m) {
+                            std::fprintf(out, "make_some %%e%u : %%t%u", m.value, m.type);
+                        },
+                        [&](const HirCast &c) {
+                            std::fprintf(out, "cast %%e%u : %%t%u -> %%t%u", c.value, c.from, c.to);
+                        },
                     });
                 std::fprintf(out, "\n");
             }

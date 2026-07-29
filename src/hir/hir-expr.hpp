@@ -35,6 +35,10 @@ enum class HirExprKind : uint8_t {
     SlotAlloca,
     SlotStore,
     SlotLoad,
+    MakeNone,
+    MakeSome,
+    SlotAddr,
+    Cast,
 };
 
 enum class HirBinaryOp : uint8_t {
@@ -190,10 +194,36 @@ struct HirSlotLoad {
     HirExprKind tag = HirExprKind::SlotLoad;
 };
 
+struct HirSlotAddr {
+    HirSlotId slot;
+    HirTypeId type;
+    HirExprKind tag = HirExprKind::SlotAddr;
+};
+
+struct HirMakeNone {
+    HirTypeId type;
+    HirExprKind tag = HirExprKind::MakeNone;
+};
+
+/// Numeric conversion produced by the `as` operator.
+struct HirCast {
+    HirExprId value;
+    HirTypeId from;
+    HirTypeId to;
+    HirExprKind tag = HirExprKind::Cast;
+};
+
+struct HirMakeSome {
+    HirExprId value;
+    HirTypeId type;
+    HirExprKind tag = HirExprKind::MakeSome;
+};
+
 using HirExpr =
     std::variant<HirLiteral, HirBinary, HirUnary, HirLet, HirVar, HirCall, HirRet, HirBranch,
                  HirJump, HirPhi, HirAssign, HirIndex, HirField, HirStructLiteral, HirArrayLiteral,
-                 HirEnumValue, HirSlotAlloca, HirSlotStore, HirSlotLoad>;
+                 HirEnumValue, HirSlotAlloca, HirSlotStore, HirSlotLoad, HirSlotAddr, HirMakeNone,
+                 HirMakeSome, HirCast>;
 
 inline HirExprKind exprKind(const HirExpr &expr) {
     return std::visit([](const auto &entry) { return entry.tag; }, expr);

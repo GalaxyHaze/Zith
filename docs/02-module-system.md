@@ -1,5 +1,10 @@
 ## 2. Module System
 
+> **Implementation status:** `import`, `from`, `export`, `alias`, `type`, and `pub`/`mod` visibility
+> are **working**. `use` (word/context activation) is **parse skipped** — the body is accepted but
+> has no semantics. `::` scope resolution and namespace access via `.` are **not yet implemented**
+> in the modern pipeline. See [impl-status.md](impl-status.md).
+
 ### 2.1 Import Keywords
 
 | Keyword | Behavior |

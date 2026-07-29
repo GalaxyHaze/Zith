@@ -1,5 +1,10 @@
 ## 6. Mutability & Bindings
 
+> **Implementation status:** `let`, `var`, `const`, and `global` bindings are **working**. Binding
+> destructuring with `[ ]` and pack literals are **spec-only** — no parser or sema support.
+> NRA ownership modifiers (`lend`, `view`, `unique`, `share`, `belong`) are **spec-only**.
+> See [impl-status.md](impl-status.md).
+
 ### 6.1 Deep Mutability Model
 
 Zith uses deep mutability: a modifier on a binding flows into every nested field. Fields inside a struct inherit the mutability of the instance that holds them — no per-field `mut` annotation needed.

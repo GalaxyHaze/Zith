@@ -1,8 +1,10 @@
 ## 8. Error Handling
 
-> **Implementation status:** `?T` / `T!` types, `must`, and `raw` are **working**.
-> `?` / `!` propagation operators, `fail` blocks, `with` / `catch`, and `throw` are **spec-only** (no compiler support yet).
-> See [impl-status.md](impl-status.md) for details.
+> **Implementation status:** `?T` and `T!` types are **working**. `?` postfix propagation is
+> **working** with full operand and return-type validation. `null → ?T` and `T → ?T` coercions are
+> **working**. `must`, `raw`, `fail`, `with`, `catch`, `throw`, and prefix `?`/`!` fallback are
+> **spec-only**. See [impl-status.md](impl-status.md).
+
 
 Error handling in Zith is fully static and return-based — there are no exceptions, and no semicolon is required after `?` or `!`.
 

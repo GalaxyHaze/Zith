@@ -1,7 +1,7 @@
 ## 15. Macros
 
-> **Implementation status:** Macro declarations parse; `@macro` call sites emit warning W2009
-> (`NotImplemented`) and the call is dropped. Tag macros are **spec-only**.
+> **Implementation status:** `@macro` calls are a **parse error** — `@` in expression position is
+> not handled by the parser. Tag macros (`<Tag>`) are **spec-only**.
 > See [impl-status.md](impl-status.md).
 
 | Type | Description |

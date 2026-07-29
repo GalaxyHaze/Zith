@@ -1,5 +1,14 @@
 ## 3. Type System
 
+> **Implementation status:** Primitive types, structs, enums, unions, `?T`, `T!`, `[N]T`, `[]T`,
+> pointers, type aliases, `implement`, and generics (`<T>`) are all **working**. `as` casting is
+> **working** for numeric conversions only, and is required: there are no implicit conversions
+> between numeric types (a numeric *literal* still adapts to its annotated type). Pointers are
+> non-nullable — `null` requires `?*T` — and `*void` is rejected in favour of `raw opaque`.
+> `is` is limited to `(val is null)` on an optional; union narrowing, `when` pattern matching,
+> `dyn Trait`, and NRA ownership modifiers (`lend`, `view`, etc.) are **spec-only**.
+> See [impl-status.md](impl-status.md).
+
 ### 3.1 Primitive Types
 
 | Category | Types |

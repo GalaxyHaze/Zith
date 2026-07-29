@@ -100,8 +100,7 @@ void test_scalar_types() {
 
     // 5. int bar(float x, double y)
     {
-        const auto art =
-            parseHeaderFromContent("int_bar.h", "int bar(float x, double y);\n");
+        const auto art = parseHeaderFromContent("int_bar.h", "int bar(float x, double y);\n");
         CHECK(!art->diagnostics.empty() || art->functions.size() == 1,
               "int bar(float, double): 1 function");
         if (const auto *f = findFunction(*art, "bar")) {
@@ -111,12 +110,10 @@ void test_scalar_types() {
             CHECK(f->result.isSigned, "int bar: result is signed");
             CHECK_EQ(f->parameters.size(), 2u, "int bar: 2 parameters");
             if (f->parameters.size() == 2) {
-                CHECK_EQ(static_cast<int>(f->parameters[0].kind),
-                         static_cast<int>(TypeKind::Float),
+                CHECK_EQ(static_cast<int>(f->parameters[0].kind), static_cast<int>(TypeKind::Float),
                          "int bar: first param is Float (float)");
                 CHECK_EQ(f->parameters[0].bits, 32, "int bar: float is 32 bits");
-                CHECK_EQ(static_cast<int>(f->parameters[1].kind),
-                         static_cast<int>(TypeKind::Float),
+                CHECK_EQ(static_cast<int>(f->parameters[1].kind), static_cast<int>(TypeKind::Float),
                          "int bar: second param is Float (double)");
                 CHECK_EQ(f->parameters[1].bits, 64, "int bar: double is 64 bits");
             }
@@ -129,10 +126,9 @@ void test_pointer_and_const() {
 
     // 6. void baz(int *p, const char *s)
     {
-        const auto art = parseHeaderFromContent("ptr_const.h",
-                                                "void baz(int *p, const char *s);\n");
-        CHECK(!art->diagnostics.empty() || art->functions.size() == 1,
-              "baz: 1 function");
+        const auto art =
+            parseHeaderFromContent("ptr_const.h", "void baz(int *p, const char *s);\n");
+        CHECK(!art->diagnostics.empty() || art->functions.size() == 1, "baz: 1 function");
         if (const auto *f = findFunction(*art, "baz")) {
             CHECK_EQ(f->parameters.size(), 2u, "baz: 2 parameters");
             if (f->parameters.size() == 2) {
@@ -141,16 +137,14 @@ void test_pointer_and_const() {
                          "baz: first param is Pointer (int *)");
                 CHECK(f->parameters[0].pointee != nullptr, "baz: int* has pointee");
                 if (f->parameters[0].pointee) {
-                    CHECK(!f->parameters[0].pointee->isConst,
-                          "baz: int* pointee is not const");
+                    CHECK(!f->parameters[0].pointee->isConst, "baz: int* pointee is not const");
                 }
                 CHECK_EQ(static_cast<int>(f->parameters[1].kind),
                          static_cast<int>(TypeKind::Pointer),
                          "baz: second param is Pointer (const char *)");
                 CHECK(f->parameters[1].pointee != nullptr, "baz: const char* has pointee");
                 if (f->parameters[1].pointee) {
-                    CHECK(f->parameters[1].pointee->isConst,
-                          "baz: const char* pointee is const");
+                    CHECK(f->parameters[1].pointee->isConst, "baz: const char* pointee is const");
                 }
             }
         }
@@ -163,11 +157,9 @@ void test_struct_and_enum() {
     // 7. struct Point
     {
         const auto art =
-            parseHeaderFromContent("struct_point.h",
-                                   "struct Point { int x, y; };\n"
-                                   "struct Point get_origin(void);\n");
-        CHECK(!art->diagnostics.empty() || art->functions.size() == 1,
-              "struct Point: 1 function");
+            parseHeaderFromContent("struct_point.h", "struct Point { int x, y; };\n"
+                                                     "struct Point get_origin(void);\n");
+        CHECK(!art->diagnostics.empty() || art->functions.size() == 1, "struct Point: 1 function");
         if (const auto *f = findFunction(*art, "get_origin")) {
             CHECK_EQ(static_cast<int>(f->result.kind), static_cast<int>(TypeKind::Record),
                      "get_origin: result is Record");
@@ -178,12 +170,9 @@ void test_struct_and_enum() {
 
     // 8. enum Color
     {
-        const auto art =
-            parseHeaderFromContent("enum_color.h",
-                                   "enum Color { R, G, B };\n"
-                                   "enum Color next(enum Color c);\n");
-        CHECK(!art->diagnostics.empty() || art->functions.size() == 1,
-              "enum Color: 1 function");
+        const auto art = parseHeaderFromContent("enum_color.h", "enum Color { R, G, B };\n"
+                                                                "enum Color next(enum Color c);\n");
+        CHECK(!art->diagnostics.empty() || art->functions.size() == 1, "enum Color: 1 function");
         if (const auto *f = findFunction(*art, "next")) {
             CHECK_EQ(static_cast<int>(f->result.kind), static_cast<int>(TypeKind::Enum),
                      "next: result is Enum");
@@ -212,9 +201,8 @@ void test_filtering() {
     // 10. static function is excluded
     {
         const auto art =
-            parseHeaderFromContent("static_fn.h",
-                                   "static int helper(void) { return 1; }\n"
-                                   "int caller(void);\n");
+            parseHeaderFromContent("static_fn.h", "static int helper(void) { return 1; }\n"
+                                                  "int caller(void);\n");
         CHECK(findFunction(*art, "helper") == nullptr, "static helper is excluded");
         CHECK(findFunction(*art, "caller") != nullptr, "non-static caller is included");
     }
@@ -222,9 +210,8 @@ void test_filtering() {
     // 11. inline function is excluded
     {
         const auto art =
-            parseHeaderFromContent("inline_fn.h",
-                                   "inline int fast(void) { return 0; }\n"
-                                   "int slow(void);\n");
+            parseHeaderFromContent("inline_fn.h", "inline int fast(void) { return 0; }\n"
+                                                  "int slow(void);\n");
         CHECK(findFunction(*art, "fast") == nullptr, "inline fast is excluded");
         CHECK(findFunction(*art, "slow") != nullptr, "non-inline slow is included");
     }
@@ -235,10 +222,8 @@ void test_dependencies() {
 
     // 13. #include <stdint.h> produces a resolved dependency
     {
-        const auto art =
-            parseHeaderFromContent("has_stdint.h",
-                                   "#include <stdint.h>\n"
-                                   "uint32_t id(void);\n");
+        const auto art   = parseHeaderFromContent("has_stdint.h", "#include <stdint.h>\n"
+                                                                    "uint32_t id(void);\n");
         bool foundStdint = false;
         for (const auto &dep : art->dependencies) {
             if (dep.find("stdint.h") != std::string::npos) {
@@ -253,18 +238,16 @@ void test_dependencies() {
     {
         // Write a helper header and a main header that includes it plus stddef.h
         writeTempHeader("helper_dep.h", "int helper_dep_fn(void);\n");
-        const auto art =
-            parseHeaderFromContent("multi_include.h",
-                                   "#include <stddef.h>\n"
-                                   "#include \"helper_dep.h\"\n"
-                                   "int main_fn(void);\n",
-                                   ParseOptions{});
+        const auto art = parseHeaderFromContent("multi_include.h",
+                                                "#include <stddef.h>\n"
+                                                "#include \"helper_dep.h\"\n"
+                                                "int main_fn(void);\n",
+                                                ParseOptions{});
         // Check no duplicates
         for (size_t i = 1; i < art->dependencies.size(); ++i) {
             CHECK(art->dependencies[i - 1] != art->dependencies[i],
                   "dependencies have no adjacent duplicates");
-            CHECK(art->dependencies[i - 1] <= art->dependencies[i],
-                  "dependencies are sorted");
+            CHECK(art->dependencies[i - 1] <= art->dependencies[i], "dependencies are sorted");
         }
     }
 }
@@ -274,8 +257,7 @@ void test_parse_errors() {
 
     // 15. #error produces a diagnostic
     {
-        const auto art =
-            parseHeaderFromContent("error_header.h", "#error \"fail deliberately\"\n");
+        const auto art = parseHeaderFromContent("error_header.h", "#error \"fail deliberately\"\n");
         bool foundError = false;
         for (const auto &d : art->diagnostics) {
             if (d.message.find("fail deliberately") != std::string::npos) {
@@ -293,9 +275,9 @@ void test_parse_options() {
     // 16. Invalid sysroot produces a diagnostic
     {
         ParseOptions opts;
-        opts.sysroot       = "/nonexistent/sysroot";
-        opts.targetTriple  = "x86_64-unknown-linux-gnu";
-        const auto art = parseHeader(writeTempHeader("sysroot_test.h", "int fn(void);\n"), opts);
+        opts.sysroot      = "/nonexistent/sysroot";
+        opts.targetTriple = "x86_64-unknown-linux-gnu";
+        const auto art    = parseHeader(writeTempHeader("sysroot_test.h", "int fn(void);\n"), opts);
         // With a fake sysroot, we might get parse errors; verify artifact is non-null
         CHECK(art != nullptr, "invalid sysroot still returns artifact");
         // The diagnostics should include something about inability to find headers
@@ -315,19 +297,18 @@ void test_parse_options() {
 
         ParseOptions opts;
         opts.includeDirs.push_back(extraDir);
-        const auto art =
-            parseHeaderFromContent("uses_extra.h",
-                                   "#include \"extra.h\"\n"
-                                   "int main_fn(void);\n",
-                                   opts);
-        CHECK(findFunction(*art, "main_fn") != nullptr,
-              "main_fn also found alongside extra_fn");
+        const auto art = parseHeaderFromContent("uses_extra.h",
+                                                "#include \"extra.h\"\n"
+                                                "int main_fn(void);\n",
+                                                opts);
+        CHECK(findFunction(*art, "main_fn") != nullptr, "main_fn also found alongside extra_fn");
         // extra_fn lives in a transitively included header and is not
         // returned in `functions` (only declarations from the main file
         // are visited), but the include dir should still resolve.
         bool foundExtraDep = false;
         for (const auto &dep : art->dependencies) {
-            if (dep.find("extra.h") != std::string::npos) foundExtraDep = true;
+            if (dep.find("extra.h") != std::string::npos)
+                foundExtraDep = true;
         }
         CHECK(foundExtraDep, "extra.h appears in dependencies via custom includeDir");
     }
@@ -336,13 +317,12 @@ void test_parse_options() {
     {
         ParseOptions opts;
         opts.defines.push_back("ANSWER=42");
-        const auto art = parseHeaderFromContent(
-            "define_test.h",
-            "#if ANSWER != 42\n"
-            "#error \"wrong answer\"\n"
-            "#endif\n"
-            "int the_fn(void);\n",
-            opts);
+        const auto art = parseHeaderFromContent("define_test.h",
+                                                "#if ANSWER != 42\n"
+                                                "#error \"wrong answer\"\n"
+                                                "#endif\n"
+                                                "int the_fn(void);\n",
+                                                opts);
         // If the define works, there's no #error and we see the function
         CHECK(findFunction(*art, "the_fn") != nullptr,
               "function compiled correctly when ANSWER=42 defined");
@@ -350,12 +330,10 @@ void test_parse_options() {
 
     // 18b. defines missing causes #error
     {
-        const auto art = parseHeaderFromContent(
-            "define_fail.h",
-            "#if ANSWER != 42\n"
-            "#error \"wrong answer\"\n"
-            "#endif\n"
-            "int the_fn(void);\n");
+        const auto art = parseHeaderFromContent("define_fail.h", "#if ANSWER != 42\n"
+                                                                 "#error \"wrong answer\"\n"
+                                                                 "#endif\n"
+                                                                 "int the_fn(void);\n");
         // Without the define, clang will produce a diagnostic for #error or
         // for ANSWER being undefined; either way, the_fn likely won't appear.
         bool hasError = !art->diagnostics.empty();

@@ -1,8 +1,9 @@
 ## 11. Comptime
 
-> **Implementation status:** `comptime` blocks and reflection intrinsics are **spec-only**.
-> `const` bindings parse correctly but are not evaluated at compile time yet.
-> See [impl-status.md](impl-status.md).
+> **Implementation status:** `comptime` blocks, compile-time reflection intrinsics, and `const fn`
+> evaluation are **spec-only**. `const` bindings are **working** (immutable at runtime) but are not
+> evaluated at compile time. See [impl-status.md](impl-status.md).
+
 
 Comptime covers compile-time computation: reflection, type manipulation, and `const` blocks.
 

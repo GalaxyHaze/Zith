@@ -1,5 +1,9 @@
 ## 13. Raw & Unsafe
 
+> **Implementation status:** `raw fn` is **working**. `raw` as an unwrap operator is **spec-only**.
+> `unsafe` blocks, `raw union`, and safety-hierarchy enforcement are **spec-only**.
+> See [impl-status.md](impl-status.md).
+
 ### 13.1 Safety Hierarchy
 
 ```

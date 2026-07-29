@@ -1,5 +1,10 @@
 ## 7. Memory Model (NRA)
 
+> **Implementation status:** NRA (Node Resource Analysis) and all ownership modifiers
+> (`lend`, `view`, `unique`, `share`, `belong`) are **spec-only** — the analysis pass is not
+> implemented. Pointer types (`*T`) are accepted in declarations; `*p` dereference and `&x`
+> address-of are **parse errors**. See [impl-status.md](impl-status.md).
+
 ### 7.1 What NRA Tracks
 
 NRA watches every value in your program and classifies it into one of three states:

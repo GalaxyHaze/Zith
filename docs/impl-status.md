@@ -25,7 +25,7 @@ reflects actual compiler behaviour, not spec intent.
 
 | Stage | Status | Notes |
 |---|---|---|
-| Lexer | **Working** | Hand-written, character-at-a-time. All keywords and operators recognised |
+| Lexer | **Working** | Hand-written, character-at-a-time. Maximal-munch for `==`, `!=`, `<=`, `>=`, `->`; other multi-char operators (`&&`, `+=`, `<<`, `..`) are still split per character |
 | Parser | **Working** | Recursive-descent. Function decls, expressions, imports. |
 | Formatter | **Working** | Round-trip stable for all 16 `ExprKind` nodes including `Index`, `OptionalProp`, `Field`, `Arrow`, and `StructLiteral` |
 | Import resolution | **Working** | `import`, `from`, `export`, `alias`, `type` |
@@ -60,9 +60,9 @@ reflects actual compiler behaviour, not spec intent.
 | `bool`, `char` | **Working** | |
 | `i8`–`i128`, `u8`–`u128` | **Working** | Arithmetic between matching widths only; no implicit promotion |
 | `f32`, `f64` | **Working** | Same-width arithmetic only |
-| `?T` (optional) | **Working** | `null → ?T` and `T → ?T` coercions; `?` postfix propagation with operand/return validation |
+| `?T` (optional) | **Working** | `null → ?T` and `T → ?T` coercions; `?` postfix propagation with operand/return validation. `null` is rejected for non-optional `*T` |
 | `T!` (failable) | **Working** | Declared type; lowered through HIR |
-| `*T` (pointer) | **Working** | Type declaration, `*p` deref, `&x` addr-of, and `->` arrow all work |
+| `*T` (pointer) | **Working** | Non-nullable: `null` requires `?*T`. `*p` deref, `&x` addr-of, and `->` arrow all work. `*void` is rejected (use `raw opaque`) |
 | `[N]T` (array), `[]T` (slice) | **Working** | Indexing on arrays, slices, and pointers lowers through HIR/LLVM |
 | `dyn Trait` | **Parse error** | Type parser does not handle `dyn` |
 | `struct`, `component`, `enum`, `union` | **Working** | Declarations parse and resolve |
@@ -84,8 +84,9 @@ reflects actual compiler behaviour, not spec intent.
 | `->` chain operator | **Working** | Arrow access on struct pointers (`p->field`) |
 | index `a[i]` | **Working** | On arrays, slices, pointers; rejects non-indexable types |
 | `?` postfix propagation | **Working** | Requires optional operand in optional-returning function |
-| `as` cast | **Check only** | Tokenized as binary `as`; no dedicated cast semantics |
-| `is` expression | **Check only** | Tokenized as binary `is`; no dedicated semantics |
+| `as` cast | **Working** | Dedicated `ExprKind::Cast` -> `HirCast` -> LLVM conversion. Numeric pairs only (`classifyCast`); pointer and user-defined casts rejected. No narrowing overflow check |
+| `is null` | **Working** | Dedicated `ExprKind::IsNull`. Requires an optional operand; `?*T` uses the nullptr niche, `?T` reads the discriminant |
+| `is <type>` | **Parse error** | Only `is null` is supported; any other operand reports a dedicated diagnostic |
 | range `1..5` | **Check only** | Parsed as binary `..`; no dedicated sema |
 | struct literal `Foo { x: 1, y: 2 }` | **Working** | Struct literal with named fields via `{}` syntax |
 | `@sizeOf`, `@intrinsic` | **Parse error** | `@` in expression position not handled |
@@ -95,10 +96,11 @@ reflects actual compiler behaviour, not spec intent.
 | Feature | Status | Notes |
 |---|---|---|
 | `if` / `else` / `else if` | **Working** | |
-| `while` | **Working** | |
+| `while` | **Deprecated** | Still lowers correctly, but emits `W1008` suggesting `for (cond) { }` |
 | `break`, `continue` | **Working** | |
 | `return` (void and typed) | **Working** | |
-| `for` loops | **Check only** | Passes check; lowering not verified |
+| `for (cond) { }`, `for { }` | **Working** | Conditional and infinite loop forms lower to the same CFG as `while` |
+| `for (x in xs)`, `for (init), (cond), (step)` | **Parse error** | Recognised and reported as not implemented yet |
 | `when` pattern match | **Parse error** | `when (x)` partially parsed; arm syntax `0 => { }` unrecognised |
 | `marker` / `dock` / `jump` | **Check only** | Parsed in `flow fn`; lowering not verified |
 
@@ -171,6 +173,8 @@ reflects actual compiler behaviour, not spec intent.
 | E0000 | Error | User-reported diagnostic (type mismatch, optional validation, etc.) |
 | E2002 | Error | `DuplicateDecl` — duplicate binding in same scope |
 | E1006 | Error | Import resolution failure |
+| E3003 | Error | `InvalidCast` — non-numeric `as` conversion |
+| W1008 | Warning | `DeprecatedSyntax` — `while` should be written `for (cond)` |
 
 ---
 
@@ -180,7 +184,24 @@ All statuses above were verified against the current `build/zithc` binary (2026-
 
 ```bash
 build/zithc --include stdlib check examples/hello-world.zith   # [ok] check passed
+build/zithc run examples/linked-list.zith                        # exit 7
 ctest --test-dir build                                           # 23/23 passed
 ```
+
+---
+
+## Known Debt
+
+Recorded deliberately; each item is a follow-up, not an unknown.
+
+| Item | Notes |
+|---|---|
+| Formatter re-prints `for (cond)` as `while` | `for` reuses `ExprKind::While`; a distinct node is needed to round-trip the spelling |
+| No overflow check on narrowing conversions | Neither `as` nor numeric-literal adaptation validates that the value fits the target |
+| No flow-sensitive narrowing after `is null` | `p->field` on a `?*T` is accepted without proving the pointer is non-null |
+| `is` limited to `is null` | Union/type narrowing is not addressed |
+| `for` iterator and 3-clause forms unimplemented | Reported as errors rather than parsed |
+| User-defined casts | To be added as a new branch in `classifyCast` |
+| Multi-char operators beyond the five | `&&`, `\|\|`, `+=`, `<<`, `>>`, `..` still lex per character (their `precedence()` is -1) |
 
 *When a feature moves from one status to another, update this table and re-verify.*

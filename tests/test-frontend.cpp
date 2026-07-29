@@ -1,6 +1,7 @@
 #include "frontend/frontend.hpp"
 #include "test-common.hpp"
 
+#include <string>
 #include <string_view>
 
 using namespace zith;
@@ -89,7 +90,7 @@ static void test_control_flow_and_scopes() {
                                     "    if (n < 0) {\n"
                                     "        return 0;\n"
                                     "    }\n"
-                                    "    while (n > 0) {\n"
+                                    "    for (n > 0) {\n"
                                     "        var step: i32 = 1;\n"
                                     "    }\n"
                                     "    return n;\n"
@@ -105,7 +106,156 @@ static void test_control_flow_and_scopes() {
         else if (expression.kind == frontend::ExprKind::If)
             found_if = true;
     }
-    CHECK(found_if && found_while, "both if and while expressions are lowered");
+    CHECK(found_if && found_while, "both if and conditional-loop expressions are lowered");
+}
+
+static void test_while_is_deprecated() {
+    auto snapshot = frontend::parse("fn run(n: i32): i32 {\n"
+                                    "    while (n > 0) {\n"
+                                    "        return 0;\n"
+                                    "    }\n"
+                                    "    return n;\n"
+                                    "}\n");
+
+    CHECK_EQ(snapshot.diagnostics().size(), 1u, "'while' produces exactly one diagnostic");
+    CHECK(snapshot.diagnostics()[0].isWarning, "the 'while' diagnostic is a warning, not an error");
+    bool found_while = false;
+    for (const auto &expression : snapshot.expressions()) {
+        if (expression.kind == frontend::ExprKind::While)
+            found_while = true;
+    }
+    CHECK(found_while, "'while' still lowers to a loop expression");
+}
+
+static std::string_view tokenText(const frontend::FrontendSnapshot &snapshot,
+                                  const frontend::Token &token) {
+    return std::string_view(snapshot.source())
+        .substr(token.span.start, token.span.end - token.span.start);
+}
+
+static bool hasOperatorToken(const frontend::FrontendSnapshot &snapshot, std::string_view text) {
+    for (const auto &token : snapshot.tokens()) {
+        if (token.kind == frontend::TokenKind::Operator && tokenText(snapshot, token) == text)
+            return true;
+    }
+    return false;
+}
+
+static void test_multi_char_operators_are_single_tokens() {
+    auto snapshot = frontend::parse("fn cmp(a: i32, b: i32): bool {\n"
+                                    "    return a == b;\n"
+                                    "}\n");
+    CHECK(hasOperatorToken(snapshot, "=="), "'==' lexes as a single two-character operator token");
+
+    for (const std::string_view op : {"==", "!=", "<=", ">="}) {
+        auto pair = frontend::parse("fn cmp(a: i32, b: i32): bool { return a " + std::string(op) +
+                                    " b; }\n");
+        CHECK(hasOperatorToken(pair, op), "two-character comparison operator lexes as one token");
+    }
+
+    auto arrow = frontend::parse("fn deref(p: *i32): i32 { return p->x; }\n");
+    CHECK(hasOperatorToken(arrow, "->"), "'->' lexes as a single two-character operator token");
+
+    auto single = frontend::parse("fn f(a: i32, b: i32): bool { return not a > b; }\n");
+    for (const auto &token : single.tokens()) {
+        if (token.kind == frontend::TokenKind::Operator)
+            CHECK_EQ(token.span.size(), 1u, "standalone comparison operator stays one character");
+    }
+}
+
+static void test_binary_comparison_expression() {
+    auto snapshot = frontend::parse("fn cmp(a: i32, b: i32): bool {\n"
+                                    "    return a == b;\n"
+                                    "}\n");
+
+    CHECK(snapshot.diagnostics().empty(), "'==' parses without diagnostics");
+    bool found = false;
+    for (const auto &expression : snapshot.expressions()) {
+        if (expression.kind == frontend::ExprKind::Binary && expression.text == "==")
+            found = true;
+    }
+    CHECK(found, "'==' lowers to a binary expression carrying the full operator text");
+}
+
+static void test_cast_expression() {
+    auto snapshot = frontend::parse("fn widen(n: i32): i64 {\n"
+                                    "    return n as i64;\n"
+                                    "}\n");
+
+    CHECK(snapshot.diagnostics().empty(), "'as' parses without diagnostics");
+    const frontend::Expression *cast = nullptr;
+    for (const auto &expression : snapshot.expressions()) {
+        if (expression.kind == frontend::ExprKind::Cast)
+            cast = &expression;
+    }
+    CHECK(cast != nullptr, "'as' lowers to a cast expression");
+    if (cast != nullptr) {
+        CHECK_EQ(cast->operands.size(), 1u, "a cast has exactly one value operand");
+        CHECK(static_cast<bool>(cast->cast_type), "a cast records its target type expression");
+    }
+}
+
+static void test_is_null_expression() {
+    auto snapshot = frontend::parse("fn empty(p: ?*i32): bool {\n"
+                                    "    return p is null;\n"
+                                    "}\n");
+
+    CHECK(snapshot.diagnostics().empty(), "'is null' parses without diagnostics");
+    const frontend::Expression *is_null = nullptr;
+    for (const auto &expression : snapshot.expressions()) {
+        if (expression.kind == frontend::ExprKind::IsNull)
+            is_null = &expression;
+    }
+    CHECK(is_null != nullptr, "'is null' lowers to a dedicated expression");
+    if (is_null != nullptr)
+        CHECK_EQ(is_null->operands.size(), 1u, "'is null' has exactly one operand");
+}
+
+static void test_is_other_type_is_rejected() {
+    auto snapshot = frontend::parse("fn check(p: ?*i32): bool {\n"
+                                    "    return p is i32;\n"
+                                    "}\n");
+
+    CHECK(!snapshot.diagnostics().empty(), "'is' with a type operand produces a diagnostic");
+}
+
+static void test_for_loop_forms() {
+    auto conditional = frontend::parse("fn run(n: i32): i32 {\n"
+                                       "    for (n > 0) {\n"
+                                       "        return 0;\n"
+                                       "    }\n"
+                                       "    return n;\n"
+                                       "}\n");
+    CHECK(conditional.diagnostics().empty(), "'for (cond)' parses without diagnostics");
+    bool found_conditional = false;
+    for (const auto &expression : conditional.expressions()) {
+        if (expression.kind == frontend::ExprKind::While)
+            found_conditional = true;
+    }
+    CHECK(found_conditional, "'for (cond)' lowers to a loop expression");
+
+    auto infinite = frontend::parse("fn run(): i32 {\n"
+                                    "    for {\n"
+                                    "        return 0;\n"
+                                    "    }\n"
+                                    "    return 1;\n"
+                                    "}\n");
+    CHECK(infinite.diagnostics().empty(), "'for { }' parses without diagnostics");
+    bool found_infinite = false;
+    for (const auto &expression : infinite.expressions()) {
+        if (expression.kind == frontend::ExprKind::While)
+            found_infinite = true;
+    }
+    CHECK(found_infinite, "'for { }' lowers to a loop expression");
+
+    auto iterator = frontend::parse("fn run(xs: i32): i32 {\n"
+                                    "    for (x in xs) {\n"
+                                    "        return 0;\n"
+                                    "    }\n"
+                                    "    return 1;\n"
+                                    "}\n");
+    CHECK(!iterator.diagnostics().empty(),
+          "the iterator form of 'for' reports it is unimplemented");
 }
 
 static void test_structured_imports() {
@@ -265,6 +415,13 @@ static void test_frontend() {
     test_recovery_creates_error_nodes();
     test_function_body_ast();
     test_control_flow_and_scopes();
+    test_while_is_deprecated();
+    test_multi_char_operators_are_single_tokens();
+    test_binary_comparison_expression();
+    test_cast_expression();
+    test_is_null_expression();
+    test_is_other_type_is_rejected();
+    test_for_loop_forms();
     test_structured_imports();
     test_c_header_import_syntax();
     test_variable_declarations();
