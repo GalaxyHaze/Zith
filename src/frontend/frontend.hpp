@@ -123,6 +123,10 @@ enum class ExprKind : uint8_t {
     ArrayLiteral,
     Cast,
     IsNull,
+    /// `when (subject) { (cond) ~> body, (_) ~> default }` — match is a synonym.
+    When,
+    /// A range pattern `lo..hi`, valid only inside a `when` case condition.
+    Range,
     /// `_` as a struct-literal field value: `Pair{left: _, right: 2}`.
     Placeholder,
     /// The offsetOf / alignOf layout intrinsics.
@@ -180,6 +184,9 @@ struct Expression {
     ScopeId scope;
     // Used by ExprKind::StructLiteral: parallel field name per operand
     std::vector<std::string> field_names;
+    // Used by ExprKind::When: parallel case condition per operand (operand[0] is
+    // the subject; operands[1..] are case bodies). An empty id marks the default case.
+    std::vector<ExprId> conditions;
     // Used by ExprKind::Cast: the target type written after `as`
     TypeExprId cast_type;
 };

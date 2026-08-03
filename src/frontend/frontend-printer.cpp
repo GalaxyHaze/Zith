@@ -91,6 +91,10 @@ namespace {
         return "StructLiteral";
     case ExprKind::ArrayLiteral:
         return "ArrayLiteral";
+    case ExprKind::When:
+        return "When";
+    case ExprKind::Range:
+        return "Range";
     case ExprKind::Cast:
         return "Cast";
     case ExprKind::IsNull:

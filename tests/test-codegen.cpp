@@ -321,6 +321,25 @@ static void test_sizeof_intrinsic_runtime() {
     CHECK_EQ(r.exitCode, 1, "@sizeOf folds to the target-ABI size in bytes");
 }
 
+static void test_when_expression_runtime() {
+    CodegenTest t;
+    auto r = t.run("codegen-when.zith",
+                   "fn classify(n: i32): i32 {\n"
+                   "    return when (n) {\n"
+                   "        (0) ~> 10,\n"
+                   "        (1..3) ~> 20,\n"
+                   "        (4) ~> 30,\n"
+                   "        (_) ~> 40\n"
+                   "    }\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    return classify(0) + classify(2) + classify(4) + classify(9);\n"
+                   "}\n");
+    CHECK(r.ok, "when with literal, range, and default cases compiles and runs");
+    printf("EXIT CODE: %d\n", r.exitCode);
+    CHECK_EQ(r.exitCode, 100, "when dispatches through literal, range, and default cases");
+}
+
 static void test_named_struct_literal_and_defaults_runtime() {
     CodegenTest t;
     auto r = t.run("codegen-named-struct-literal.zith",
@@ -746,6 +765,7 @@ static void test_codegen() {
     printf("Running test_offsetof_and_alignof_runtime\n");
     test_offsetof_and_alignof_runtime();
     test_sizeof_intrinsic_runtime();
+    test_when_expression_runtime();
     printf("Running test_named_struct_literal_and_defaults_runtime\n");
     test_named_struct_literal_and_defaults_runtime();
     printf("Running test_trailing_void_call_is_emitted_once\n");

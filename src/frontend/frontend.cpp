@@ -133,11 +133,15 @@ void lex(FrontendSnapshot &snapshot) {
         }
 
         if (std::isdigit(static_cast<unsigned char>(source[position])) != 0) {
+            // A '.' only continues a float when it is not the first half of a
+            // `..` range operator: `1.5` is a float, `1..3` is two literals and
+            // two dots.
             do {
                 ++position;
             } while (position < source.size() &&
                      (std::isalnum(static_cast<unsigned char>(source[position])) != 0 ||
-                      source[position] == '.'));
+                      (source[position] == '.' &&
+                       !(position + 1 < source.size() && source[position + 1] == '.'))));
             snapshot.tokens_.push_back(
                 Token{TokenKind::Literal, TextSpan{start, position}, triviaStart,
                       static_cast<uint32_t>(snapshot.trivia_.size()) - triviaStart});
@@ -438,6 +442,9 @@ private:
     uint32_t index_      = 0;
     uint32_t next_scope_ = 1;
     ScopeId current_scope_;
+    /// When set (while parsing a when-case condition), a '.' followed by another
+    /// '.' is left unconsumed by postfix so the caller can form a `lo..hi` range.
+    bool range_mode_ = false;
 
     [[nodiscard]] std::string_view text(const uint32_t index) const {
         return tokenText(snapshot_, index);
@@ -636,6 +643,8 @@ private:
             return parseWhile();
         if (text(index_) == "for")
             return parseFor();
+        if (text(index_) == "when" || text(index_) == "match")
+            return parseWhen();
         if (punctuation(index_, '(')) {
             ++index_;
             auto nested = parseExpression();
@@ -752,6 +761,8 @@ private:
                isOperatorToken("->") || isKeywordToken("as")) {
             // Dot field access: expr.field
             if (punctuation(index_, '.')) {
+                if (range_mode_ && punctuation(index_ + 1U, '.'))
+                    break; // leave `lo..hi` for the when-case range pattern
                 ++index_;
                 if (index_ < token_count_ &&
                     (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
@@ -1010,6 +1021,95 @@ private:
         }
         expression.span = range(start, index_);
         return addExpression(std::move(expression));
+    }
+
+    /// `when (subject) { (cond) ~> body, ... , (_) ~> default }` — `match` is a
+    /// synonym. Case conditions may be a range pattern `lo..hi` (case-local only;
+    /// standalone ranges are rejected elsewhere). The default case `(_)` must be last.
+    [[nodiscard]] ExprId parseWhen() {
+        const uint32_t start = index_++;
+        Expression expression;
+        expression.kind  = ExprKind::When;
+        expression.scope = current_scope_;
+        if (punctuation(index_, '('))
+            ++index_;
+        expression.operands.push_back(parseExpression()); // subject
+        if (punctuation(index_, ')'))
+            ++index_;
+        else
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_), "expected ')' after when subject"});
+        if (punctuation(index_, '{'))
+            ++index_;
+        else
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_), "expected '{' after when subject"});
+
+        while (index_ < token_count_ && !punctuation(index_, '}')) {
+            if (punctuation(index_, ',')) {
+                ++index_;
+                continue;
+            }
+            const uint32_t case_start = index_;
+            ExprId condition;
+            bool is_default = false;
+            if (punctuation(index_, '(')) {
+                ++index_;
+                if (text(index_) == "_" && punctuation(index_ + 1U, ')')) {
+                    ++index_; // '_'
+                    ++index_; // ')'
+                    is_default = true;
+                } else {
+                    range_mode_ = true;
+                    condition   = parseExpression();
+                    range_mode_ = false;
+                    // Range pattern `lo..hi`: only recognized inside a when case.
+                    if (punctuation(index_, '.') && punctuation(index_ + 1U, '.')) {
+                        const auto &cond_node = snapshot_.expressions_[condition.value - 1U];
+                        index_ += 2;
+                        Expression range;
+                        range.kind  = ExprKind::Range;
+                        range.text  = "..";
+                        range.scope = current_scope_;
+                        range.operands.push_back(condition);
+                        range.operands.push_back(parseExpression());
+                        range.span = {cond_node.span.start,
+                                      snapshot_.tokens_[index_ - 1U].span.end};
+                        condition  = addExpression(std::move(range));
+                    }
+                    if (punctuation(index_, ')'))
+                        ++index_;
+                    else
+                        snapshot_.diagnostics_.push_back(
+                            {range(case_start, index_), "expected ')' after when case condition"});
+                }
+            } else {
+                snapshot_.diagnostics_.push_back(
+                    {range(case_start, index_), "expected '(' before when case condition"});
+                while (index_ < token_count_ && !punctuation(index_, ',') &&
+                       !punctuation(index_, '}'))
+                    ++index_;
+            }
+            if (isOperatorToken("~") && index_ + 1U < token_count_ &&
+                snapshot_.tokens_[index_ + 1U].kind == TokenKind::Operator &&
+                text(index_ + 1U) == ">") {
+                index_ += 2;
+            } else {
+                snapshot_.diagnostics_.push_back(
+                    {range(case_start, index_), "expected '~>' after when case condition"});
+            }
+            expression.conditions.push_back(is_default ? ExprId{} : condition);
+            expression.operands.push_back(parseExpression()); // case body
+            if (punctuation(index_, ','))
+                ++index_;
+        }
+        if (punctuation(index_, '}'))
+            ++index_;
+        else
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_), "expected '}' after when cases"});
+        expression.span = range(start, index_);
+        return parsePostfix(addExpression(std::move(expression)), start);
     }
 
     /// `for` is the canonical loop: `for { }` (infinite) and `for (cond) { }` (conditional).

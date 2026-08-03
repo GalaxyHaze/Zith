@@ -527,6 +527,10 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
         return lowerBlock(expr);
     case frontend::ExprKind::If:
         return lowerIf(expr, type);
+    case frontend::ExprKind::When:
+        return lowerWhen(expr, type);
+    case frontend::ExprKind::Range:
+        return hir::kInvalidHirExpr;
     case frontend::ExprKind::While:
         return lowerWhile(expr);
     case frontend::ExprKind::Assign:
@@ -741,6 +745,124 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
     setCurrentBlock(merge_block);
     current_fn_->blocks[merge_block].insts = memory::DynArray<hir::HirExprId>(arena_);
     return has_value ? emitSlotLoad(result_slot, type) : hir::kInvalidHirExpr;
+}
+
+hir::HirExprId HirLowerModern::lowerWhen(const frontend::Expression &expr,
+                                         const types::TypeId type) {
+    const size_t case_count = expr.operands.size() - 1U;
+    if (case_count == 0)
+        return hir::kInvalidHirExpr;
+
+    // The subject is evaluated exactly once and spilled so every case can compare.
+    const auto subject      = lowerExpr(expr.operands[0]);
+    const auto subject_type = typeOfExpr(expr.operands[0]);
+    if (subject == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+    const auto subject_slot = next_slot_++;
+    current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(subject_slot, subject_type));
+    current_fn_->blocks[current_block_].insts.push(emitSlotStore(subject_slot, subject));
+
+    const bool has_value   = type != types::kVoidType && type != types::kErrorType;
+    const auto result_slot = has_value ? next_slot_++ : hir::kInvalidHirSlot;
+    if (has_value)
+        current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(result_slot, type));
+
+    const auto merge_block = newBlock();
+    size_t chain_block     = current_block_;
+    for (size_t i = 0; i < case_count; ++i) {
+        const size_t body_index = i + 1U;
+        const bool is_last      = i + 1U == case_count;
+        const bool is_default   = i < expr.conditions.size() && !expr.conditions[i];
+
+        if (i > 0U) {
+            setCurrentBlock(chain_block);
+            current_fn_->blocks[chain_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+        }
+
+        const auto body_block = newBlock();
+        if (is_default) {
+            emitJump(body_block);
+            if (!is_last)
+                chain_block = newBlock(); // unreachable continuation for a misplaced default
+        } else {
+            const size_t else_block = is_last ? merge_block : newBlock();
+            const auto condition =
+                lowerWhenCondition(expr.conditions[i], subject_slot, subject_type);
+            hir::HirBranch branch;
+            branch.cond       = condition;
+            branch.then_block = static_cast<hir::HirDeclId>(body_block);
+            branch.else_block = static_cast<hir::HirDeclId>(else_block);
+            setTerminator(addExpr(std::move(branch)));
+            chain_block = else_block;
+        }
+
+        setCurrentBlock(body_block);
+        current_fn_->blocks[body_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+        const auto body_value                 = lowerExpr(expr.operands[body_index]);
+        if (has_value && body_value != hir::kInvalidHirExpr &&
+            current_fn_->blocks[body_block].terminator == hir::kInvalidHirExpr) {
+            current_fn_->blocks[body_block].insts.push(emitSlotStore(result_slot, body_value));
+        }
+        if (current_fn_->blocks[body_block].terminator == hir::kInvalidHirExpr)
+            emitJump(merge_block);
+    }
+
+    setCurrentBlock(merge_block);
+    current_fn_->blocks[merge_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    return has_value ? emitSlotLoad(result_slot, type) : hir::kInvalidHirExpr;
+}
+
+hir::HirExprId HirLowerModern::lowerWhenCondition(frontend::ExprId condition,
+                                                  const hir::HirSlotId subject_slot,
+                                                  const types::TypeId subject_type) {
+    if (!condition || current_module_ == nullptr || current_module_->frontend == nullptr ||
+        condition.value > current_module_->frontend->expressions().size())
+        return hir::kInvalidHirExpr;
+    const auto &node = current_module_->frontend->expressions()[condition.value - 1U];
+    if (node.kind == frontend::ExprKind::Range) {
+        const auto lower_bound = lowerExpr(node.operands[0]);
+        const auto upper_bound = lowerExpr(node.operands[1]);
+        const auto subject     = emitSlotLoad(subject_slot, subject_type);
+        if (lower_bound == hir::kInvalidHirExpr || upper_bound == hir::kInvalidHirExpr)
+            return hir::kInvalidHirExpr;
+
+        hir::HirBinary ge;
+        ge.lhs           = subject;
+        ge.rhs           = lower_bound;
+        ge.op            = hir::HirBinaryOp::Ge;
+        ge.type          = types::kBoolType;
+        const auto ge_id = addExpr(std::move(ge));
+
+        hir::HirBinary le;
+        le.lhs           = subject;
+        le.rhs           = upper_bound;
+        le.op            = hir::HirBinaryOp::Le;
+        le.type          = types::kBoolType;
+        const auto le_id = addExpr(std::move(le));
+
+        hir::HirBinary conjunction;
+        conjunction.lhs  = ge_id;
+        conjunction.rhs  = le_id;
+        conjunction.op   = hir::HirBinaryOp::And;
+        conjunction.type = types::kBoolType;
+        return addExpr(std::move(conjunction));
+    }
+
+    // A boolean condition is tested directly; any other condition is an equality
+    // pattern (`(0)` means `subject == 0`).
+    if (types_.kindOf(typeOfExpr(condition)) == types::TypeKind::Bool)
+        return lowerExpr(condition);
+
+    const auto value   = lowerExpr(condition);
+    const auto subject = emitSlotLoad(subject_slot, subject_type);
+    if (value == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+    hir::HirBinary equality;
+    equality.lhs  = subject;
+    equality.rhs  = value;
+    equality.op   = hir::HirBinaryOp::Eq;
+    equality.type = types::kBoolType;
+    return addExpr(std::move(equality));
 }
 
 hir::HirExprId HirLowerModern::lowerWhile(const frontend::Expression &expr) {

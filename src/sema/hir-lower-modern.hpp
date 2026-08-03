@@ -91,6 +91,9 @@ private:
     hir::HirExprId lowerCall(const frontend::Expression &expr);
     hir::HirExprId lowerBlock(const frontend::Expression &expr);
     hir::HirExprId lowerIf(const frontend::Expression &expr, types::TypeId type);
+    hir::HirExprId lowerWhen(const frontend::Expression &expr, types::TypeId type);
+    hir::HirExprId lowerWhenCondition(frontend::ExprId condition, hir::HirSlotId subject_slot,
+                                      types::TypeId subject_type);
     hir::HirExprId lowerWhile(const frontend::Expression &expr);
     hir::HirExprId lowerAssign(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerOptionalProp(const frontend::Expression &expr, types::TypeId type);

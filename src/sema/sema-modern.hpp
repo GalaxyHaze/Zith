@@ -131,6 +131,8 @@ private:
     TypeId inferArrayLiteral(frontend::ExprId id);
     TypeId inferCast(frontend::ExprId id);
     TypeId inferIsNull(frontend::ExprId id);
+    TypeId inferWhen(frontend::ExprId id);
+    TypeId inferRange(frontend::ExprId id);
     TypeId inferLayoutIntrinsic(frontend::ExprId id);
 
     /// Adapts a numeric literal operand to `target` when possible. This is the only implicit

@@ -489,6 +489,73 @@ static void test_sizeof_void_fails() {
     CHECK(r.hasErrorCode(diagnostics::err::TypeMismatch), "Reports TypeMismatch for void");
 }
 
+static void test_when_literal_cases_ok() {
+    SemaTest t;
+    auto r = t.run("fn main(): i32 {\n"
+                   "    var n: i32 = 2;\n"
+                   "    return when (n) {\n"
+                   "        (0) ~> 10,\n"
+                   "        (1..3) ~> 20,\n"
+                   "        (_) ~> 40\n"
+                   "    };\n"
+                   "}\n");
+    CHECK(r.ok, "when with literal, range, and default cases type-checks");
+}
+
+static void test_when_boolean_conditions_ok() {
+    SemaTest t;
+    auto r = t.run("fn main(): i32 {\n"
+                   "    var n: i32 = 2;\n"
+                   "    return when (n) {\n"
+                   "        (n == 0) ~> 10,\n"
+                   "        (n > 3) ~> 20,\n"
+                   "        (_) ~> 40\n"
+                   "    };\n"
+                   "}\n");
+    CHECK(r.ok, "when with boolean conditions type-checks");
+}
+
+static void test_when_missing_default_fails() {
+    SemaTest t;
+    auto r = t.run("fn main(): i32 {\n"
+                   "    var n: i32 = 2;\n"
+                   "    return when (n) {\n"
+                   "        (0) ~> 10,\n"
+                   "        (1..3) ~> 20\n"
+                   "    };\n"
+                   "}\n");
+    CHECK(!r.ok, "value-producing when without a default case fails");
+    CHECK(r.hasErrorCode(diagnostics::err::TypeMismatch),
+          "Reports TypeMismatch for non-exhaustive when");
+}
+
+static void test_when_mismatched_bodies_fail() {
+    SemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    var n: i32 = 2;\n"
+                   "    var x = when (n) {\n"
+                   "        (0) ~> 10,\n"
+                   "        (1..3) ~> \"a\",\n"
+                   "        (_) ~> 40\n"
+                   "    };\n"
+                   "}\n");
+    CHECK(!r.ok, "when with mismatched case body types fails");
+    CHECK(r.hasErrorCode(diagnostics::err::TypeMismatch), "Reports TypeMismatch for bodies");
+}
+
+static void test_when_range_subject_mismatch_fails() {
+    SemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    var s = \"abc\";\n"
+                   "    var x = when (s) {\n"
+                   "        (1..3) ~> 10,\n"
+                   "        (_) ~> 40\n"
+                   "    };\n"
+                   "}\n");
+    CHECK(!r.ok, "when range pattern must match the subject type");
+    CHECK(r.hasErrorCode(diagnostics::err::TypeMismatch), "Reports TypeMismatch for range bounds");
+}
+
 static void test_named_struct_literal_ok() {
     SemaTest t;
     auto r = t.run("struct Pair { left: i32, right: i32 }\n"
@@ -962,6 +1029,11 @@ static void test_sema() {
     test_sizeof_intrinsic_ok();
     test_sizeof_primitive_ok();
     test_sizeof_void_fails();
+    test_when_literal_cases_ok();
+    test_when_boolean_conditions_ok();
+    test_when_missing_default_fails();
+    test_when_mismatched_bodies_fail();
+    test_when_range_subject_mismatch_fails();
     test_named_struct_literal_ok();
     test_named_struct_literal_duplicate_field_fails();
     test_named_struct_literal_unknown_field_fails();

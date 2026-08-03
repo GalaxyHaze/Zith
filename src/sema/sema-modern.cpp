@@ -588,6 +588,12 @@ TypeId PerModuleSema::inferExpr(frontend::ExprId id) {
     case frontend::ExprKind::IsNull:
         result = inferIsNull(id);
         break;
+    case frontend::ExprKind::When:
+        result = inferWhen(id);
+        break;
+    case frontend::ExprKind::Range:
+        result = inferRange(id);
+        break;
     case frontend::ExprKind::Placeholder:
         // `_` gets its type from the struct field it fills; the literal checks it.
         result = error_type;
@@ -870,6 +876,83 @@ TypeId PerModuleSema::inferIsNull(frontend::ExprId id) {
         return error_type;
     }
     return bool_type;
+}
+
+TypeId PerModuleSema::inferRange(frontend::ExprId id) {
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.operands.size() != 2U)
+        return error_type;
+    const TypeId lo = inferExpr(expr.operands[0]);
+    const TypeId hi = inferExpr(expr.operands[1]);
+    if (lo == error_type || hi == error_type)
+        return error_type;
+    if (!sameType(lo, hi)) {
+        if (!adaptNumericLiteral(expr.operands[1], lo)) {
+            report(expr.span, "range pattern bounds must have the same type",
+                   diagnostics::err::TypeMismatch);
+            return error_type;
+        }
+    }
+    return bool_type;
+}
+
+TypeId PerModuleSema::inferWhen(frontend::ExprId id) {
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.operands.empty())
+        return error_type;
+    const TypeId subject = inferExpr(expr.operands[0]);
+    if (subject == error_type)
+        return error_type;
+    const size_t case_count = expr.operands.size() - 1U;
+    bool has_default        = false;
+    TypeId body_type        = void_type;
+    for (size_t i = 0; i < case_count; ++i) {
+        const frontend::ExprId condition =
+            i < expr.conditions.size() ? expr.conditions[i] : frontend::ExprId{};
+        const bool is_default = !condition;
+        if (is_default) {
+            has_default = true;
+            if (i + 1U != case_count) {
+                report(expr.span, "a default when case ('_') must be the last case",
+                       diagnostics::err::TypeMismatch);
+            }
+            continue;
+        }
+        const auto &cond_node  = snapshot.expressions()[condition.value - 1U];
+        const TypeId cond_type = inferExpr(condition);
+        if (cond_node.kind == frontend::ExprKind::Range) {
+            // Range pattern `lo..hi`: the subject must be comparable with the bounds.
+            const auto &lo_node = snapshot.expressions()[cond_node.operands[0].value - 1U];
+            const TypeId bound  = inferExpr(cond_node.operands[0]);
+            if (!sameType(subject, bound)) {
+                report(lo_node.span, "when range pattern must match the subject type",
+                       diagnostics::err::TypeMismatch);
+            }
+        } else if (cond_type != bool_type && cond_type != error_type) {
+            // A non-boolean condition is an equality pattern: `(0)` means `subject == 0`.
+            if (!sameType(subject, cond_type) && !adaptNumericLiteral(condition, subject)) {
+                report(expr.span,
+                       "when case condition must be a boolean expression or match the subject "
+                       "type",
+                       diagnostics::err::TypeMismatch);
+            }
+        }
+        const TypeId case_type = inferExpr(expr.operands[i + 1U]);
+        if (i == 0U) {
+            body_type = case_type;
+        } else if (!sameType(body_type, case_type) && case_type != error_type) {
+            report(expr.span, "when case bodies must all have the same type",
+                   diagnostics::err::TypeMismatch);
+        }
+    }
+    // A value-producing when needs a default case; without one the subject may not be
+    // exhausted (the legacy result was an optional, which the modern pipeline does not
+    // synthesize for when).
+    if (body_type != void_type && !has_default) {
+        report(expr.span, "non-exhaustive when; add a default case '(_) ~> ...'",
+               diagnostics::err::TypeMismatch);
+    }
+    return body_type;
 }
 
 TypeId PerModuleSema::inferLayoutIntrinsic(frontend::ExprId id) {

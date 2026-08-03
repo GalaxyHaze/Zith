@@ -649,6 +649,38 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
         }
         emit("]");
         break;
+    case frontend::ExprKind::When:
+        if (expr->operands.empty()) {
+            emitOriginal(expr->span);
+            break;
+        }
+        emit("when (");
+        visitExpr(expr->operands[0]);
+        emit(") { ");
+        for (std::size_t i = 0; i + 1 < expr->operands.size(); ++i) {
+            if (i != 0U)
+                emit(", ");
+            if (i < expr->conditions.size() && expr->conditions[i]) {
+                emit("(");
+                visitExpr(expr->conditions[i]);
+                emit(")");
+            } else {
+                emit("(_)");
+            }
+            emit(" ~> ");
+            visitExpr(expr->operands[i + 1U]);
+        }
+        emit(" }");
+        break;
+    case frontend::ExprKind::Range:
+        if (expr->operands.size() < 2U) {
+            emitOriginal(expr->span);
+            break;
+        }
+        visitExpr(expr->operands[0]);
+        emit("..");
+        visitExpr(expr->operands[1]);
+        break;
     case frontend::ExprKind::Cast:
         if (expr->operands.empty()) {
             emitOriginal(expr->span);
