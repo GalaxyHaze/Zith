@@ -333,6 +333,13 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
     case TypeKind::Unknown:
         lowered = types_.internUnknown();
         break;
+    case TypeKind::GenericParam: {
+        uint32_t decl_id   = 0;
+        uint32_t param_idx = 0;
+        sema_.typeTable().genericParamOrigin(type, &decl_id, &param_idx);
+        lowered = types_.internGenericParam(decl_id, param_idx);
+        break;
+    }
     case TypeKind::Incomplete: {
         const auto *incomplete = sema_.typeTable().incomplete(type);
         if (incomplete == nullptr) {

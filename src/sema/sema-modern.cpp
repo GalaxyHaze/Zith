@@ -265,6 +265,17 @@ void PerModuleSema::registerNamedTypes() {
 
 void PerModuleSema::lowerDeclarationTypes() {
     for (const auto &decl : snapshot.declarations()) {
+        currentDeclId_ = decl.id.value;
+        if (!decl.genericParams.empty()) {
+            std::vector<GenericBinding> bindings;
+            bindings.reserve(decl.genericParams.size());
+            for (size_t i = 0; i < decl.genericParams.size(); ++i) {
+                TypeId param_type =
+                    type_table.internGenericParam(decl.id.value, static_cast<uint32_t>(i));
+                bindings.push_back(GenericBinding{decl.genericParams[i].name, param_type});
+            }
+            genericParams_[decl.id.value] = std::move(bindings);
+        }
         switch (decl.kind) {
         case frontend::DeclKind::Function: {
             auto &params_storage = type_table.makeTypeStorage();
@@ -382,6 +393,7 @@ void PerModuleSema::inferExpressionTypes() {
 
 void PerModuleSema::inferExpressionTypesForDecls() {
     for (const auto &decl : snapshot.declarations()) {
+        currentDeclId_ = decl.id.value;
         if (decl.kind == frontend::DeclKind::Function) {
             TypeId fn_type     = typeOfDecl(decl.id);
             const auto *fn     = type_table.function(fn_type);
@@ -404,6 +416,7 @@ void PerModuleSema::inferExpressionTypesForDecls() {
         if (!typeOfExpr(expr.id))
             (void)inferExpr(expr.id);
     }
+    currentDeclId_ = 0;
 }
 
 void PerModuleSema::collectMarkers(frontend::ExprId id) {
@@ -462,6 +475,16 @@ TypeId PerModuleSema::lowerTypeExpr(frontend::TypeExprId id) {
     const auto &type = snapshot.typeExpressions()[id.value - 1U];
     switch (type.kind) {
     case frontend::TypeExprKind::Name: {
+        // A generic parameter name inside its own declaration resolves to an opaque
+        // GenericParam type; the comptime solver rejects its use at instantiation.
+        if (currentDeclId_ != 0U) {
+            if (const auto it = genericParams_.find(currentDeclId_); it != genericParams_.end()) {
+                for (const auto &binding : it->second) {
+                    if (binding.name == type.name)
+                        return binding.type;
+                }
+            }
+        }
         // Unknown type names are an error: inventing a placeholder here used to make every
         // misspelled or unregistered type silently compatible with anything.
         if (const TypeId named = type_table.lookupNamed(type.name))
@@ -748,6 +771,13 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
         report(expr.span, "callee is not a function", diagnostics::err::NoMatchingFn);
         return error_type;
     }
+    // A generic declaration has no instantiated type: calling it is a semantic error
+    // until monomorphization lands. Report the same message the comptime solver uses.
+    if (!expr.genericArgs.empty() || typeContainsGeneric(fn)) {
+        report(expr.span, "generic parameter T has no concrete type",
+               diagnostics::err::TypeMismatch);
+        return error_type;
+    }
     size_t arg_count = expr.operands.size() - 1;
     if (arg_count != fn->params.size()) {
         report(expr.span, "function call arity mismatch", diagnostics::err::NoMatchingFn);
@@ -761,6 +791,13 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
                                   diagnostics::err::NoMatchingFn);
     }
     return fn->result;
+}
+
+bool PerModuleSema::typeContainsGeneric(const FunctionType *fn) const noexcept {
+    for (const auto param : fn->params)
+        if (type_table.kindOf(param) == TypeKind::GenericParam)
+            return true;
+    return type_table.kindOf(fn->result) == TypeKind::GenericParam;
 }
 
 TypeId PerModuleSema::inferBlock(frontend::ExprId id) {

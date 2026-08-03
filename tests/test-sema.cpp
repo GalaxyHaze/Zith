@@ -1014,6 +1014,56 @@ static void test_modern_for_three_clause() {
           "the non-boolean 3-clause condition reports a type mismatch");
 }
 
+static void test_modern_generic_params() {
+    ModernSemaTest fn_decl;
+    auto f = fn_decl.run("fn identity<T>(x: T): T {\n"
+                         "    return x;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    return 0;\n"
+                         "}\n");
+    CHECK(f.ok, "a generic fn declaration with a generic body type-checks");
+
+    ModernSemaTest struct_decl;
+    auto s = struct_decl.run("struct Pair<T> {\n"
+                             "    left: T,\n"
+                             "    right: T\n"
+                             "}\n"
+                             "fn main(): i32 {\n"
+                             "    return 0;\n"
+                             "}\n");
+    CHECK(s.ok, "a generic struct declaration type-checks");
+
+    ModernSemaTest alias_decl;
+    auto a = alias_decl.run("alias Box<T> = i32;\n"
+                            "fn main(): i32 {\n"
+                            "    return 0;\n"
+                            "}\n");
+    CHECK(a.ok, "a generic alias declaration type-checks");
+
+    ModernSemaTest instantiation;
+    auto i = instantiation.run("fn identity<T>(x: T): T {\n"
+                               "    return x;\n"
+                               "}\n"
+                               "fn main(): i32 {\n"
+                               "    return identity<i32>(42);\n"
+                               "}\n");
+    CHECK(!i.ok, "a generic fn instantiation is rejected");
+    CHECK(i.hasMessage("generic parameter T has no concrete type"),
+          "the instantiation reports the comptime solver's message");
+
+    ModernSemaTest inferred_call;
+    auto c = inferred_call.run("fn identity<T>(x: T): T {\n"
+                               "    return x;\n"
+                               "}\n"
+                               "fn main(): i32 {\n"
+                               "    return identity(1);\n"
+                               "}\n");
+    CHECK(!c.ok, "calling a generic fn without type arguments is rejected too");
+    CHECK(c.hasMessage("generic parameter T has no concrete type"),
+          "the un-instantiated call reports the same message");
+}
+
 static void test_modern_array_literal() {
     ModernSemaTest t;
     auto r = t.run("fn sum(arr: [4]i32): i32 {\n"
@@ -1122,6 +1172,7 @@ static void test_sema() {
     test_modern_is_null_requires_optional();
     test_modern_loop_body_infers_locals();
     test_modern_for_three_clause();
+    test_modern_generic_params();
     test_modern_array_literal();
     test_modern_array_literal_mismatch();
     test_modern_array_literal_empty();

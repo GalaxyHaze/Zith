@@ -45,7 +45,8 @@ enum class TypeKind : uint8_t {
     Slice,
     Failable,
     Pack,
-    Alias
+    Alias,
+    GenericParam
 };
 
 struct IntegerType {
@@ -132,6 +133,10 @@ public:
     [[nodiscard]] TypeId internTrait(std::string_view name);
     [[nodiscard]] TypeId internTypeVar();
     [[nodiscard]] TypeId internUnknown();
+    [[nodiscard]] TypeId internGenericParam(uint32_t decl_id, uint32_t param_index);
+    /// For TypeKind::GenericParam types: returns the declaration id and parameter
+    /// index the type was interned for (via out-params).
+    void genericParamOrigin(TypeId id, uint32_t *decl_id, uint32_t *param_index) const noexcept;
     [[nodiscard]] TypeId internIncomplete(TypeId base, memory::DynArray<TypeId> &args);
     [[nodiscard]] TypeId internSum(memory::DynArray<TypeId> &members);
     [[nodiscard]] TypeId internSlice(TypeId element);
@@ -197,7 +202,8 @@ private:
         Slice,
         Failable,
         Pack,
-        Alias
+        Alias,
+        GenericParam
     };
 
     struct Entry {
@@ -222,6 +228,8 @@ private:
         FailableType failable_ty{};
         PackType *pack_ty                                = nullptr;
         AliasType *alias_ty                              = nullptr;
+        uint32_t generic_decl_id                         = 0;
+        uint32_t generic_param_index                     = 0;
         memory::DynArray<TypeId> *storage                = nullptr;
         memory::DynArray<TypeId> *storage2               = nullptr;
         memory::DynArray<std::string_view> *name_storage = nullptr;

@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 namespace zith::sema::modern {
 
@@ -97,6 +98,20 @@ private:
     void checkReturnsAndCalls();
     void checkStructFieldDefaults();
     TypeId currentReturnType_ = kInvalidTypeId;
+
+    /// True when the callee's signature mentions a generic parameter.
+    [[nodiscard]] bool typeContainsGeneric(const FunctionType *fn) const noexcept;
+
+    /// Generic parameter bindings per declaration (decl id → param name/type pairs).
+    /// Populated while lowering declaration types; consulted by `lowerTypeExpr` so
+    /// `T` inside a generic declaration resolves to an opaque GenericParam type.
+    struct GenericBinding {
+        std::string name;
+        TypeId type;
+    };
+    std::unordered_map<uint32_t, std::vector<GenericBinding>> genericParams_;
+    /// Decl id of the declaration currently being lowered or inferred (0 = none).
+    uint32_t currentDeclId_ = 0;
 
     /// Collects `marker` statement names within a function body (hoisted labels).
     void collectMarkers(frontend::ExprId id);

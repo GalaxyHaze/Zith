@@ -229,6 +229,12 @@ void printDeclarations(const FrontendSnapshot &snapshot) {
         }
         std::printf(" [%u..%u]\n", decl.span.start, decl.span.end);
 
+        // Generic parameters
+        for (const auto &param : decl.genericParams) {
+            std::printf("    GenericParam '%s' [%u..%u]\n", param.name.c_str(), param.span.start,
+                        param.span.end);
+        }
+
         // Parameters
         for (const auto &param : decl.parameters) {
             std::printf("    Parameter '%s'", param.name.c_str());

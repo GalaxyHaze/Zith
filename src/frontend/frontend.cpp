@@ -750,6 +750,36 @@ private:
                text(index_) == op;
     }
 
+    /// True when the current `<` opens a generic application `name<A, B>(...)`:
+    /// the matching `>` (counting nested `<`/`>`) must be immediately followed by `(`.
+    /// Plain comparisons like `a < b` do not match because `>` is not followed by `(`.
+    [[nodiscard]] bool isGenericApplication() const {
+        if (!isOperatorToken("<"))
+            return false;
+        int depth = 0;
+        for (uint32_t i = index_; i < token_count_; ++i) {
+            const auto &token = snapshot_.tokens_[i];
+            if (token.kind == TokenKind::Operator) {
+                if (text(i) == "<")
+                    ++depth;
+                else if (text(i) == ">") {
+                    --depth;
+                    if (depth == 0)
+                        return i + 1U < token_count_ &&
+                               snapshot_.tokens_[i + 1U].kind == TokenKind::Punctuation &&
+                               text(i + 1U) == "(";
+                }
+            } else if (token.kind == TokenKind::Punctuation && text(i) == "(") {
+                // Nested calls/grouping inside the args would break the heuristic; only
+                // accept angle brackets without stray parens.
+                return false;
+            } else if (token.kind == TokenKind::End) {
+                return false;
+            }
+        }
+        return false;
+    }
+
     [[nodiscard]] bool isKeywordToken(const std::string_view word) const {
         return index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Keyword &&
                text(index_) == word;
@@ -758,7 +788,7 @@ private:
     /// Parses the postfix chain (calls, indexing, casts, `?`) applied to `result`.
     [[nodiscard]] ExprId parsePostfix(ExprId result, const uint32_t start) {
         while (punctuation(index_, '(') || punctuation(index_, '[') || punctuation(index_, '.') ||
-               isOperatorToken("->") || isKeywordToken("as")) {
+               isOperatorToken("->") || isKeywordToken("as") || isGenericApplication()) {
             // Dot field access: expr.field
             if (punctuation(index_, '.')) {
                 if (range_mode_ && punctuation(index_ + 1U, '.'))
@@ -809,6 +839,48 @@ private:
                     snapshot_.diagnostics_.push_back(
                         {range(start, index_), "expected field name after '->'"});
                 }
+                continue;
+            }
+            // Generic application `name<A, B>(args)`: the angle-bracket list holds type
+            // expressions recorded on the Call node; sema reports that instantiation is
+            // not implemented yet.
+            if (isGenericApplication()) {
+                const uint32_t gen_start = start;
+                ++index_; // '<'
+                Expression call;
+                call.kind  = ExprKind::Call;
+                call.scope = current_scope_;
+                call.operands.push_back(result);
+                while (index_ < token_count_ && !isOperatorToken(">")) {
+                    call.genericArgs.push_back(parseType());
+                    if (!punctuation(index_, ','))
+                        break;
+                    ++index_;
+                }
+                if (isOperatorToken(">"))
+                    ++index_;
+                else
+                    snapshot_.diagnostics_.push_back(
+                        {range(gen_start, index_), "expected '>' after generic arguments"});
+                if (punctuation(index_, '(')) {
+                    ++index_;
+                    while (index_ < token_count_ && !punctuation(index_, ')')) {
+                        call.operands.push_back(parseExpression());
+                        if (!punctuation(index_, ','))
+                            break;
+                        ++index_;
+                    }
+                    if (punctuation(index_, ')'))
+                        ++index_;
+                    else
+                        snapshot_.diagnostics_.push_back(
+                            {range(gen_start, index_), "expected ')'"});
+                } else {
+                    snapshot_.diagnostics_.push_back(
+                        {range(gen_start, index_), "expected '(' after generic arguments"});
+                }
+                call.span = range(gen_start, index_);
+                result    = addExpression(std::move(call));
                 continue;
             }
             if (punctuation(index_, '[')) {
@@ -1539,6 +1611,34 @@ private:
         } else {
             snapshot_.diagnostics_.push_back({tokenSpan(start), "expected a declaration name"});
             declaration.kind = DeclKind::Error;
+        }
+        // Generic parameter list `<T, U>` (constraints parse but are not enforced).
+        if (isOperatorToken("<")) {
+            ++index_;
+            while (index_ < token_count_ && !isOperatorToken(">")) {
+                if (snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+                    GenericParam param;
+                    param.name = std::string(text(index_));
+                    param.span = tokenSpan(index_++);
+                    if (punctuation(index_, ':')) {
+                        ++index_;
+                        param.constraint = parseType();
+                    }
+                    declaration.genericParams.push_back(std::move(param));
+                } else {
+                    snapshot_.diagnostics_.push_back(
+                        {tokenSpan(index_), "expected a generic parameter name"});
+                    ++index_;
+                }
+                if (punctuation(index_, ','))
+                    ++index_;
+                else if (!isOperatorToken(">"))
+                    break;
+            }
+            if (isOperatorToken(">"))
+                ++index_;
+            else
+                snapshot_.diagnostics_.push_back({range(start, index_), "expected '>'"});
         }
 
         if (kind == DeclKind::Function && punctuation(index_, '(')) {

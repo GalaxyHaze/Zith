@@ -170,6 +170,14 @@ TypeId TypeTable::internUnknown() {
     return entry.id;
 }
 
+TypeId TypeTable::internGenericParam(uint32_t decl_id, uint32_t param_index) {
+    auto &entry               = pushEntry(EntryKind::GenericParam);
+    entry.reported_kind       = TypeKind::GenericParam;
+    entry.generic_decl_id     = decl_id;
+    entry.generic_param_index = param_index;
+    return entry.id;
+}
+
 TypeId TypeTable::internIncomplete(TypeId base, memory::DynArray<TypeId> &args) {
     auto &entry         = pushEntry(EntryKind::Incomplete);
     entry.reported_kind = TypeKind::Incomplete;
@@ -234,6 +242,19 @@ TypeId TypeTable::internAlias(TypeId target) {
 TypeKind TypeTable::kindOf(TypeId id) const noexcept {
     const auto *entry = findEntry(id);
     return entry ? entry->reported_kind : TypeKind::Error;
+}
+
+void TypeTable::genericParamOrigin(TypeId id, uint32_t *decl_id,
+                                   uint32_t *param_index) const noexcept {
+    const auto *entry = findEntry(id);
+    if (decl_id != nullptr)
+        *decl_id = entry != nullptr && entry->kind == EntryKind::GenericParam
+                       ? entry->generic_decl_id
+                       : 0U;
+    if (param_index != nullptr)
+        *param_index = entry != nullptr && entry->kind == EntryKind::GenericParam
+                           ? entry->generic_param_index
+                           : 0U;
 }
 
 const PointerType *TypeTable::pointer(TypeId id) const noexcept {

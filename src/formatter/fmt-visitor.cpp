@@ -322,6 +322,19 @@ void FmtVisitor::emitFunctionDecl(const frontend::Declaration &decl) {
     emitDeclPrefix(decl.span);
     emit("fn ");
     emit(decl.name);
+    if (!decl.genericParams.empty()) {
+        emit("<");
+        for (std::size_t index = 0; index < decl.genericParams.size(); ++index) {
+            if (index != 0U)
+                emit(", ");
+            emit(decl.genericParams[index].name);
+            if (decl.genericParams[index].constraint) {
+                emit(": ");
+                emitType(decl.genericParams[index].constraint);
+            }
+        }
+        emit(">");
+    }
     emit("(");
     for (std::size_t index = 0; index < decl.parameters.size(); ++index) {
         if (index != 0U)
@@ -372,6 +385,19 @@ void FmtVisitor::emitNominalDecl(const frontend::Declaration &decl) {
     emit(tokenText(firstTokenIndex(decl.span)));
     emit(" ");
     emit(decl.name);
+    if (!decl.genericParams.empty()) {
+        emit("<");
+        for (std::size_t index = 0; index < decl.genericParams.size(); ++index) {
+            if (index != 0U)
+                emit(", ");
+            emit(decl.genericParams[index].name);
+            if (decl.genericParams[index].constraint) {
+                emit(": ");
+                emitType(decl.genericParams[index].constraint);
+            }
+        }
+        emit(">");
+    }
 
     const auto body_start = findTokenIndex(decl.span, "{");
     if (body_start < snapshot_.tokens().size()) {

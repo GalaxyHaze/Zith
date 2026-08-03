@@ -193,6 +193,8 @@ struct Expression {
     std::vector<ExprId> conditions;
     // Used by ExprKind::Cast: the target type written after `as`
     TypeExprId cast_type;
+    // Used by ExprKind::Call: explicit generic arguments `name<A, B>(...)`.
+    std::vector<TypeExprId> genericArgs;
 };
 
 struct Scope {
@@ -233,6 +235,13 @@ struct ImportDecl {
     TextSpan aliasSpan;
 };
 
+struct GenericParam {
+    std::string name;
+    TextSpan span;
+    /// Optional `: Constraint` type — parsed but not enforced.
+    TypeExprId constraint;
+};
+
 struct Declaration {
     DeclId id;
     DeclKind kind         = DeclKind::Error;
@@ -241,6 +250,7 @@ struct Declaration {
     std::string name;
     ImportDecl import;
     std::vector<Parameter> parameters;
+    std::vector<GenericParam> genericParams;
     TypeExprId declaredType;
     ExprId initializer;
     ExprId body;
