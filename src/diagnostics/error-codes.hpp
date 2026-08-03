@@ -41,10 +41,11 @@ inline constexpr ErrCode const NotImplemented    = 2009;
 inline constexpr ErrCode const UnsupportedSyntax = 2010;
 
 // Types (3001-3999)
-inline constexpr ErrCode const TypeMismatch = 3001;
-inline constexpr ErrCode const CannotInfer  = 3002;
-inline constexpr ErrCode const InvalidCast  = 3003;
-inline constexpr ErrCode const CyclicType   = 3004;
+inline constexpr ErrCode const TypeMismatch      = 3001;
+inline constexpr ErrCode const CannotInfer       = 3002;
+inline constexpr ErrCode const InvalidCast       = 3003;
+inline constexpr ErrCode const CyclicType        = 3004;
+inline constexpr ErrCode const NullDerefUnproven = 3005;
 
 // NRA / Ownership (4001-4999)
 inline constexpr ErrCode const UseAfterMove   = 4001;

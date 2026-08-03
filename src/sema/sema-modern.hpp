@@ -1,10 +1,12 @@
 #pragma once
 
 #include "diagnostics/diagnostic-engine.hpp"
+#include "diagnostics/error-codes.hpp"
 #include "frontend/frontend.hpp"
 #include "memory/arena.hpp"
 #include "memory/dyn-array.hpp"
 #include "memory/flat-map.hpp"
+#include "memory/optional.hpp"
 #include "memory/span.hpp"
 #include "sema/modern-types.hpp"
 #include "session/frontend-context.hpp"
@@ -87,14 +89,22 @@ struct PerModuleSema {
 
 private:
     void registerPrimitiveTypes();
+    TypeId registerPrimitive(std::string_view name, TypeKind kind, uint8_t bits, bool is_signed);
     void registerNamedTypes();
     void lowerDeclarationTypes();
     void inferExpressionTypes();
     void inferExpressionTypesForDecls();
     void checkReturnsAndCalls();
+    void checkStructFieldDefaults();
     TypeId currentReturnType_ = kInvalidTypeId;
 
-    TypeId lowerTypeExpr(frontend::TypeExprId id) noexcept;
+    /// Collects `marker` statement names within a function body (hoisted labels).
+    void collectMarkers(frontend::ExprId id);
+    /// Marker names visible to `jump` statements in the current function.
+    memory::FlatMap<std::string, uint8_t> markers_;
+
+    void checkReturnStatement(const frontend::Statement &stmt);
+    TypeId lowerTypeExpr(frontend::TypeExprId id);
     TypeId lowerForeignType(const cinterop::Type &type);
     TypeId inferExpr(frontend::ExprId id);
     TypeId inferLiteral(frontend::ExprId id, std::string_view text);
@@ -111,9 +121,17 @@ private:
     TypeId inferIndex(frontend::ExprId id);
     TypeId inferField(frontend::ExprId id);
     TypeId inferArrow(frontend::ExprId id);
+    /// When `operand` is a Name that resolves to an enum declaration, returns the enum type
+    /// if `variant` names a known variant and reports NoMember otherwise. Returns nullopt
+    /// (without diagnostics) when the operand is not an enum-declaration name, so an
+    /// enum-typed *value* still reports the plain field-access error.
+    memory::Optional<TypeId> enumVariantType(frontend::ExprId operand, std::string_view variant,
+                                             frontend::TextSpan span);
     TypeId inferStructLiteral(frontend::ExprId id);
+    TypeId inferArrayLiteral(frontend::ExprId id);
     TypeId inferCast(frontend::ExprId id);
     TypeId inferIsNull(frontend::ExprId id);
+    TypeId inferLayoutIntrinsic(frontend::ExprId id);
 
     /// Adapts a numeric literal operand to `target` when possible. This is the only implicit
     /// numeric conversion the language keeps; conversions between variables need `as`.
@@ -123,7 +141,8 @@ private:
 
     /// Emits the most specific diagnostic for a failed `source -> target` coercion.
     void reportCoercionFailure(frontend::TextSpan span, TypeId target, TypeId source,
-                               std::string_view context);
+                               std::string_view context,
+                               uint32_t fallback_code = diagnostics::err::TypeMismatch);
 
     bool unify(TypeId expected, TypeId actual);
     bool sameType(TypeId a, TypeId b) const noexcept;
@@ -138,6 +157,9 @@ private:
     const session::ResolvedName *findResolvedExpr(frontend::ExprId id) const noexcept;
     const session::ResolvedName *findResolvedBinding(std::string_view name,
                                                      frontend::ScopeId scope) const noexcept;
+    /// Default expression of struct field `field_index` in the named struct, or an empty id.
+    frontend::ExprId findFieldDefault(std::string_view struct_name,
+                                      size_t field_index) const noexcept;
 
     TypeId typeOfDeclInModule(session::ModuleKey module, frontend::DeclId id) const noexcept;
 };

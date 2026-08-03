@@ -6,9 +6,7 @@
 #include "sema/heuristic-engine.hpp"
 #include "session/compilation-session.hpp"
 
-#include "legacy-zith/ast/ast-nodes.hpp"
-#include "legacy-zith/ast/type-expr.hpp"
-#include "legacy-zith/lexer/token.hpp"
+#include "frontend/frontend.hpp"
 #include "memory/arena.hpp"
 #include "memory/dyn-array.hpp"
 
@@ -49,84 +47,69 @@ static_assert(static_cast<int>(zith::session::Stage::Cached) == ZITHC_STAGE_CACH
 
 namespace {
 
-std::string typeExprToShortString(const zith::ast::AstBuilder &bld, zith::ast::TypeExprId id) {
-    if (id == zith::ast::kInvalidTypeExpr)
-        return "_";
-    auto &node = bld.getTypeExpr(id);
-    return std::visit(
-        [&](const auto &v) -> std::string {
-            using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, zith::ast::TypeBuiltin>) {
-                switch (v.kind) {
-                case zith::ast::BuiltinType::I8:
-                    return "i8";
-                case zith::ast::BuiltinType::I16:
-                    return "i16";
-                case zith::ast::BuiltinType::I32:
-                    return "i32";
-                case zith::ast::BuiltinType::I64:
-                    return "i64";
-                case zith::ast::BuiltinType::I128:
-                    return "i128";
-                case zith::ast::BuiltinType::U8:
-                    return "u8";
-                case zith::ast::BuiltinType::U16:
-                    return "u16";
-                case zith::ast::BuiltinType::U32:
-                    return "u32";
-                case zith::ast::BuiltinType::U64:
-                    return "u64";
-                case zith::ast::BuiltinType::U128:
-                    return "u128";
-                case zith::ast::BuiltinType::F32:
-                    return "f32";
-                case zith::ast::BuiltinType::F64:
-                    return "f64";
-                case zith::ast::BuiltinType::Bool:
-                    return "bool";
-                case zith::ast::BuiltinType::Char:
-                    return "char";
-                case zith::ast::BuiltinType::Void:
-                    return "void";
-                case zith::ast::BuiltinType::Never:
-                    return "never";
-                default:
-                    return "?";
-                }
-            } else if constexpr (std::is_same_v<T, zith::ast::TypePath>) {
-                std::string result;
-                for (size_t i = 0; i < v.segments.size(); ++i) {
-                    if (i > 0)
-                        result += "::";
-                    result += std::string(v.segments[i]);
-                }
-                return result.empty() ? "?" : result;
-            } else if constexpr (std::is_same_v<T, zith::ast::TypeFnExpr>) {
-                std::string result = "(";
-                for (size_t i = 0; i < v.params.size(); ++i) {
-                    if (i > 0)
-                        result += ", ";
-                    result += typeExprToShortString(bld, v.params[i]);
-                }
-                result += ") -> " + typeExprToShortString(bld, v.ret);
-                return result;
-            } else if constexpr (std::is_same_v<T, zith::ast::TypePtrExpr>) {
-                return (v.is_mut ? std::string("*mut ") : std::string("*")) +
-                       typeExprToShortString(bld, v.pointee);
-            } else if constexpr (std::is_same_v<T, zith::ast::TypeSlice>) {
-                return "[]" + typeExprToShortString(bld, v.elem);
-            } else if constexpr (std::is_same_v<T, zith::ast::TypeArray>) {
-                return "[" + typeExprToShortString(bld, v.count) + "]" +
-                       typeExprToShortString(bld, v.elem);
-            } else if constexpr (std::is_same_v<T, zith::ast::TypeInfer>) {
-                return "_";
-            } else if constexpr (std::is_same_v<T, zith::ast::TypeMut>) {
-                return "mut " + typeExprToShortString(bld, v.inner);
-            } else {
-                return "?";
-            }
-        },
-        node);
+/// Render a modern frontend TypeExpression as a short string.
+std::string renderTypeExpr(const zith::frontend::TypeExpression &te,
+                           const std::vector<zith::frontend::TypeExpression> &all_types) {
+    switch (te.kind) {
+    case zith::frontend::TypeExprKind::Error:
+        return "?";
+    case zith::frontend::TypeExprKind::Name:
+        return te.name.empty() ? "?" : te.name;
+    case zith::frontend::TypeExprKind::Pointer:
+        return "*" + (te.arguments.empty()
+                          ? "?"
+                          : renderTypeExpr(all_types[te.arguments[0].value - 1U], all_types));
+    case zith::frontend::TypeExprKind::Optional:
+        return "?" + (te.arguments.empty()
+                          ? "?"
+                          : renderTypeExpr(all_types[te.arguments[0].value - 1U], all_types));
+    case zith::frontend::TypeExprKind::Array: {
+        std::string inner = te.arguments.empty()
+                                ? "?"
+                                : renderTypeExpr(all_types[te.arguments[0].value - 1U], all_types);
+        return "[" + std::to_string(te.arrayLength) + "]" + inner;
+    }
+    case zith::frontend::TypeExprKind::Function: {
+        std::string result = "(";
+        for (size_t i = 0; i + 1U < te.arguments.size(); ++i) {
+            if (i > 0)
+                result += ", ";
+            result += renderTypeExpr(all_types[te.arguments[i].value - 1U], all_types);
+        }
+        result += ") -> ";
+        if (te.arguments.empty())
+            result += "?";
+        else
+            result += renderTypeExpr(all_types[te.arguments.back().value - 1U], all_types);
+        return result;
+    }
+    case zith::frontend::TypeExprKind::Slice: {
+        std::string inner = te.arguments.empty()
+                                ? "?"
+                                : renderTypeExpr(all_types[te.arguments[0].value - 1U], all_types);
+        return "[]" + inner;
+    }
+    }
+    return "?";
+}
+
+/// Find the frontend declaration matching a symbol-table entry via snapshot.
+const zith::frontend::Declaration *
+findFrontendDecl(const zith::symbols::SymbolData &data,
+                 const std::shared_ptr<const zith::session::CompilationSnapshot> &snapshot,
+                 const zith::memory::StringInterner &interner) {
+    if (!snapshot)
+        return nullptr;
+    const auto name = interner.lookup(data.name);
+    for (const auto &module : snapshot->modules()) {
+        if (!module->frontend)
+            continue;
+        for (const auto &decl : module->frontend->declarations()) {
+            if (decl.kind == zith::frontend::DeclKind::Function && decl.name == name)
+                return &decl;
+        }
+    }
+    return nullptr;
 }
 
 } // anonymous namespace
@@ -215,7 +198,7 @@ zithc_diagnostic zithc_diag_get(zithc_session *session, size_t index) {
         zith::sema::HeuristicEngine heuristic;
         heuristic.generate(d, session->session.symbolTable(), d.suggestions);
     }
-    // Enrich overload errors with all function signatures
+    // Enrich overload errors with function signatures from the modern frontend
     if ((d.code == zith::diagnostics::err::NoMatchingFn ||
          d.code == zith::diagnostics::err::AmbiguousCall) &&
         d.suggestions.empty()) {
@@ -227,24 +210,37 @@ zithc_diagnostic zithc_diag_get(zithc_session *session, size_t index) {
             auto syms = session->session.symbolTable().lookupAll(fn_name, tmp_arena);
             for (auto sym_id : syms) {
                 auto &data = session->session.symbolTable().get(sym_id);
-                if (data.kind != zith::symbols::SymKind::Fn ||
-                    data.decl_id == zith::ast::kInvalidDecl)
+                if (data.kind != zith::symbols::SymKind::Fn)
                     continue;
-                auto &decl = session->session.astBuilder().getDecl(data.decl_id);
-                auto *fn   = std::get_if<zith::ast::FnDeclNode>(&decl);
-                if (!fn)
+                const auto *decl = findFrontendDecl(data, session->session.snapshot(),
+                                                    session->session.symbolTable().interner());
+                if (!decl)
                     continue;
-                std::string sig = "   fn " + std::string(fn->name) + "(";
-                for (size_t i = 0; i < fn->params.size(); ++i) {
+                std::string sig       = "   fn " + decl->name + "(";
+                const auto &all_types = session->session.snapshot()
+                                            ? session->session.snapshot()
+                                                  ->modules()
+                                                  .front()
+                                                  ->frontend->typeExpressions()
+                                            : std::vector<zith::frontend::TypeExpression>{};
+                for (size_t i = 0; i < decl->parameters.size(); ++i) {
                     if (i > 0)
                         sig += ", ";
-                    sig += std::string(fn->params[i].name) + ": ";
-                    sig += typeExprToShortString(session->session.astBuilder(), fn->params[i].type);
+                    sig += decl->parameters[i].name + ": ";
+                    if (decl->parameters[i].type) {
+                        auto type_id = decl->parameters[i].type.value - 1U;
+                        if (type_id < all_types.size())
+                            sig += renderTypeExpr(all_types[type_id], all_types);
+                        else
+                            sig += "?";
+                    }
                 }
                 sig += ")";
-                if (fn->return_type != zith::ast::kInvalidTypeExpr)
-                    sig += " -> " +
-                           typeExprToShortString(session->session.astBuilder(), fn->return_type);
+                if (decl->declaredType) {
+                    auto type_id = decl->declaredType.value - 1U;
+                    if (type_id < all_types.size())
+                        sig += " -> " + renderTypeExpr(all_types[type_id], all_types);
+                }
                 d.suggestions.push(std::move(sig));
             }
         }
@@ -300,12 +296,22 @@ zithc_position zithc_offset_to_position(zithc_session *session, uint32_t offset)
 const char *zithc_hover(zithc_session *session, uint32_t offset) {
     if (!session)
         return nullptr;
-    auto &tokens = session->session.tokens();
-    std::string_view ident_name;
-    for (uint32_t i = 0; i < tokens.len; ++i) {
-        if (tokens.src[i].span.start <= offset && offset < tokens.src[i].span.end) {
-            if (tokens.src[i].kind == zith::lexer::TokenKind::Identifier)
-                ident_name = tokens.lexeme(tokens.src[i]);
+    const auto snapshot = session->session.snapshot();
+    if (!snapshot)
+        return nullptr;
+    // Find the root module's frontend snapshot
+    const auto *root_mod = snapshot->findModule(
+        zith::session::SourceCatalog::canonicalPath(session->session.filePath()));
+    if (!root_mod || !root_mod->frontend)
+        return nullptr;
+
+    const auto &tokens = root_mod->frontend->tokens();
+    const auto &source = root_mod->frontend->source();
+    std::string ident_name;
+    for (const auto &tok : tokens) {
+        if (tok.span.start <= offset && offset < tok.span.end) {
+            if (tok.kind == zith::frontend::TokenKind::Identifier)
+                ident_name.assign(source, tok.span.start, tok.span.end - tok.span.start);
             break;
         }
     }
@@ -317,28 +323,32 @@ const char *zithc_hover(zithc_session *session, uint32_t offset) {
     std::string result;
     for (auto sym_id : all) {
         auto &data = session->session.symbolTable().get(sym_id);
-        if (data.kind != zith::symbols::SymKind::Fn || data.decl_id == zith::ast::kInvalidDecl)
+        if (data.kind != zith::symbols::SymKind::Fn)
             continue;
-        auto &decl = session->session.astBuilder().getDecl(data.decl_id);
-        auto *fn   = std::get_if<zith::ast::FnDeclNode>(&decl);
-        if (!fn)
+        const auto *decl =
+            findFrontendDecl(data, snapshot, session->session.symbolTable().interner());
+        if (!decl)
             continue;
+        const auto &all_types = root_mod->frontend->typeExpressions();
         if (!result.empty())
             result += "\n---\n";
-        result += "**fn** `" + std::string(fn->name) + "(";
-        for (size_t i = 0; i < fn->params.size(); ++i) {
+        result += "**fn** `" + decl->name + "(";
+        for (size_t i = 0; i < decl->parameters.size(); ++i) {
             if (i > 0)
                 result += ", ";
-            result += std::string(fn->params[i].name) + ": ";
-            if (fn->params[i].type != zith::ast::kInvalidTypeExpr)
-                result += "`" +
-                          typeExprToShortString(session->session.astBuilder(), fn->params[i].type) +
-                          "`";
+            result += decl->parameters[i].name + ": ";
+            if (decl->parameters[i].type) {
+                auto type_id = decl->parameters[i].type.value - 1U;
+                if (type_id < all_types.size())
+                    result += "`" + renderTypeExpr(all_types[type_id], all_types) + "`";
+            }
         }
         result += ")";
-        if (fn->return_type != zith::ast::kInvalidTypeExpr)
-            result += " -> `" +
-                      typeExprToShortString(session->session.astBuilder(), fn->return_type) + "`";
+        if (decl->declaredType) {
+            auto type_id = decl->declaredType.value - 1U;
+            if (type_id < all_types.size())
+                result += " -> `" + renderTypeExpr(all_types[type_id], all_types) + "`";
+        }
     }
     if (result.empty())
         return nullptr;

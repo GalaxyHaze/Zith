@@ -24,6 +24,10 @@ memory::DynArray<std::string_view> &TypeTable::makeNameStorage() {
     return *arena_->make<memory::DynArray<std::string_view>>(*arena_);
 }
 
+memory::DynArray<int64_t> &TypeTable::makeDiscStorage() {
+    return *arena_->make<memory::DynArray<int64_t>>(*arena_);
+}
+
 memory::DynArray<TypeId> &TypeTable::makeTypeStorage() {
     return makeStorage();
 }
@@ -117,14 +121,21 @@ int TypeTable::fieldIndex(TypeId struct_type, std::string_view name) const noexc
     return -1;
 }
 
-TypeId TypeTable::internEnum(std::string_view name, memory::DynArray<TypeId> &variants) {
+TypeId TypeTable::internEnum(std::string_view name, TypeId underlying,
+                             memory::DynArray<std::string_view> &variant_names,
+                             memory::DynArray<int64_t> &discriminants) {
     auto &entry         = pushEntry(EntryKind::Enum);
     entry.reported_kind = TypeKind::Enum;
-    auto &storage       = makeStorage();
-    for (auto &v : variants)
-        storage.push(v);
-    entry.enum_ty = arena_->make<EnumType>(EnumType{name, storage});
-    entry.storage = &storage;
+    entry.underlying    = underlying;
+    auto &name_storage  = makeNameStorage();
+    for (auto &n : variant_names)
+        name_storage.push(n);
+    auto &disc_storage = makeDiscStorage();
+    for (auto &d : discriminants)
+        disc_storage.push(d);
+    entry.enum_ty = arena_->make<EnumType>(EnumType{name, underlying, name_storage, disc_storage});
+    entry.name_storage = &name_storage;
+    entry.disc_storage = &disc_storage;
     return entry.id;
 }
 
@@ -356,12 +367,11 @@ TypeId TypeTable::lowerTypeExpr(const frontend::FrontendSnapshot &snapshot,
 
     switch (type.kind) {
     case frontend::TypeExprKind::Name: {
+        // Do not invent a permissive Unknown for unresolved names; the caller (PerModuleSema)
+        // will diagnose them. If the name has been registered (e.g. from another module) just
+        // forward it, otherwise return the Error sentinel.
         const auto *found = named_registry_.get(type.name);
-        if (found)
-            return *found;
-        auto id_name = internName(type.name, TypeKind::Unknown);
-        registerNamed(type.name, id_name);
-        return id_name;
+        return found ? *found : kInvalidTypeId;
     }
     case frontend::TypeExprKind::Pointer:
         if (!type.arguments.empty())

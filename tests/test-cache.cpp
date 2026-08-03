@@ -77,7 +77,7 @@ static void test_binary_round_trip() {
     auto original = makeMinimalArtifact("/test/main.zith", "main");
 
     ByteWriter writer;
-    Writer::write(original, writer);
+    (void)Writer::write(original, writer);
 
     auto decoded =
         Reader::read(std::string_view(reinterpret_cast<const char *>(writer.ptr()), writer.size()));
@@ -105,11 +105,89 @@ static void test_binary_round_trip() {
     }
 }
 
+// ── Round-trip with dependency records ────────────────────────────
+static void test_deps_round_trip() {
+    auto original = makeMinimalArtifact("/test/dep_main.zith", "main");
+    original.deps.push_back({"/test/dep_a.zith", "depA", 0xDEADBEEFu, 0xCAFEBABEu});
+    original.deps.push_back({"/test/dep_b.zith", "depB", 0x11223344u, 0x55667788u});
+
+    ByteWriter writer;
+    (void)Writer::write(original, writer);
+
+    auto decoded =
+        Reader::read(std::string_view(reinterpret_cast<const char *>(writer.ptr()), writer.size()));
+    CHECK(decoded.has_value(), "artifact with deps round-trips through binary format");
+    if (!decoded)
+        return;
+
+    CHECK_EQ(decoded->deps.size(), 2u, "dependency count preserved");
+    CHECK_EQ(decoded->deps[0].canonical_path, "/test/dep_a.zith", "first dep path preserved");
+    CHECK_EQ(decoded->deps[0].import_key, "depA", "first dep import key preserved");
+    CHECK_EQ(decoded->deps[0].public_abi_hi, 0xDEADBEEFu, "first dep ABI hi preserved");
+    CHECK_EQ(decoded->deps[0].public_abi_lo, 0xCAFEBABEu, "first dep ABI lo preserved");
+    CHECK_EQ(decoded->deps[1].canonical_path, "/test/dep_b.zith", "second dep path preserved");
+    CHECK_EQ(decoded->deps[1].import_key, "depB", "second dep import key preserved");
+    CHECK_EQ(decoded->deps[1].public_abi_hi, 0x11223344u, "second dep ABI hi preserved");
+    CHECK_EQ(decoded->deps[1].public_abi_lo, 0x55667788u, "second dep ABI lo preserved");
+}
+
+// ── header_size must account for dep records ──────────────────────
+static void test_header_size_covered_by_writer() {
+    auto original = makeMinimalArtifact("/test/header_size.zith", "main");
+    original.deps.push_back({"/test/dep_short.zith", "s", 1, 2});
+    original.deps.push_back(
+        {"/test/a_much_longer_dependency_path/file.zith", "importKeyLong", 3, 4});
+
+    ByteWriter writer;
+    (void)Writer::write(original, writer);
+
+    // The first SectionEntry (section 0, metadata) offset is stored as a u64
+    // right after the canonical path and dep records.  It must equal header_size
+    // as stored in the FileHeader, which means header_size includes the deps.
+    uint32_t header_size  = 0;
+    uint64_t first_offset = 0;
+    {
+        zirl::ByteReader r(writer.ptr(), writer.size());
+        // Skip FileHeader field-wise: magic, version, 4 x u8, then u32 fields.
+        uint32_t magic = 0, version = 0;
+        uint8_t a = 0, b = 0, c = 0, sc = 0;
+        CHECK(r.readU32(magic) && r.readU32(version) && r.readU8(a) && r.readU8(b) && r.readU8(c) &&
+                  r.readU8(sc),
+              "reader walks the FileHeader");
+        CHECK_EQ(magic, kMagic, "magic is readable");
+        CHECK_EQ(version, kFormatVersion, "version is readable");
+        uint32_t checksum = 0, cache_key_hash = 0, mod_hi = 0, mod_lo = 0, src_hi = 0, src_lo = 0;
+        uint32_t abi_hi = 0, abi_lo = 0, dep_count = 0, decl_count = 0, template_count = 0;
+        uint32_t fn_count = 0, path_len = 0;
+        CHECK(r.readU32(header_size) && r.readU32(checksum) && r.readU32(cache_key_hash) &&
+                  r.readU32(mod_hi) && r.readU32(mod_lo) && r.readU32(src_hi) &&
+                  r.readU32(src_lo) && r.readU32(abi_hi) && r.readU32(abi_lo) &&
+                  r.readU32(dep_count) && r.readU32(decl_count) && r.readU32(template_count) &&
+                  r.readU32(fn_count) && r.readU32(path_len),
+              "header u32 fields are readable");
+        CHECK_EQ(dep_count, 2u, "dep count matches");
+        // Skip canonical path + both dep records, then read the section table.
+        for (uint32_t i = 0; i < path_len; ++i) {
+            uint8_t byte = 0;
+            CHECK(r.readU8(byte), "canonical path bytes skipped");
+        }
+        for (uint32_t i = 0; i < dep_count; ++i) {
+            std::string path, key;
+            uint32_t hi = 0, lo = 0;
+            CHECK(r.readBlob(path) && r.readBlob(key) && r.readU32(hi) && r.readU32(lo),
+                  "dep record skipped");
+        }
+        CHECK(r.readU64(first_offset), "first section offset is readable");
+    }
+    CHECK_EQ(first_offset, static_cast<uint64_t>(header_size),
+             "first section offset equals header_size, so header_size covers the deps");
+}
+
 // ── Corrupted artifact is rejected ────────────────────────────────
 static void test_corrupted_artifact_rejected() {
     auto art = makeMinimalArtifact("/test/bad.zith", "bad");
     ByteWriter writer;
-    Writer::write(art, writer);
+    (void)Writer::write(art, writer);
 
     // Truncate the buffer.
     auto truncated =
@@ -123,6 +201,25 @@ static void test_corrupted_artifact_rejected() {
         corrupted[corrupted.size() - 5] ^= 0xFF;
     auto decoded2 = Reader::read(corrupted);
     CHECK(!decoded2.has_value(), "checksum-mismatched artifact is rejected");
+}
+
+// ── Corrupted header_size is rejected as a miss ───────────────────
+static void test_corrupted_header_size_rejected() {
+    auto art = makeMinimalArtifact("/test/bad_hdr.zith", "bad");
+    art.deps.push_back({"/test/dep.zith", "dep", 0x1111u, 0x2222u});
+    ByteWriter writer;
+    (void)Writer::write(art, writer);
+
+    // Overwrite header_size in the written bytes with a wrong value.  The
+    // reader must reject the artifact instead of misparsing it.
+    const size_t header_size_offset = 4u + 4u + 4u; // magic + version + 4 x u8
+    std::string corrupted(reinterpret_cast<const char *>(writer.ptr()), writer.size());
+    corrupted[header_size_offset]     = 0x00;
+    corrupted[header_size_offset + 1] = 0x00;
+    corrupted[header_size_offset + 2] = 0x01;
+    corrupted[header_size_offset + 3] = 0x00; // header_size = 0x10000
+    auto decoded                      = Reader::read(corrupted);
+    CHECK(!decoded.has_value(), "corrupted header_size is rejected as a miss");
 }
 
 // ── Store hit/miss ────────────────────────────────────────────────
@@ -198,6 +295,96 @@ static void test_store_invalidation() {
     auto dep_after = store.load("/test/dep.zith", dep_fp);
     CHECK(!dep_after.has_value(), "dependency is gone after invalidation");
 
+    auto main_after = store.load("/test/main.zith", main_fp);
+    CHECK(!main_after.has_value(), "dependent is also evicted after invalidation");
+
+    fs::remove_all(root);
+}
+
+static void test_zero_abi_dependency_skips_validation() {
+    auto root = fs::temp_directory_path() / "zith-cache-test-zero-abi";
+    fs::remove_all(root);
+    fs::create_directories(root);
+
+    session::CacheKey key;
+    key.compilerVersion = "test";
+    const auto key_hash = static_cast<uint32_t>(zirl::fnv1a32(key.identity()));
+    Store store(root.string(), key);
+
+    auto dep = makeMinimalArtifact("/test/dep.zith", "dep", key_hash);
+    store.store(dep);
+
+    Artifact dependent = makeMinimalArtifact("/test/main.zith", "main", key_hash);
+    dependent.deps.push_back({"/test/dep.zith", "dep", 0, 0});
+    store.store(dependent);
+
+    session::ContentFingerprint main_fp;
+    main_fp.primary =
+        (static_cast<uint64_t>(dependent.source_fp_hi) << 32u) | dependent.source_fp_lo;
+
+    auto loaded = store.load("/test/main.zith", main_fp);
+    CHECK(loaded.has_value(), "zero ABI dependency does not invalidate the artifact");
+
+    fs::remove_all(root);
+}
+
+// ── Non-zero dep ABI validation ───────────────────────────────────
+static void test_dep_abi_validation() {
+    auto root = fs::temp_directory_path() / "zith-cache-test-dep-abi";
+    fs::remove_all(root);
+    fs::create_directories(root);
+
+    session::CacheKey key;
+    key.compilerVersion = "test";
+    const auto key_hash = static_cast<uint32_t>(zirl::fnv1a32(key.identity()));
+    Store store(root.string(), key);
+
+    auto dep = makeMinimalArtifact("/test/dep.zith", "dep", key_hash);
+    store.store(dep);
+
+    Artifact matching = makeMinimalArtifact("/test/match.zith", "match", key_hash);
+    matching.deps.push_back({"/test/dep.zith", "dep", dep.public_abi_hi, dep.public_abi_lo});
+    store.store(matching);
+
+    session::ContentFingerprint match_fp;
+    match_fp.primary =
+        (static_cast<uint64_t>(matching.source_fp_hi) << 32u) | matching.source_fp_lo;
+    auto match_loaded = store.load("/test/match.zith", match_fp);
+    CHECK(match_loaded.has_value(), "dependent with matching non-zero dep ABI loads as a hit");
+
+    Artifact mismatched = makeMinimalArtifact("/test/mismatch.zith", "mismatch", key_hash);
+    mismatched.deps.push_back({"/test/dep.zith", "dep", 0xDEADBEEFu, 0xCAFEBABEu});
+    store.store(mismatched);
+
+    session::ContentFingerprint mismatch_fp;
+    mismatch_fp.primary =
+        (static_cast<uint64_t>(mismatched.source_fp_hi) << 32u) | mismatched.source_fp_lo;
+    auto mismatch_loaded = store.load("/test/mismatch.zith", mismatch_fp);
+    CHECK(!mismatch_loaded.has_value(), "dependent with mismatched dep ABI is invalidated");
+
+    fs::remove_all(root);
+}
+
+static void test_manifest_load_skips_malformed_record() {
+    auto root = fs::temp_directory_path() / "zith-cache-test-manifest";
+    fs::remove_all(root);
+    fs::create_directories(root / "modules");
+
+    {
+        std::ofstream out(root / "modules" / "manifest", std::ios::binary | std::ios::trunc);
+        out << "/test/a.zith\x1f"
+               "/test/a.zirl\x1f"
+               "NOTHEX\x1f"
+               "00000001\x1f"
+               "00000002\x1f"
+               "00000003\x1e\n";
+    }
+
+    session::CacheKey key;
+    key.compilerVersion = "test";
+    Store store(root.string(), key);
+    CHECK(!store.manifestEntry("/test/a.zith").has_value(), "malformed manifest record is ignored");
+
     fs::remove_all(root);
 }
 
@@ -206,9 +393,9 @@ static void test_byte_stability() {
     auto art = makeMinimalArtifact("/test/stable.zith", "stable");
 
     ByteWriter w1;
-    Writer::write(art, w1);
+    (void)Writer::write(art, w1);
     ByteWriter w2;
-    Writer::write(art, w2);
+    (void)Writer::write(art, w2);
 
     CHECK_EQ(w1.size(), w2.size(), "identical input produces identical size");
     bool same = true;
@@ -256,9 +443,15 @@ static void test_artifact_builder() {
 
 static void test_cache() {
     test_binary_round_trip();
+    test_deps_round_trip();
+    test_header_size_covered_by_writer();
     test_corrupted_artifact_rejected();
+    test_corrupted_header_size_rejected();
     test_store_hit_miss();
     test_store_invalidation();
+    test_zero_abi_dependency_skips_validation();
+    test_dep_abi_validation();
+    test_manifest_load_skips_malformed_record();
     test_byte_stability();
     test_artifact_builder();
 }

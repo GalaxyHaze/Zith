@@ -49,6 +49,9 @@ private:
     llvm::Value *emitLet(const hir::HirLet &let, const hir::HirModule &mod);
     llvm::Value *emitVar(const hir::HirVar &var);
     llvm::Value *emitVarAddr(const hir::HirVar &var);
+    /// Resolves the address of an expression without loading its value. Returns
+    /// nullptr when the expression is not addressable in place.
+    llvm::Value *emitAddrOf(hir::HirExprId id, const hir::HirModule &mod);
     llvm::Value *emitJump(const hir::HirJump &jump, const hir::HirModule &mod);
     llvm::Value *emitIndexAddr(const hir::HirIndex &idx, const hir::HirModule &mod);
     llvm::Value *emitFieldAddr(const hir::HirField &field, const hir::HirModule &mod);

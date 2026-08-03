@@ -70,6 +70,8 @@ std::optional<Artifact> Store::load(std::string_view canonical_path,
             bumpInvalid();
             return std::nullopt;
         }
+        if (dep.public_abi_hi == 0 && dep.public_abi_lo == 0)
+            continue;
         if (dep_entry->public_abi_hi != dep.public_abi_hi ||
             dep_entry->public_abi_lo != dep.public_abi_lo) {
             bumpInvalid();
@@ -137,6 +139,10 @@ void Store::invalidate(std::string_view canonical_path) {
 StoreMetrics Store::metrics() const {
     std::lock_guard<std::mutex> lock(metrics_mutex_);
     return metrics_;
+}
+
+std::optional<ManifestEntry> Store::manifestEntry(std::string_view canonical_path) const {
+    return manifest_.find(canonical_path);
 }
 
 } // namespace zith::cache

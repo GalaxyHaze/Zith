@@ -42,6 +42,7 @@ public:
     void invalidate(std::string_view canonical_path);
 
     [[nodiscard]] StoreMetrics metrics() const;
+    [[nodiscard]] std::optional<ManifestEntry> manifestEntry(std::string_view canonical_path) const;
 
     [[nodiscard]] const std::string &root() const noexcept {
         return root_;

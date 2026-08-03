@@ -2,6 +2,7 @@
 
 #include "zirl/zirl-header.hpp"
 
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -36,6 +37,13 @@ std::string unescapeField(std::string_view s) {
         }
     }
     return out;
+}
+
+bool parseHex32(std::string_view text, uint32_t &out) {
+    const auto *begin = text.data();
+    const auto *end   = begin + text.size();
+    auto [ptr, ec]    = std::from_chars(begin, end, out, 16);
+    return ec == std::errc{} && ptr == end;
 }
 
 } // namespace
@@ -142,12 +150,11 @@ void Manifest::load() {
         ManifestEntry entry;
         entry.canonical_path = unescapeField(fields[0]);
         entry.artifact_path  = unescapeField(fields[1]);
-        entry.public_abi_hi =
-            static_cast<uint32_t>(std::stoul(std::string(fields[2]), nullptr, 16));
-        entry.public_abi_lo =
-            static_cast<uint32_t>(std::stoul(std::string(fields[3]), nullptr, 16));
-        entry.source_fp_hi = static_cast<uint32_t>(std::stoul(std::string(fields[4]), nullptr, 16));
-        entry.source_fp_lo = static_cast<uint32_t>(std::stoul(std::string(fields[5]), nullptr, 16));
+        if (!parseHex32(fields[2], entry.public_abi_hi) ||
+            !parseHex32(fields[3], entry.public_abi_lo) ||
+            !parseHex32(fields[4], entry.source_fp_hi) ||
+            !parseHex32(fields[5], entry.source_fp_lo))
+            continue;
         // Parse deps separated by \x1d.
         if (!deps.empty()) {
             size_t dstart = 0;

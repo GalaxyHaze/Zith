@@ -354,11 +354,25 @@ static void test_fallback_and_propagation_are_rejected() {
     SemaTest fallback_failable;
     check_unsupported_syntax(fallback_failable.run("fn main() { !missing; }\n"));
 
-    SemaTest propagate_optional;
-    check_unsupported_syntax(propagate_optional.run("fn main() { missing?; }\n"));
-
     SemaTest propagate_failable;
     check_unsupported_syntax(propagate_failable.run("fn main() { missing!; }\n"));
+}
+
+static void test_optional_propagation_is_supported() {
+    SemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    var x: ?i32 = null;\n"
+                   "    x?;\n"
+                   "}\n");
+    CHECK(!r.ok, "Optional propagation on a non-optional-returning function fails");
+    CHECK(r.hasErrorCode(diagnostics::err::TypeMismatch),
+          "Reports the missing optional return as TypeMismatch (3001)");
+
+    SemaTest unknown;
+    auto r2 = unknown.run("fn main() { missing?; }\n");
+    CHECK(!r2.ok, "Propagation on an unknown identifier fails");
+    CHECK(r2.hasErrorCode(diagnostics::err::UndefinedIdent),
+          "Reports the unknown identifier as UndefinedIdent (2001)");
 }
 
 static void test_word_sequences_are_rejected() {
@@ -860,6 +874,35 @@ static void test_modern_loop_body_infers_locals() {
     CHECK(f.ok, "the body of a 'for' loop infers its own locals");
 }
 
+static void test_modern_array_literal() {
+    ModernSemaTest t;
+    auto r = t.run("fn sum(arr: [4]i32): i32 {\n"
+                   "    return arr[0] + arr[1] + arr[2] + arr[3];\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    var xs = [1, 2, 3, 4];\n"
+                   "    return sum(xs);\n"
+                   "}\n");
+    CHECK(r.ok, "array literal with matching elements type-checks and passes to an array param");
+}
+
+static void test_modern_array_literal_mismatch() {
+    ModernSemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    var xs = [1, \"a\"];\n"
+                   "}\n");
+    CHECK(!r.ok, "array literal with mismatched element types fails");
+    CHECK(r.hasErrorCode(diagnostics::err::TypeMismatch), "Reports TypeMismatch (3001)");
+}
+
+static void test_modern_array_literal_empty() {
+    ModernSemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    var xs = [];\n"
+                   "}\n");
+    CHECK(r.ok, "empty array literal defaults to i32[0]");
+}
+
 static void test_sema() {
     test_basic_unification();
     test_type_mismatch();
@@ -881,6 +924,7 @@ static void test_sema() {
     test_macro_not_implemented_warning();
     test_is_and_as_are_rejected();
     test_fallback_and_propagation_are_rejected();
+    test_optional_propagation_is_supported();
     test_word_sequences_are_rejected();
     test_use_statements_are_rejected();
     test_word_and_context_declarations_are_rejected();
@@ -929,6 +973,9 @@ static void test_sema() {
     test_modern_is_null_on_optional_pointer();
     test_modern_is_null_requires_optional();
     test_modern_loop_body_infers_locals();
+    test_modern_array_literal();
+    test_modern_array_literal_mismatch();
+    test_modern_array_literal_empty();
 }
 
 TEST_MAIN(sema)

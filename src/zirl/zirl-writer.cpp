@@ -153,17 +153,35 @@ uint32_t Writer::write(const cache::Artifact &artifact, ByteWriter &out) {
     ByteWriter code;
     writeCode(artifact, code);
 
+    // The header is written field-wise below.  sizeof(FileHeader) must equal the
+    // byte count of that field-by-field writeU32/writeU8 sequence (68 today:
+    // eleven uint32 fields at 4 bytes each plus four uint8 fields, no padding).
+    // If a field is ever added or the struct grows padding, this trips instead of
+    // silently shifting every section offset.
+    static_assert(sizeof(FileHeader) == 68,
+                  "sizeof(FileHeader) must match the field-by-field header write");
+
     const uint32_t section_count = 4;
     const uint32_t path_len      = static_cast<uint32_t>(artifact.canonical_path.size());
+
+    // Dependency records are written between the canonical path and the section
+    // table (part of the header region).  Each record is two length-prefixed
+    // blobs (a u32 length prefix plus the bytes) followed by two u32 ABI fields.
+    // Compute the byte count in one pass and reuse it for header_size so writer
+    // and reader cannot drift.
+    uint64_t deps_size = 0;
+    for (const auto &dep : artifact.deps)
+        deps_size += 2 * sizeof(uint32_t) + dep.canonical_path.size() + dep.import_key.size() +
+                     2 * sizeof(uint32_t);
 
     FileHeader hdr;
     hdr.magic          = kMagic;
     hdr.format_version = kFormatVersion;
     hdr.endianness     = kEndianLittle;
     hdr.section_count  = static_cast<uint8_t>(section_count);
-    // header = FileHeader fields + canonical path + section table
-    hdr.header_size =
-        static_cast<uint32_t>(sizeof(FileHeader) + path_len + section_count * sizeof(SectionEntry));
+    // header = FileHeader fields + canonical path + dep records + section table
+    hdr.header_size        = static_cast<uint32_t>(sizeof(FileHeader) + path_len + deps_size +
+                                                   section_count * sizeof(SectionEntry));
     hdr.cache_key_hash     = artifact.cache_key_hash;
     hdr.module_id_hi       = artifact.module_id_hi;
     hdr.module_id_lo       = artifact.module_id_lo;

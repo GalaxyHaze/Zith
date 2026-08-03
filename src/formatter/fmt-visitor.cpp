@@ -144,14 +144,29 @@ std::string_view FmtVisitor::tokenText(const std::size_t token_index) const noex
 }
 
 int FmtVisitor::binaryPrecedence(const std::string_view op) const noexcept {
-    if (op == "=")
+    if (op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=" || op == "%=" ||
+        op == "<<=" || op == ">>=" || op == "&.=" || op == "|.=" || op == "^.=")
         return 1;
-    if (op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=")
+    if (op == "or")
         return 2;
-    if (op == "+" || op == "-")
+    if (op == "and")
         return 3;
-    if (op == "*" || op == "/" || op == "%")
+    if (op == "xor")
         return 4;
+    if (op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=")
+        return 5;
+    if (op == "|.")
+        return 6;
+    if (op == "^.")
+        return 7;
+    if (op == "&.")
+        return 8;
+    if (op == "<<" || op == ">>")
+        return 9;
+    if (op == "+" || op == "-")
+        return 10;
+    if (op == "*" || op == "/" || op == "%")
+        return 11;
     return -1;
 }
 
@@ -162,16 +177,18 @@ int FmtVisitor::exprPrecedence(const frontend::Expression &expr) const noexcept 
     case frontend::ExprKind::Binary:
         return binaryPrecedence(expr.text);
     case frontend::ExprKind::Unary:
-        return 5;
+        return 12;
     case frontend::ExprKind::IsNull:
-        return 2;
+        return 5;
     case frontend::ExprKind::Call:
     case frontend::ExprKind::Index:
     case frontend::ExprKind::OptionalProp:
     case frontend::ExprKind::Cast:
-        return 6;
+    case frontend::ExprKind::Field:
+    case frontend::ExprKind::Arrow:
+        return 13;
     default:
-        return 7;
+        return 14;
     }
 }
 
@@ -441,6 +458,19 @@ void FmtVisitor::visitStmt(const frontend::StmtId id) {
     case frontend::StmtKind::Continue:
         emit("continue;");
         break;
+    case frontend::StmtKind::Marker:
+        emit("marker ");
+        emit(stmt->label);
+        if (stmt->expression) {
+            emit(" ");
+            visitExpr(stmt->expression);
+        }
+        break;
+    case frontend::StmtKind::Jump:
+        emit("jump ");
+        emit(stmt->label);
+        emit(";");
+        break;
     case frontend::StmtKind::Expression:
         if (!stmt->expression) {
             emitOriginal(stmt->span);
@@ -610,6 +640,15 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
         }
         emit(" }");
         break;
+    case frontend::ExprKind::ArrayLiteral:
+        emit("[");
+        for (std::size_t i = 0; i < expr->operands.size(); ++i) {
+            if (i != 0U)
+                emit(", ");
+            visitExpr(expr->operands[i]);
+        }
+        emit("]");
+        break;
     case frontend::ExprKind::Cast:
         if (expr->operands.empty()) {
             emitOriginal(expr->span);
@@ -626,6 +665,12 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
         }
         visitExpr(expr->operands[0], current_prec);
         emit(" is null");
+        break;
+    case frontend::ExprKind::Placeholder:
+        emit("_");
+        break;
+    case frontend::ExprKind::LayoutIntrinsic:
+        emitOriginal(expr->span);
         break;
     case frontend::ExprKind::Error:
         emitOriginal(expr->span);

@@ -25,7 +25,7 @@ reflects actual compiler behaviour, not spec intent.
 
 | Stage | Status | Notes |
 |---|---|---|
-| Lexer | **Working** | Hand-written, character-at-a-time. Maximal-munch for `==`, `!=`, `<=`, `>=`, `->`; other multi-char operators (`&&`, `+=`, `<<`, `..`) are still split per character |
+| Lexer | **Working** | Hand-written, character-at-a-time. Longest-first maximal munch for all multi-char operators. `&&` and `||` are rejected with a dedicated error pointing to `and` / `or` |
 | Parser | **Working** | Recursive-descent. Function decls, expressions, imports. |
 | Formatter | **Working** | Round-trip stable for all 16 `ExprKind` nodes including `Index`, `OptionalProp`, `Field`, `Arrow`, and `StructLiteral` |
 | Import resolution | **Working** | `import`, `from`, `export`, `alias`, `type` |
@@ -102,7 +102,8 @@ reflects actual compiler behaviour, not spec intent.
 | `for (cond) { }`, `for { }` | **Working** | Conditional and infinite loop forms lower to the same CFG as `while` |
 | `for (x in xs)`, `for (init), (cond), (step)` | **Parse error** | Recognised and reported as not implemented yet |
 | `when` pattern match | **Parse error** | `when (x)` partially parsed; arm syntax `0 => { }` unrecognised |
-| `marker` / `dock` / `jump` | **Check only** | Parsed in `flow fn`; lowering not verified |
+| `marker` / `jump` | **Working** | Block-style go-to: `marker` declares a labeled block, `jump` transfers control to it. `dock` not implemented |
+| `dock` | **Parse error** | Not implemented yet |
 
 ### Words, Contexts, Macros
 
@@ -198,10 +199,10 @@ Recorded deliberately; each item is a follow-up, not an unknown.
 |---|---|
 | Formatter re-prints `for (cond)` as `while` | `for` reuses `ExprKind::While`; a distinct node is needed to round-trip the spelling |
 | No overflow check on narrowing conversions | Neither `as` nor numeric-literal adaptation validates that the value fits the target |
-| No flow-sensitive narrowing after `is null` | `p->field` on a `?*T` is accepted without proving the pointer is non-null |
+| No flow-sensitive narrowing after `is null` | `p->field` on a `?*T` requires NonNull proof from `if (p is null) { } else { p->field }` or `for (not (p is null))`. Error code `E3005` |
 | `is` limited to `is null` | Union/type narrowing is not addressed |
 | `for` iterator and 3-clause forms unimplemented | Reported as errors rather than parsed |
 | User-defined casts | To be added as a new branch in `classifyCast` |
-| Multi-char operators beyond the five | `&&`, `\|\|`, `+=`, `<<`, `>>`, `..` still lex per character (their `precedence()` is -1) |
+| Multi-char operators beyond the five | `..` still lexes per character (its `precedence()` is -1). All other multi-char operators munched as single tokens and wired in the parser/sema/formatter |
 
 *When a feature moves from one status to another, update this table and re-verify.*

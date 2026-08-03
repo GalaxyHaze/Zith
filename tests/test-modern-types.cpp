@@ -86,14 +86,21 @@ static void test_enum_union_trait_alias() {
     memory::Arena arena;
     sema::modern::TypeTable table(arena);
 
-    auto i32 = table.internInteger({32, true});
-    memory::DynArray<sema::modern::TypeId> variants(arena);
-    variants.push(i32);
-    auto en = table.internEnum("Color", variants);
+    auto i32            = table.internInteger({32, true});
+    auto &variant_names = table.makeStringStorage();
+    auto &discs         = table.makeDiscStorage();
+    variant_names.push("Red");
+    variant_names.push("Green");
+    discs.push(0);
+    discs.push(1);
+    auto en = table.internEnum("Color", i32, variant_names, discs);
     CHECK_EQ(table.kindOf(en), sema::modern::TypeKind::Enum, "enum type detected");
     const auto *en_data = table.enum_type(en);
     CHECK(en_data != nullptr, "enum data is retrievable");
     CHECK_EQ(en_data->name, std::string_view("Color"), "enum name preserved");
+    CHECK_EQ(en_data->underlying, i32, "enum underlying type preserved");
+    CHECK_EQ(en_data->variant_names.size(), 2u, "enum variant names preserved");
+    CHECK_EQ(en_data->discriminants[1], 1, "enum discriminants preserved");
 
     memory::DynArray<sema::modern::TypeId> members(arena);
     members.push(i32);

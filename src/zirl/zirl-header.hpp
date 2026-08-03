@@ -17,8 +17,11 @@ namespace zith::zirl {
 // byte-stable output.  The file header carries enough identity information to
 // reject an artifact before reading any section.
 
-inline constexpr uint32_t kMagic         = 0x5A49524Cu; // "ZIRL"
-inline constexpr uint32_t kFormatVersion = 1;
+inline constexpr uint32_t kMagic = 0x5A49524Cu; // "ZIRL"
+// Bumped to 2 when dependency records were folded into header_size: artifacts
+// written before that are unreadable for any module with imports, so the version
+// check turns stale caches into a clean miss rather than a checksum failure.
+inline constexpr uint32_t kFormatVersion = 2;
 inline constexpr uint8_t kEndianLittle   = 1;
 
 enum class SectionId : uint8_t {

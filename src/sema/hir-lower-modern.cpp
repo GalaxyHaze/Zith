@@ -177,11 +177,14 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     current_block_ = 0;
     next_slot_     = 0;
     loop_stack_.clear();
+    marker_blocks_.clear();
     local_slots_.clear();
     local_slots_.resize(1U);
 
     current_fn_->blocks.emplace(arena_);
     current_fn_->blocks[0].insts = memory::DynArray<hir::HirExprId>(arena_);
+
+    collectMarkers(info.decl->body);
 
     for (size_t index = 0; index < info.decl->parameters.size(); ++index) {
         const auto &parameter = info.decl->parameters[index];
@@ -305,9 +308,17 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
     }
     case TypeKind::Enum: {
         const auto *enumeration = sema_.typeTable().enum_type(type);
-        lowered                 = enumeration != nullptr
-                                      ? types_.registerNamedType(enumeration->name, types::TypeKind::Enum)
-                                      : types::kErrorType;
+        if (enumeration == nullptr) {
+            lowered = types::kErrorType;
+            break;
+        }
+        // Register the named enum with its underlying type and variants so codegen can
+        // lower it to the underlying integer instead of `void` (a plain registerNamedType
+        // would leave the underlying as kErrorType).
+        lowered = types_.defineEnum(enumeration->name, lowerType(enumeration->underlying));
+        for (size_t i = 0; i < enumeration->variant_names.size(); ++i)
+            types_.addEnumVariant(lowered, enumeration->variant_names[i],
+                                  enumeration->discriminants[i]);
         break;
     }
     case TypeKind::Union: {
@@ -530,11 +541,16 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
         return lowerArrow(expr, type);
     case frontend::ExprKind::StructLiteral:
         return lowerStructLiteral(expr, type);
+    case frontend::ExprKind::ArrayLiteral:
+        return lowerArrayLiteral(expr, type);
     case frontend::ExprKind::Cast:
         return lowerCast(expr, type);
     case frontend::ExprKind::IsNull:
         return lowerIsNull(expr);
+    case frontend::ExprKind::LayoutIntrinsic:
+        return lowerLayoutIntrinsic(expr);
     case frontend::ExprKind::Return:
+    case frontend::ExprKind::Placeholder:
     case frontend::ExprKind::Error:
         return hir::kInvalidHirExpr;
     }
@@ -636,10 +652,11 @@ hir::HirExprId HirLowerModern::lowerBinary(const frontend::Expression &expr,
         return hir::kInvalidHirExpr;
 
     hir::HirBinary binary;
-    binary.lhs  = lhs;
-    binary.rhs  = rhs;
-    binary.op   = mapBinaryOp(expr.text);
-    binary.type = type;
+    binary.lhs          = lhs;
+    binary.rhs          = rhs;
+    binary.op           = mapBinaryOp(expr.text);
+    binary.type         = type;
+    binary.operand_type = typeOfExpr(expr.operands[0]);
     return addExpr(std::move(binary));
 }
 
@@ -896,6 +913,29 @@ hir::HirExprId HirLowerModern::lowerIsNull(const frontend::Expression &expr) {
     return addExpr(hir::HirUnary{hir::HirUnaryOp::Not, tag, types::kBoolType});
 }
 
+hir::HirExprId HirLowerModern::lowerLayoutIntrinsic(const frontend::Expression &expr) {
+    hir::HirLayoutIntrinsic intrinsic;
+    intrinsic.which = expr.text == "alignOf" ? hir::HirLayoutIntrinsic::Which::AlignOf
+                                             : hir::HirLayoutIntrinsic::Which::OffsetOf;
+    if (current_module_ == nullptr || current_module_->frontend == nullptr || !expr.cast_type)
+        return hir::kInvalidHirExpr;
+    const auto &type_exprs = current_module_->frontend->typeExpressions();
+    if (expr.cast_type.value > type_exprs.size())
+        return hir::kInvalidHirExpr;
+    const auto &type_expr           = type_exprs[expr.cast_type.value - 1U];
+    const types::TypeId struct_type = lowerType(sema_.typeTable().lookupNamed(type_expr.name));
+    if (struct_type == types::kErrorType)
+        return hir::kInvalidHirExpr;
+    intrinsic.type = struct_type;
+    if (!expr.field_names.empty()) {
+        const size_t field_index = types_.fieldIndex(struct_type, expr.field_names[0]);
+        if (field_index == static_cast<size_t>(-1))
+            return hir::kInvalidHirExpr;
+        intrinsic.field_index = static_cast<uint32_t>(field_index);
+    }
+    return addExpr(std::move(intrinsic));
+}
+
 hir::HirExprId HirLowerModern::lowerIndex(const frontend::Expression &expr,
                                           const types::TypeId type) {
     if (expr.operands.size() < 2U)
@@ -915,10 +955,59 @@ hir::HirExprId HirLowerModern::lowerIndex(const frontend::Expression &expr,
     return addExpr(std::move(indexing));
 }
 
+memory::Optional<int64_t> HirLowerModern::enumVariantValue(frontend::ExprId operand,
+                                                           std::string_view variant) {
+    if (!operand || current_module_ == nullptr || current_module_->frontend == nullptr ||
+        operand.value > current_module_->frontend->expressions().size()) {
+        return {};
+    }
+    const auto &op = current_module_->frontend->expressions()[operand.value - 1U];
+    if (op.kind != frontend::ExprKind::Name)
+        return {};
+    const auto *resolved = findResolvedExpr(operand);
+    if (resolved == nullptr || !resolved->declaration)
+        return {};
+    const auto *decl = findDecl(*current_module_, resolved->declaration);
+    if (decl == nullptr || decl->kind != frontend::DeclKind::Enum)
+        return {};
+    const auto enum_type = sema_.typeTable().canonical(sema_.typeTable().lookupNamed(decl->name));
+    const auto *et       = sema_.typeTable().enum_type(enum_type);
+    if (et == nullptr)
+        return {};
+    for (size_t i = 0; i < et->variant_names.size(); ++i) {
+        if (et->variant_names[i] == variant)
+            return et->discriminants[i];
+    }
+    return {};
+}
+
 hir::HirExprId HirLowerModern::lowerField(const frontend::Expression &expr,
                                           const types::TypeId type) {
     if (expr.operands.empty())
         return hir::kInvalidHirExpr;
+    // `console.println` where `console` is an import alias: the field expression resolves
+    // to the imported symbol, so emit the same HirVar a plain name would produce and never
+    // lower the alias base (which would fail to resolve 'console').
+    if (const auto *resolved = findResolvedExpr(expr.id);
+        resolved != nullptr && resolved->kind == session::ResolutionKind::Import) {
+        const frontend::Declaration *decl = resolvedFunctionDecl(*resolved);
+        if (decl != nullptr) {
+            hir::HirVar var;
+            var.name    = interner_.intern(decl->name);
+            var.version = 0;
+            return addExpr(std::move(var));
+        }
+        if (resolved->foreignFunction != nullptr) {
+            hir::HirVar var;
+            var.name    = interner_.intern(resolved->foreignFunction->linkageName);
+            var.version = 0;
+            return addExpr(std::move(var));
+        }
+        return hir::kInvalidHirExpr;
+    }
+    // `Color.Green` resolves to an enum variant constant, not a struct field read.
+    if (const auto variant = enumVariantValue(expr.operands[0], expr.text))
+        return addExpr(hir::HirEnumValue{*variant, type});
     const auto object      = lowerExpr(expr.operands[0]);
     const auto object_type = typeOfExpr(expr.operands[0]);
     if (object == hir::kInvalidHirExpr)
@@ -986,11 +1075,58 @@ hir::HirExprId HirLowerModern::lowerStructLiteral(const frontend::Expression &ex
         if (slot_index < ordered.size())
             ordered[slot_index] = value;
     }
-    for (const auto value : ordered) {
-        if (value != hir::kInvalidHirExpr)
-            lit.values.push(value);
+    // Fill slots left empty by a `_` placeholder or an omitted field with the
+    // struct declaration's default; slots without a default stay zero-initialized.
+    if (field_count != 0U) {
+        for (size_t slot_index = 0; slot_index < field_count; ++slot_index) {
+            if (ordered[slot_index] != hir::kInvalidHirExpr)
+                continue;
+            const auto default_id = lowerFieldDefault(expr.text, slot_index);
+            if (!default_id)
+                continue;
+            const auto default_value = lowerExpr(default_id);
+            if (default_value == hir::kInvalidHirExpr)
+                continue;
+            const auto field_type = types_.getField(type, slot_index).type;
+            ordered[slot_index] =
+                types_.kindOf(field_type) == types::TypeKind::Optional &&
+                        types_.kindOf(typeOfExpr(default_id)) != types::TypeKind::Optional
+                    ? lowerCoerceToOptional(field_type, default_value)
+                    : default_value;
+        }
+    }
+    // Keep every slot (missing ones are zero at codegen); the array is index-aligned.
+    for (const auto value : ordered)
+        lit.values.push(value);
+    return addExpr(std::move(lit));
+}
+
+hir::HirExprId HirLowerModern::lowerArrayLiteral(const frontend::Expression &expr,
+                                                 const types::TypeId type) {
+    hir::HirArrayLiteral lit(arena_);
+    lit.type = type;
+    for (const auto operand : expr.operands) {
+        const auto value = lowerExpr(operand);
+        if (value == hir::kInvalidHirExpr)
+            return hir::kInvalidHirExpr;
+        lit.elements.push(value);
     }
     return addExpr(std::move(lit));
+}
+
+frontend::ExprId HirLowerModern::lowerFieldDefault(std::string_view struct_name,
+                                                   size_t field_index) const noexcept {
+    if (current_module_ == nullptr || current_module_->frontend == nullptr)
+        return {};
+    const auto &decls = current_module_->frontend->declarations();
+    for (const auto &decl : decls) {
+        if (decl.kind != frontend::DeclKind::Struct || decl.name != struct_name)
+            continue;
+        if (field_index < decl.parameters.size())
+            return decl.parameters[field_index].defaultValue;
+        break;
+    }
+    return {};
 }
 
 hir::HirExprId HirLowerModern::lowerCoerceToOptional(types::TypeId target, hir::HirExprId value) {
@@ -1080,6 +1216,44 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
         setCurrentBlock(newBlock());
         current_fn_->blocks[current_block_].insts = memory::DynArray<hir::HirExprId>(arena_);
         return true;
+    case frontend::StmtKind::Marker: {
+        const auto *target = marker_blocks_.get(statement.label);
+        if (target == nullptr) {
+            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                          "marker has no block: '" + statement.label + "'", {});
+            return false;
+        }
+        const size_t marker_block = *target;
+        // Fall through into the marker block.
+        if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
+            emitJump(marker_block);
+        setCurrentBlock(marker_block);
+        current_fn_->blocks[marker_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+        if (statement.expression)
+            (void)lowerExpr(statement.expression);
+        // Continue after the marker body.
+        const size_t continuation = newBlock();
+        if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
+            emitJump(continuation);
+        setCurrentBlock(continuation);
+        current_fn_->blocks[continuation].insts = memory::DynArray<hir::HirExprId>(arena_);
+        last_value                              = hir::kInvalidHirExpr;
+        return true;
+    }
+    case frontend::StmtKind::Jump: {
+        const auto *target = marker_blocks_.get(statement.label);
+        if (target == nullptr) {
+            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                          "jump to undefined marker: '" + statement.label + "'", {});
+            return false;
+        }
+        emitJump(*target);
+        // Anything after a jump is unreachable; give it a fresh block.
+        setCurrentBlock(newBlock());
+        current_fn_->blocks[current_block_].insts = memory::DynArray<hir::HirExprId>(arena_);
+        last_value                                = hir::kInvalidHirExpr;
+        return true;
+    }
     case frontend::StmtKind::Error:
         return false;
     }
@@ -1107,6 +1281,28 @@ size_t HirLowerModern::newBlock() {
     const auto block = current_fn_->blocks.size();
     current_fn_->blocks.emplace(arena_);
     return block;
+}
+
+void HirLowerModern::collectMarkers(frontend::ExprId id) {
+    if (!id || current_module_ == nullptr ||
+        id.value > current_module_->frontend->expressions().size())
+        return;
+    const auto &expr = current_module_->frontend->expressions()[id.value - 1U];
+    if (expr.kind == frontend::ExprKind::Block) {
+        for (const auto &stmt_id : expr.statements) {
+            if (!stmt_id || stmt_id.value > current_module_->frontend->statements().size())
+                continue;
+            const auto &stmt = current_module_->frontend->statements()[stmt_id.value - 1U];
+            if (stmt.kind == frontend::StmtKind::Marker && !stmt.label.empty() &&
+                !marker_blocks_.contains(stmt.label))
+                marker_blocks_.insert(stmt.label, newBlock());
+            if (stmt.expression)
+                collectMarkers(stmt.expression);
+        }
+    } else {
+        for (const auto operand : expr.operands)
+            collectMarkers(operand);
+    }
 }
 
 void HirLowerModern::setCurrentBlock(const size_t block) {

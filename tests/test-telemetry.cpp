@@ -81,7 +81,7 @@ static void test_arena_usage_fields_accessible() {
     auto r = h.run(Stage::Scanned, "fn a() { } fn b() { }");
     // All fields are size_t; just verify they are reachable without crashing.
     CHECK(r.usage.scratchAllocatedBytes >= 0, "scratch field accessible");
-    CHECK(r.usage.astAllocatedBytes >= 0, "ast field accessible");
+    CHECK(r.usage.symbolAllocatedBytes >= 0, "ast field accessible");
     CHECK(r.usage.symbolAllocatedBytes >= 0, "symbol field accessible");
     CHECK(r.usage.typeAllocatedBytes >= 0, "type field accessible");
     CHECK(r.usage.hirAllocatedBytes >= 0, "hir field accessible");
@@ -95,9 +95,9 @@ static void test_ast_arena_grows_with_input() {
     auto r_full = h_full.run(Stage::Scanned,
                              "struct Foo { x: Int, y: Int, } fn bar(a: Int, b: Int): Int { a }");
 
-    CHECK(r_full.usage.astAllocatedBytes > 0, "AST arena has allocations after non-empty parse");
+    CHECK(r_full.usage.symbolAllocatedBytes > 0, "AST arena has allocations after non-empty parse");
     // Allocated bytes should be >= the empty session (may equal if both fit in 1 block)
-    CHECK(r_full.usage.astAllocatedBytes >= r_empty.usage.astAllocatedBytes,
+    CHECK(r_full.usage.symbolAllocatedBytes >= r_empty.usage.symbolAllocatedBytes,
           "AST arena bytes non-decreasing with more input");
 }
 

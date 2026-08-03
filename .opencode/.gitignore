@@ -1,0 +1,9 @@
+# Ignore workspace-local plugin dependencies
+node_modules/
+package-lock.json
+
+# Ignore the LanceDB vector store (binary data)
+rag_db/
+
+# Ignore logs
+opencode-rag.log

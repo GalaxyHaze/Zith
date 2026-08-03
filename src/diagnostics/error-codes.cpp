@@ -102,6 +102,10 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
     case err::CyclicType:
         return ErrorInfo{code, 'E', "types", "Cyclic type",
                          "A type cannot contain itself \u2014 check the type definition"};
+    case err::NullDerefUnproven:
+        return ErrorInfo{code, 'E', "types", "Null dereference without proof",
+                         "Use 'if (x is null) { } else { ... }' or 'for (not (x is null))' "
+                         "to prove the value is non-null before dereferencing"};
 
     // Ownership
     case err::UseAfterMove:

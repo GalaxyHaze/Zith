@@ -49,6 +49,28 @@ bool looksBool(std::string_view text) {
     return text == "true" || text == "false";
 }
 
+/// Parses an enum variant's explicit `= <int literal>` discriminant. Accepts a plain
+/// literal or a unary-minus literal (`Red = -1`). Returns false for anything else.
+bool explicitDiscriminant(const frontend::FrontendSnapshot &snapshot, frontend::ExprId id,
+                          std::int64_t &value) {
+    if (!id || id.value > snapshot.expressions().size())
+        return false;
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.kind == frontend::ExprKind::Unary && expr.text == "-" && !expr.operands.empty()) {
+        if (expr.operands[0].value > snapshot.expressions().size())
+            return false;
+        const auto &operand = snapshot.expressions()[expr.operands[0].value - 1U];
+        if (operand.kind != frontend::ExprKind::Literal || !looksInteger(operand.text))
+            return false;
+        value = -std::strtoll(operand.text.c_str(), nullptr, 10);
+        return true;
+    }
+    if (expr.kind != frontend::ExprKind::Literal || !looksInteger(expr.text))
+        return false;
+    value = std::strtoll(expr.text.c_str(), nullptr, 10);
+    return true;
+}
+
 bool looksString(std::string_view text) {
     return text.size() >= 2 && text.front() == '"' && text.back() == '"';
 }
@@ -60,6 +82,10 @@ bool isComparisonOp(std::string_view text) {
 
 bool isArithmeticOp(std::string_view text) {
     return text == "+" || text == "-" || text == "*" || text == "/" || text == "%";
+}
+
+bool isShiftOp(std::string_view text) {
+    return text == "<<" || text == ">>";
 }
 
 /// The single decision point for `as` conversions. User-defined casts will become a new
@@ -104,6 +130,7 @@ bool PerModuleSema::prepareTypes() {
 
 bool PerModuleSema::checkExpressions() {
     inferExpressionTypes();
+    checkStructFieldDefaults();
     checkReturnsAndCalls();
     return !hasErrors();
 }
@@ -161,22 +188,55 @@ void PerModuleSema::reportNote(frontend::TextSpan span, std::string message) {
 }
 
 void PerModuleSema::registerPrimitiveTypes() {
+    // Every primitive spelling has to be in the registry: `lowerTypeExpr` now rejects unknown type
+    // names instead of inventing a permissive `Unknown` type that compares equal to everything.
     error_type = type_table.internName("error", TypeKind::Error);
-    void_type  = type_table.internName("void", TypeKind::Void);
-    bool_type  = type_table.internName("bool", TypeKind::Bool);
-    char_type  = type_table.internName("char", TypeKind::Char);
-    i32_type   = type_table.internInteger({32, true});
-    i64_type   = type_table.internInteger({64, true});
-    f32_type   = type_table.internFloat({32});
-    f64_type   = type_table.internFloat({64});
-    type_table.registerNamed("void", void_type);
-    type_table.registerNamed("bool", bool_type);
-    type_table.registerNamed("char", char_type);
-    type_table.registerNamed("i32", i32_type);
-    type_table.registerNamed("i64", i64_type);
-    type_table.registerNamed("f32", f32_type);
-    type_table.registerNamed("f64", f64_type);
-    null_type = type_table.internName("null", TypeKind::Never);
+    null_type  = type_table.internName("null", TypeKind::Never);
+    void_type  = registerPrimitive("void", TypeKind::Void, 0, false);
+    bool_type  = registerPrimitive("bool", TypeKind::Bool, 0, false);
+    char_type  = registerPrimitive("char", TypeKind::Char, 0, false);
+
+    struct IntSpelling {
+        std::string_view name;
+        uint8_t bits;
+        bool isSigned;
+    };
+    static constexpr IntSpelling kIntegers[] = {
+        {"i8", 8, true},     {"i16", 16, true},   {"i32", 32, true},    {"i64", 64, true},
+        {"i128", 128, true}, {"isize", 64, true}, {"u8", 8, false},     {"u16", 16, false},
+        {"u32", 32, false},  {"u64", 64, false},  {"u128", 128, false}, {"usize", 64, false},
+    };
+    for (const auto &spelling : kIntegers) {
+        const TypeId id =
+            registerPrimitive(spelling.name, TypeKind::Integer, spelling.bits, spelling.isSigned);
+        if (spelling.name == "i32")
+            i32_type = id;
+        else if (spelling.name == "i64")
+            i64_type = id;
+    }
+    f32_type = registerPrimitive("f32", TypeKind::Float, 32, true);
+    f64_type = registerPrimitive("f64", TypeKind::Float, 64, true);
+}
+
+TypeId PerModuleSema::registerPrimitive(std::string_view name, TypeKind kind, uint8_t bits,
+                                        bool is_signed) {
+    // The TypeTable is shared by every module in the snapshot, so reuse an existing registration.
+    if (const TypeId existing = type_table.lookupNamed(name))
+        return existing;
+    TypeId id;
+    switch (kind) {
+    case TypeKind::Integer:
+        id = type_table.internInteger({bits, is_signed});
+        break;
+    case TypeKind::Float:
+        id = type_table.internFloat({bits});
+        break;
+    default:
+        id = type_table.internName(name, kind);
+        break;
+    }
+    type_table.registerNamed(name, id);
+    return id;
 }
 
 void PerModuleSema::registerNamedTypes() {
@@ -258,8 +318,41 @@ void PerModuleSema::lowerDeclarationTypes() {
             break;
         }
         case frontend::DeclKind::Enum: {
-            auto &variants = type_table.makeTypeStorage();
-            TypeId et      = type_table.internEnum(decl.name, variants);
+            // Underlying type defaults to i32 when the declaration writes no `: T`.
+            TypeId underlying = decl.declaredType ? lowerTypeExpr(decl.declaredType) : i32_type;
+            if (!underlying)
+                underlying = i32_type;
+            if (type_table.kindOf(resolve(underlying)) != TypeKind::Integer) {
+                report(decl.span, "enum underlying type must be an integer type",
+                       diagnostics::err::TypeMismatch);
+                underlying = i32_type;
+            }
+            auto &variant_names = type_table.makeStringStorage();
+            auto &discriminants = type_table.makeDiscStorage();
+            int64_t next_value  = 0;
+            for (const auto &variant : decl.parameters) {
+                for (const auto &existing : variant_names) {
+                    if (existing == variant.name) {
+                        report(variant.span, "duplicate enum variant '" + variant.name + "'",
+                               diagnostics::err::DuplicateDecl);
+                        break;
+                    }
+                }
+                if (variant.defaultValue) {
+                    std::int64_t disc = 0;
+                    if (explicitDiscriminant(snapshot, variant.defaultValue, disc))
+                        next_value = disc;
+                    else
+                        report(variant.span, "enum variant discriminant must be an integer literal",
+                               diagnostics::err::TypeMismatch);
+                }
+                // Store name in a stable arena allocation.
+                char *buf = static_cast<char *>(arena.alloc(variant.name.size(), 1));
+                std::memcpy(buf, variant.name.data(), variant.name.size());
+                variant_names.push(std::string_view(buf, variant.name.size()));
+                discriminants.push(next_value++);
+            }
+            TypeId et = type_table.internEnum(decl.name, underlying, variant_names, discriminants);
             setDeclType(decl.id, et);
             type_table.registerNamed(decl.name, et);
             break;
@@ -297,7 +390,10 @@ void PerModuleSema::inferExpressionTypesForDecls() {
             currentReturnType_ = kInvalidTypeId;
         }
         if (decl.body) {
+            markers_.clear();
+            collectMarkers(decl.body);
             (void)inferExpr(decl.body);
+            markers_.clear();
         }
         if (decl.initializer) {
             (void)inferExpr(decl.initializer);
@@ -307,6 +403,26 @@ void PerModuleSema::inferExpressionTypesForDecls() {
     for (const auto &expr : snapshot.expressions()) {
         if (!typeOfExpr(expr.id))
             (void)inferExpr(expr.id);
+    }
+}
+
+void PerModuleSema::collectMarkers(frontend::ExprId id) {
+    if (!id || id.value > snapshot.expressions().size())
+        return;
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.kind == frontend::ExprKind::Block) {
+        for (const auto &stmt_id : expr.statements) {
+            if (!stmt_id || stmt_id.value > snapshot.statements().size())
+                continue;
+            const auto &stmt = snapshot.statements()[stmt_id.value - 1U];
+            if (stmt.kind == frontend::StmtKind::Marker && !stmt.label.empty())
+                markers_.insert(stmt.label, uint8_t{1});
+            if (stmt.expression)
+                collectMarkers(stmt.expression);
+        }
+    } else {
+        for (const auto operand : expr.operands)
+            collectMarkers(operand);
     }
 }
 
@@ -340,26 +456,51 @@ void PerModuleSema::checkReturnsAndCalls() {
     }
 }
 
-TypeId PerModuleSema::lowerTypeExpr(frontend::TypeExprId id) noexcept {
-    // `*void` / `?*void` are rejected here (the TypeTable has no diagnostics channel).
-    // `raw opaque` remains the supported spelling for C interop.
-    if (id && id.value <= snapshot.typeExpressions().size()) {
-        const auto &type = snapshot.typeExpressions()[id.value - 1U];
-        if ((type.kind == frontend::TypeExprKind::Pointer ||
-             type.kind == frontend::TypeExprKind::Optional) &&
-            !type.arguments.empty()) {
-            const auto arg = type.arguments[0];
-            if (arg && arg.value <= snapshot.typeExpressions().size()) {
-                const auto &inner = snapshot.typeExpressions()[arg.value - 1U];
-                if (inner.kind == frontend::TypeExprKind::Name && inner.name == "void") {
-                    report(type.span,
-                           "pointer to 'void' is not allowed; use 'raw opaque' for C interop");
-                    return error_type;
-                }
-            }
-        }
+TypeId PerModuleSema::lowerTypeExpr(frontend::TypeExprId id) {
+    if (!id || id.value > snapshot.typeExpressions().size())
+        return kInvalidTypeId;
+    const auto &type = snapshot.typeExpressions()[id.value - 1U];
+    switch (type.kind) {
+    case frontend::TypeExprKind::Name: {
+        // Unknown type names are an error: inventing a placeholder here used to make every
+        // misspelled or unregistered type silently compatible with anything.
+        if (const TypeId named = type_table.lookupNamed(type.name))
+            return named;
+        report(type.span, "unknown type '" + type.name + "'", diagnostics::err::UndefinedIdent);
+        return error_type;
     }
-    return type_table.lowerTypeExpr(snapshot, id);
+    case frontend::TypeExprKind::Pointer:
+    case frontend::TypeExprKind::Optional: {
+        // `*void` / `?*void` are rejected; `raw opaque` remains the spelling for C interop.
+        const TypeId inner =
+            type.arguments.empty() ? kInvalidTypeId : lowerTypeExpr(type.arguments[0]);
+        if (inner && resolve(inner) == void_type) {
+            report(type.span, "pointer to 'void' is not allowed; use 'raw opaque' for C interop",
+                   diagnostics::err::TypeMismatch);
+            return error_type;
+        }
+        return type.kind == frontend::TypeExprKind::Pointer ? type_table.internPointer(inner)
+                                                            : type_table.internOptional(inner);
+    }
+    case frontend::TypeExprKind::Array:
+        return type_table.internArray(type.arguments.empty() ? kInvalidTypeId
+                                                             : lowerTypeExpr(type.arguments[0]),
+                                      type.arrayLength);
+    case frontend::TypeExprKind::Slice:
+        return type_table.internSlice(type.arguments.empty() ? kInvalidTypeId
+                                                             : lowerTypeExpr(type.arguments[0]));
+    case frontend::TypeExprKind::Function: {
+        auto &params = type_table.makeTypeStorage();
+        for (size_t i = 0; i + 1 < type.arguments.size(); ++i)
+            params.push(lowerTypeExpr(type.arguments[i]));
+        const TypeId result =
+            type.arguments.empty() ? kInvalidTypeId : lowerTypeExpr(type.arguments.back());
+        return type_table.internFunction(params, result);
+    }
+    case frontend::TypeExprKind::Error:
+        return kInvalidTypeId;
+    }
+    return kInvalidTypeId;
 }
 
 TypeId PerModuleSema::lowerForeignType(const cinterop::Type &type) {
@@ -438,11 +579,21 @@ TypeId PerModuleSema::inferExpr(frontend::ExprId id) {
     case frontend::ExprKind::StructLiteral:
         result = inferStructLiteral(id);
         break;
+    case frontend::ExprKind::ArrayLiteral:
+        result = inferArrayLiteral(id);
+        break;
     case frontend::ExprKind::Cast:
         result = inferCast(id);
         break;
     case frontend::ExprKind::IsNull:
         result = inferIsNull(id);
+        break;
+    case frontend::ExprKind::Placeholder:
+        // `_` gets its type from the struct field it fills; the literal checks it.
+        result = error_type;
+        break;
+    case frontend::ExprKind::LayoutIntrinsic:
+        result = inferLayoutIntrinsic(id);
         break;
     default:
         result = error_type;
@@ -468,16 +619,24 @@ TypeId PerModuleSema::inferLiteral(frontend::ExprId id, std::string_view text) {
 }
 
 TypeId PerModuleSema::inferName(frontend::ExprId id, std::string_view text) {
-    (void)text;
     const auto *resolved = findResolvedExpr(id);
     if (resolved) {
-        TypeId type = typeOfResolvedName(id);
-        if (type)
-            return type;
+        if (const TypeId resolved_type = typeOfResolvedName(id))
+            return resolved_type;
+        // A bare import/module alias has no value type; it is only valid as the base of a
+        // field access (`console.println`), which the resolution pass binds separately.
+        if (resolved->kind == session::ResolutionKind::ModuleAlias)
+            return error_type;
     }
     const auto &expr = snapshot.expressions()[id.value - 1U];
-    if (expr.scope)
-        return typeOfLocalByName(expr.scope, text);
+    if (expr.scope) {
+        TypeId local = typeOfLocalByName(expr.scope, text);
+        if (local)
+            return local;
+    }
+    // No resolution available — diagnose the unbound name.
+    report(expr.span, "unknown identifier '" + std::string(text) + "'",
+           diagnostics::err::UndefinedIdent);
     return error_type;
 }
 
@@ -489,12 +648,14 @@ TypeId PerModuleSema::inferUnary(frontend::ExprId id) {
     TypeId operand = inferExpr(expr.operands[0]);
     if (expr.text == "not" || expr.text == "!") {
         if (!sameType(operand, bool_type))
-            report(expr.span, "unary 'not' expects a boolean operand");
+            report(expr.span, "unary 'not' expects a boolean operand",
+                   diagnostics::err::TypeMismatch);
         result = bool_type;
     } else if (expr.text == "-") {
         if (!sameType(operand, i32_type) && !sameType(operand, i64_type) &&
             !sameType(operand, f32_type) && !sameType(operand, f64_type)) {
-            report(expr.span, "unary '-' expects a numeric operand");
+            report(expr.span, "unary '-' expects a numeric operand",
+                   diagnostics::err::TypeMismatch);
         }
         result = operand;
     } else if (expr.text == "&") {
@@ -504,7 +665,8 @@ TypeId PerModuleSema::inferUnary(frontend::ExprId id) {
         // Dereference: operand must be a pointer
         TypeId resolved = resolve(operand);
         if (type_table.kindOf(resolved) != TypeKind::Pointer) {
-            report(expr.span, "unary '*' expects a pointer operand");
+            report(expr.span, "unary '*' expects a pointer operand",
+                   diagnostics::err::TypeMismatch);
             result = error_type;
         } else {
             const auto *ptr = type_table.pointer(resolved);
@@ -532,15 +694,34 @@ TypeId PerModuleSema::inferBinary(frontend::ExprId id) {
     }
     if (isComparisonOp(expr.text)) {
         if (!sameType(left, right))
-            report(expr.span, "comparison between incompatible types");
+            report(expr.span, "comparison between incompatible types",
+                   diagnostics::err::TypeMismatch);
         result = bool_type;
+    } else if (isShiftOp(expr.text)) {
+        // Both operands must be integers (after the numeric-literal adaptation above) and
+        // share the same type, matching LLVM's same-type CreateShl/CreateAShr requirement.
+        const bool left_integer  = type_table.integer(resolve(left)) != nullptr;
+        const bool right_integer = type_table.integer(resolve(right)) != nullptr;
+        if (!left_integer || !right_integer) {
+            report(expr.span, "shift operator expects integer operands",
+                   diagnostics::err::TypeMismatch);
+            result = error_type;
+        } else if (!sameType(left, right)) {
+            report(expr.span, "shift operands have incompatible types",
+                   diagnostics::err::TypeMismatch);
+            result = error_type;
+        } else {
+            result = left;
+        }
     } else if (isArithmeticOp(expr.text)) {
         if (!sameType(left, right))
-            report(expr.span, "arithmetic between incompatible types");
+            report(expr.span, "arithmetic between incompatible types",
+                   diagnostics::err::TypeMismatch);
         result = left;
     } else if (expr.text == "=") {
         if (!sameType(left, right))
-            report(expr.span, "assignment between incompatible types");
+            report(expr.span, "assignment between incompatible types",
+                   diagnostics::err::TypeMismatch);
         result = left;
     } else {
         result = error_type;
@@ -555,19 +736,20 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
     TypeId callee_type = inferExpr(expr.operands[0]);
     const auto *fn     = type_table.function(callee_type);
     if (!fn) {
-        report(expr.span, "callee is not a function");
+        report(expr.span, "callee is not a function", diagnostics::err::NoMatchingFn);
         return error_type;
     }
     size_t arg_count = expr.operands.size() - 1;
     if (arg_count != fn->params.size()) {
-        report(expr.span, "function call arity mismatch");
+        report(expr.span, "function call arity mismatch", diagnostics::err::NoMatchingFn);
         return fn->result;
     }
     for (size_t i = 0; i < fn->params.size(); ++i) {
         TypeId arg_type = inferExpr(expr.operands[i + 1]);
         if (!coerceValue(expr.operands[i + 1], fn->params[i], arg_type))
             reportCoercionFailure(expr.span, fn->params[i], arg_type,
-                                  "function call argument type mismatch");
+                                  "function call argument type mismatch",
+                                  diagnostics::err::NoMatchingFn);
     }
     return fn->result;
 }
@@ -592,14 +774,25 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
                                       "binding initializer type does not match annotation");
             }
             if (!ann_type && resolve(init_type) == null_type) {
-                report(stmt.span, "null requires an optional type annotation");
+                report(stmt.span, "null requires an optional type annotation",
+                       diagnostics::err::TypeMismatch);
                 init_type = error_type;
             }
             setLocalType(stmt.binding.id, ann_type ? ann_type : init_type);
             last = void_type;
         } else if (stmt.kind == frontend::StmtKind::Return) {
+            checkReturnStatement(stmt);
+            last = void_type;
+        } else if (stmt.kind == frontend::StmtKind::Marker) {
+            // Markers are labels for `jump`; their body is a regular block.
             if (stmt.expression)
                 (void)inferExpr(stmt.expression);
+            last = void_type;
+        } else if (stmt.kind == frontend::StmtKind::Jump) {
+            if (!markers_.contains(stmt.label)) {
+                report(stmt.span, "jump to undefined marker '" + stmt.label + "'",
+                       diagnostics::err::UndefinedIdent);
+            }
             last = void_type;
         }
     }
@@ -612,7 +805,7 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
         return error_type;
     TypeId cond = inferExpr(expr.operands[0]);
     if (!sameType(cond, bool_type))
-        report(expr.span, "if condition must be boolean");
+        report(expr.span, "if condition must be boolean", diagnostics::err::TypeMismatch);
     TypeId then_type = inferExpr(expr.operands[1]);
     TypeId else_type = expr.operands.size() >= 3 ? inferExpr(expr.operands[2]) : void_type;
     if (sameType(then_type, else_type))
@@ -625,7 +818,7 @@ TypeId PerModuleSema::inferWhile(frontend::ExprId id) {
     if (!expr.operands.empty()) {
         TypeId cond = inferExpr(expr.operands[0]);
         if (!sameType(cond, bool_type))
-            report(expr.span, "loop condition must be boolean");
+            report(expr.span, "loop condition must be boolean", diagnostics::err::TypeMismatch);
     }
     // The body must be inferred too, otherwise locals declared inside the loop never get a type.
     if (expr.operands.size() >= 2U)
@@ -637,11 +830,20 @@ TypeId PerModuleSema::inferCast(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     if (expr.operands.empty())
         return error_type;
+    // `as` casts through an unregistered type name are a barrier: report a single
+    // UnsupportedSyntax instead of letting the unknown type cascade into 2001+3003.
+    const auto &target_type = snapshot.typeExpressions()[expr.cast_type.value - 1U];
+    if (target_type.kind == frontend::TypeExprKind::Name &&
+        !type_table.lookupNamed(target_type.name)) {
+        report(expr.span, "'as' casts to unknown types are not supported in this version",
+               diagnostics::err::UnsupportedSyntax);
+        return error_type;
+    }
     const TypeId source = inferExpr(expr.operands[0]);
     const TypeId target = lowerTypeExpr(expr.cast_type);
     TypeId result       = target;
     if (!target) {
-        report(expr.span, "unknown target type in 'as' conversion");
+        report(expr.span, "unknown target type in 'as' conversion", diagnostics::err::TypeMismatch);
         result = error_type;
     } else if (source && source != error_type) {
         const CastKind kind =
@@ -663,10 +865,36 @@ TypeId PerModuleSema::inferIsNull(frontend::ExprId id) {
     if (operand == error_type || !operand)
         return error_type;
     if (type_table.kindOf(resolve(operand)) != TypeKind::Optional) {
-        report(expr.span, "'is null' requires an optional operand ('?T')");
+        report(expr.span, "'is null' requires an optional operand ('?T')",
+               diagnostics::err::TypeMismatch);
         return error_type;
     }
     return bool_type;
+}
+
+TypeId PerModuleSema::inferLayoutIntrinsic(frontend::ExprId id) {
+    const auto &expr    = snapshot.expressions()[id.value - 1U];
+    const TypeId target = lowerTypeExpr(expr.cast_type);
+    if (!target)
+        return error_type;
+    const TypeId resolved = resolve(target);
+    if (type_table.kindOf(resolved) != TypeKind::Struct) {
+        report(expr.span, "'@" + expr.text + "' requires a struct type",
+               diagnostics::err::TypeMismatch);
+        return error_type;
+    }
+    if (expr.text == "offsetOf") {
+        if (expr.field_names.empty()) {
+            report(expr.span, "'@offsetOf' requires a field name", diagnostics::err::TypeMismatch);
+            return error_type;
+        }
+        if (type_table.fieldIndex(resolved, expr.field_names[0]) < 0) {
+            report(expr.span, "unknown field '" + expr.field_names[0] + "'",
+                   diagnostics::err::NoMember);
+            return error_type;
+        }
+    }
+    return i32_type;
 }
 
 bool PerModuleSema::adaptNumericLiteral(frontend::ExprId value, TypeId target) {
@@ -708,18 +936,39 @@ bool PerModuleSema::coerceValue(frontend::ExprId value, TypeId target, TypeId so
 }
 
 void PerModuleSema::reportCoercionFailure(frontend::TextSpan span, TypeId target, TypeId source,
-                                          std::string_view context) {
+                                          std::string_view context, uint32_t fallback_code) {
     if (resolve(source) == null_type) {
-        report(span, "cannot assign 'null' to a non-optional pointer; use '?*T'");
+        report(span, "cannot assign 'null' to a non-optional pointer; use '?*T'",
+               diagnostics::err::TypeMismatch);
         return;
     }
     const TypeKind from = type_table.kindOf(resolve(source));
     const TypeKind to   = type_table.kindOf(resolve(target));
     if (classifyCast(from, to) != CastKind::Invalid) {
-        report(span, "implicit numeric conversion is not allowed; use 'as'");
+        report(span, "implicit numeric conversion is not allowed; use 'as'",
+               diagnostics::err::TypeMismatch);
         return;
     }
-    report(span, std::string(context));
+    report(span, std::string(context), fallback_code);
+}
+
+void PerModuleSema::checkReturnStatement(const frontend::Statement &stmt) {
+    if (!stmt.expression) {
+        // `return;` in a function that promises a value is still a mismatch.
+        if (currentReturnType_ && resolve(currentReturnType_) != void_type &&
+            resolve(currentReturnType_) != error_type) {
+            report(stmt.span, "return without a value in a function with a declared return type",
+                   diagnostics::err::TypeMismatch);
+        }
+        return;
+    }
+    const TypeId value = inferExpr(stmt.expression);
+    if (!currentReturnType_ || !value || value == error_type)
+        return;
+    if (!coerceValue(stmt.expression, currentReturnType_, value)) {
+        reportCoercionFailure(stmt.span, currentReturnType_, value,
+                              "return type does not match declared return type");
+    }
 }
 
 TypeId PerModuleSema::inferReturn(frontend::ExprId id) {
@@ -757,7 +1006,8 @@ TypeId PerModuleSema::inferOptionalProp(frontend::ExprId id) {
         return error_type;
     TypeId resolved = resolve(operand);
     if (type_table.kindOf(resolved) != TypeKind::Optional) {
-        report(expr.span, "'?' operator requires an optional operand");
+        report(expr.span, "'?' operator requires an optional operand",
+               diagnostics::err::TypeMismatch);
         return error_type;
     }
     const auto *opt = type_table.optional(resolved);
@@ -767,7 +1017,8 @@ TypeId PerModuleSema::inferOptionalProp(frontend::ExprId id) {
     if (currentReturnType_) {
         TypeId ret_resolved = resolve(currentReturnType_);
         if (type_table.kindOf(ret_resolved) != TypeKind::Optional) {
-            report(expr.span, "'?' operator used in a function that does not return an optional");
+            report(expr.span, "'?' operator used in a function that does not return an optional",
+                   diagnostics::err::TypeMismatch);
         }
     }
     return opt->inner;
@@ -780,7 +1031,7 @@ TypeId PerModuleSema::inferIndex(frontend::ExprId id) {
         const TypeId object = inferExpr(expr.operands[0]);
         const TypeId index  = inferExpr(expr.operands[1]);
         if (type_table.kindOf(resolve(index)) != TypeKind::Integer)
-            report(expr.span, "array index must be an integer");
+            report(expr.span, "array index must be an integer", diagnostics::err::TypeMismatch);
         const TypeId resolved_object = resolve(object);
         switch (type_table.kindOf(resolved_object)) {
         case TypeKind::Slice:
@@ -798,7 +1049,7 @@ TypeId PerModuleSema::inferIndex(frontend::ExprId id) {
         case TypeKind::Error:
             break;
         default:
-            report(expr.span, "type is not indexable");
+            report(expr.span, "type is not indexable", diagnostics::err::TypeMismatch);
             break;
         }
     }
@@ -809,19 +1060,59 @@ TypeId PerModuleSema::inferField(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     if (expr.operands.empty())
         return error_type;
+    // `console.println` where `console` is an import alias: the resolution pass binds the
+    // field expression to the imported symbol, so resolve that before touching the base
+    // (which would report "unknown identifier 'console'").
+    if (const auto *resolved = findResolvedExpr(id);
+        resolved != nullptr && resolved->kind == session::ResolutionKind::Import) {
+        if (const TypeId imported_type = typeOfResolvedName(id))
+            return imported_type;
+        report(expr.span, "imported member '" + expr.text + "' has no known type",
+               diagnostics::err::TypeMismatch);
+        return error_type;
+    }
+    // `Color.Green` on a name that resolves to an enum declaration is a variant access,
+    // not a struct field access.
+    if (const auto enum_type = enumVariantType(expr.operands[0], expr.text, expr.span))
+        return *enum_type;
     TypeId object_type = inferExpr(expr.operands[0]);
     TypeId resolved    = resolve(object_type);
     const auto *st     = type_table.struct_type(resolved);
     if (st == nullptr) {
-        report(expr.span, "field access on non-struct type");
+        report(expr.span, "field access on non-struct type", diagnostics::err::TypeMismatch);
         return error_type;
     }
     int idx = type_table.fieldIndex(resolved, expr.text);
     if (idx < 0) {
-        report(expr.span, "unknown field '" + expr.text + "'");
+        report(expr.span, "unknown field '" + expr.text + "'", diagnostics::err::NoMember);
         return error_type;
     }
     return st->fields[static_cast<size_t>(idx)];
+}
+
+memory::Optional<TypeId> PerModuleSema::enumVariantType(frontend::ExprId operand,
+                                                        std::string_view variant,
+                                                        frontend::TextSpan span) {
+    if (!operand || operand.value > snapshot.expressions().size())
+        return {};
+    const auto &op_expr = snapshot.expressions()[operand.value - 1U];
+    if (op_expr.kind != frontend::ExprKind::Name)
+        return {};
+    // Only a name that resolves to the enum *declaration* qualifies; a value of enum
+    // type (`value.Green`) must fall through to the regular field-access diagnostic.
+    const TypeId name_type = typeOfResolvedName(operand);
+    if (!name_type)
+        return {};
+    const TypeId resolved = resolve(name_type);
+    const auto *et        = type_table.enum_type(resolved);
+    if (et == nullptr)
+        return {};
+    for (size_t i = 0; i < et->variant_names.size(); ++i) {
+        if (et->variant_names[i] == variant)
+            return resolved;
+    }
+    report(span, "unknown enum variant '" + std::string(variant) + "'", diagnostics::err::NoMember);
+    return {};
 }
 
 TypeId PerModuleSema::inferArrow(frontend::ExprId id) {
@@ -837,7 +1128,7 @@ TypeId PerModuleSema::inferArrow(frontend::ExprId id) {
             resolved = resolve(opt->inner);
     }
     if (type_table.kindOf(resolved) != TypeKind::Pointer) {
-        report(expr.span, "'->' requires a pointer operand");
+        report(expr.span, "'->' requires a pointer operand", diagnostics::err::TypeMismatch);
         return error_type;
     }
     const auto *ptr = type_table.pointer(resolved);
@@ -846,12 +1137,12 @@ TypeId PerModuleSema::inferArrow(frontend::ExprId id) {
     TypeId struct_type = resolve(ptr->pointee);
     const auto *st     = type_table.struct_type(struct_type);
     if (st == nullptr) {
-        report(expr.span, "'->' on a pointer to non-struct type");
+        report(expr.span, "'->' on a pointer to non-struct type", diagnostics::err::TypeMismatch);
         return error_type;
     }
     int idx = type_table.fieldIndex(struct_type, expr.text);
     if (idx < 0) {
-        report(expr.span, "unknown field '" + expr.text + "'");
+        report(expr.span, "unknown field '" + expr.text + "'", diagnostics::err::NoMember);
         return error_type;
     }
     return st->fields[static_cast<size_t>(idx)];
@@ -861,7 +1152,8 @@ TypeId PerModuleSema::inferStructLiteral(frontend::ExprId id) {
     const auto &expr        = snapshot.expressions()[id.value - 1U];
     const TypeId struct_tid = type_table.lookupNamed(expr.text);
     if (!struct_tid) {
-        report(expr.span, "unknown struct type '" + expr.text + "'");
+        report(expr.span, "unknown struct type '" + expr.text + "'",
+               diagnostics::err::UndefinedIdent);
         return error_type;
     }
     const TypeId resolved = resolve(struct_tid);
@@ -870,21 +1162,118 @@ TypeId PerModuleSema::inferStructLiteral(frontend::ExprId id) {
         report(expr.span, "'" + expr.text + "' is not a struct type");
         return error_type;
     }
-    // Type-check each field value against its declared type
+    const size_t field_count = st->fields.size();
+    const bool named         = !expr.field_names.empty();
+    const auto fieldName     = [&](const int index) -> std::string {
+        if (index >= 0 && static_cast<size_t>(index) < st->field_names.size())
+            return std::string(st->field_names[static_cast<size_t>(index)]);
+        return expr.text;
+    };
+    std::vector<bool> seen(field_count, false);
     for (size_t i = 0; i < expr.operands.size(); ++i) {
-        const TypeId value_type = inferExpr(expr.operands[i]);
-        int decl_idx            = -1;
-        if (i < expr.field_names.size())
+        int decl_idx = -1;
+        if (named) {
             decl_idx = type_table.fieldIndex(resolved, expr.field_names[i]);
-        if (decl_idx >= 0) {
-            const TypeId decl_type = st->fields[static_cast<size_t>(decl_idx)];
-            if (!coerceValue(expr.operands[i], decl_type, value_type))
-                reportCoercionFailure(expr.span, decl_type, value_type,
-                                      "struct literal field type mismatch for '" +
-                                          expr.field_names[i] + "'");
+            if (decl_idx < 0) {
+                report(expr.span,
+                       "unknown field '" + expr.field_names[i] + "' in struct '" + expr.text + "'",
+                       diagnostics::err::NoMember);
+                continue;
+            }
+        } else {
+            decl_idx = static_cast<int>(i);
+            if (i >= field_count) {
+                report(expr.span, "too many fields in struct literal for '" + expr.text + "'",
+                       diagnostics::err::TypeMismatch);
+                continue;
+            }
+        }
+        if (seen[static_cast<size_t>(decl_idx)]) {
+            report(expr.span, "duplicate field '" + fieldName(decl_idx) + "' in struct literal",
+                   diagnostics::err::TypeMismatch);
+            continue;
+        }
+        seen[static_cast<size_t>(decl_idx)] = true;
+        const TypeId decl_type              = st->fields[static_cast<size_t>(decl_idx)];
+        const auto &operand                 = snapshot.expressions()[expr.operands[i].value - 1U];
+        if (operand.kind == frontend::ExprKind::Placeholder) {
+            if (!findFieldDefault(expr.text, static_cast<size_t>(decl_idx))) {
+                report(expr.span,
+                       "field '" + fieldName(decl_idx) + "' has no default value for '_'",
+                       diagnostics::err::TypeMismatch);
+            }
+            continue;
+        }
+        const TypeId value_type = inferExpr(expr.operands[i]);
+        if (!coerceValue(expr.operands[i], decl_type, value_type)) {
+            reportCoercionFailure(expr.span, decl_type, value_type,
+                                  "struct literal field type mismatch for '" +
+                                      (named ? expr.field_names[i] : fieldName(decl_idx)) + "'");
         }
     }
     return TypeId{resolved.intern_seq};
+}
+
+TypeId PerModuleSema::inferArrayLiteral(frontend::ExprId id) {
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.operands.empty())
+        return type_table.internArray(i32_type, 0);
+
+    TypeId elem = error_type;
+    for (const auto operand : expr.operands) {
+        TypeId t = inferExpr(operand);
+        if (elem == error_type) {
+            elem = t;
+            continue;
+        }
+        if (!sameType(elem, t)) {
+            if (adaptNumericLiteral(operand, elem))
+                continue;
+            report(expr.span, "array literal element types do not match",
+                   diagnostics::err::TypeMismatch);
+            return error_type;
+        }
+    }
+    if (elem == error_type)
+        return error_type;
+    return type_table.internArray(elem, expr.operands.size());
+}
+
+frontend::ExprId PerModuleSema::findFieldDefault(std::string_view struct_name,
+                                                 size_t field_index) const noexcept {
+    for (const auto &decl : snapshot.declarations()) {
+        if (decl.kind != frontend::DeclKind::Struct || decl.name != struct_name)
+            continue;
+        if (field_index < decl.parameters.size())
+            return decl.parameters[field_index].defaultValue;
+        break;
+    }
+    return {};
+}
+
+void PerModuleSema::checkStructFieldDefaults() {
+    for (const auto &decl : snapshot.declarations()) {
+        if (decl.kind != frontend::DeclKind::Struct)
+            continue;
+        const TypeId struct_type = type_table.lookupNamed(decl.name);
+        if (!struct_type)
+            continue;
+        const auto *st = type_table.struct_type(resolve(struct_type));
+        if (st == nullptr)
+            continue;
+        for (size_t index = 0; index < decl.parameters.size() && index < st->fields.size();
+             ++index) {
+            const auto default_id = decl.parameters[index].defaultValue;
+            if (!default_id)
+                continue;
+            const TypeId value_type = inferExpr(default_id);
+            if (!coerceValue(default_id, st->fields[index], value_type)) {
+                reportCoercionFailure(decl.parameters[index].span, st->fields[index], value_type,
+                                      "struct field default type mismatch for '" +
+                                          decl.parameters[index].name + "'");
+            }
+        }
+    }
 }
 
 bool PerModuleSema::coercesTo(TypeId target, TypeId source) const noexcept {
@@ -919,7 +1308,8 @@ bool PerModuleSema::sameType(TypeId a, TypeId b) const noexcept {
     TypeKind kb = type_table.kindOf(resolved_b);
     if (resolved_a == null_type || resolved_b == null_type)
         return ka == TypeKind::Optional || kb == TypeKind::Optional;
-    if (ka == TypeKind::Unknown || kb == TypeKind::Unknown)
+    // `error` suppresses cascading diagnostics; `Unknown` (generics / type vars) does not.
+    if (resolved_a == error_type || resolved_b == error_type)
         return true;
     if (ka != kb)
         return false;

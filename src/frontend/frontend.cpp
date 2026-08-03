@@ -1,4 +1,5 @@
 #include "frontend/frontend.hpp"
+#include "diagnostics/error-codes.hpp"
 
 #include <cctype>
 #include <cstdlib>
@@ -169,11 +170,13 @@ void lex(FrontendSnapshot &snapshot) {
         ++position;
         if (isOperator(source[start])) {
             // Maximal munch over a closed set of two-character operators. Deliberately limited to
-            // these five: tokens the expression parser has no precedence for (`&&`, `+=`, ...) must
-            // stay single-character, otherwise the binary loop would stop without consuming them.
+            // these seven: tokens the expression parser has no precedence for (`&&`, `+=`, ...)
+            // must stay single-character, otherwise the binary loop would stop without consuming
+            // them.
             if (position < source.size()) {
                 const std::string_view pair = source.substr(start, 2);
-                if (pair == "==" || pair == "!=" || pair == "<=" || pair == ">=" || pair == "->")
+                if (pair == "==" || pair == "!=" || pair == "<=" || pair == ">=" || pair == "->" ||
+                    pair == "<<" || pair == ">>")
                     ++position;
             }
             snapshot.tokens_.push_back(
@@ -294,6 +297,8 @@ namespace {
         return DeclKind::Function;
     if (word == "type")
         return DeclKind::TypeAlias;
+    if (word == "alias")
+        return DeclKind::TypeAlias;
     if (word == "struct" || word == "component")
         return DeclKind::Struct;
     if (word == "enum")
@@ -323,34 +328,108 @@ public:
     void run() {
         current_scope_        = addScope({}, {0, static_cast<uint32_t>(snapshot_.source_.size())});
         Visibility visibility = Visibility::Private;
+        // Start index of the current run of unexpected top-level tokens; the run is
+        // coalesced into a single diagnostic.  token_count_ means "no active run".
+        uint32_t bad_run_start = token_count_;
         while (index_ < token_count_) {
             const uint32_t start = index_;
             const auto word      = text(index_);
+
+            const auto flushBadRun = [&]() {
+                if (bad_run_start == token_count_)
+                    return;
+                snapshot_.diagnostics_.push_back({range(bad_run_start, index_),
+                                                  "unexpected token at top level", false,
+                                                  diagnostics::err::UnsupportedSyntax});
+                bad_run_start = token_count_;
+            };
+
             if (word == "pub") {
+                flushBadRun();
                 visibility = Visibility::Public;
                 ++index_;
                 continue;
             }
             if (word == "mod") {
+                flushBadRun();
                 visibility = Visibility::Module;
                 ++index_;
                 continue;
             }
 
             if (word == "export" || word == "from" || word == "import") {
+                flushBadRun();
                 lowerImport(start, visibility);
                 visibility = Visibility::Private;
                 continue;
             }
 
             const auto kind = declarationKind(word);
-            if (!kind) {
+            if (kind) {
+                flushBadRun();
+                lowerDeclaration(start, *kind, visibility);
+                visibility = Visibility::Private;
+                continue;
+            }
+
+            // Unimplemented-but-planned top-level constructs are tolerated without a
+            // diagnostic to preserve current behavior (`extern fn` still parses, and
+            // `use`/`implement`/`macro`/`unsafe`/`raw`/`;` stay silent).
+            if (word == "extern" || word == "use" || word == "implement" || word == "macro" ||
+                word == "unsafe" || word == "raw" || word == ";") {
+                flushBadRun();
                 ++index_;
                 continue;
             }
-            lowerDeclaration(start, *kind, visibility);
-            visibility = Visibility::Private;
+
+            // `@name args;` is a top-level macro invocation (e.g. `@appendField Custom, x: i32;`)
+            // and stays tolerated; a bare `@` not followed by an identifier is diagnosed.
+            if (word == "@" && index_ + 1 < token_count_ &&
+                snapshot_.tokens_[index_ + 1].kind == TokenKind::Identifier) {
+                flushBadRun();
+                skipMacroInvocation();
+                continue;
+            }
+
+            // Unexpected top-level token: start (or extend) the coalesced run.
+            if (bad_run_start == token_count_)
+                bad_run_start = start;
+            ++index_;
         }
+        if (bad_run_start != token_count_)
+            snapshot_.diagnostics_.push_back({range(bad_run_start, index_),
+                                              "unexpected token at top level", false,
+                                              diagnostics::err::UnsupportedSyntax});
+    }
+
+    // Consume a top-level macro invocation starting at the current `@`: the `@`,
+    // the macro name, and any arguments up to the terminating top-level `;` (or
+    // up to the next token that begins a declaration), whichever comes first.
+    void skipMacroInvocation() {
+        ++index_; // '@'
+        if (index_ < token_count_)
+            ++index_; // macro name
+        uint32_t depth = 0;
+        while (index_ < token_count_) {
+            const auto word = text(index_);
+            if (depth == 0) {
+                if (punctuation(index_, ';'))
+                    break;
+                if (word == "pub" || word == "mod" || word == "export" || word == "from" ||
+                    word == "import" || declarationKind(word))
+                    break;
+            }
+            if (punctuation(index_, '(') || punctuation(index_, '[') || punctuation(index_, '{'))
+                ++depth;
+            else if (punctuation(index_, ')') || punctuation(index_, ']') ||
+                     punctuation(index_, '}')) {
+                if (depth > 0)
+                    --depth;
+            }
+            ++index_;
+        }
+        if (index_ < token_count_ && punctuation(index_, ';'))
+            ++index_;
     }
 
 private:
@@ -460,6 +539,95 @@ private:
         if (punctuation(index_, '{'))
             return parseBlock();
 
+        // `[a, b, c]` is an array literal at primary position; `[` after an
+        // expression is postfix indexing (handled in parsePostfix).
+        if (punctuation(index_, '[')) {
+            const uint32_t array_start = index_++;
+            Expression array_lit;
+            array_lit.kind  = ExprKind::ArrayLiteral;
+            array_lit.scope = current_scope_;
+            while (index_ < token_count_ && !punctuation(index_, ']')) {
+                if (punctuation(index_, ',')) {
+                    ++index_;
+                    continue;
+                }
+                array_lit.operands.push_back(parseExpression());
+                if (!punctuation(index_, ',') && !punctuation(index_, ']'))
+                    break;
+                if (punctuation(index_, ','))
+                    ++index_;
+            }
+            if (punctuation(index_, ']'))
+                ++index_;
+            else
+                snapshot_.diagnostics_.push_back(
+                    {range(array_start, index_), "expected ']' after array literal elements"});
+            array_lit.span = range(array_start, index_);
+            return parsePostfix(addExpression(std::move(array_lit)), array_start);
+        }
+
+        // `@offsetOf(Type, field)` / `@alignOf(Type)` / `@sizeOf(Type)` are layout
+        // intrinsics; any other `@name(...)` is an unimplemented user macro.
+        if (punctuation(index_, '@')) {
+            ++index_;
+            if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+                const auto intrinsic = std::string(text(index_++));
+                Expression intrinsic_expr;
+                intrinsic_expr.scope = current_scope_;
+                if (intrinsic == "offsetOf" || intrinsic == "alignOf") {
+                    intrinsic_expr.kind = ExprKind::LayoutIntrinsic;
+                    intrinsic_expr.text = intrinsic;
+                    if (punctuation(index_, '('))
+                        ++index_;
+                    else
+                        snapshot_.diagnostics_.push_back(
+                            {range(start, index_), "expected '(' after '@" + intrinsic + "'"});
+                    intrinsic_expr.cast_type = parseType();
+                    if (punctuation(index_, ',')) {
+                        ++index_;
+                        if (index_ < token_count_ &&
+                            (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
+                             snapshot_.tokens_[index_].kind == TokenKind::Keyword)) {
+                            intrinsic_expr.field_names.push_back(std::string(text(index_++)));
+                        } else {
+                            snapshot_.diagnostics_.push_back(
+                                {range(start, index_), "expected a field name"});
+                        }
+                    }
+                    if (punctuation(index_, ')'))
+                        ++index_;
+                    else
+                        snapshot_.diagnostics_.push_back(
+                            {range(start, index_), "expected ')' after intrinsic arguments"});
+                } else {
+                    // User macro call: consume the balanced arguments and only warn.
+                    intrinsic_expr.kind = ExprKind::Error;
+                    if (punctuation(index_, '(')) {
+                        uint32_t depth = 0;
+                        do {
+                            if (punctuation(index_, '('))
+                                ++depth;
+                            else if (punctuation(index_, ')'))
+                                --depth;
+                            ++index_;
+                        } while (index_ < token_count_ && depth != 0);
+                    }
+                    snapshot_.diagnostics_.push_back(
+                        Diagnostic{range(start, index_), "user macros are not implemented yet",
+                                   true, diagnostics::err::NotImplemented});
+                }
+                intrinsic_expr.span = range(start, index_);
+                return parsePostfix(addExpression(std::move(intrinsic_expr)), start);
+            }
+            Expression error_expr;
+            error_expr.kind  = ExprKind::Error;
+            error_expr.scope = current_scope_;
+            error_expr.span  = range(start, index_);
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_), "expected an intrinsic or macro name after '@'"});
+            return parsePostfix(addExpression(std::move(error_expr)), start);
+        }
+
         Expression expression;
         expression.scope = current_scope_;
         if (text(index_) == "if")
@@ -492,30 +660,56 @@ private:
                 const std::string struct_name = expression.text;
                 ++index_; // consume '{'
                 Expression struct_lit;
-                struct_lit.kind  = ExprKind::StructLiteral;
-                struct_lit.scope = current_scope_;
-                struct_lit.text  = struct_name;
+                struct_lit.kind            = ExprKind::StructLiteral;
+                struct_lit.scope           = current_scope_;
+                struct_lit.text            = struct_name;
+                bool saw_named             = false;
+                bool saw_positional        = false;
+                const auto parseFieldValue = [&]() -> ExprId {
+                    // `_` is the placeholder marker; it fills the field's default (or zero).
+                    if (index_ < token_count_ && text(index_) == "_" &&
+                        snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+                        Expression placeholder;
+                        placeholder.kind  = ExprKind::Placeholder;
+                        placeholder.text  = "_";
+                        placeholder.scope = current_scope_;
+                        placeholder.span  = tokenSpan(index_++);
+                        return addExpression(std::move(placeholder));
+                    }
+                    return parseExpression();
+                };
                 while (index_ < token_count_ && !punctuation(index_, '}')) {
                     if (punctuation(index_, ',')) {
                         ++index_;
                         continue;
                     }
-                    if (snapshot_.tokens_[index_].kind != TokenKind::Identifier &&
-                        snapshot_.tokens_[index_].kind != TokenKind::Keyword) {
-                        snapshot_.diagnostics_.push_back(
-                            {tokenSpan(index_), "expected a field name in struct literal"});
-                        ++index_;
-                        continue;
-                    }
-                    const std::string field_name = std::string(text(index_++));
-                    if (!punctuation(index_, ':')) {
-                        snapshot_.diagnostics_.push_back(
-                            {tokenSpan(index_), "expected ':' after field name in struct literal"});
+                    // `ident:` starts a named field; anything else is positional.
+                    const bool is_named =
+                        (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
+                         snapshot_.tokens_[index_].kind == TokenKind::Keyword) &&
+                        punctuation(index_ + 1U, ':');
+                    if (is_named) {
+                        if (saw_positional) {
+                            snapshot_.diagnostics_.push_back(
+                                {range(start, index_),
+                                 "cannot mix positional and named struct literal fields", false,
+                                 diagnostics::err::TypeMismatch});
+                        }
+                        saw_named                    = true;
+                        const std::string field_name = std::string(text(index_++));
+                        ++index_; // consume ':'
+                        struct_lit.field_names.push_back(field_name);
+                        struct_lit.operands.push_back(parseFieldValue());
                     } else {
-                        ++index_;
+                        if (saw_named) {
+                            snapshot_.diagnostics_.push_back(
+                                {range(start, index_),
+                                 "cannot mix positional and named struct literal fields", false,
+                                 diagnostics::err::TypeMismatch});
+                        }
+                        saw_positional = true;
+                        struct_lit.operands.push_back(parseFieldValue());
                     }
-                    struct_lit.field_names.push_back(field_name);
-                    struct_lit.operands.push_back(parseExpression());
                     if (punctuation(index_, ','))
                         ++index_;
                     else if (!punctuation(index_, '}'))
@@ -654,6 +848,19 @@ private:
             prop.span = range(start, index_);
             result    = addExpression(std::move(prop));
         }
+        // Postfix '!' for failable propagation; not implemented yet.
+        if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Operator &&
+            text(index_) == "!") {
+            ++index_;
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_), "failable propagation is not supported in this version",
+                 false, diagnostics::err::UnsupportedSyntax});
+            Expression error_expr;
+            error_expr.kind  = ExprKind::Error;
+            error_expr.scope = current_scope_;
+            error_expr.span  = range(start, index_);
+            result           = addExpression(std::move(error_expr));
+        }
         return result;
     }
 
@@ -662,10 +869,12 @@ private:
             return 1;
         if (op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=")
             return 2;
-        if (op == "+" || op == "-")
+        if (op == "<<" || op == ">>")
             return 3;
-        if (op == "*" || op == "/" || op == "%")
+        if (op == "+" || op == "-")
             return 4;
+        if (op == "*" || op == "/" || op == "%")
+            return 5;
         return -1;
     }
 
@@ -675,6 +884,22 @@ private:
 
         const uint32_t start = index_;
         ExprId left;
+        // Prefix `?` (fallback) and `!` (failable propagation) are not implemented yet.
+        if (snapshot_.tokens_[index_].kind == TokenKind::Operator &&
+            (text(index_) == "?" || text(index_) == "!")) {
+            const auto op = std::string(text(index_++));
+            (void)parseExpression(5); // consume the operand
+            Expression error_expr;
+            error_expr.kind  = ExprKind::Error;
+            error_expr.text  = op;
+            error_expr.scope = current_scope_;
+            error_expr.span  = range(start, index_);
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_),
+                 "fallback and propagation operators are not supported in this version", false,
+                 diagnostics::err::UnsupportedSyntax});
+            return addExpression(std::move(error_expr));
+        }
         if ((snapshot_.tokens_[index_].kind == TokenKind::Operator &&
              (text(index_) == "-" || text(index_) == "!" || text(index_) == "&" ||
               text(index_) == "*")) ||
@@ -706,7 +931,9 @@ private:
                 } else {
                     is_null.kind = ExprKind::Error;
                     snapshot_.diagnostics_.push_back(
-                        {range(start, index_), "only 'is null' is supported in this version"});
+                        {range(start, index_), "'is' expressions are not supported in this version",
+                         false, diagnostics::err::UnsupportedSyntax});
+                    (void)parseExpression(); // consume the operand so no cascading errors follow
                 }
                 is_null.span = range(start, index_);
                 left         = addExpression(std::move(is_null));
@@ -729,7 +956,7 @@ private:
             binary.span = range(start, index_);
             left        = addExpression(std::move(binary));
         }
-        return left;
+        return static_cast<ExprId>(left);
     }
 
     [[nodiscard]] ExprId parseBlock() {
@@ -904,8 +1131,46 @@ private:
         } else if (word == "continue") {
             statement.kind = StmtKind::Continue;
             ++index_;
+        } else if (word == "marker") {
+            statement.kind = StmtKind::Marker;
+            ++index_;
+            if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+                statement.label = std::string(text(index_));
+                ++index_;
+            } else {
+                snapshot_.diagnostics_.push_back({range(start, index_), "expected a marker name"});
+            }
+            statement.expression = parseBlock();
+        } else if (word == "jump") {
+            statement.kind = StmtKind::Jump;
+            ++index_;
+            if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+                statement.label = std::string(text(index_));
+                ++index_;
+            } else {
+                snapshot_.diagnostics_.push_back(
+                    {range(start, index_), "expected a jump target name"});
+            }
+        } else if (word == "use") {
+            // `use` statements select from a context; not implemented yet.
+            snapshot_.diagnostics_.push_back({range(start, index_),
+                                              "use statements are not supported in this version",
+                                              false, diagnostics::err::UnsupportedSyntax});
+            while (index_ < token_count_ && !punctuation(index_, ';'))
+                ++index_;
         } else {
             statement.expression = parseExpression();
+            // Word-operator sequences such as `1 nop 2` are not implemented yet.
+            if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Keyword &&
+                (text(index_) == "nop" || text(index_) == "prefix" || text(index_) == "suffix" ||
+                 text(index_) == "infix")) {
+                snapshot_.diagnostics_.push_back(
+                    {range(start, index_),
+                     "word operator sequences are not supported in this version", false,
+                     diagnostics::err::UnsupportedSyntax});
+                while (index_ < token_count_ && !punctuation(index_, ';'))
+                    ++index_;
+            }
         }
         if (punctuation(index_, ';'))
             ++index_;
@@ -1134,8 +1399,9 @@ private:
         } else if (kind == DeclKind::Variable && index_ < token_count_ && text(index_) == "=") {
             ++index_;
             declaration.initializer = parseExpression();
-        } else if (kind == DeclKind::Struct && punctuation(index_, '{')) {
-            // Parse struct field declarations: { name: Type, ... }
+        } else if (kind == DeclKind::Struct &&
+                   punctuation(index_,
+                               '{')) { // Parse struct field declarations: { name: Type, ... }
             ++index_;
             while (index_ < token_count_ && !punctuation(index_, '}')) {
                 if (punctuation(index_, ',')) {
@@ -1153,6 +1419,10 @@ private:
                 if (punctuation(index_, ':')) {
                     ++index_;
                     field.type = parseType();
+                    if (index_ < token_count_ && text(index_) == "=") {
+                        ++index_;
+                        field.defaultValue = parseExpression();
+                    }
                 }
                 declaration.parameters.push_back(std::move(field));
                 if (punctuation(index_, ','))
@@ -1165,8 +1435,55 @@ private:
             else
                 snapshot_.diagnostics_.push_back(
                     {range(start, index_), "expected '}' after struct fields"});
+        } else if (kind == DeclKind::Enum && punctuation(index_, '{')) {
+            // C-style enum body: `enum Name[: IntType] { Variant [= <int literal>], ... }`.
+            // Each variant is stored as a Parameter; an explicit `= N` becomes its defaultValue.
+            ++index_;
+            while (index_ < token_count_ && !punctuation(index_, '}')) {
+                if (punctuation(index_, ',')) {
+                    ++index_;
+                    continue;
+                }
+                if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
+                    snapshot_.diagnostics_.push_back(
+                        {tokenSpan(index_), "expected a variant name"});
+                    ++index_;
+                    continue;
+                }
+                Parameter variant;
+                variant.name = std::string(text(index_));
+                variant.span = tokenSpan(index_++);
+                if (index_ < token_count_ && text(index_) == "=") {
+                    if (punctuation(index_ + 1, '{')) {
+                        snapshot_.diagnostics_.push_back(
+                            {range(index_, index_ + 2),
+                             "struct-backed enum variants are not supported in this version", false,
+                             diagnostics::err::UnsupportedSyntax});
+                        ++index_;
+                    } else {
+                        ++index_;
+                        variant.defaultValue = parseExpression();
+                    }
+                }
+                declaration.parameters.push_back(std::move(variant));
+                if (punctuation(index_, ','))
+                    ++index_;
+                else if (!punctuation(index_, '}'))
+                    break;
+            }
+            if (punctuation(index_, '}'))
+                ++index_;
+            else
+                snapshot_.diagnostics_.push_back(
+                    {range(start, index_), "expected '}' after enum variants"});
         } else if (punctuation(index_, '{')) {
             skipDelimited('{', '}');
+        }
+        if (kind == DeclKind::Word || kind == DeclKind::Context) {
+            const auto what = kind == DeclKind::Word ? "word declarations" : "context declarations";
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_), std::string(what) + " are not supported in this version",
+                 false, diagnostics::err::UnsupportedSyntax});
         }
         if (punctuation(index_, ';'))
             ++index_;

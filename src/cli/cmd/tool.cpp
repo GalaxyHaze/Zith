@@ -1,3 +1,4 @@
+#include "cache/cache-paths.hpp"
 #include "cli/commands.hpp"
 #include "cli/terminal.hpp"
 
@@ -80,7 +81,7 @@ int clean(const Options &opts) {
 
     // Compute build dir and cache dir
     std::string buildDir = findBuildDir(opts);
-    auto cacheDir        = fs::path(projectRoot) / ".zith-cache";
+    auto cacheDir        = fs::path(projectRoot) / cache::kPersistentCacheDirName;
 
     bool cleaned = false;
 

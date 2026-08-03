@@ -266,6 +266,23 @@ std::optional<cache::Artifact> Reader::read(std::string_view bytes) {
             return std::nullopt;
     }
 
+    // The reader is now positioned at the section table.  Recompute the header
+    // size the way the writer does (FileHeader fields + canonical path + dep
+    // records + section table) and require the reader position to land exactly at
+    // the section table start.  Any writer/reader divergence becomes a clean
+    // cache miss instead of a misparse.
+    uint64_t deps_size = 0;
+    for (const auto &dep : out.deps)
+        deps_size += 2 * sizeof(uint32_t) + dep.canonical_path.size() + dep.import_key.size() +
+                     2 * sizeof(uint32_t);
+    const uint64_t recomputed_header_end =
+        static_cast<uint64_t>(sizeof(FileHeader)) + path_len + deps_size +
+        static_cast<uint64_t>(section_count) * sizeof(SectionEntry);
+    const uint64_t table_start =
+        recomputed_header_end - static_cast<uint64_t>(section_count) * sizeof(SectionEntry);
+    if (recomputed_header_end != header_size || r.position() != table_start)
+        return std::nullopt;
+
     // Section table.
     if (section_count < 4)
         return std::nullopt;

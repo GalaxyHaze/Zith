@@ -64,6 +64,11 @@ private:
     bool lowerFunctionBodies();
     bool lowerFunctionBody(FunctionInfo &info);
 
+    /// Pre-scans a function body, assigning a block index to every `marker` label.
+    void collectMarkers(frontend::ExprId id);
+    /// Marker label -> HIR block index for the current function.
+    memory::FlatMap<std::string, size_t> marker_blocks_;
+
     types::TypeId lowerType(sema::modern::TypeId type);
     types::TypeId lowerForeignType(const cinterop::Type &type);
     types::TypeId typeOfExpr(frontend::ExprId id);
@@ -92,9 +97,16 @@ private:
     hir::HirExprId lowerIndex(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerField(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerArrow(const frontend::Expression &expr, types::TypeId type);
+    /// When `operand` is a Name that resolves to an enum declaration and `variant` is a
+    /// known variant, returns its discriminant; nullopt otherwise (no diagnostics).
+    memory::Optional<int64_t> enumVariantValue(frontend::ExprId operand, std::string_view variant);
     hir::HirExprId lowerStructLiteral(const frontend::Expression &expr, types::TypeId type);
+    hir::HirExprId lowerArrayLiteral(const frontend::Expression &expr, types::TypeId type);
+    frontend::ExprId lowerFieldDefault(std::string_view struct_name,
+                                       size_t field_index) const noexcept;
     hir::HirExprId lowerCast(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerIsNull(const frontend::Expression &expr);
+    hir::HirExprId lowerLayoutIntrinsic(const frontend::Expression &expr);
     hir::HirExprId lowerCoerceToOptional(types::TypeId target, hir::HirExprId value);
     sema::modern::TypeId semaTypeOfExpr(frontend::ExprId id);
     bool lowerStatement(frontend::StmtId id, hir::HirExprId &last_value);

@@ -170,19 +170,22 @@ uint32_t ArtifactBuilder::internType(types::TypeId id) {
 }
 
 uint64_t ArtifactBuilder::computePublicAbiHash() const {
-    std::ostringstream oss;
+    std::ostringstream primary;
+    std::ostringstream secondary;
     for (symbols::SymId id = 0; id < static_cast<symbols::SymId>(syms_.symbolCount()); ++id) {
         const auto &sym = syms_.get(id);
         if (sym.visibility != symbols::SymbolVisibility::Public &&
             sym.visibility != symbols::SymbolVisibility::Module)
             continue;
-        oss << interner_.lookup(sym.name) << '\x1f' << static_cast<int>(sym.kind) << '\x1f'
-            << static_cast<int>(sym.visibility) << '\x1f' << sym.mod_depth << '\n';
+        const auto name = interner_.lookup(sym.name);
+        primary << name << '\x1f' << static_cast<int>(sym.kind) << '\x1f'
+                << static_cast<int>(sym.visibility) << '\x1f' << sym.mod_depth << '\n';
+        secondary << static_cast<int>(sym.mod_depth) << '\x1f' << static_cast<int>(sym.visibility)
+                  << '\x1f' << static_cast<int>(sym.kind) << '\x1f' << name << '\n';
     }
-    const auto str    = oss.str();
-    const uint32_t hi = zith::zirl::fnv1a32(str);
-    // Combine with the module name hash for a 64-bit value.
-    return (static_cast<uint64_t>(hi) << 32u) | zith::zirl::fnv1a32(str);
+    const uint32_t hi = zith::zirl::fnv1a32(primary.str());
+    const uint32_t lo = zith::zirl::fnv1a32(secondary.str());
+    return (static_cast<uint64_t>(hi) << 32u) | lo;
 }
 
 Artifact ArtifactBuilder::build(std::string_view canonical_path, std::string_view module_name,

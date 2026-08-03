@@ -230,6 +230,8 @@ include(CTest)
 if(BUILD_TESTING AND NOT ZITH_IS_WASM)
     function(add_zith_test NAME SOURCE)
         add_executable(${NAME} ${SOURCE})
+        target_compile_definitions(${NAME} PRIVATE
+            ZITH_STDLIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/stdlib")
         target_link_libraries(${NAME} PRIVATE zithcLib)
         if(TARGET legacy-zith)
             target_link_libraries(${NAME} PRIVATE legacy-zith zithcLib)

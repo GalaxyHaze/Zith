@@ -665,8 +665,7 @@ ModuleArtifactPtr FrontendContext::buildModule(SourceCatalog::SourcePtr source) 
     for (const auto &diagnostic : artifact->frontend->diagnostics()) {
         artifact->diagnostics.push_back({
             diagnostic.isWarning ? diagnostics::Severity::Warning : diagnostics::Severity::Error,
-            diagnostic.isWarning ? diagnostics::err::DeprecatedSyntax
-                                 : diagnostics::err::UnknownToken,
+            diagnostic.code,
             diagnostic.message,
             source->id,
             diagnostic.span.start,
@@ -961,6 +960,49 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
         }
 
         for (const auto &expression : module->frontend->expressions()) {
+            if (expression.kind == frontend::ExprKind::Field && !expression.operands.empty()) {
+                // `console.println` where `console` is an `import ... as console` alias:
+                // resolve the member against the aliased module's public symbols and bind
+                // the field expression itself, so sema/lowering never see the alias name.
+                const auto base_id = expression.operands[0];
+                if (base_id.value > module->frontend->expressions().size())
+                    continue;
+                const auto &base = module->frontend->expressions()[base_id.value - 1U];
+                if (base.kind != frontend::ExprKind::Name)
+                    continue;
+                const auto *alias =
+                    lookupBinding(resolution, base.text, base.scope, module->frontend->scopes());
+                if (alias == nullptr || alias->kind != ResolutionKind::ModuleAlias)
+                    continue;
+                const ModuleKey target_module = alias->target.module;
+                if (target_module.empty())
+                    continue;
+                const auto module_it = module_by_key.find(target_module);
+                if (module_it == module_by_key.end())
+                    continue;
+                bool found = false;
+                for (const auto &symbol : module_it->second->publicSymbols) {
+                    if (symbol.name != expression.text)
+                        continue;
+                    resolution.expressions.push_back({expression.text,
+                                                      ResolutionKind::Import,
+                                                      expression.span,
+                                                      {target_module, symbol.id},
+                                                      {},
+                                                      {},
+                                                      expression.scope});
+                    found = true;
+                    break;
+                }
+                if (!found) {
+                    diagnostics.push_back({diagnostics::Severity::Error, diagnostics::err::NoMember,
+                                           "module alias '" + base.text +
+                                               "' has no public member '" + expression.text + "'",
+                                           module->fileId, expression.span.start,
+                                           expression.span.end});
+                }
+                continue;
+            }
             if (expression.kind != frontend::ExprKind::Name)
                 continue;
             ResolvedName name{

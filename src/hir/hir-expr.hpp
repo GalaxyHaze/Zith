@@ -39,6 +39,7 @@ enum class HirExprKind : uint8_t {
     MakeSome,
     SlotAddr,
     Cast,
+    LayoutIntrinsic,
 };
 
 enum class HirBinaryOp : uint8_t {
@@ -57,7 +58,8 @@ enum class HirBinaryOp : uint8_t {
     Or,
     Xor,
     Shl,
-    Shr
+    Shr,
+    Invalid = 0xFF
 };
 
 enum class HirUnaryOp : uint8_t {
@@ -83,8 +85,9 @@ struct HirBinary {
     HirExprId lhs;
     HirExprId rhs;
     HirBinaryOp op;
-    HirTypeId type  = types::kInvalidType;
-    HirExprKind tag = HirExprKind::Binary;
+    HirTypeId type         = types::kInvalidType;
+    HirTypeId operand_type = types::kInvalidType;
+    HirExprKind tag        = HirExprKind::Binary;
 };
 struct HirUnary {
     HirUnaryOp op;
@@ -219,11 +222,20 @@ struct HirMakeSome {
     HirExprKind tag = HirExprKind::MakeSome;
 };
 
+/// The offsetOf / alignOf layout intrinsics; resolved to a constant at codegen.
+struct HirLayoutIntrinsic {
+    enum class Which : uint8_t { OffsetOf, AlignOf };
+    Which which;
+    HirTypeId type       = types::kInvalidType;
+    uint32_t field_index = ~0U; // OffsetOf only
+    HirExprKind tag      = HirExprKind::LayoutIntrinsic;
+};
+
 using HirExpr =
     std::variant<HirLiteral, HirBinary, HirUnary, HirLet, HirVar, HirCall, HirRet, HirBranch,
                  HirJump, HirPhi, HirAssign, HirIndex, HirField, HirStructLiteral, HirArrayLiteral,
                  HirEnumValue, HirSlotAlloca, HirSlotStore, HirSlotLoad, HirSlotAddr, HirMakeNone,
-                 HirMakeSome, HirCast>;
+                 HirMakeSome, HirCast, HirLayoutIntrinsic>;
 
 inline HirExprKind exprKind(const HirExpr &expr) {
     return std::visit([](const auto &entry) { return entry.tag; }, expr);

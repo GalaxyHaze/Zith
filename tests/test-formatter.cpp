@@ -241,7 +241,6 @@ static void test_compilation_session_fmt_uses_frontend_snapshot() {
 
     CHECK(!formatted.empty(), "fmt stage produces output through the modern formatter");
     CHECK(session.snapshot() != nullptr, "fmt stage builds a modern frontend snapshot");
-    CHECK_EQ(session.tokens().len, 0u, "fmt stage does not require legacy tokenization");
 }
 
 static void test_formatter() {

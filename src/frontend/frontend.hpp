@@ -79,6 +79,9 @@ struct Diagnostic {
     std::string message;
     /// When set the session reports this as a warning instead of an error.
     bool isWarning = false;
+    /// `diagnostics::ErrCode` for this message; the session propagates it verbatim.
+    /// Defaults to `err::UnknownToken` so an unclassified site stays reportable.
+    uint32_t code = 1;
 };
 
 enum class SyntaxKind : uint8_t { Root, Token, Error };
@@ -117,8 +120,13 @@ enum class ExprKind : uint8_t {
     Field,
     Arrow,
     StructLiteral,
+    ArrayLiteral,
     Cast,
     IsNull,
+    /// `_` as a struct-literal field value: `Pair{left: _, right: 2}`.
+    Placeholder,
+    /// The offsetOf / alignOf layout intrinsics.
+    LayoutIntrinsic,
 };
 
 enum class StmtKind : uint8_t {
@@ -128,6 +136,8 @@ enum class StmtKind : uint8_t {
     Return,
     Break,
     Continue,
+    Marker,
+    Jump,
 };
 
 enum class TypeExprKind : uint8_t { Error, Name, Pointer, Optional, Array, Function, Slice };
@@ -156,6 +166,8 @@ struct Statement {
     TextSpan span;
     ExprId expression;
     Binding binding;
+    /// Name of a marker (StmtKind::Marker) or jump target (StmtKind::Jump).
+    std::string label;
 };
 
 struct Expression {
@@ -183,6 +195,8 @@ struct Parameter {
     std::string name;
     TextSpan span;
     TypeExprId type;
+    /// Optional default expression for a struct field: `left: i32 = 3`.
+    ExprId defaultValue;
 };
 
 struct ImportSelector {

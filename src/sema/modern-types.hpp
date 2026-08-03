@@ -76,7 +76,9 @@ struct StructType {
 };
 struct EnumType {
     std::string_view name;
-    memory::DynArray<TypeId> &variants;
+    TypeId underlying;
+    memory::DynArray<std::string_view> &variant_names;
+    memory::DynArray<int64_t> &discriminants;
 };
 struct UnionType {
     std::string_view name;
@@ -123,7 +125,9 @@ public:
     [[nodiscard]] TypeId internStruct(std::string_view name, memory::DynArray<TypeId> &fields,
                                       memory::DynArray<std::string_view> *field_names = nullptr);
     [[nodiscard]] int fieldIndex(TypeId struct_type, std::string_view name) const noexcept;
-    [[nodiscard]] TypeId internEnum(std::string_view name, memory::DynArray<TypeId> &variants);
+    [[nodiscard]] TypeId internEnum(std::string_view name, TypeId underlying,
+                                    memory::DynArray<std::string_view> &variant_names,
+                                    memory::DynArray<int64_t> &discriminants);
     [[nodiscard]] TypeId internUnion(std::string_view name, memory::DynArray<TypeId> &members);
     [[nodiscard]] TypeId internTrait(std::string_view name);
     [[nodiscard]] TypeId internTypeVar();
@@ -171,6 +175,7 @@ public:
     // Public helpers used by sema-modern to build composite types.
     [[nodiscard]] memory::DynArray<TypeId> &makeTypeStorage();
     [[nodiscard]] memory::DynArray<std::string_view> &makeStringStorage();
+    [[nodiscard]] memory::DynArray<int64_t> &makeDiscStorage();
 
 private:
     enum class EntryKind : uint8_t {
@@ -220,6 +225,8 @@ private:
         memory::DynArray<TypeId> *storage                = nullptr;
         memory::DynArray<TypeId> *storage2               = nullptr;
         memory::DynArray<std::string_view> *name_storage = nullptr;
+        memory::DynArray<int64_t> *disc_storage          = nullptr;
+        TypeId underlying                                = kInvalidTypeId;
     };
 
     memory::DynArray<Entry> entries_;

@@ -23,7 +23,13 @@ struct CodegenTest {
     memory::Arena arena;
     Options opts;
 
-    CodegenTest() : opts(arena) {}
+    CodegenTest() : opts(arena) {
+#ifdef ZITH_STDLIB_DIR
+        // Mirror `zithc --include stdlib`: give every codegen test access to the
+        // language standard library (stdlib/std/io/console and friends).
+        opts.includeDirs.push(ZITH_STDLIB_DIR);
+#endif
+    }
 
     struct Result {
         bool ok           = false;
@@ -64,6 +70,9 @@ struct ModernFileCodegenTest {
         : opts(arena), root(std::filesystem::temp_directory_path() / "zith-codegen-modern-tests") {
         std::filesystem::remove_all(root);
         std::filesystem::create_directories(root);
+#ifdef ZITH_STDLIB_DIR
+        opts.includeDirs.push(ZITH_STDLIB_DIR);
+#endif
     }
 
     ~ModernFileCodegenTest() {
@@ -448,6 +457,24 @@ static void test_numeric_cast_codegen() {
     CHECK(r.output.find("fptosi") != std::string::npos, "f64 -> i32 emits fptosi");
 }
 
+static void test_marker_jump_loop_executes() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn main(): i32 {\n"
+                         "    var x: i32 = 0;\n"
+                         "    marker my_loop {\n"
+                         "        x = x + 1;\n"
+                         "        if (x < 10) {\n"
+                         "            jump my_loop;\n"
+                         "        }\n"
+                         "    }\n"
+                         "    return x;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "marker/jump loop compiles and executes");
+    CHECK_EQ(r.exitCode, 10, "the loop runs until x reaches 10");
+}
+
 static void test_linked_list_acceptance_program() {
     // Mirrors examples/linked-list.zith: nullable pointers, `is null`, conditional `for`,
     // two-character comparison operators, and explicit numeric `as` conversions.
@@ -716,6 +743,8 @@ static void test_codegen() {
     test_struct_field_read_through_parameter();
     printf("Running test_numeric_cast_codegen\n");
     test_numeric_cast_codegen();
+    printf("Running test_marker_jump_loop_executes\n");
+    test_marker_jump_loop_executes();
     printf("Running test_linked_list_acceptance_program\n");
     test_linked_list_acceptance_program();
     printf("Running test_modern_file_pipeline_executes_program\n");

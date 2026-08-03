@@ -1,3 +1,4 @@
+#include "diagnostics/error-codes.hpp"
 #include "frontend/frontend.hpp"
 #include "test-common.hpp"
 
@@ -409,6 +410,76 @@ static void test_error_diagnostic_span_preserved() {
     CHECK(found_ok, "valid declaration after delimiter error is preserved");
 }
 
+static bool hasErrorCode(const frontend::FrontendSnapshot &snapshot, uint32_t code) {
+    for (const auto &diagnostic : snapshot.diagnostics())
+        if (!diagnostic.isWarning && diagnostic.code == code)
+            return true;
+    return false;
+}
+
+static void test_unexpected_top_level_token_is_diagnosed() {
+    // `@` is legitimate punctuation (for @offsetOf and macro calls), so @@@ lexes
+    // cleanly; the top-level lowerer must report the garbage and still collect the
+    // following declaration.
+    auto snapshot = frontend::parse("@@@ fn good() { }\n");
+
+    CHECK(!snapshot.diagnostics().empty(), "@@@ garbage reports a diagnostic");
+    CHECK(hasErrorCode(snapshot, diagnostics::err::UnsupportedSyntax),
+          "unexpected top-level token reports UnsupportedSyntax");
+    bool found_good = false;
+    for (const auto &d : snapshot.declarations()) {
+        if (d.name == "good" && d.kind == frontend::DeclKind::Function)
+            found_good = true;
+    }
+    CHECK(found_good, "valid declaration after garbage is still collected");
+}
+
+static void test_macro_invocation_is_tolerated() {
+    // A top-level macro invocation `@name args;` stays tolerated (the spec shows
+    // `@appendField Custom, x: i32;` before a declaration).
+    auto snapshot = frontend::parse("@appendField Custom, x: i32;\n"
+                                    "pub fn main() { }\n");
+
+    CHECK(snapshot.diagnostics().empty(), "@appendField macro invocation reports no error");
+    CHECK_EQ(snapshot.declarations().size(), 1u, "macro invocation adds no declaration");
+    CHECK_EQ(snapshot.declarations()[0].name, std::string("main"),
+             "declaration after macro invocation is preserved");
+}
+
+static void test_extern_before_declaration_is_tolerated() {
+    auto snapshot = frontend::parse("extern fn puts(msg: *char)\n"
+                                    "fn main() { }\n");
+
+    CHECK(snapshot.diagnostics().empty(), "extern before a declaration reports no error");
+    bool found_puts = false;
+    bool found_main = false;
+    for (const auto &d : snapshot.declarations()) {
+        if (d.name == "puts" && d.kind == frontend::DeclKind::Function)
+            found_puts = true;
+        if (d.name == "main" && d.kind == frontend::DeclKind::Function)
+            found_main = true;
+    }
+    CHECK(found_puts && found_main, "both extern and plain declarations are lowered");
+}
+
+static void test_consecutive_garbage_coalesces_into_one_diagnostic() {
+    auto snapshot = frontend::parse("$ $ $ fn ok() { }\n");
+
+    size_t unsupported_count = 0;
+    for (const auto &diagnostic : snapshot.diagnostics()) {
+        if (!diagnostic.isWarning && diagnostic.code == diagnostics::err::UnsupportedSyntax)
+            ++unsupported_count;
+    }
+    CHECK_EQ(unsupported_count, 1u,
+             "a run of consecutive garbage tokens yields a single diagnostic");
+    bool found_ok = false;
+    for (const auto &d : snapshot.declarations()) {
+        if (d.name == "ok" && d.kind == frontend::DeclKind::Function)
+            found_ok = true;
+    }
+    CHECK(found_ok, "declaration after coalesced garbage is still collected");
+}
+
 static void test_frontend() {
     test_lossless_trivia_and_spans();
     test_keywords_and_module_ast();
@@ -430,6 +501,10 @@ static void test_frontend() {
     test_multiple_top_level_decls_with_visibility();
     test_import_form_with_depth_and_export();
     test_error_diagnostic_span_preserved();
+    test_unexpected_top_level_token_is_diagnosed();
+    test_macro_invocation_is_tolerated();
+    test_extern_before_declaration_is_tolerated();
+    test_consecutive_garbage_coalesces_into_one_diagnostic();
 }
 
 TEST_MAIN(frontend)
