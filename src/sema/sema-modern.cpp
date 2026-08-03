@@ -558,6 +558,9 @@ TypeId PerModuleSema::inferExpr(frontend::ExprId id) {
     case frontend::ExprKind::While:
         result = inferWhile(id);
         break;
+    case frontend::ExprKind::For:
+        result = inferFor(id);
+        break;
     case frontend::ExprKind::Return:
         result = inferReturn(id);
         break;
@@ -829,6 +832,21 @@ TypeId PerModuleSema::inferWhile(frontend::ExprId id) {
     // The body must be inferred too, otherwise locals declared inside the loop never get a type.
     if (expr.operands.size() >= 2U)
         (void)inferExpr(expr.operands[1]);
+    return void_type;
+}
+
+TypeId PerModuleSema::inferFor(frontend::ExprId id) {
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    // operands: [cond, body, step].
+    if (!expr.operands.empty()) {
+        TypeId cond = inferExpr(expr.operands[0]);
+        if (!sameType(cond, bool_type))
+            report(expr.span, "loop condition must be boolean", diagnostics::err::TypeMismatch);
+    }
+    if (expr.operands.size() >= 2U && expr.operands[1])
+        (void)inferExpr(expr.operands[1]);
+    if (expr.operands.size() >= 3U && expr.operands[2])
+        (void)inferExpr(expr.operands[2]);
     return void_type;
 }
 

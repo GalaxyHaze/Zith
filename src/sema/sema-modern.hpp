@@ -115,6 +115,7 @@ private:
     TypeId inferBlock(frontend::ExprId id);
     TypeId inferIf(frontend::ExprId id);
     TypeId inferWhile(frontend::ExprId id);
+    TypeId inferFor(frontend::ExprId id);
     TypeId inferReturn(frontend::ExprId id);
     TypeId inferAssign(frontend::ExprId id);
     TypeId inferOptionalProp(frontend::ExprId id);

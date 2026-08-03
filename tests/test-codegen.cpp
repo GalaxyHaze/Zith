@@ -340,6 +340,36 @@ static void test_when_expression_runtime() {
     CHECK_EQ(r.exitCode, 100, "when dispatches through literal, range, and default cases");
 }
 
+static void test_for_three_clause_runtime() {
+    CodegenTest t;
+    auto r = t.run("codegen-for3.zith", "fn sum_to(n: i32): i32 {\n"
+                                        "    var total: i32 = 0;\n"
+                                        "    for (var i: i32 = 0; i < n; i = i + 1) {\n"
+                                        "        total = total + i;\n"
+                                        "    }\n"
+                                        "    return total;\n"
+                                        "}\n"
+                                        "fn count_down(n: i32): i32 {\n"
+                                        "    var hits: i32 = 0;\n"
+                                        "    for (var i: i32 = n; i > 0; i = i - 1) {\n"
+                                        "        if (i == 3) {\n"
+                                        "            continue;\n"
+                                        "        }\n"
+                                        "        hits = hits + 1;\n"
+                                        "        if (hits > 5) {\n"
+                                        "            break;\n"
+                                        "        }\n"
+                                        "    }\n"
+                                        "    return hits;\n"
+                                        "}\n"
+                                        "fn main(): i32 {\n"
+                                        "    return sum_to(5) * 10 + count_down(20);\n"
+                                        "}\n");
+    CHECK(r.ok, "for 3-clause form with init/cond/step compiles and runs");
+    printf("EXIT CODE: %d\n", r.exitCode);
+    CHECK_EQ(r.exitCode, 106, "init runs before the loop and step after each iteration");
+}
+
 static void test_named_struct_literal_and_defaults_runtime() {
     CodegenTest t;
     auto r = t.run("codegen-named-struct-literal.zith",
@@ -766,6 +796,7 @@ static void test_codegen() {
     test_offsetof_and_alignof_runtime();
     test_sizeof_intrinsic_runtime();
     test_when_expression_runtime();
+    test_for_three_clause_runtime();
     printf("Running test_named_struct_literal_and_defaults_runtime\n");
     test_named_struct_literal_and_defaults_runtime();
     printf("Running test_trailing_void_call_is_emitted_once\n");

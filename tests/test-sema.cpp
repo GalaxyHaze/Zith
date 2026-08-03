@@ -967,6 +967,53 @@ static void test_modern_loop_body_infers_locals() {
     CHECK(f.ok, "the body of a 'for' loop infers its own locals");
 }
 
+static void test_modern_for_three_clause() {
+    ModernSemaTest ok;
+    auto r = ok.run("fn sum_to(n: i32): i32 {\n"
+                    "    var total: i32 = 0;\n"
+                    "    for (var i: i32 = 0; i < n; i = i + 1) {\n"
+                    "        total = total + i;\n"
+                    "    }\n"
+                    "    return total;\n"
+                    "}\n"
+                    "fn main(): i32 {\n"
+                    "    return sum_to(5);\n"
+                    "}\n");
+    CHECK(r.ok, "3-clause for with a var init type-checks");
+
+    ModernSemaTest expr_init;
+    auto e = expr_init.run("fn main(): i32 {\n"
+                           "    var i: i32 = 0;\n"
+                           "    var total: i32 = 0;\n"
+                           "    for (i = 0; i < 5; i = i + 1) {\n"
+                           "        total = total + i;\n"
+                           "    }\n"
+                           "    return total;\n"
+                           "}\n");
+    CHECK(e.ok, "3-clause for with an expression init type-checks");
+
+    ModernSemaTest empty_clauses;
+    auto c = empty_clauses.run("fn main(): i32 {\n"
+                               "    var n: i32 = 3;\n"
+                               "    for (; n > 0; n = n - 1) {\n"
+                               "    }\n"
+                               "    return n;\n"
+                               "}\n");
+    CHECK(c.ok, "3-clause for with an omitted init type-checks");
+
+    ModernSemaTest bad_cond;
+    auto b = bad_cond.run("fn main(): i32 {\n"
+                          "    var i: i32 = 0;\n"
+                          "    for (var j: i32 = 0; 42; j = j + 1) {\n"
+                          "        i = i + 1;\n"
+                          "    }\n"
+                          "    return i;\n"
+                          "}\n");
+    CHECK(!b.ok, "a non-boolean for condition is rejected");
+    CHECK(b.hasMessage("loop condition must be boolean"),
+          "the non-boolean 3-clause condition reports a type mismatch");
+}
+
 static void test_modern_array_literal() {
     ModernSemaTest t;
     auto r = t.run("fn sum(arr: [4]i32): i32 {\n"
@@ -1074,6 +1121,7 @@ static void test_sema() {
     test_modern_is_null_on_optional_pointer();
     test_modern_is_null_requires_optional();
     test_modern_loop_body_infers_locals();
+    test_modern_for_three_clause();
     test_modern_array_literal();
     test_modern_array_literal_mismatch();
     test_modern_array_literal_empty();

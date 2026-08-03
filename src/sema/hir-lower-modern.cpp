@@ -533,6 +533,8 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
         return hir::kInvalidHirExpr;
     case frontend::ExprKind::While:
         return lowerWhile(expr);
+    case frontend::ExprKind::For:
+        return lowerFor(expr);
     case frontend::ExprKind::Assign:
         return lowerAssign(expr, type);
     case frontend::ExprKind::OptionalProp:
@@ -888,9 +890,58 @@ hir::HirExprId HirLowerModern::lowerWhile(const frontend::Expression &expr) {
     setCurrentBlock(body_block);
     current_fn_->blocks[body_block].insts = memory::DynArray<hir::HirExprId>(arena_);
     (void)lowerExpr(expr.operands[1]);
-    if (current_fn_->blocks[body_block].terminator == hir::kInvalidHirExpr)
+    // The body may have created nested control flow; the back edge belongs on the
+    // block the body actually ended in (current_block_), not necessarily body_block.
+    if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
         emitJump(header_block);
     loop_stack_.pop_back();
+
+    setCurrentBlock(exit_block);
+    current_fn_->blocks[exit_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    return hir::kInvalidHirExpr;
+}
+
+hir::HirExprId HirLowerModern::lowerFor(const frontend::Expression &expr) {
+    // operands: [cond, body, step]; step may be invalid.
+    if (expr.operands.size() < 2U)
+        return hir::kInvalidHirExpr;
+
+    const auto header_block = newBlock();
+    const auto body_block   = newBlock();
+    const auto step_block   = newBlock();
+    const auto exit_block   = newBlock();
+
+    emitJump(header_block);
+
+    setCurrentBlock(header_block);
+    current_fn_->blocks[header_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    const auto cond                         = lowerExpr(expr.operands[0]);
+    hir::HirBranch branch;
+    branch.cond       = cond;
+    branch.then_block = static_cast<hir::HirDeclId>(body_block);
+    branch.else_block = static_cast<hir::HirDeclId>(exit_block);
+    setTerminator(addExpr(std::move(branch)));
+
+    // `continue` runs the step, so the step is the continue target; `break` exits.
+    loop_stack_.push_back({step_block, exit_block});
+    setCurrentBlock(body_block);
+    current_fn_->blocks[body_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    (void)lowerExpr(expr.operands[1]);
+    // The body may have created nested control flow; the step edge belongs on the
+    // block the body actually ended in (current_block_), not necessarily body_block.
+    if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
+        emitJump(step_block);
+    loop_stack_.pop_back();
+
+    setCurrentBlock(step_block);
+    current_fn_->blocks[step_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    if (expr.operands.size() >= 3U && expr.operands[2]) {
+        const auto step = lowerExpr(expr.operands[2]);
+        if (step != hir::kInvalidHirExpr)
+            current_fn_->blocks[step_block].insts.push(step);
+    }
+    if (current_fn_->blocks[step_block].terminator == hir::kInvalidHirExpr)
+        emitJump(header_block);
 
     setCurrentBlock(exit_block);
     current_fn_->blocks[exit_block].insts = memory::DynArray<hir::HirExprId>(arena_);

@@ -112,7 +112,11 @@ enum class ExprKind : uint8_t {
     Call,
     Block,
     If,
+    /// `for { }` (infinite) and `for (cond) { }` (conditional).
     While,
+    /// 3-clause `for (init; cond; step) { body }`: operands are [cond, body, step];
+    /// `init` is desugared into a preceding statement of the enclosing block.
+    For,
     Return,
     Assign,
     OptionalProp,

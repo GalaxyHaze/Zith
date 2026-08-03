@@ -194,7 +194,7 @@ int FmtVisitor::exprPrecedence(const frontend::Expression &expr) const noexcept 
 
 bool FmtVisitor::isStatementExpr(const frontend::Expression &expr) const noexcept {
     return expr.kind == frontend::ExprKind::Block || expr.kind == frontend::ExprKind::If ||
-           expr.kind == frontend::ExprKind::While;
+           expr.kind == frontend::ExprKind::While || expr.kind == frontend::ExprKind::For;
 }
 
 void FmtVisitor::emitLeadingComments(const std::size_t token_index) {
@@ -583,6 +583,21 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
         }
         emit("while (");
         visitExpr(expr->operands[0]);
+        emit(") ");
+        visitExpr(expr->operands[1]);
+        break;
+    case frontend::ExprKind::For:
+        // init was desugared into a preceding statement, so the head prints as
+        // `for (; cond; step)` to round-trip the remaining clauses.
+        if (expr->operands.size() < 2U) {
+            emitOriginal(expr->span);
+            break;
+        }
+        emit("for (; ");
+        visitExpr(expr->operands[0]);
+        emit("; ");
+        if (expr->operands.size() >= 3U && expr->operands[2])
+            visitExpr(expr->operands[2]);
         emit(") ");
         visitExpr(expr->operands[1]);
         break;

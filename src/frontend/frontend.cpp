@@ -1131,8 +1131,94 @@ private:
         } else if (punctuation(index_, '(')) {
             ++index_;
             const uint32_t clause_start = index_;
-            const ExprId condition      = parseExpression();
-            if (isKeywordToken("in") || punctuation(index_, ';')) {
+            // init clause: `var x = e`, a bare expression, or empty (`;`).
+            StmtId init_stmt;
+            ExprId init_expr;
+            if (index_ < token_count_ && text(index_) == "var") {
+                ++index_;
+                Statement stmt;
+                stmt.kind                   = StmtKind::Binding;
+                stmt.binding.mutableBinding = true;
+                stmt.binding.id             = LocalId{statementCountLocals_++};
+                stmt.binding.name           = std::string(text(index_));
+                stmt.binding.span           = tokenSpan(index_++);
+                if (punctuation(index_, ':')) {
+                    ++index_;
+                    stmt.binding.type = parseType();
+                }
+                if (index_ < token_count_ && text(index_) == "=") {
+                    ++index_;
+                    stmt.binding.initializer = parseExpression();
+                }
+                stmt.span = range(clause_start, index_);
+                init_stmt = addStatement(std::move(stmt));
+            } else if (!punctuation(index_, ';')) {
+                init_expr = parseExpression();
+            }
+            if (punctuation(index_, ';')) {
+                // 3-clause form: for (init; cond; step) { body }.  Init desugars to a
+                // preceding statement of the enclosing block; cond defaults to `true`.
+                // The step runs after each body iteration (and after `continue`), so it
+                // is kept as a dedicated operand of the For node, not merged into the body.
+                ++index_;
+                if (bool(init_expr)) {
+                    Statement stmt;
+                    stmt.kind       = StmtKind::Expression;
+                    stmt.expression = init_expr;
+                    stmt.span       = tokenSpan(clause_start);
+                    init_stmt       = addStatement(std::move(stmt));
+                }
+                // cond clause (default `true`).
+                ExprId cond_expr;
+                if (!punctuation(index_, ';'))
+                    cond_expr = parseExpression();
+                if (punctuation(index_, ';'))
+                    ++index_;
+                else
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_), "expected ';' after for condition"});
+                // step clause (optional).
+                ExprId step_expr;
+                if (!punctuation(index_, ')'))
+                    step_expr = parseExpression();
+                if (punctuation(index_, ')'))
+                    ++index_;
+                else
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_), "expected ')' after for clauses"});
+                if (!punctuation(index_, '{'))
+                    snapshot_.diagnostics_.push_back({range(start, index_), "expected for body"});
+                const ExprId body = parseBlock();
+                if (!bool(cond_expr)) {
+                    Expression always;
+                    always.kind  = ExprKind::Literal;
+                    always.text  = "true";
+                    always.scope = current_scope_;
+                    always.span  = range(start, index_);
+                    cond_expr    = addExpression(std::move(always));
+                }
+
+                // Outer `{ init; for(cond){ body } step }`.
+                Expression outer;
+                outer.kind      = ExprKind::Block;
+                outer.scope     = current_scope_;
+                outer.span      = range(start, index_);
+                expression.kind = ExprKind::For;
+                expression.span = range(start, index_);
+                expression.operands.push_back(cond_expr);
+                expression.operands.push_back(body);
+                expression.operands.push_back(step_expr);
+                const ExprId for_id = addExpression(std::move(expression));
+                if (bool(init_stmt))
+                    outer.statements.push_back(init_stmt);
+                Statement loop_stmt;
+                loop_stmt.kind       = StmtKind::Expression;
+                loop_stmt.expression = for_id;
+                loop_stmt.span       = range(start, index_);
+                outer.statements.push_back(addStatement(std::move(loop_stmt)));
+                return addExpression(std::move(outer));
+            }
+            if (isKeywordToken("in")) {
                 snapshot_.diagnostics_.push_back(
                     {range(clause_start, index_), "for iterator form is not implemented yet"});
                 expression.span = range(start, index_);
@@ -1144,14 +1230,10 @@ private:
             else
                 snapshot_.diagnostics_.push_back(
                     {range(start, index_), "expected ')' after condition"});
-            if (punctuation(index_, ',')) {
+            if (!bool(init_expr))
                 snapshot_.diagnostics_.push_back(
-                    {range(start, index_), "for 3-clause form is not implemented yet"});
-                expression.span = range(start, index_);
-                expression.kind = ExprKind::Error;
-                return addExpression(std::move(expression));
-            }
-            expression.operands.push_back(condition);
+                    {range(start, index_), "expected a condition after 'for ('"});
+            expression.operands.push_back(init_expr);
         } else {
             snapshot_.diagnostics_.push_back(
                 {range(start, index_), "expected '(' or a block after 'for'"});
@@ -1487,8 +1569,8 @@ private:
             else
                 snapshot_.diagnostics_.push_back({range(start, index_), "expected ')'"});
         }
-        if (punctuation(index_, ':')) {
-            ++index_;
+        if (punctuation(index_, ':') || isOperatorToken("->")) {
+            ++index_; // `:` or `->` arrow return type
             declaration.declaredType = parseType();
         } else if (kind == DeclKind::TypeAlias && index_ < token_count_ && text(index_) == "=") {
             ++index_;
