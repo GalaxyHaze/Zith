@@ -148,11 +148,12 @@ void HirModule::dump(FILE *out, const memory::StringInterner &interner) const {
                             std::fprintf(out, "cast %%e%u : %%t%u -> %%t%u", c.value, c.from, c.to);
                         },
                         [&](const HirLayoutIntrinsic &i) {
-                            std::fprintf(out, "%s %%t%u",
-                                         i.which == HirLayoutIntrinsic::Which::OffsetOf
-                                             ? "offset_of"
-                                             : "align_of",
-                                         i.type);
+                            std::fprintf(
+                                out, "%s %%t%u",
+                                i.which == HirLayoutIntrinsic::Which::OffsetOf  ? "offset_of"
+                                : i.which == HirLayoutIntrinsic::Which::AlignOf ? "align_of"
+                                                                                : "size_of",
+                                i.type);
                         },
                     });
                 std::fprintf(out, "\n");

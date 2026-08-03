@@ -574,7 +574,7 @@ private:
                 const auto intrinsic = std::string(text(index_++));
                 Expression intrinsic_expr;
                 intrinsic_expr.scope = current_scope_;
-                if (intrinsic == "offsetOf" || intrinsic == "alignOf") {
+                if (intrinsic == "offsetOf" || intrinsic == "alignOf" || intrinsic == "sizeOf") {
                     intrinsic_expr.kind = ExprKind::LayoutIntrinsic;
                     intrinsic_expr.text = intrinsic;
                     if (punctuation(index_, '('))

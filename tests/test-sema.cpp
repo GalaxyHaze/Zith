@@ -463,6 +463,32 @@ static void test_offsetof_unknown_field_fails() {
     CHECK(r.hasErrorCode(diagnostics::err::NoMember), "Reports NoMember for unknown field");
 }
 
+static void test_sizeof_intrinsic_ok() {
+    SemaTest t;
+    auto r = t.run("struct Pair { left: i32, right: i32 }\n"
+                   "fn main(): u64 {\n"
+                   "    return @sizeOf(Pair);\n"
+                   "}\n");
+    CHECK(r.ok, "@sizeOf on a struct type-checks as u64");
+}
+
+static void test_sizeof_primitive_ok() {
+    SemaTest t;
+    auto r = t.run("fn main(): u64 {\n"
+                   "    return @sizeOf(i32);\n"
+                   "}\n");
+    CHECK(r.ok, "@sizeOf on a primitive type-checks as u64");
+}
+
+static void test_sizeof_void_fails() {
+    SemaTest t;
+    auto r = t.run("fn main(): u64 {\n"
+                   "    return @sizeOf(void);\n"
+                   "}\n");
+    CHECK(!r.ok, "@sizeOf rejects 'void'");
+    CHECK(r.hasErrorCode(diagnostics::err::TypeMismatch), "Reports TypeMismatch for void");
+}
+
 static void test_named_struct_literal_ok() {
     SemaTest t;
     auto r = t.run("struct Pair { left: i32, right: i32 }\n"
@@ -933,6 +959,9 @@ static void test_sema() {
     test_offsetof_intrinsic_ok();
     test_offsetof_non_struct_fails();
     test_offsetof_unknown_field_fails();
+    test_sizeof_intrinsic_ok();
+    test_sizeof_primitive_ok();
+    test_sizeof_void_fails();
     test_named_struct_literal_ok();
     test_named_struct_literal_duplicate_field_fails();
     test_named_struct_literal_unknown_field_fails();

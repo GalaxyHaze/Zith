@@ -878,6 +878,15 @@ TypeId PerModuleSema::inferLayoutIntrinsic(frontend::ExprId id) {
     if (!target)
         return error_type;
     const TypeId resolved = resolve(target);
+    // @sizeOf applies to any complete type (primitives and structs alike) and
+    // reports its size in bytes as u64; offsetOf/alignOf stay struct-only.
+    if (expr.text == "sizeOf") {
+        if (type_table.kindOf(resolved) == TypeKind::Void) {
+            report(expr.span, "'@sizeOf' requires a complete type", diagnostics::err::TypeMismatch);
+            return error_type;
+        }
+        return type_table.lookupNamed("u64");
+    }
     if (type_table.kindOf(resolved) != TypeKind::Struct) {
         report(expr.span, "'@" + expr.text + "' requires a struct type",
                diagnostics::err::TypeMismatch);

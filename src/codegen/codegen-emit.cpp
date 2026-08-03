@@ -168,8 +168,10 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 uint64_t value = 0;
                 if (i.which == hir::HirLayoutIntrinsic::Which::OffsetOf) {
                     value = typeGen_.fieldOffset(i.type, i.field_index);
-                } else {
+                } else if (i.which == hir::HirLayoutIntrinsic::Which::AlignOf) {
                     value = typeGen_.alignOf(i.type);
+                } else {
+                    value = typeGen_.sizeOf(i.type);
                 }
                 return llvm::ConstantInt::get(llvm::Type::getInt32Ty(builder_.getContext()), value);
             },

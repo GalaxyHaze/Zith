@@ -915,8 +915,12 @@ hir::HirExprId HirLowerModern::lowerIsNull(const frontend::Expression &expr) {
 
 hir::HirExprId HirLowerModern::lowerLayoutIntrinsic(const frontend::Expression &expr) {
     hir::HirLayoutIntrinsic intrinsic;
-    intrinsic.which = expr.text == "alignOf" ? hir::HirLayoutIntrinsic::Which::AlignOf
-                                             : hir::HirLayoutIntrinsic::Which::OffsetOf;
+    if (expr.text == "sizeOf")
+        intrinsic.which = hir::HirLayoutIntrinsic::Which::SizeOf;
+    else if (expr.text == "alignOf")
+        intrinsic.which = hir::HirLayoutIntrinsic::Which::AlignOf;
+    else
+        intrinsic.which = hir::HirLayoutIntrinsic::Which::OffsetOf;
     if (current_module_ == nullptr || current_module_->frontend == nullptr || !expr.cast_type)
         return hir::kInvalidHirExpr;
     const auto &type_exprs = current_module_->frontend->typeExpressions();

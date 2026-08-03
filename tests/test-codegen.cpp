@@ -305,6 +305,22 @@ static void test_offsetof_and_alignof_runtime() {
     CHECK_EQ(r.exitCode, 4, "Layout intrinsics follow the target ABI for padded structs");
 }
 
+static void test_sizeof_intrinsic_runtime() {
+    CodegenTest t;
+    auto r = t.run("codegen-sizeof.zith", "struct Padded { left: u8, right: u32 }\n"
+                                          "fn main(): i32 {\n"
+                                          "    if (@sizeOf(u8) == 1) {\n"
+                                          "        if (@sizeOf(i32) == 4) {\n"
+                                          "            if (@sizeOf(Padded) == 8) { return 1; }\n"
+                                          "        }\n"
+                                          "    }\n"
+                                          "    return 0;\n"
+                                          "}\n");
+    CHECK(r.ok, "@sizeOf on primitives and structs compiles and runs");
+    printf("EXIT CODE: %d\n", r.exitCode);
+    CHECK_EQ(r.exitCode, 1, "@sizeOf folds to the target-ABI size in bytes");
+}
+
 static void test_named_struct_literal_and_defaults_runtime() {
     CodegenTest t;
     auto r = t.run("codegen-named-struct-literal.zith",
@@ -729,6 +745,7 @@ static void test_codegen() {
     test_enum_values();
     printf("Running test_offsetof_and_alignof_runtime\n");
     test_offsetof_and_alignof_runtime();
+    test_sizeof_intrinsic_runtime();
     printf("Running test_named_struct_literal_and_defaults_runtime\n");
     test_named_struct_literal_and_defaults_runtime();
     printf("Running test_trailing_void_call_is_emitted_once\n");

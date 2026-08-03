@@ -222,9 +222,9 @@ struct HirMakeSome {
     HirExprKind tag = HirExprKind::MakeSome;
 };
 
-/// The offsetOf / alignOf layout intrinsics; resolved to a constant at codegen.
+/// The offsetOf / alignOf / sizeOf layout intrinsics; resolved to a constant at codegen.
 struct HirLayoutIntrinsic {
-    enum class Which : uint8_t { OffsetOf, AlignOf };
+    enum class Which : uint8_t { OffsetOf, AlignOf, SizeOf };
     Which which;
     HirTypeId type       = types::kInvalidType;
     uint32_t field_index = ~0U; // OffsetOf only
