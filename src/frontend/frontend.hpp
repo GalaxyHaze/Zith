@@ -90,6 +90,8 @@ enum class Visibility : uint8_t { Private, Public, Module };
 
 enum class DeclKind : uint8_t {
     Error,
+    /// `macro name(...) { body }` — source-level macro declaration.
+    Macro,
     Import,
     Function,
     TypeAlias,
@@ -108,6 +110,8 @@ enum class ExprKind : uint8_t {
     Name,
     Literal,
     Unary,
+    /// `@name(args)` call to a user-defined macro; expansion is in `Expression::expansion`.
+    MacroCall,
     Binary,
     Call,
     Block,
@@ -148,7 +152,22 @@ enum class StmtKind : uint8_t {
     Jump,
 };
 
-enum class TypeExprKind : uint8_t { Error, Name, Pointer, Optional, Array, Function, Slice };
+/// `Opaque` is the parsed form of `raw opaque`, the C-interop spelling of an
+/// untyped pointer. It lowers to pointer-to-void; a literal `*void` stays rejected.
+enum class TypeExprKind : uint8_t {
+    Error,
+    Name,
+    Pointer,
+    Optional,
+    Array,
+    Function,
+    Slice,
+    Opaque
+};
+
+/// Memory-model qualifier written as a prefix on a type (`lend T`, `view T`, ...).
+/// `Default` means the type carried no ownership prefix.
+enum class OwnershipKind : uint8_t { Default, Unique, Share, Lend, View, Belong };
 
 struct TypeExpression {
     TypeExprId id;
@@ -157,6 +176,13 @@ struct TypeExpression {
     std::string name;
     std::vector<TypeExprId> arguments;
     uint64_t arrayLength = 0;
+    /// Ownership qualifier written before the type, if any.
+    OwnershipKind ownership = OwnershipKind::Default;
+    /// Resolved mutability: `lend`/`unique`/`share`/`belong` are mutable, `view` is
+    /// immutable, `default` is mutable only when written with `mut`.
+    bool isMut = false;
+    /// True when the type was written with an explicit `mut` prefix.
+    bool hasMutKeyword = false;
 };
 
 struct Binding {
@@ -195,6 +221,23 @@ struct Expression {
     TypeExprId cast_type;
     // Used by ExprKind::Call: explicit generic arguments `name<A, B>(...)`.
     std::vector<TypeExprId> genericArgs;
+    /// For MacroCall: the result of expansion (a Block expression for normal
+    /// macros; zero remains when expansion fails or did not run).
+    ExprId expansion;
+    /// True when `expansion` is the result of a `raw` macro (the expansion
+    /// statements splice directly without a wrapping Block scope).
+    bool expansionIsRaw = false;
+    /// For MacroCall operands: when true, the argument was prefixed with =,
+    /// requesting pass-by-AST (unevaluated expression) instead of pass-by-value.
+    std::vector<bool> argIsUnevaluated;
+    /// For MacroCall operands: the source span of each argument, recorded so a
+    /// later phase can re-splice the argument at token level (Phase 2).
+    std::vector<TextSpan> argSpans;
+    /// For MacroCall: the call-site attributes list. `attributes` holds one
+    /// expression per entry; `attributeNames` holds the parallel name for a
+    /// `name: expr` entry and an empty string for a positional entry.
+    std::vector<std::string> attributeNames;
+    std::vector<ExprId> attributes;
 };
 
 struct Scope {
@@ -247,6 +290,19 @@ struct Declaration {
     DeclKind kind         = DeclKind::Error;
     Visibility visibility = Visibility::Private;
     TextSpan span;
+    /// True when declared with `tag macro`: invoked as `<Name attr: v> ... </Name>`
+    /// instead of `@name(...)`, and never produces a value.
+    bool isTagMacro = false;
+    /// True when declared with `raw macro` (hygiene disabled, splices statements).
+    bool isRawMacro = false;
+    /// True when the first parameter is named `attributes` (no type), signalling
+    /// the macro accepts `|name: expr, ...|` call-site attributes.
+    bool hasAttributesParam = false;
+    /// True when declared with `extern fn`: the C ABI fixes its linkage name, so it
+    /// is never name-qualified and never participates in overloading.
+    bool isExtern = false;
+    /// True when the declaration ends its parameter list with `...` (`extern fn` only).
+    bool isVariadic = false;
     std::string name;
     ImportDecl import;
     std::vector<Parameter> parameters;
@@ -254,6 +310,10 @@ struct Declaration {
     TypeExprId declaredType;
     ExprId initializer;
     ExprId body;
+    /// Non-empty for methods: the name of the type that owns this method
+    /// (e.g. "Counter" for `fn inc(self: *Counter)` inside `struct Counter`).
+    /// Used to mangle the symbol name and to supply the implicit self parameter.
+    std::string ownerName;
 };
 
 struct GreenNode;
@@ -349,7 +409,19 @@ public:
     [[nodiscard]] const std::vector<Scope> &scopes() const noexcept {
         return scopes_;
     }
+    /// True when this expression belongs to the *template* body of a `macro`
+    /// declaration.  Template nodes are inert: they are not real code, so name
+    /// resolution and sema skip them and only their clones are analysed.
+    [[nodiscard]] bool isMacroTemplateExpr(ExprId id) const noexcept {
+        return id.value < macro_template_exprs_.size() && macro_template_exprs_[id.value];
+    }
+    [[nodiscard]] bool isMacroTemplateStmt(StmtId id) const noexcept {
+        return id.value < macro_template_stmts_.size() && macro_template_stmts_[id.value];
+    }
     [[nodiscard]] SyntaxNode root() const noexcept;
+    [[nodiscard]] double expandMs() const noexcept {
+        return expandMs_;
+    }
     [[nodiscard]] std::string reconstruct() const;
 
 private:
@@ -357,7 +429,10 @@ private:
     friend void lex(FrontendSnapshot &snapshot);
     friend void parseCst(FrontendSnapshot &snapshot);
     friend void lowerAst(FrontendSnapshot &snapshot);
+    friend void markMacroTemplates(FrontendSnapshot &snapshot);
     friend class AstLowerer;
+    friend class MacroExpander;
+    double expandMs_ = 0.0;
 
     std::string source_;
     memory::Arena arena_;
@@ -369,9 +444,22 @@ private:
     std::vector<Expression> expressions_;
     std::vector<Statement> statements_;
     std::vector<Scope> scopes_;
+    /// Indexed by id value; marks nodes reachable from a macro template body.
+    std::vector<bool> macro_template_exprs_;
+    std::vector<bool> macro_template_stmts_;
     const GreenNode *root_ = nullptr;
 };
 
 [[nodiscard]] FrontendSnapshot parse(std::string source);
+
+/// Canonical textual form of a type expression with memory qualifiers removed:
+/// `i32`, `f64`, `*T`, `?T`, `[]T`, `[N]T`, or the written type name.  Shared by
+/// overload duplicate detection and by linkage-name mangling so the two agree.
+[[nodiscard]] std::string canonicalTypeString(const FrontendSnapshot &snapshot, TypeExprId id);
+
+/// Parenthesised parameter-type list of a function declaration, e.g. `(i32,i32)`.
+/// A method's implicit `self` is written as `*Owner`.
+[[nodiscard]] std::string functionSignature(const FrontendSnapshot &snapshot,
+                                            const Declaration &decl);
 
 } // namespace zith::frontend

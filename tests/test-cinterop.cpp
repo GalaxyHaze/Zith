@@ -63,6 +63,33 @@ void test_without_libclang() {
     CHECK(opts.defines.empty(), "default defines is empty");
 }
 
+void test_system_include_dirs() {
+    std::printf("=== systemIncludeDirs ===\n");
+
+    const auto dirs = systemIncludeDirs("", "");
+    CHECK(!dirs.empty(), "systemIncludeDirs returns at least one directory");
+    bool all_exist = true;
+    for (const auto &dir : dirs) {
+        std::error_code error;
+        if (!std::filesystem::is_directory(dir, error))
+            all_exist = false;
+    }
+    CHECK(all_exist, "every reported system include directory exists");
+
+    const auto again = systemIncludeDirs("", "");
+    CHECK(again == dirs, "repeated calls return the memoised result");
+
+#ifdef ZITH_ENABLE_C_INTEROP
+    bool has_stdint = false;
+    for (const auto &dir : dirs) {
+        std::error_code error;
+        if (std::filesystem::exists(std::filesystem::path(dir) / "stdint.h", error))
+            has_stdint = true;
+    }
+    CHECK(has_stdint, "a discovered directory contains stdint.h");
+#endif
+}
+
 #ifdef ZITH_ENABLE_C_INTEROP
 
 // ===== Block 2 — Tests WITH libclang =====
@@ -151,6 +178,92 @@ void test_pointer_and_const() {
     }
 }
 
+void test_decayed_and_special_parameter_types() {
+    std::printf("=== Decayed and special parameter types ===\n");
+
+    // 6b. Array parameters import as the pointer types carried by the function type.
+    {
+        const auto art = parseHeaderFromContent("decay_arrays.h", "void f(char buf[20]);\n"
+                                                                  "void g(int m[3][4]);\n");
+        CHECK(art->diagnostics.empty(), "decayed array parameters import without diagnostics");
+        CHECK_EQ(art->functions.size(), 2u, "both array-parameter functions are imported");
+        if (const auto *f = findFunction(*art, "f")) {
+            CHECK_EQ(f->parameters.size(), 1u, "f keeps its single parameter");
+            if (!f->parameters.empty()) {
+                CHECK_EQ(static_cast<int>(f->parameters[0].kind),
+                         static_cast<int>(TypeKind::Pointer), "char buf[20] decays to Pointer");
+            }
+        }
+        if (const auto *g = findFunction(*art, "g")) {
+            CHECK_EQ(g->parameters.size(), 1u, "g keeps its single parameter");
+            if (!g->parameters.empty()) {
+                CHECK_EQ(static_cast<int>(g->parameters[0].kind),
+                         static_cast<int>(TypeKind::Pointer), "int m[3][4] decays to Pointer");
+            }
+        }
+    }
+
+    // 6c. va_list parameters import once libclang carries the decayed type.
+    {
+        const auto art = parseHeaderFromContent("va_list_param.h",
+                                                "#include <stdarg.h>\n"
+                                                "int vprintf(const char *fmt, va_list ap);\n");
+        CHECK(art->diagnostics.empty(), "va_list parameter imports without diagnostics");
+        if (const auto *f = findFunction(*art, "vprintf")) {
+            CHECK_EQ(f->parameters.size(), 2u, "vprintf keeps both parameters");
+        }
+    }
+
+    // 6d. Function-pointer parameters import as opaque pointers.
+    {
+        const auto art = parseHeaderFromContent(
+            "callback_param.h", "#include <stddef.h>\n"
+                                "void qsort(void *base, size_t nmemb, size_t size,\n"
+                                "           int (*compar)(const void *, const void *));\n");
+        CHECK(art->diagnostics.empty(), "callback parameter imports without diagnostics");
+        if (const auto *f = findFunction(*art, "qsort")) {
+            CHECK_EQ(f->parameters.size(), 4u, "qsort keeps all four parameters");
+            if (f->parameters.size() == 4U) {
+                CHECK_EQ(static_cast<int>(f->parameters[3].kind),
+                         static_cast<int>(TypeKind::Pointer),
+                         "the comparator parameter becomes an opaque Pointer");
+            }
+        }
+    }
+}
+
+void test_skips_and_dedupe() {
+    std::printf("=== Skips and dedupe ===\n");
+
+    // 6e. One unsupported decl is skipped silently; siblings still import.
+    {
+        const auto art = parseHeaderFromContent("mixed_support.h", "int take(_Atomic(int) box);\n"
+                                                                   "int keep(int x);\n");
+        CHECK(art->diagnostics.empty(), "unsupported decl does not fail the import");
+        CHECK_EQ(art->functions.size(), 1u, "only the supported declaration is imported");
+        CHECK(findFunction(*art, "keep") != nullptr, "the supported sibling is present");
+        CHECK(findFunction(*art, "take") == nullptr, "the unsupported decl is absent");
+        bool found_skip = false;
+        for (const auto &skipped : art->skippedFunctions)
+            found_skip = found_skip || skipped.find("take") != std::string::npos;
+        CHECK(found_skip, "skippedFunctions records take and its reason");
+    }
+
+    // 6f. Same-name glibc-style duplicates collapse to one binding.
+    {
+        const auto art = parseHeaderFromContent("duplicate_names.h",
+                                                "int dup_fn(int) __asm__(\"first_linkage\");\n"
+                                                "int dup_fn(int) __asm__(\"second_linkage\");\n");
+        bool counted   = false;
+        for (const auto &f : art->functions) {
+            if (f.name == "dup_fn")
+                counted = counted || f.linkageName == "first_linkage";
+        }
+        CHECK_EQ(art->functions.size(), 1u, "duplicate C names collapse to one function");
+        CHECK(counted, "the first declaration's linkage name wins");
+    }
+}
+
 void test_struct_and_enum() {
     std::printf("=== Structs and enums ===\n");
 
@@ -185,17 +298,16 @@ void test_struct_and_enum() {
 void test_filtering() {
     std::printf("=== Filtering ===\n");
 
-    // 9. Variadic function is excluded
+    // 9. Variadic function is included and flagged for codegen
     {
         const auto art =
             parseHeaderFromContent("variadic.h", "int printf(const char *fmt, ...);\n");
-        CHECK(findFunction(*art, "printf") == nullptr, "variadic printf is excluded");
-        bool hasVariadicDiag = false;
-        for (const auto &d : art->diagnostics) {
-            if (d.message.find("variadic") != std::string::npos)
-                hasVariadicDiag = true;
+        if (const auto *f = findFunction(*art, "printf")) {
+            CHECK(f->isVariadic, "clang reports printf as variadic");
+            CHECK_EQ(f->parameters.size(), 1u, "printf keeps its fixed parameter");
+        } else {
+            CHECK(false, "variadic printf is included");
         }
-        CHECK(hasVariadicDiag, "variadic exclusion produces diagnostic");
     }
 
     // 10. static function is excluded
@@ -348,9 +460,12 @@ void test_parse_options() {
 
 void test_cinterop() {
     test_without_libclang();
+    test_system_include_dirs();
 #ifdef ZITH_ENABLE_C_INTEROP
     test_scalar_types();
     test_pointer_and_const();
+    test_decayed_and_special_parameter_types();
+    test_skips_and_dedupe();
     test_struct_and_enum();
     test_filtering();
     test_dependencies();

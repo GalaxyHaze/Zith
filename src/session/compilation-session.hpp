@@ -7,12 +7,14 @@
 #include "memory/source-map.hpp"
 #include "memory/string-interner.hpp"
 #include "sema/hir-lower-modern.hpp"
+#include "sema/nra-facts.hpp"
 #include "sema/sema-modern.hpp"
 #include "session/frontend-context.hpp"
 #include "session/pipeline-plan.hpp"
 #include "symbols/symbol-table.hpp"
 #include "types/type-intern.hpp"
 
+#include "cache/cache-entry.hpp"
 #include "cache/cache.hpp"
 #include <array>
 #include <cstdarg>
@@ -70,8 +72,11 @@ class CompilationSession {
     memory::FileId mFileId = 0;
     std::unique_ptr<sema::modern::SemaPipeline> mModernSemaPipeline;
     std::unique_ptr<sema::modern::TypeTable> mModernTypeTable;
+    std::unique_ptr<sema::modern::NraFacts> mNraFacts;
 
     std::string mOutputBuffer;
+    std::string mChildOutput;
+    std::string mExecutablePath;
     bool mBufferedOutput   = false;
     bool mAlwaysEmitObject = false;
     std::string mContentOverride;
@@ -79,6 +84,7 @@ class CompilationSession {
     std::shared_ptr<const CompilationSnapshot> mSnapshot;
     std::unique_ptr<cache::Store> mCacheStore;
     bool mCacheHydrated = false;
+    std::optional<cache::CacheEntry> mHydratedEntry;
     std::string mCanonicalPath;
     session::ContentFingerprint mSourceFingerprint;
 
@@ -87,6 +93,9 @@ class CompilationSession {
     void hydrateFromArtifact(const cache::Artifact &art);
     void ensureFrontendContext();
     bool materializeFrontendSymbols();
+    // Derives the executable path and invokes the linker. Shared by link() and
+    // linkAndExec() so the link logic is not duplicated.
+    bool performLink(std::string &exePath, bool &isWasm);
     std::array<double, static_cast<size_t>(StageIndex::Count)> mStageDurations{};
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -136,6 +145,10 @@ public:
         return mFileId;
     }
 
+    [[nodiscard]] cache::StoreMetrics cacheMetrics() const {
+        return mCacheStore ? mCacheStore->metrics() : cache::StoreMetrics{};
+    }
+
     void setBuffered(bool b) {
         mBufferedOutput = b;
         mDiags.setSuppressEmit(b);
@@ -147,10 +160,17 @@ public:
         mAlwaysEmitObject = v;
     }
     std::string flushOutput();
+    // Moves out the captured stdout+stderr of the last executed child program.
+    std::string takeChildOutput();
     void emitDiagnostics();
+    // Links the object file into an executable without running it.
+    bool link();
     bool linkAndExec();
     int childExitCode() const {
         return mChildExitCode;
+    }
+    const std::string &executablePath() const {
+        return mExecutablePath;
     }
 
     const symbols::SymbolTable &symbolTable() const {
@@ -164,6 +184,9 @@ public:
     }
     const hir::HirModule &hirModule() const {
         return mHirModule;
+    }
+    [[nodiscard]] const sema::modern::NraFacts *nraFacts() const noexcept {
+        return mNraFacts.get();
     }
     memory::StringInterner &interner() {
         return *mInterner;

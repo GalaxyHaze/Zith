@@ -4,6 +4,7 @@
 #include "codegen-type.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
 #include "hir/hir-module.hpp"
+#include "memory/span.hpp"
 #include "memory/string-interner.hpp"
 #include "types/type-intern.hpp"
 
@@ -28,6 +29,13 @@ public:
     void emit(const hir::HirModule &hirModule, std::string_view moduleName);
     void optimize();
 
+    /// True once any function (or the module as a whole) failed LLVM verification. Every
+    /// consumer that would hand the module to a TargetMachine must refuse in that case:
+    /// LLVM's codegen assumes valid IR and crashes rather than diagnosing it.
+    bool hasInvalidIR() const noexcept {
+        return invalidIR_;
+    }
+
     bool emitObject(const std::string &outputPath);
     bool emitAsm(const std::string &outputPath);
     llvm::Module *getModule();
@@ -39,6 +47,9 @@ private:
     void emitFnBody(const hir::HirFunction &fn, const hir::HirModule &mod);
     void llvmError(const std::string &msg);
     bool verifyCurrentFunction(llvm::Function *llvmFn);
+    bool verifyWholeModule();
+    /// Reports the refusal and returns false when the module is known to be invalid.
+    bool refuseInvalidIR(const char *what);
 
     void ensureTargetInfo();
     std::string effectiveTriple() const;
@@ -49,8 +60,10 @@ private:
     const memory::StringInterner &interner_;
     const types::TypeIntern &types_;
     diagnostics::DiagnosticEngine *diags_;
+    memory::Span currentFnSpan_{};
     std::string targetTriple_;
     uint8_t optLevel_;
+    bool invalidIR_ = false;
 };
 
 } // namespace zith::codegen

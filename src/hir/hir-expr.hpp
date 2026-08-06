@@ -4,6 +4,7 @@
 #include "memory/dyn-array.hpp"
 #include "memory/string-interner.hpp"
 #include "symbols/symbol-id.hpp"
+#include "types/type-id.hpp"
 
 #include <cstdint>
 #include <variant>
@@ -109,8 +110,17 @@ struct HirVar {
 struct HirCall {
     HirExprId callee;
     memory::DynArray<HirExprId> args;
+    /// Type ids for `args`, kept for ABI promotion rules such as C variadic calls.
+    memory::DynArray<types::TypeId> argument_types;
     symbols::SymId resolved_fn = symbols::kInvalidSym;
     HirExprKind tag            = HirExprKind::Call;
+
+    explicit HirCall(memory::Arena &arena) : args(arena), argument_types(arena) {}
+    HirCall(HirExprId callee_, memory::DynArray<HirExprId> &&args_,
+            memory::DynArray<types::TypeId> &&argument_types_)
+        : args(std::move(args_)), argument_types(std::move(argument_types_)) {
+        callee = callee_;
+    }
 };
 struct HirRet {
     HirExprId value = kInvalidHirExpr;
@@ -129,6 +139,8 @@ struct HirJump {
 struct HirPhi {
     memory::DynArray<HirExprId> incoming;
     HirExprKind tag = HirExprKind::Phi;
+
+    explicit HirPhi(memory::Arena &arena) : incoming(arena) {}
 };
 
 struct HirAssign {

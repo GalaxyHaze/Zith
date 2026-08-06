@@ -11,17 +11,20 @@ namespace zith::zirl {
 //
 //   [file header]
 //   [section table]
-//   sec1 ... sec5 payloads
+//   sec1 ... sec6 payloads
 //
 // Sections are written in a fixed order so the same semantic module produces
 // byte-stable output.  The file header carries enough identity information to
 // reject an artifact before reading any section.
 
 inline constexpr uint32_t kMagic = 0x5A49524Cu; // "ZIRL"
+// Bumped to 4 when HIR expressions and residual HirAttrs were added to the
+// cache.
+// Bumped to 3 when module_name was added to the metadata section.
 // Bumped to 2 when dependency records were folded into header_size: artifacts
 // written before that are unreadable for any module with imports, so the version
 // check turns stale caches into a clean miss rather than a checksum failure.
-inline constexpr uint32_t kFormatVersion = 2;
+inline constexpr uint32_t kFormatVersion = 4;
 inline constexpr uint8_t kEndianLittle   = 1;
 
 enum class SectionId : uint8_t {
@@ -30,7 +33,8 @@ enum class SectionId : uint8_t {
     Decls     = 2, // sec3: exported/module-visible declarations
     Templates = 3, // sec4: generic blueprints
     Code      = 4, // sec5: concrete lowered HIR bodies
-    Debug     = 5, // reserved
+    Attrs     = 5, // sec6: HIR residual ownership/call/fn attributes
+    Debug     = 6, // reserved
 };
 
 struct SectionEntry {

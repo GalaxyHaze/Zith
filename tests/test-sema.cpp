@@ -111,7 +111,8 @@ struct ModernSemaTest {
         output << text;
     }
 
-    SemaTest::Result run(std::string_view main, std::string_view main_name = "main.zith") {
+    SemaTest::Result run(std::string_view main, session::Stage target = session::Stage::TypeChecked,
+                         std::string_view main_name = "main.zith") {
         write(main_name, main);
         session::FrontendConfig config;
         config.workspaceRoot      = root.string();
@@ -120,7 +121,7 @@ struct ModernSemaTest {
         auto context              = std::make_shared<session::FrontendContext>(config);
         session::CompilationSession session(opts, (root / main_name).string(), context);
         session.setBuffered(true);
-        bool ok      = session.runTo(session::Stage::TypeChecked);
+        bool ok      = session.runTo(target);
         size_t errs  = 0;
         size_t warns = 0;
         std::vector<SemaTest::Result::LightDiag> copied_diags;
@@ -319,14 +320,20 @@ static void test_field_not_implemented_warning() {
           "Reports TypeMismatch for invalid field access");
 }
 
-static void test_macro_not_implemented_warning() {
+static void test_macro_unknown() {
     SemaTest t;
     auto r = t.run("fn main() {\n"
                    "    @foo();\n"
                    "}\n");
-    CHECK(r.ok, "Macro calls currently warn instead of failing");
-    CHECK_EQ(r.warningCount, 1u, "Exactly one warning for macro call");
-    CHECK(r.hasWarningCode(diagnostics::err::NotImplemented), "Reports NotImplemented warning");
+    CHECK(!r.ok, "Unknown macro fails semantic analysis");
+    CHECK_EQ(r.errorCount, 1u, "Exactly one error for unknown macro");
+    CHECK(r.hasErrorCode(diagnostics::err::MacroUnknown), "Reports MacroUnknown error");
+}
+
+static void test_macro_defined() {
+    SemaTest t;
+    auto r = t.run("macro m() { }\nfn main() { @m(); }\n");
+    CHECK(r.ok, "Defined macro call passes semantic analysis");
 }
 
 static void check_unsupported_syntax(const SemaTest::Result &r) {
@@ -728,6 +735,8 @@ static void test_modern_assign_retype() {
                    "    x = true;\n"
                    "}\n");
     CHECK(!r.ok, "Modern sema rejects assignment with incompatible type");
+    CHECK(r.hasMessage("expected 'i32'"), "the assignment diagnostic shows the target type");
+    CHECK(r.hasMessage("has type 'bool'"), "the assignment diagnostic shows the source type");
 }
 
 static void test_modern_two_modules_at_once() {
@@ -743,12 +752,45 @@ static void test_modern_two_modules_at_once() {
 }
 
 static void test_modern_let_binding_without_annotation() {
-    ModernSemaTest t;
-    auto r = t.run("fn main(): i32 {\n"
-                   "    let x = 42;\n"
-                   "    x\n"
-                   "}\n");
+    ModernSemaTest initialized;
+    auto r = initialized.run("fn main(): i32 {\n"
+                             "    let x = 42;\n"
+                             "    x\n"
+                             "}\n");
     CHECK(r.ok, "Modern sema handles let binding without type annotation");
+
+    ModernSemaTest uninitialized;
+    auto u = uninitialized.run("fn main(): i32 {\n"
+                               "    let x;\n"
+                               "    x\n"
+                               "}\n");
+    CHECK(!u.ok, "reading a binding before an assignment cannot infer its type");
+    CHECK(u.hasErrorCode(diagnostics::err::CannotInfer), "an untyped read reports CannotInfer");
+    CHECK(u.hasMessage("'x'"), "the CannotInfer diagnostic names the binding");
+
+    ModernSemaTest assigned;
+    auto a = assigned.run("fn main(): i32 {\n"
+                          "    let x;\n"
+                          "    x = 5;\n"
+                          "    x\n"
+                          "}\n");
+    CHECK(a.ok, "the first assignment infers an untyped binding");
+
+    ModernSemaTest bool_assigned;
+    auto b = bool_assigned.run("fn main(): bool {\n"
+                               "    let x;\n"
+                               "    x = true;\n"
+                               "    x\n"
+                               "}\n");
+    CHECK(b.ok, "the first assignment infers the exact type from the right side");
+
+    ModernSemaTest annotated;
+    auto annotated_result = annotated.run("fn main(): i32 {\n"
+                                          "    let x: i32;\n"
+                                          "    x = 5;\n"
+                                          "    x\n"
+                                          "}\n");
+    CHECK(annotated_result.ok, "an annotated binding keeps its explicit type");
 }
 
 static void test_modern_pointer_type_param() {
@@ -882,6 +924,22 @@ static void test_modern_implicit_numeric_conversion_rejected() {
     CHECK(r.hasMessage("use 'as'"), "the diagnostic suggests an explicit 'as' cast");
 }
 
+static void test_modern_raw_opaque_cast_accepted() {
+    ModernSemaTest t;
+    auto r = t.run("fn thru(p: raw opaque): *i32 { return p as *i32; }\n"
+                   "fn erase(q: *i32): raw opaque { return q as raw opaque; }\n"
+                   "fn main(): i32 { return 0; }\n");
+    CHECK(r.ok, "'as' converts between 'raw opaque' and a concrete pointer both ways");
+}
+
+static void test_modern_raw_opaque_to_integer_rejected() {
+    ModernSemaTest t;
+    auto r = t.run("fn f(p: raw opaque): i64 { return p as i64; }\n"
+                   "fn main(): i32 { return 0; }\n");
+    CHECK(!r.ok, "'raw opaque as i64' is rejected");
+    CHECK(r.hasErrorCode(diagnostics::err::InvalidCast), "'raw opaque as i64' reports E3003");
+}
+
 static void test_modern_pointer_cast_rejected() {
     ModernSemaTest t;
     auto r = t.run("fn main(p: *i32): i32 {\n"
@@ -889,8 +947,86 @@ static void test_modern_pointer_cast_rejected() {
                    "    return 0;\n"
                    "}\n");
     CHECK(!r.ok, "'as' on pointer types is rejected");
-    CHECK(r.hasMessage("only supports numeric conversions"),
-          "pointer casts report the numeric-only restriction");
+    CHECK(r.hasMessage("numeric conversions and 'raw opaque' pointer conversions"),
+          "pointer-to-pointer casts between concrete pointees report the cast restriction");
+}
+
+#ifdef ZITH_ENABLE_C_INTEROP
+// A C pointer is `?*T`, so reinterpreting one must keep the nullability: `as ?*i32` is the
+// accepted form and `as *i32` is a diagnostic.
+static void test_modern_c_pointer_cast_to_nullable_accepted() {
+    ModernSemaTest t;
+    t.write("fixture.h", "void *fx_alloc(unsigned long size);\n");
+    auto r = t.run("import \"fixture.h\"\n"
+                   "fn main(): i32 {\n"
+                   "    let x: ?*i32 = fx_alloc(64) as ?*i32;\n"
+                   "    return 0;\n"
+                   "}\n");
+    CHECK(r.ok, "'?*void as ?*i32' is accepted and yields '?*i32'");
+}
+
+static void test_modern_c_pointer_cast_to_non_nullable_rejected() {
+    ModernSemaTest t;
+    t.write("fixture.h", "void *fx_alloc(unsigned long size);\n");
+    auto r = t.run("import \"fixture.h\"\n"
+                   "fn main(): i32 {\n"
+                   "    let x: *i32 = fx_alloc(64) as *i32;\n"
+                   "    return 0;\n"
+                   "}\n");
+    CHECK(!r.ok, "casting a nullable C pointer to '*i32' is rejected");
+    CHECK(r.hasErrorCode(diagnostics::err::InvalidCast),
+          "dropping nullability in a cast reports E3003");
+    CHECK(r.hasMessage("use 'as ?*T'"), "the diagnostic points at the '?*T' form");
+}
+
+// Any pointer reaches a C `void*` parameter without a cast.
+static void test_modern_pointer_coerces_to_c_void_pointer() {
+    ModernSemaTest t;
+    t.write("fixture.h", "void *fx_alloc(unsigned long size);\nvoid fx_free(void *ptr);\n");
+    auto r = t.run("import \"fixture.h\"\n"
+                   "fn main(): i32 {\n"
+                   "    var local: i32 = 7;\n"
+                   "    let borrowed: *i32 = &local;\n"
+                   "    fx_free(borrowed);\n"
+                   "    let owned: ?*i32 = fx_alloc(64) as ?*i32;\n"
+                   "    fx_free(owned);\n"
+                   "    fx_free(&local);\n"
+                   "    return 0;\n"
+                   "}\n");
+    CHECK(r.ok, "'*T' and '?*T' both pass to a C 'void*' parameter without a cast");
+}
+
+// TEMPORARY companion of `allowsUncheckedNullablePointer`: until narrowing exists, a
+// `?*T` still initializes a `*T`.
+static void test_modern_nullable_c_pointer_initializes_non_optional() {
+    ModernSemaTest t;
+    t.write("fixture.h", "void *fx_alloc(unsigned long size);\n");
+    auto r = t.run("import \"fixture.h\"\n"
+                   "fn main(): i32 {\n"
+                   "    let x: *i32 = fx_alloc(64) as ?*i32;\n"
+                   "    return 0;\n"
+                   "}\n");
+    CHECK(r.ok, "'?*i32' still initializes a '*i32' binding");
+}
+#endif
+
+// `raw opaque` is only a source of coercion, never a target: reading it back needs `as`.
+static void test_modern_pointer_coercion_is_one_way() {
+    ModernSemaTest t;
+    auto r = t.run("fn take(p: *i32): i32 { return 0; }\n"
+                   "fn main(q: raw opaque): i32 { return take(q); }\n");
+    CHECK(!r.ok, "'raw opaque' does not coerce back to a concrete pointer");
+}
+
+// The wide `void*` coercion makes two overloads viable at once; the exact signature wins.
+static void test_modern_overload_prefers_exact_pointer() {
+    ModernSemaTest t;
+    auto r = t.run("fn f(p: *i32): i32 { return 1; }\n"
+                   "fn f(p: raw opaque): i32 { return 2; }\n"
+                   "fn main(q: *i32): i32 { return f(q); }\n");
+    CHECK(r.ok, "an exact pointer overload is preferred over the 'raw opaque' one");
+    CHECK(!r.hasErrorCode(diagnostics::err::AmbiguousCall),
+          "the wide 'void*' coercion does not make the call ambiguous");
 }
 
 static void test_modern_pointer_to_void_rejected() {
@@ -941,6 +1077,45 @@ static void test_modern_is_null_requires_optional() {
     CHECK(!r.ok, "'is null' on a non-optional operand is rejected");
     CHECK(r.hasMessage("requires an optional operand"),
           "'is null' reports the optional-operand requirement");
+}
+
+static void test_modern_radix_integer_literals() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(): i32 {\n"
+                   "    let h: i32 = 0xFF;\n"
+                   "    let b: i32 = 0b101;\n"
+                   "    let o: i32 = 0c17;\n"
+                   "    return h + b + o;\n"
+                   "}\n");
+    CHECK(r.ok, "hex, binary and octal literals infer as integers");
+    CHECK(r.errorCount == 0, "radix literals produce no diagnostics");
+}
+
+static void test_modern_integer_literal_overflow_reported() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(): i32 {\n"
+                   "    return 0xFFFFFFFFFFFFFFFFF;\n"
+                   "}\n");
+    CHECK(!r.ok, "an integer literal wider than 64 bits is rejected");
+    CHECK(r.hasMessage("does not fit in 64 bits"),
+          "the oversized literal diagnostic names the 64-bit limit");
+}
+
+static void test_modern_pointer_compared_to_integer_literal_fails() {
+    // Both spellings must be rejected: `0x0` used to slip through because the radix form
+    // was not recognised as an integer and inferred as `error`, which unifies with anything.
+    for (const char *literal : {"0", "0x0"}) {
+        ModernSemaTest t;
+        auto r = t.run(std::string("fn main(): bool {\n"
+                                   "    var p: ?*i32 = null;\n"
+                                   "    return p != ") +
+                       literal +
+                       ";\n"
+                       "}\n");
+        CHECK(!r.ok, "comparing a pointer against an integer literal is rejected");
+        CHECK(r.hasMessage("comparison between incompatible types"),
+              "the pointer/integer comparison reports incompatible types");
+    }
 }
 
 static void test_modern_loop_body_infers_locals() {
@@ -1093,6 +1268,117 @@ static void test_modern_array_literal_empty() {
     CHECK(r.ok, "empty array literal defaults to i32[0]");
 }
 
+static void test_modern_char_literal_and_escapes() {
+    ModernSemaTest t;
+    auto r = t.run("fn main(): i32 {\n"
+                   "    let c: char = 'B';\n"
+                   "    let nl: char = '\\n';\n"
+                   "    let cast: char = 65 as char;\n"
+                   "    return 0;\n"
+                   "}\n");
+    CHECK(r.ok, "char literals, escapes and char casts type-check and lower");
+    CHECK(!r.hasErrorCode(diagnostics::err::CannotInfer),
+          "char literal is typed as char rather than error");
+
+    ModernSemaTest bad;
+    auto b = bad.run("fn main() {\n"
+                     "    let c: char = '\\q';\n"
+                     "}\n",
+                     session::Stage::HirLowered);
+    CHECK(!b.ok, "an unknown char escape is rejected");
+    CHECK(b.hasErrorCode(diagnostics::err::InvalidEscape),
+          "unknown char escape reports E0001 InvalidEscape");
+
+    ModernSemaTest bad_string;
+    auto s = bad_string.run("fn main() {\n"
+                            "    let p: *char = \"\\q\";\n"
+                            "}\n",
+                            session::Stage::HirLowered);
+    CHECK(!s.ok, "an unknown string escape is rejected");
+    CHECK(s.hasErrorCode(diagnostics::err::InvalidEscape),
+          "unknown string escape reports E0001 InvalidEscape");
+}
+
+static void test_modern_struct_method_decl() {
+    ModernSemaTest t;
+    auto r = t.run("struct Counter {\n"
+                   "    value: i32,\n"
+                   "    fn bump(self, by: i32): i32 {\n"
+                   "        return self->value + by;\n"
+                   "    }\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    let c: Counter = Counter { value: 5 };\n"
+                   "    return c.bump(3);\n"
+                   "}\n");
+    CHECK(r.ok, "a method declared in a struct body type-checks and is callable");
+}
+
+static void test_modern_implement_block_method() {
+    ModernSemaTest t;
+    auto r = t.run("struct Point {\n"
+                   "    x: i32,\n"
+                   "    y: i32\n"
+                   "}\n"
+                   "implement Point {\n"
+                   "    fn sum(self): i32 {\n"
+                   "        return self->x + self->y;\n"
+                   "    }\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    let p: Point = Point { x: 4, y: 9 };\n"
+                   "    return p.sum();\n"
+                   "}\n");
+    CHECK(r.ok, "a method declared in an implement block type-checks and is callable");
+}
+
+static void test_modern_method_call_arity_mismatch() {
+    ModernSemaTest t;
+    auto r = t.run("struct Counter {\n"
+                   "    value: i32,\n"
+                   "    fn bump(self, by: i32): i32 {\n"
+                   "        return self->value + by;\n"
+                   "    }\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    let c: Counter = Counter { value: 5 };\n"
+                   "    return c.bump();\n"
+                   "}\n");
+    CHECK(!r.ok, "a method call with too few arguments is rejected");
+    CHECK(r.hasMessage("method call arity mismatch"), "reports a method arity mismatch");
+}
+
+static void test_modern_method_call_arg_type_mismatch() {
+    ModernSemaTest t;
+    auto r = t.run("struct Counter {\n"
+                   "    value: i32,\n"
+                   "    fn bump(self, by: i32): i32 {\n"
+                   "        return self->value + by;\n"
+                   "    }\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    let c: Counter = Counter { value: 5 };\n"
+                   "    return c.bump(\"x\");\n"
+                   "}\n");
+    CHECK(!r.ok, "a method call with a wrongly typed argument is rejected");
+    CHECK(r.hasMessage("method call argument type mismatch"),
+          "reports a method argument type mismatch");
+}
+
+static void test_modern_unknown_method_still_reports_field() {
+    ModernSemaTest t;
+    auto r = t.run("struct Counter {\n"
+                   "    value: i32\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    let c: Counter = Counter { value: 5 };\n"
+                   "    return c.missing();\n"
+                   "}\n");
+    CHECK(!r.ok, "calling a non-existent method is rejected");
+    CHECK(r.hasErrorCode(diagnostics::err::NoMember),
+          "an unresolved method falls back to a field diagnostic (E2006)");
+}
+
 static void test_sema() {
     test_basic_unification();
     test_type_mismatch();
@@ -1111,7 +1397,8 @@ static void test_sema() {
     test_unary_op_ok();
     test_index_validation();
     test_field_not_implemented_warning();
-    test_macro_not_implemented_warning();
+    test_macro_unknown();
+    test_macro_defined();
     test_is_and_as_are_rejected();
     test_fallback_and_propagation_are_rejected();
     test_optional_propagation_is_supported();
@@ -1165,17 +1452,36 @@ static void test_sema() {
     test_modern_extern_call_return();
     test_modern_numeric_cast_ok();
     test_modern_implicit_numeric_conversion_rejected();
+    test_modern_raw_opaque_cast_accepted();
+    test_modern_raw_opaque_to_integer_rejected();
     test_modern_pointer_cast_rejected();
     test_modern_pointer_to_void_rejected();
+#ifdef ZITH_ENABLE_C_INTEROP
+    test_modern_c_pointer_cast_to_nullable_accepted();
+    test_modern_c_pointer_cast_to_non_nullable_rejected();
+    test_modern_pointer_coerces_to_c_void_pointer();
+    test_modern_nullable_c_pointer_initializes_non_optional();
+#endif
+    test_modern_pointer_coercion_is_one_way();
+    test_modern_overload_prefers_exact_pointer();
     test_modern_null_needs_optional_pointer();
     test_modern_is_null_on_optional_pointer();
     test_modern_is_null_requires_optional();
+    test_modern_radix_integer_literals();
+    test_modern_integer_literal_overflow_reported();
+    test_modern_pointer_compared_to_integer_literal_fails();
     test_modern_loop_body_infers_locals();
     test_modern_for_three_clause();
     test_modern_generic_params();
     test_modern_array_literal();
     test_modern_array_literal_mismatch();
     test_modern_array_literal_empty();
+    test_modern_char_literal_and_escapes();
+    test_modern_struct_method_decl();
+    test_modern_implement_block_method();
+    test_modern_method_call_arity_mismatch();
+    test_modern_method_call_arg_type_mismatch();
+    test_modern_unknown_method_still_reports_field();
 }
 
 TEST_MAIN(sema)

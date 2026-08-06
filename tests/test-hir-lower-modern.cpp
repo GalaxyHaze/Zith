@@ -2,7 +2,9 @@
 #include "hir/hir-expr.hpp"
 #include "session/compilation-session.hpp"
 #include "test-common.hpp"
+#include "types/type-kind.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string_view>
@@ -34,11 +36,23 @@ struct Workspace {
     }
 };
 
+// HIR function names are qualified (`<namespace>.<Owner>.<name>(<params>)`) for everything
+// except `extern fn` and `main`, so match on the bare source name.
+std::string_view sourceName(std::string_view linkage_name) {
+    auto paren = linkage_name.find('(');
+    if (paren != std::string_view::npos)
+        linkage_name = linkage_name.substr(0, paren);
+    auto dot = linkage_name.rfind('.');
+    if (dot != std::string_view::npos)
+        linkage_name = linkage_name.substr(dot + 1);
+    return linkage_name;
+}
+
 const hir::HirFunction *findFunction(const hir::HirModule &hir, memory::StringInterner &interner,
                                      std::string_view name) {
     for (size_t i = 0; i < hir.getFnCount(); ++i) {
         const auto &fn = hir.getFn(i);
-        if (interner.lookup(fn.name) == name)
+        if (sourceName(interner.lookup(fn.name)) == name)
             return &fn;
     }
     return nullptr;
@@ -104,6 +118,75 @@ void test_extern_and_main_lower_to_hir() {
         CHECK_EQ(countTerminatorKind(hir, *main, hir::HirExprKind::Ret), 1u,
                  "main ends with one return terminator");
     }
+}
+
+void test_no_ownership_hir_has_empty_residual_attrs() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn add(a: i32, b: i32): i32 { a + b }\n"
+                                     "fn main(): i32 {\n"
+                                     "    var sum: i32 = add(3, 4);\n"
+                                     "    sum\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "no-ownership program lowers to HIR");
+
+    const auto &hir   = session.hirModule();
+    const auto &attrs = hir.attrs();
+    CHECK_EQ(attrs.slotCount(), 0u, "plain integer locals do not force slot attrs");
+    CHECK_EQ(attrs.callCount(), 0u, "plain integer calls do not force call attrs");
+    CHECK_EQ(attrs.fnCount(), 0u, "plain integer functions do not force fn attrs");
+}
+
+void test_ownership_hir_carries_residual_slot_attrs() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "struct P { x: i32 }\n"
+                                     "fn read(p: view P): i32 { p.x }\n"
+                                     "fn main(): i32 {\n"
+                                     "    let v: view P = P { x: 41 };\n"
+                                     "    read(v) + 1\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "qualified ownership program lowers to HIR");
+
+    const auto &hir   = session.hirModule();
+    const auto &attrs = hir.attrs();
+    CHECK(attrs.slotCount() > 0u, "qualified ownership emits residual slot attrs");
+
+    bool saw_view = false;
+    for (size_t slot = 0; slot < attrs.slotCount(); ++slot) {
+        const auto *slot_attrs = attrs.trySlot(static_cast<hir::HirSlotId>(slot));
+        saw_view |= slot_attrs != nullptr && slot_attrs->ownership == hir::HirOwnership::View;
+    }
+    CHECK(saw_view, "a slot annotated with 'view' carries the residual ownership fact");
+}
+
+void test_extern_variadic_lower_to_hir() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+                                     "fn main() {\n"
+                                     "    printf(\"n=%d\\n\", 7);\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "modern lowering succeeds for extern variadic fn");
+
+    const auto &hir    = session.hirModule();
+    const auto *printf = findFunction(hir, session.interner(), "printf");
+    CHECK(printf != nullptr, "variadic extern function is present in HIR");
+    if (printf != nullptr)
+        CHECK(printf->isVariadic, "HIR carries the variadic flag");
 }
 
 void test_bindings_lower_to_slots() {
@@ -285,6 +368,147 @@ void test_same_named_parameters_use_distinct_slots() {
     CHECK_EQ(allocatedSlots(hir, *g).size(), 1u, "g allocates exactly one parameter slot");
     CHECK(loadsOnlyOwnSlots(hir, *f), "f only loads slots it allocated");
     CHECK(loadsOnlyOwnSlots(hir, *g), "g only loads slots it allocated");
+}
+
+/// Expression ids referenced by `fn`, plus every id below them. `HirModule` exposes no
+/// expression count, and an operand is always added before the instruction consuming it, so
+/// scanning `0..=max(referenced id)` reaches every expression the function built, including
+/// operands that never appear in an instruction list.
+std::vector<hir::HirExprId> reachableExprIds(const hir::HirFunction &fn) {
+    bool any               = false;
+    hir::HirExprId highest = 0;
+    const auto note        = [&](hir::HirExprId id) {
+        if (id == hir::kInvalidHirExpr)
+            return;
+        highest = any ? std::max(highest, id) : id;
+        any     = true;
+    };
+    for (const auto &block : fn.blocks) {
+        for (auto inst : block.insts)
+            note(inst);
+        note(block.terminator);
+    }
+    std::vector<hir::HirExprId> ids;
+    if (!any)
+        return ids;
+    for (hir::HirExprId id = 0; id <= highest; ++id)
+        ids.push_back(id);
+    return ids;
+}
+
+/// Integer values of every literal expression built for `fn`. The callers below use sources
+/// containing integer literals only, so every literal's active union member is `i`.
+std::vector<int64_t> integerLiterals(const hir::HirModule &hir, const hir::HirFunction &fn) {
+    std::vector<int64_t> values;
+    for (auto id : reachableExprIds(fn)) {
+        const auto *literal = std::get_if<hir::HirLiteral>(&hir.getExpr(id));
+        if (literal != nullptr)
+            values.push_back(literal->i);
+    }
+    return values;
+}
+
+#ifdef ZITH_ENABLE_C_INTEROP
+/// Every C pointer must lower to `?*T` (optional of pointer), never a bare `*T`: C pointers
+/// are nullable, and `is null` requires an optional operand. The niche layout keeps the
+/// LLVM representation identical to a bare pointer.
+void test_c_pointers_lower_to_optional_pointer() {
+    Workspace workspace;
+    workspace.writeFile("fixture.h", "struct Holder { char *label; };\n"
+                                     "char *c_dup(const char *text);\n");
+    workspace.writeFile("main.zith", "import \"fixture.h\"\n"
+                                     "fn main(): i32 {\n"
+                                     "    c_dup(\"x\");\n"
+                                     "    return 0;\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "C header with pointers lowers to HIR");
+
+    const auto &types = session.types();
+    const auto *dup   = findFunction(session.hirModule(), session.interner(), "c_dup");
+    CHECK(dup != nullptr, "the imported C function is present in HIR");
+    if (dup == nullptr)
+        return;
+
+    // `char *` return.
+    CHECK_EQ(static_cast<int>(types.kindOf(dup->return_type)),
+             static_cast<int>(types::TypeKind::Optional), "a C pointer return lowers to ?*T");
+    const auto &ret = types.lookup(dup->return_type);
+    if (const auto *opt = std::get_if<types::TypeOptional>(&ret)) {
+        CHECK_EQ(static_cast<int>(types.kindOf(opt->inner)), static_cast<int>(types::TypeKind::Ptr),
+                 "the ?T inner type is a pointer");
+        CHECK(types.kindOf(opt->inner) != types::TypeKind::Optional,
+              "the pointee is not itself wrapped, so no ??*T is built");
+    }
+
+    // `const char *` parameter.
+    CHECK_EQ(dup->params.size(), 1u, "c_dup takes one parameter");
+    if (!dup->params.empty()) {
+        CHECK_EQ(static_cast<int>(types.kindOf(dup->params[0])),
+                 static_cast<int>(types::TypeKind::Optional),
+                 "a C pointer parameter lowers to ?*T");
+    }
+}
+#endif // ZITH_ENABLE_C_INTEROP
+
+void test_radix_literals_lower_to_their_value() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn main(): i32 {\n"
+                                     "    let h: i32 = 0xFF;\n"
+                                     "    let b: i32 = 0b101;\n"
+                                     "    let o: i32 = 0c17;\n"
+                                     "    return h;\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "radix literal lowering succeeds");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main function is present");
+    if (main == nullptr)
+        return;
+
+    const auto values = integerLiterals(hir, *main);
+    const auto has    = [&](int64_t v) {
+        return std::find(values.begin(), values.end(), v) != values.end();
+    };
+    CHECK(has(255), "0xFF lowers to 255, not 0");
+    CHECK(has(5), "0b101 lowers to 5, not 0");
+    CHECK(has(15), "0c17 lowers to 15, not 0");
+}
+
+void test_enum_discriminant_honours_radix() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "enum Flag { Lo = 0x10, Hi = 0x20 }\n"
+                                     "fn main(): Flag { Flag.Lo }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "hex enum discriminant lowering succeeds");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main function is present");
+    if (main == nullptr)
+        return;
+
+    bool found_16 = false;
+    for (auto id : reachableExprIds(*main)) {
+        const auto *value = std::get_if<hir::HirEnumValue>(&hir.getExpr(id));
+        if (value != nullptr && value->value == 16)
+            found_16 = true;
+    }
+    CHECK(found_16, "enum discriminant '= 0x10' lowers to 16");
 }
 
 void test_struct_literal_lowers_to_hir() {
@@ -521,11 +745,19 @@ void test_for_condition_lowers_like_while() {
 
 static void test_hir_lower_modern() {
     test_extern_and_main_lower_to_hir();
+    test_no_ownership_hir_has_empty_residual_attrs();
+    test_ownership_hir_carries_residual_slot_attrs();
+    test_extern_variadic_lower_to_hir();
     test_bindings_lower_to_slots();
     test_if_else_lowers_to_branch_and_merge();
     test_while_continue_lowers_loop_cfg();
     test_while_break_lowers_loop_exit();
     test_same_named_parameters_use_distinct_slots();
+#ifdef ZITH_ENABLE_C_INTEROP
+    test_c_pointers_lower_to_optional_pointer();
+#endif
+    test_radix_literals_lower_to_their_value();
+    test_enum_discriminant_honours_radix();
     test_struct_literal_lowers_to_hir();
     test_dot_field_read_lowers_to_hir_field();
     test_addrof_and_deref_lowers_to_hir_unary();

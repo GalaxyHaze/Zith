@@ -1,11 +1,24 @@
 ## 7. Memory Model (NRA)
 
-> **Implementation status:** NRA (Node Resource Analysis) and all ownership modifiers
-> (`lend`, `view`, `unique`, `share`, `belong`) are **spec-only** — the analysis pass is not
-> implemented. Pointer types (`*T`) are accepted in declarations; `*p` dereference and `&x`
-> address-of are **parse errors**. See [impl-status.md](impl-status.md).
+> **Implementation status:** the ownership modifiers (`mut`, `lend`, `view`, `unique`, `share`,
+> `belong`) are **parsed and typed** (F-34): they are accepted wherever a type is written, compose
+> with `?`, `[]`, and `*`, survive `zithc fmt`, and are interned in the type table, and a write
+> through a `view` binding is rejected with `E4004`. The NRA analysis pass itself — the
+> alive/dead/lent state machine, fact accumulation, and the four rules of
+> [§7.4](#74-the-four-nra-rules) — is still **spec-only** (F-14). The target architecture runs
+> `NTA/NRA` before the final HIR boundary; the current implementation still strips qualifiers too
+> early during lowering, which is the structural gap F-14 must close. Pointer types (`*T`), `*p`
+> dereference, and `&x` address-of are **working**.
+> See [impl-status.md](impl-status.md).
 
 ### 7.1 What NRA Tracks
+
+The ownership system is split conceptually into two layers:
+
+- `NTA` accumulates semantic facts over a representation that still preserves resource identity,
+  qualifier distinctions, captures, escapes, branch facts, and return-path structure.
+- `NRA` consumes those facts, applies the four ownership rules, emits diagnostics, and performs
+  only the internal canonicalizations that are safe to materialize after the proof boundary.
 
 NRA watches every value in your program and classifies it into one of three states:
 
@@ -25,6 +38,8 @@ It also tracks the **origin** of each node — where the value came from:
 | `view` | Read-only reference to another node |
 
 With these two axes (state + origin), NRA enforces the rules in [§7.4](#74-the-four-nra-rules).
+NTA also records aliasing, branch-local facts, whether a return value is the same node received as
+an argument, and whether a `belong` or borrowed value escapes its legal region.
 
 ### 7.2 Move Semantics
 
@@ -83,7 +98,7 @@ Each memory modifier carries an implicit content mutability level:
 
 **Rule 4 — `lend` Behavioral Promise.** A `lend` value cannot be stored, moved, or captured. It may be passed as a call argument or returned — in the latter case, passing the promise on to the caller.
 
-> For details on how NRA resolves nodes and validates these rules, see [§7.8](#78-how-nra-resolves-nodes).
+> For details on how NRA resolves nodes and validates these rules, see [§7.9](#79-how-nra-resolves-nodes).
 
 ### 7.5 NRA in Practice
 
@@ -113,26 +128,39 @@ struct Tree<T> {
 fn getParent(self: view Node): lend Node { self.parent }
 ```
 
-### 7.6 NRA Limitations & Escape Hatches
+### 7.6 Boundary Before HIR
 
-NRA cannot statically validate every shared or viewed cycle across threads. Three escape hatches cover the remaining cases:
+The main NRA proof runs before the final HIR is formed. That boundary exists so the analysis still
+sees:
 
-```zith
-// await -- safe: the compiler knows the thread is done before the scope ends
-let handle = spawn worker(shared_data);
-await handle;
+- binding identity and resource graphs;
+- the difference between `default`, `view`, `lend`, `unique`, `share`, and `belong`;
+- branch facts, narrowing facts, and return-path equivalence;
+- call, capture, and escape structure before lowering erases it.
 
-// #wont_remain -- a promise that the thread dies before the scope ends
-#wont_remain let _ = spawn quick_task(shared_data);
+The final HIR is therefore not the place where ownership is re-proven. It receives a typed,
+desugared, NRA-validated view of the program plus only the residual facts that still matter for
+lowering, cache serialization, and backend hints.
 
-// Rc -- runtime ref-count wrapper, provides thread safety for any type
-let shared = Rc.new(HeavyResource.init());
-let _ = spawn worker(Rc.clone(shared));
-```
+### 7.7 Residual Facts and Internal Canonicalization
 
-> `Rc<T>` and `Arc<T>` are wrappers that provide thread safety for any type `T` — no `Share` requirement on `T` itself. The wrapper handles synchronization internally.
+NRA may materialize limited internal canonicalizations after it has proven the ownership contract,
+but those rewrites do not change a public signature or observable ABI. For example, forwarding a
+proven move internally or removing a temporary introduced only to preserve ownership is valid;
+redefining an exported function's calling convention is not.
 
-### 7.7 Self-Referential Types
+Residual facts that may survive into HIR include:
+
+- consumed vs. non-consumed value state when lowering depends on it;
+- non-null or otherwise narrowed facts that affect control-flow lowering;
+- borrow, capture, or escape decisions that codegen and caching must preserve;
+- internal calling-convention details only when they stay behind a stable boundary.
+
+LLVM is not the source of truth for ownership. At most it receives hints already decided by NRA,
+such as `nonnull`, `noalias`, `readonly`, `nocapture`, or opportunities to remove redundant
+temporaries and stores.
+
+### 7.8 Self-Referential Types
 
 ```zith
 struct Node<T> {
@@ -152,11 +180,13 @@ implement Node<T> {
 - NRA guarantees `prev` (`belong`) never outlives its owner.
 - `belong` fields may be passed as `lend` to functions.
 
-### 7.8 How NRA Resolves Nodes
+### 7.9 How NRA Resolves Nodes
 
 > *This section is relevant for tooling authors and compiler contributors.*
 
-Every symbol gets a **resource node**. NRA is **lazy** — it only validates a node when you use, view, or return it.
+Every symbol gets a **resource node** before final HIR lowering. NTA and NRA are lazy in the sense
+that they validate nodes when use, view, move, return, capture, or escape facts make the proof
+relevant.
 
 #### Node Validation
 
@@ -169,16 +199,21 @@ If a node is `dead` (say, after a move), NRA records where and why. You get an e
 
 #### Function Evaluation
 
-NRA caches function results. If it has seen a function before, it reuses the cached analysis. Otherwise, it inspects every return path:
+NRA caches function results. If it has seen a function before, it reuses the cached analysis.
+Otherwise, it inspects every return path:
 
-- **Every** path returns one of the function's arguments → caller's node is **not consumed** (ownership stays with you).
+- **Every** path returns one of the function's arguments → caller's node is **not consumed**
+  (ownership stays with you).
 - **Any** path doesn't return an argument → the result is **consumed**.
 
-Since memory modifiers (`lend`, `view`, `unique`, ...) are in the function signature, NRA knows everything it needs without re-analyzing the body.
+Those return facts are preserved into HIR only in residual form. HIR should not have to rediscover
+which node a return came from.
 
 #### Branch Isolation (`if` / `else` / `when`)
 
-Each branch runs in isolation. A move inside one branch cannot affect the others. After all branches complete, NRA applies the side effects of whichever branch actually ran.
+Each branch runs in isolation. A move inside one branch cannot affect the others. After all branches
+complete, NRA applies the side effects of whichever branch actually ran and emits only the merged
+facts that lowering still needs.
 
 ---
 

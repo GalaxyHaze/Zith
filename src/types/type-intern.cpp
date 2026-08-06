@@ -349,6 +349,10 @@ StructDef &TypeIntern::getStructDef(TypeId struct_type) {
     return const_cast<StructDef &>(const_cast<const TypeIntern *>(this)->getStructDef(struct_type));
 }
 
+const StructDef *TypeIntern::lookupStructDef(uint32_t def_id) const noexcept {
+    return def_id < struct_defs_.size() ? &struct_defs_[def_id] : nullptr;
+}
+
 size_t TypeIntern::fieldCount(TypeId struct_type) const {
     return getStructDef(struct_type).fields.size();
 }
@@ -400,6 +404,11 @@ void TypeIntern::addEnumVariant(TypeId enum_type, std::string_view name, int64_t
         enum_defs_[td->def_id].variants.push(EnumVariantDef{interner_.intern(name), discriminant});
 }
 
+void TypeIntern::setEnumUnderlying(TypeId enum_type, TypeId underlying) {
+    if (auto *td = std::get_if<TypeEnum>(&types_[enum_type]))
+        enum_defs_[td->def_id].underlying = underlying;
+}
+
 const EnumDef &TypeIntern::getEnumDef(TypeId enum_type) const {
     auto *td = std::get_if<TypeEnum>(&types_[enum_type]);
     return enum_defs_[td->def_id];
@@ -407,6 +416,10 @@ const EnumDef &TypeIntern::getEnumDef(TypeId enum_type) const {
 
 EnumDef &TypeIntern::getEnumDef(TypeId enum_type) {
     return const_cast<EnumDef &>(const_cast<const TypeIntern *>(this)->getEnumDef(enum_type));
+}
+
+const EnumDef *TypeIntern::lookupEnumDef(uint32_t def_id) const noexcept {
+    return def_id < enum_defs_.size() ? &enum_defs_[def_id] : nullptr;
 }
 
 bool TypeIntern::enumValue(TypeId enum_type, std::string_view name, int64_t &value) const {
@@ -441,6 +454,10 @@ const UnionDef &TypeIntern::getUnionDef(TypeId union_type) const {
 
 UnionDef &TypeIntern::getUnionDef(TypeId union_type) {
     return const_cast<UnionDef &>(const_cast<const TypeIntern *>(this)->getUnionDef(union_type));
+}
+
+const UnionDef *TypeIntern::lookupUnionDef(uint32_t def_id) const noexcept {
+    return def_id < union_defs_.size() ? &union_defs_[def_id] : nullptr;
 }
 
 // ── Query ─────────────────────────────────────────────────────────

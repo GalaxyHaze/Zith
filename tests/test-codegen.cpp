@@ -1,6 +1,9 @@
 #include "cli/options.hpp"
 #include "codegen/codegen-type.hpp"
+#include "codegen/codegen.hpp"
+#include "diagnostics/diagnostic-engine.hpp"
 #include "hir/hir-expr.hpp"
+#include "hir/hir-module.hpp"
 #include "memory/arena.hpp"
 #include "session/compilation-session.hpp"
 #include "test-common.hpp"
@@ -57,7 +60,9 @@ struct CodegenTest {
         if (ok && errs == 0)
             ok = session.linkAndExec();
 
-        return {ok && errs == 0, errs, session.childExitCode(), session.flushOutput()};
+        std::string output = session.flushOutput();
+        output += session.takeChildOutput();
+        return {ok && errs == 0, errs, session.childExitCode(), std::move(output)};
     }
 };
 
@@ -112,8 +117,10 @@ struct ModernFileCodegenTest {
         if (ok && errs == 0)
             ok = session.linkAndExec();
 
+        std::string output = session.flushOutput();
+        output += session.takeChildOutput();
         return {ok && errs == 0, session.snapshot() != nullptr, errs, session.childExitCode(),
-                session.flushOutput()};
+                std::move(output)};
     }
 };
 
@@ -249,6 +256,37 @@ static void test_shifts() {
     printf("EXIT CODE: %d\n", r.exitCode);
     CHECK_EQ(r.exitCode, 4,
              "Signed right shift is arithmetic and unsigned left shift is preserved");
+}
+
+static void test_compound_assign_runtime() {
+    CodegenTest t;
+    // 1 -> 3 (+=2) -> 6 (<<=1) -> 2 (&=3); then 2 |. 4 == 6, so 2 + 6 == 8.
+    auto r = t.run("codegen-compound-assign.zith", "fn main(): i32 {\n"
+                                                   "    var x: i32 = 1;\n"
+                                                   "    x += 2;\n"
+                                                   "    x <<= 1;\n"
+                                                   "    x &= 3;\n"
+                                                   "    var z: i32 = x |. 4;\n"
+                                                   "    return x + z;\n"
+                                                   "}\n");
+    CHECK(r.ok, "Compound assignment and bitwise operators compile and run");
+    CHECK_EQ(r.exitCode, 8, "Compound assignment and '|.' produce the expected exit status");
+}
+
+static void test_raw_opaque_round_trip_runtime() {
+    CodegenTest t;
+    auto r = t.run("codegen-raw-opaque.zith", "fn thru(p: raw opaque): *i32 {\n"
+                                              "    return p as *i32;\n"
+                                              "}\n"
+                                              "fn main(): i32 {\n"
+                                              "    var v: i32 = 41;\n"
+                                              "    var addr: *i32 = &v;\n"
+                                              "    var q: raw opaque = addr as raw opaque;\n"
+                                              "    var r: *i32 = thru(q);\n"
+                                              "    return *r + 1;\n"
+                                              "}\n");
+    CHECK(r.ok, "A 'raw opaque' pointer round-trip compiles and runs");
+    CHECK_EQ(r.exitCode, 42, "'raw opaque' round-trip preserves the pointed-to value");
 }
 
 static void test_struct_fields_and_parameter() {
@@ -415,7 +453,7 @@ static void test_trailing_void_call_is_emitted_once() {
     const auto &hir  = session.hirModule();
     for (size_t i = 0; i < hir.getFnCount(); ++i) {
         const auto &fn = hir.getFn(i);
-        if (session.interner().lookup(fn.name) != "signal")
+        if (session.interner().lookup(fn.name).find("signal") == std::string_view::npos)
             continue;
         for (const auto &block : fn.blocks) {
             for (auto inst : block.insts) {
@@ -442,7 +480,7 @@ static void test_from_console_lowers_println_body() {
                                                 "    return 0;\n"
                                                 "}\n");
     CHECK(r.ok, "from std/io/console compiles and runs");
-    CHECK(r.output.find("define void @println") != std::string::npos,
+    CHECK(r.output.find("define void @\"std.io.console.println(*char)\"") != std::string::npos,
           "Imported println body is emitted into LLVM IR");
     CHECK(r.output.find("call i32 @puts") != std::string::npos,
           "Imported println body calls puts in LLVM IR");
@@ -457,7 +495,7 @@ static void test_console_alias_resolves_member_without_global_import() {
                                                         "    return 0;\n"
                                                         "}\n");
     CHECK(ok.ok, "console.println resolves through an import alias");
-    CHECK(ok.output.find("call void @println") != std::string::npos,
+    CHECK(ok.output.find("call void @\"std.io.console.println(*char)\"") != std::string::npos,
           "Alias import emits a call to the imported function");
 
     CodegenTest unqualified;
@@ -503,7 +541,8 @@ static void test_struct_field_read_through_parameter() {
     // Regression: this used to fail with E5001 "Basic Block does not have terminator".
     CHECK(r.ok, "returning a struct field of a parameter produces valid IR");
     CHECK_EQ(r.exitCode, 9, "the field read through a struct parameter returns the right value");
-    CHECK(r.output.find("@get_y") != std::string::npos, "the accessor function is emitted");
+    CHECK(r.output.find("@\"main.get_y(P)\"") != std::string::npos,
+          "the accessor function is emitted with a qualified name");
 }
 
 static void test_numeric_cast_codegen() {
@@ -762,6 +801,294 @@ static void test_optional_and_slice_layouts() {
     }
 }
 
+static void test_struct_method_call_runtime() {
+    CodegenTest t;
+    auto r = t.run("codegen-struct-method-call.zith", "struct Counter {\n"
+                                                      "    value: i32,\n"
+                                                      "    fn bump(self, by: i32): i32 {\n"
+                                                      "        return self->value + by;\n"
+                                                      "    }\n"
+                                                      "}\n"
+                                                      "fn main(): i32 {\n"
+                                                      "    let c: Counter = Counter { value: 5 };\n"
+                                                      "    return c.bump(3);\n"
+                                                      "}\n");
+    CHECK(r.ok, "A struct-body method call compiles and runs");
+    CHECK_EQ(r.exitCode, 8, "The method receives self and returns value + by");
+}
+
+static void test_implement_block_method_runtime() {
+    CodegenTest t;
+    auto r =
+        t.run("codegen-implement-method-call.zith", "struct Point {\n"
+                                                    "    x: i32,\n"
+                                                    "    y: i32\n"
+                                                    "}\n"
+                                                    "implement Point {\n"
+                                                    "    fn sum(self): i32 {\n"
+                                                    "        return self->x + self->y;\n"
+                                                    "    }\n"
+                                                    "}\n"
+                                                    "fn main(): i32 {\n"
+                                                    "    let p: Point = Point { x: 4, y: 9 };\n"
+                                                    "    return p.sum();\n"
+                                                    "}\n");
+    CHECK(r.ok, "An implement-block method call compiles and runs");
+    CHECK_EQ(r.exitCode, 13, "The implicit self argument reaches the method body");
+}
+
+static void test_overloaded_functions_link_and_run() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "fn add(a: i32, b: i32): i32 { a + b }\n"
+                         "fn add(a: f64, b: f64): f64 { a + b }\n"
+                         "fn add(a: i32, b: i32, c: i32): i32 { a + b + c }\n"
+                         "fn main(): i32 {\n"
+                         "    let f: f64 = add(1.5, 2.5);\n"
+                         "    return add(add(10, 20), 6, 6);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "an overloaded program compiles, links and runs");
+    CHECK_EQ(r.exitCode, 42, "each call site reaches the overload selected by sema");
+    // Overloads must not collide in the object file: distinct qualified symbols.
+    CHECK(r.output.find("@\"main.add(i32,i32)\"") != std::string::npos,
+          "the i32 overload is emitted under its qualified linkage name");
+    CHECK(r.output.find("@\"main.add(f64,f64)\"") != std::string::npos,
+          "the f64 overload is emitted under a distinct qualified linkage name");
+    CHECK(r.output.find("@\"main.add(i32,i32,i32)\"") != std::string::npos,
+          "the three-parameter overload is emitted under its own linkage name");
+}
+
+static void test_extern_variadic_call_runs() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+                         "fn main(): i32 {\n"
+                         "    printf(\"n=%d\\n\", 7);\n"
+                         "    return 0;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "extern variadic printf compiles, links and runs");
+    CHECK(r.output.find("call i32 (ptr, ...) @printf") != std::string::npos,
+          "the call reaches LLVM IR as a variadic invoke of printf");
+    CHECK(r.output.find("declare i32 @printf(ptr, ...)") != std::string::npos,
+          "LLVM IR declares printf as variadic");
+}
+
+static void test_c_default_arguments_and_string_escapes() {
+    {
+        ModernFileCodegenTest t;
+        t.opts.flags.emitIr(true);
+        t.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+                             "fn main(): i32 {\n"
+                             "    let f: f32 = 1.5;\n"
+                             "    printf(\"%f\", f);\n"
+                             "    return 0;\n"
+                             "}\n");
+
+        auto r = t.run();
+        CHECK(r.ok, "an f32 variadic promotion test compiles and runs");
+        CHECK(r.output.find("fpext float") != std::string::npos,
+              "the f32 variadic argument is promoted to double in LLVM IR");
+    }
+
+    {
+        CodegenTest t;
+        auto r = t.run("codegen-escapes-char.zith", "extern fn printf(fmt: *char, ...): i32\n"
+                                                    "fn main(): i32 {\n"
+                                                    "    printf(\"v=%d\\n[%f]%c\", 42, 1.5, 'B');\n"
+                                                    "    return 0;\n"
+                                                    "}\n");
+        CHECK(r.ok, "escaped strings, char literal args and promoted variadic args run");
+        CHECK(r.output == "v=42\n[1.500000]B",
+              "escaped newline decodes, char literals pass through %c, and variadic args print");
+    }
+}
+
+// Program output must live in takeChildOutput(), not in the compiler's
+// diagnostic buffer: `zithc run` writes the former to stdout after execution.
+static void test_child_output_is_separate_from_compiler_output() {
+    memory::Arena arena;
+    Options opts(arena);
+    session::CompilationSession session(opts, "/tmp/codegen-child-output-split.zith");
+    session.setBuffered(true);
+    session.setAlwaysEmitObject(true);
+    session.setContent("extern fn printf(fmt: *char, ...): i32\n"
+                       "fn main(): i32 {\n"
+                       "    printf(\"child-says=%d\\n\", 3);\n"
+                       "    return 0;\n"
+                       "}\n");
+
+    CHECK(session.run(), "child-output split program compiles");
+    CHECK(session.linkAndExec(), "child-output split program links and executes");
+
+    auto compilerOutput = session.flushOutput();
+    CHECK(compilerOutput.find("child-says=3") == std::string::npos,
+          "flushOutput() does not contain the program's output");
+
+    auto childOutput = session.takeChildOutput();
+    CHECK(childOutput == "child-says=3\n", "takeChildOutput() returns the program's bytes exactly");
+    CHECK(session.takeChildOutput().empty(), "takeChildOutput() clears the captured buffer");
+}
+
+// A program that prints and then exits non-zero must still surface its output.
+static void test_child_output_survives_nonzero_exit() {
+    CodegenTest t;
+    auto r = t.run("codegen-child-output-nonzero.zith", "extern fn printf(fmt: *char, ...): i32\n"
+                                                        "fn main(): i32 {\n"
+                                                        "    printf(\"before-failure\\n\");\n"
+                                                        "    return -1;\n"
+                                                        "}\n");
+    CHECK(r.ok, "a program returning -1 still compiles, links and runs");
+    CHECK_EQ(r.exitCode, 255, "return -1 is reported as exit code 255");
+    CHECK(r.output.find("before-failure\n") != std::string::npos,
+          "output printed before a non-zero exit is still captured");
+}
+
+static void test_import_stdio_runs() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "import \"stdio.h\"\n"
+                         "fn main(): i32 {\n"
+                         "    printf(\"v=%d\\n\", 42);\n"
+                         "    return 0;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "import \"stdio.h\" compiles, links and runs");
+    CHECK(r.output.find("declare i32 @printf(ptr, ...)") != std::string::npos,
+          "stdio.h's variadic printf is declared in LLVM IR");
+
+    CodegenTest plain;
+    auto run = plain.run("codegen-import-stdio.zith", "import \"stdio.h\"\n"
+                                                      "fn main(): i32 {\n"
+                                                      "    printf(\"v=%d\\n\", 42);\n"
+                                                      "    return 0;\n"
+                                                      "}\n");
+    CHECK(run.ok, "stdio.h import compiles and executes without IR output enabled");
+    CHECK(run.output == "v=42\n",
+          "stdio.h import builds, links, runs, and prints the decoded newline exactly");
+}
+
+/// `malloc` -> `as ?*i32` -> store/load -> `free`: both pointer casts are representation
+/// preserving (LLVM pointers are opaque), so no conversion instruction may appear, and the
+/// pointer must reach `free` directly.
+static void test_c_pointer_cast_roundtrip_emits_no_conversion() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "import \"stdio.h\"\n"
+                         "import \"stdlib.h\"\n"
+                         "fn main(): i32 {\n"
+                         "    let cell: ?*i32 = malloc(64) as ?*i32;\n"
+                         "    let slot: *i32 = cell;\n"
+                         "    *slot = 42;\n"
+                         "    printf(\"v=%d\\n\", *slot);\n"
+                         "    free(cell);\n"
+                         "    return 0;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "malloc + 'as ?*i32' + free compiles, links and runs");
+    CHECK_EQ(r.exitCode, 0, "the pointer roundtrip exits cleanly");
+    CHECK(r.output.find("v=42\n") != std::string::npos,
+          "the value stored through the cast pointer is read back");
+    CHECK(r.output.find("inttoptr") == std::string::npos,
+          "a pointer-to-pointer cast emits no inttoptr");
+    CHECK(r.output.find("ptrtoint") == std::string::npos,
+          "a pointer-to-pointer cast emits no ptrtoint");
+    CHECK(r.output.find("bitcast") == std::string::npos,
+          "a pointer-to-pointer cast emits no bitcast");
+    CHECK(r.output.find("{ ptr, i1 }") == std::string::npos,
+          "?*T stays a bare pointer through the cast, with no tagged struct");
+    CHECK_EQ(r.errorCount, 0u, "the emitted module passes LLVM verification");
+}
+
+/// A C pointer is `?*T`, so `is null` is the canonical null check. The niche layout means the
+/// comparison must be against a bare `null` pointer, with no optional tag struct involved.
+static void test_c_pointer_is_null_uses_niche_comparison() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "import \"stdio.h\"\n"
+                         "fn main(): i32 {\n"
+                         "    let f = fopen(\"/definitely/not/here\", \"r\");\n"
+                         "    if (f is null) {\n"
+                         "        return 0;\n"
+                         "    }\n"
+                         "    fclose(f);\n"
+                         "    return 1;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "fopen + 'is null' compiles, links and runs");
+    CHECK_EQ(r.exitCode, 0, "the failed fopen is detected as null at runtime");
+    CHECK(r.output.find("icmp eq ptr") != std::string::npos,
+          "'is null' on a C pointer compares the pointer itself");
+    CHECK(r.output.find("null") != std::string::npos, "the comparison is against a null pointer");
+    // An optional with a tag would lower to `{ ptr, i1 }` and be built with insertvalue.
+    CHECK(r.output.find("{ ptr, i1 }") == std::string::npos,
+          "?*T uses the pointer niche, not a tagged struct");
+    // `emit` verifies the whole module, so a verification failure would have been reported.
+    CHECK_EQ(r.errorCount, 0u, "the emitted module passes LLVM verification");
+}
+
+/// A radix literal used to infer as `error`, emit no value, and leave `entry` without a
+/// terminator, which crashed inside LLVM's MachineBasicBlock construction. Codegen must now
+/// produce a valid module for it.
+static void test_radix_literal_return_emits_valid_module() {
+    CodegenTest t;
+    auto r = t.run("codegen-radix-return.zith", "fn main(): i32 {\n"
+                                                "    return 0x2A;\n"
+                                                "}\n");
+    CHECK(r.ok, "a hex literal return compiles, links and runs");
+    CHECK_EQ(r.exitCode, 42, "0x2A returns 42");
+}
+
+/// The invariant this guards: a module that fails IR verification is never handed to a
+/// TargetMachine. `emitObject`/`emitAsm`/`printAsm` must refuse instead of running the
+/// PassManager, which crashes rather than diagnosing invalid IR.
+static void test_invalid_ir_refuses_object_emission() {
+    memory::Arena arena;
+    // The default-constructed interner has no arena; it must be built from one.
+    memory::StringInterner interner(arena);
+    types::TypeIntern types(arena, interner);
+    hir::HirModule hir(arena);
+
+    // A function whose body cannot be emitted: the return operand has the error type, so
+    // `emitLiteral` yields nullptr and the block's terminator never materialises.
+    auto &fn       = hir.addFn(interner.intern("broken"));
+    fn.return_type = types.internInt(types::IntWidth::I32);
+    const auto bad_literal =
+        hir.addExpr(hir::HirLiteral{types::kErrorType, {}, hir::HirExprKind::Literal});
+    auto &block      = fn.blocks.emplace(arena);
+    block.terminator = hir.addExpr(hir::HirRet{bad_literal});
+
+    diagnostics::DiagnosticEngine diags(arena);
+    codegen::CodeGen cg(interner, types, {}, 0, &diags);
+    cg.emit(hir, "broken-module");
+
+    CHECK(cg.hasInvalidIR(), "a body that fails to emit marks the module as invalid IR");
+
+    const std::string obj = (std::filesystem::temp_directory_path() / "zith-invalid-ir.o").string();
+    std::filesystem::remove(obj);
+    CHECK(!cg.emitObject(obj), "emitObject refuses an invalid module");
+    CHECK(!std::filesystem::exists(obj), "no object file is produced for an invalid module");
+    CHECK(!cg.emitAsm(obj), "emitAsm refuses an invalid module");
+    CHECK(cg.printAsm().empty(), "printAsm refuses an invalid module");
+
+    bool refused = false;
+    for (const auto &d : diags.all()) {
+        if (d.message.find("refusing to") != std::string::npos)
+            refused = true;
+    }
+    CHECK(refused, "the refusal is reported as a diagnostic rather than crashing");
+
+    // Even on the failure path the module itself stays well-formed: no unterminated block.
+    CHECK(cg.printIR().find("unreachable") != std::string::npos,
+          "the unemittable block is closed with 'unreachable' instead of left open");
+}
+
 static void test_codegen() {
     setbuf(stdout, NULL);
     printf("Running test_return_literal\n");
@@ -786,6 +1113,8 @@ static void test_codegen() {
     test_array_variable_indexing();
     printf("Running test_shifts\n");
     test_shifts();
+    test_compound_assign_runtime();
+    test_raw_opaque_round_trip_runtime();
     printf("Running test_struct_fields_and_parameter\n");
     test_struct_fields_and_parameter();
     printf("Running test_array_of_structs\n");
@@ -807,6 +1136,8 @@ static void test_codegen() {
     test_console_alias_resolves_member_without_global_import();
     printf("Running test_struct_type_has_fields_in_ir\n");
     test_struct_type_has_fields_in_ir();
+    printf("Running test_overloaded_functions_link_and_run\n");
+    test_overloaded_functions_link_and_run();
     printf("Running test_struct_field_read_through_parameter\n");
     test_struct_field_read_through_parameter();
     printf("Running test_numeric_cast_codegen\n");
@@ -823,6 +1154,27 @@ static void test_codegen() {
     test_modern_file_type_alias_codegen_executes();
     printf("Running test_run_emit_hir_still_executes\n");
     test_run_emit_hir_still_executes();
+    printf("Running test_struct_method_call_runtime\n");
+    test_struct_method_call_runtime();
+    printf("Running test_implement_block_method_runtime\n");
+    test_implement_block_method_runtime();
+    printf("Running test_extern_variadic_call_runs\n");
+    test_extern_variadic_call_runs();
+    printf("Running test_c_default_arguments_and_string_escapes\n");
+    test_c_default_arguments_and_string_escapes();
+    printf("Running test_child_output_is_separate_from_compiler_output\n");
+    test_child_output_is_separate_from_compiler_output();
+    printf("Running test_child_output_survives_nonzero_exit\n");
+    test_child_output_survives_nonzero_exit();
+    printf("Running test_import_stdio_runs\n");
+    test_import_stdio_runs();
+    printf("Running test_c_pointer_is_null_uses_niche_comparison\n");
+    test_c_pointer_cast_roundtrip_emits_no_conversion();
+    test_c_pointer_is_null_uses_niche_comparison();
+    printf("Running test_radix_literal_return_emits_valid_module\n");
+    test_radix_literal_return_emits_valid_module();
+    printf("Running test_invalid_ir_refuses_object_emission\n");
+    test_invalid_ir_refuses_object_emission();
     printf("Running test_layout_api_matches_llvm\n");
     test_layout_api_matches_llvm();
     printf("Running test_optional_and_slice_layouts\n");

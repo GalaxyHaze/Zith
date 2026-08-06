@@ -53,7 +53,7 @@ public:
 
 private:
     void emitLabelLine(const char *label, std::string_view msg) const;
-    void emitOne(const Diagnostic &d, std::string_view source, const char *location_line,
+    void emitOne(const Diagnostic &d, std::string_view source, const char *path, memory::Loc loc,
                  bool has_secondary_labels) const;
 
 public:

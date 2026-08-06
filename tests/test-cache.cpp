@@ -1,5 +1,6 @@
 #include "cache/artifact-builder.hpp"
 #include "cache/cache.hpp"
+#include "hir/hir-expr.hpp"
 #include "memory/arena.hpp"
 #include "memory/string-interner.hpp"
 #include "session/frontend-context.hpp"
@@ -10,6 +11,7 @@
 #include "zirl/zirl-reader.hpp"
 #include "zirl/zirl-writer.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -409,7 +411,24 @@ static void test_byte_stability() {
 }
 
 // ── Artifact builder from session state ───────────────────────────
+static void test_format_version_bump() {
+    // The format version is the forward-compat gate for stale caches.  A
+    // reader that only knows v3 must not accept a v4 artifact.
+    auto art = makeMinimalArtifact("/test/main.zith", "main");
+    ByteWriter writer;
+    (void)Writer::write(art, writer);
+
+    std::string bytes(reinterpret_cast<const char *>(writer.ptr()), writer.size());
+    CHECK_EQ(kFormatVersion, 4u, "zirl format version is bumped to 4");
+
+    // Simulate an old reader by treating the v4 version field as v3.
+    bytes[4]        = 3;
+    auto old_reader = Reader::read(bytes);
+    CHECK(!old_reader.has_value(), "v4 artifact is rejected by a v3-only reader");
+}
+
 static void test_artifact_builder() {
+    // A representative HIR module covering the 24 expression variants.
     memory::Arena arena;
     memory::StringInterner interner(arena);
     types::TypeIntern types(arena, interner);
@@ -418,10 +437,221 @@ static void test_artifact_builder() {
 
     // Declare a public function.
     syms.declare("main", symbols::SymbolVisibility::Public, 0, symbols::SymKind::Fn);
+    const auto struct_sym =
+        syms.declare("Point", symbols::SymbolVisibility::Public, 0, symbols::SymKind::Struct);
+    const auto method_sym =
+        syms.declare("scale", symbols::SymbolVisibility::Public, 0, symbols::SymKind::Fn);
+    syms.get(struct_sym).members.push(method_sym);
     // Add a concrete HIR function.
     auto &fn       = hir.addFn(interner.intern("main"));
     fn.return_type = types::kVoidType;
-    (void)fn.blocks;
+    fn.isVariadic  = true;
+
+    const auto i32 = types.internInt(types::IntWidth::I32);
+    const auto f64 = types.internFloat(types::FloatWidth::F64);
+    const auto opt = types.internOptional(i32);
+
+    hir::HirLiteral int_lit;
+    int_lit.type      = i32;
+    int_lit.i         = 3;
+    const auto int_id = hir.addExpr(int_lit);
+
+    hir::HirLiteral float_lit;
+    float_lit.type      = f64;
+    float_lit.f         = 1.5;
+    const auto float_id = hir.addExpr(float_lit);
+
+    hir::HirLiteral bool_lit;
+    bool_lit.type      = types::kBoolType;
+    bool_lit.b         = true;
+    const auto bool_id = hir.addExpr(bool_lit);
+
+    hir::HirLiteral str_lit;
+    str_lit.type      = types.internPtr(types::kCharType);
+    str_lit.str_val   = interner.intern("hi");
+    const auto str_id = hir.addExpr(str_lit);
+
+    hir::HirBinary bin;
+    bin.lhs           = int_id;
+    bin.rhs           = int_id;
+    bin.op            = hir::HirBinaryOp::Add;
+    bin.type          = i32;
+    bin.operand_type  = i32;
+    const auto bin_id = hir.addExpr(bin);
+
+    hir::HirUnary un;
+    un.op            = hir::HirUnaryOp::Neg;
+    un.operand       = bin_id;
+    un.type          = i32;
+    const auto un_id = hir.addExpr(un);
+
+    hir::HirLet let;
+    let.name          = interner.intern("x");
+    let.type          = i32;
+    let.init          = int_id;
+    const auto let_id = hir.addExpr(let);
+
+    hir::HirVar var;
+    var.name          = interner.intern("x");
+    var.version       = 1;
+    const auto var_id = hir.addExpr(var);
+
+    { // Call with argument types and a resolved fn id.
+        memory::DynArray<hir::HirExprId> args(arena);
+        args.push(var_id);
+        memory::DynArray<types::TypeId> arg_types(arena);
+        arg_types.push(i32);
+        hir::HirCall call(var_id, std::move(args), std::move(arg_types));
+        call.resolved_fn = 1;
+        hir.addExpr(std::move(call));
+    }
+
+    hir::HirRet ret;
+    ret.value = un_id;
+    hir.addExpr(ret);
+
+    hir::HirBranch branch;
+    branch.cond       = bool_id;
+    branch.then_block = 1;
+    branch.else_block = 2;
+    hir.addExpr(branch);
+
+    hir::HirJump jump;
+    jump.target = 0;
+    hir.addExpr(jump);
+
+    {
+        memory::DynArray<hir::HirExprId> incoming(arena);
+        incoming.push(int_id);
+        incoming.push(var_id);
+        hir::HirPhi phi(arena);
+        phi.incoming = std::move(incoming);
+        hir.addExpr(std::move(phi));
+    }
+
+    hir::HirAssign assign;
+    assign.target = var_id;
+    assign.value  = int_id;
+    hir.addExpr(assign);
+
+    {
+        auto arr = types.internArray(i32, 4);
+        hir::HirIndex idx;
+        idx.object   = var_id;
+        idx.index    = int_id;
+        idx.type     = i32;
+        idx.obj_type = arr;
+        idx.is_array = true;
+        hir.addExpr(idx);
+    }
+
+    {
+        auto ptr = types.internPtr(i32);
+        hir::HirField field;
+        field.object      = var_id;
+        field.index       = 0;
+        field.type        = i32;
+        field.object_type = ptr;
+        hir.addExpr(field);
+    }
+
+    {
+        hir::HirStructLiteral lit(arena);
+        lit.type   = i32;
+        lit.values = memory::DynArray<hir::HirExprId>(arena);
+        lit.values.push(int_id);
+        hir.addExpr(std::move(lit));
+    }
+
+    {
+        hir::HirArrayLiteral lit(arena);
+        lit.type     = types.internArray(i32, 2);
+        lit.elements = memory::DynArray<hir::HirExprId>(arena);
+        lit.elements.push(int_id);
+        hir.addExpr(std::move(lit));
+    }
+
+    {
+        hir::HirEnumValue ev;
+        ev.value = 2;
+        ev.type  = i32;
+        hir.addExpr(ev);
+    }
+
+    {
+        hir::HirSlotAlloca alloca;
+        alloca.slot = 0;
+        alloca.type = i32;
+        hir.addExpr(alloca);
+    }
+    {
+        hir::HirSlotStore store;
+        store.slot  = 0;
+        store.value = int_id;
+        hir.addExpr(store);
+    }
+    {
+        hir::HirSlotLoad load;
+        load.slot = 0;
+        load.type = i32;
+        hir.addExpr(load);
+    }
+    {
+        hir::HirSlotAddr addr;
+        addr.slot = 0;
+        addr.type = i32;
+        hir.addExpr(addr);
+    }
+    {
+        hir::HirMakeNone none;
+        none.type = opt;
+        hir.addExpr(none);
+    }
+    {
+        hir::HirMakeSome some;
+        some.value = int_id;
+        some.type  = opt;
+        hir.addExpr(some);
+    }
+    {
+        hir::HirCast cast;
+        cast.value = int_id;
+        cast.from  = i32;
+        cast.to    = f64;
+        hir.addExpr(cast);
+    }
+    {
+        hir::HirLayoutIntrinsic layout;
+        layout.which       = hir::HirLayoutIntrinsic::Which::OffsetOf;
+        layout.type        = i32;
+        layout.field_index = 1;
+        hir.addExpr(layout);
+    }
+
+    hir.attrs().slot(0).ownership = hir::HirOwnership::View;
+    hir.attrs().slot(0).consumed  = hir::HirConsumedState::NonConsumed;
+    hir.attrs().slot(0).nonNull   = true;
+    {
+        auto &call_attrs      = hir.attrs().call(5);
+        call_attrs.returnsArg = 0;
+        call_attrs.args.emplace(hir::HirCallArgAttr{hir::HirCallEscape::Borrow});
+    }
+    hir.attrs().fn(0).noAlias = true;
+
+    fn.blocks.emplace(arena);
+    fn.blocks[0].insts.push(int_id);
+    fn.blocks[0].terminator = 6;
+
+    // Private composite types and explicit non-series enum discriminants must
+    // survive the artifact writer so hydration does not depend on exported decl
+    // surface or rederive discriminants from variant position.
+    const auto private_struct = types.defineStruct("_CachePrivate");
+    types.addField(private_struct, "n", i32);
+    const auto private_enum = types.defineEnum("_CacheEnum", i32);
+    types.addEnumVariant(private_enum, "First", -3);
+    types.addEnumVariant(private_enum, "Second", 4);
+    const auto private_union = types.defineUnion("_CacheUnion", true);
+    types.addUnionMember(private_union, i32);
 
     session::ContentFingerprint fp;
     fp.primary = 0xCAFEBABEu;
@@ -437,6 +667,49 @@ static void test_artifact_builder() {
     CHECK_EQ(art.decls[0].name, "main", "builder extracts function name");
     CHECK_EQ(art.functions.size(), 1u, "builder extracts HIR functions");
     CHECK_EQ(art.source_fp_hi, 0u, "builder stores source fingerprint hi");
+    CHECK_EQ(art.functions[0].is_variadic, true, "builder stores HIR variadic flag");
+    CHECK_EQ(art.functions[0].exprs.size(), hir.exprCount(),
+             "builder serializes the module expression pool");
+    const auto point_decl = std::find_if(art.decls.begin(), art.decls.end(),
+                                         [](const DeclRecord &d) { return d.name == "Point"; });
+    CHECK(point_decl != art.decls.end(), "builder extracts public struct declaration");
+    const auto method_decl = std::find_if(art.decls.begin(), art.decls.end(),
+                                          [](const DeclRecord &d) { return d.name == "scale"; });
+    CHECK(method_decl != art.decls.end(), "builder extracts public method declaration");
+    if (point_decl != art.decls.end() && method_decl != art.decls.end())
+        CHECK(int(point_decl->method_decl_indices.size()) == 1 &&
+                  point_decl->method_decl_indices[0] ==
+                      static_cast<uint32_t>(std::distance(art.decls.begin(), method_decl)),
+              "method refs use artifact decl indices");
+    CHECK_EQ(art.attrs_slots.size(), 1u, "builder serializes slot attrs");
+    CHECK_EQ(art.attrs_calls.size(), 1u, "builder serializes call attrs");
+    CHECK_EQ(art.attrs_fns.size(), 1u, "builder serializes fn attrs");
+    CHECK_EQ(art.struct_defs.size(), 1u, "builder serializes private struct defs");
+    CHECK_EQ(art.enum_defs.size(), 1u, "builder serializes private enum defs");
+    CHECK_EQ(art.enum_defs[0].variants.size(), 2u, "enum variants are serialized");
+    CHECK_EQ(art.enum_defs[0].variants[0].discriminant, -3, "enum discriminants are not reindexed");
+    CHECK_EQ(art.union_defs.size(), 1u, "builder serializes private union defs");
+
+    // Full zirl round-trip: the artifact from in-memory state must decode with
+    // the same HIR pool, blocks, and residual attrs.
+    ByteWriter writer;
+    (void)Writer::write(art, writer);
+    auto round =
+        Reader::read(std::string_view(reinterpret_cast<const char *>(writer.ptr()), writer.size()));
+    CHECK(round.has_value(), "builder artifact round-trips through zirl");
+    if (!round)
+        return;
+    CHECK_EQ(round->functions.size(), art.functions.size(), "round-trip preserves function count");
+    CHECK_EQ(round->functions[0].exprs.size(), art.functions[0].exprs.size(),
+             "round-trip preserves expression pool size");
+    CHECK_EQ(round->attrs_slots.size(), art.attrs_slots.size(), "round-trip preserves slot attrs");
+    CHECK_EQ(round->attrs_calls.size(), art.attrs_calls.size(), "round-trip preserves call attrs");
+    CHECK_EQ(round->attrs_fns.size(), art.attrs_fns.size(), "round-trip preserves fn attrs");
+    CHECK_EQ(round->struct_defs.size(), art.struct_defs.size(), "round-trip preserves struct defs");
+    CHECK_EQ(round->enum_defs.size(), art.enum_defs.size(), "round-trip preserves enum defs");
+    CHECK_EQ(round->enum_defs[0].variants[0].discriminant, -3,
+             "round-trip preserves explicit enum discriminants");
+    CHECK_EQ(round->union_defs.size(), art.union_defs.size(), "round-trip preserves union defs");
 }
 
 } // namespace
@@ -453,6 +726,7 @@ static void test_cache() {
     test_dep_abi_validation();
     test_manifest_load_skips_malformed_record();
     test_byte_stability();
+    test_format_version_bump();
     test_artifact_builder();
 }
 

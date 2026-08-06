@@ -48,6 +48,7 @@ private:
     std::unordered_map<types::TypeId, uint32_t> type_index_;
     [[nodiscard]] uint32_t internType(types::TypeId id);
     [[nodiscard]] CompactType convertType(types::TypeId id);
+    [[nodiscard]] CompactExpr convertExpr(hir::HirExprId id);
 
     // Compute the public ABI hash from exported declarations.
     [[nodiscard]] uint64_t computePublicAbiHash() const;

@@ -20,7 +20,7 @@ src/
   diagnostics/  - Error reporting, diagnostic engine
   symbols/      - Symbol table, import resolution, name resolver
   types/        - Type intern, unification, lowering
-  sema/         - Semantic analysis, type checking, HIR lowering
+  sema/         - Semantic analysis, type checking, NRA preparation, HIR lowering
   hir/          - High-level IR (typed, lowered from AST)
   comptime/     - Compile-time evaluation, monomorphization
   codegen/      - LLVM IR codegen
@@ -43,7 +43,7 @@ src/
 ## Pipeline
 
 ```
-Source → Lex → Scan → Import → Resolve → Sema → Solve → NRA → HIR → Codegen → Cache
+Source → Lex → Scan → Import → Resolve → Sema → Comptime/Solve → NTA/NRA → HIR → Codegen → Cache
 ```
 
 Each stage is a method on `CompilationSession` in `src/session/`.

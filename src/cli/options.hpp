@@ -40,6 +40,10 @@ struct Options {
     // Sysroot for cross-compilation (passed to the linker as --sysroot)
     std::string sysroot;
 
+    // Resolve C system headers (stdint.h, ...) from the toolchain's default
+    // include directories. Cleared by --no-system-includes.
+    bool systemIncludes = true;
+
     // Bit-packed flags (std::bitset<24>):
     //  0-1:  optLevel      (2 bits, values 0-3)
     //  2-3:  debugLevel    (2 bits, values 0-3)
@@ -58,7 +62,7 @@ struct Options {
     //  19:   emitIr        (1 bit)
     //  20:   emitAsm       (1 bit)
     //  21:   printTokens   (1 bit)
-    // 22-23: (reserved)
+    //  22:   cacheStats    (1 bit)
     struct {
         std::bitset<24> bits{};
 
@@ -193,6 +197,12 @@ struct Options {
             bits.set(21, v);
         }
 
+        bool cacheStats() const {
+            return bits.test(22);
+        }
+        void cacheStats(bool v) {
+            bits.set(22, v);
+        }
     } flags;
 
     // Tracks which mode-dependent fields were explicitly set by CLI

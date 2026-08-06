@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <string>
+#include <utility>
 
 namespace zith::sema::modern {
 
@@ -42,6 +44,12 @@ TypeId TypeTable::internName(std::string_view name, TypeKind kind) {
     auto &entry         = pushEntry(EntryKind::Name);
     entry.name_view     = name;
     entry.reported_kind = kind;
+    return entry.id;
+}
+
+TypeId TypeTable::internInvalid() {
+    auto &entry         = pushEntry(EntryKind::Invalid);
+    entry.reported_kind = TypeKind::Invalid;
     return entry.id;
 }
 
@@ -237,11 +245,132 @@ TypeId TypeTable::internAlias(TypeId target) {
     return entry.id;
 }
 
+TypeId TypeTable::internQualified(TypeId inner, types::OwnershipKind ownership, bool is_mut) {
+    auto &entry         = pushEntry(EntryKind::Qualified);
+    entry.reported_kind = TypeKind::Qualified;
+    entry.qualified_ty  = arena_->make<QualifiedType>(QualifiedType{inner, ownership, is_mut});
+    return entry.id;
+}
+
 // --- Queries ---
 
 TypeKind TypeTable::kindOf(TypeId id) const noexcept {
     const auto *entry = findEntry(id);
     return entry ? entry->reported_kind : TypeKind::Error;
+}
+
+std::string TypeTable::typeToString(TypeId id) const {
+    const TypeId resolved = canonical(id);
+    const Entry *entry    = findEntry(resolved);
+    if (entry == nullptr)
+        return "void";
+
+    switch (entry->reported_kind) {
+    case TypeKind::Invalid:
+        return "invalid";
+    case TypeKind::Error:
+        return "error";
+    case TypeKind::Void:
+        return "void";
+    case TypeKind::Never:
+        return "never";
+    case TypeKind::Bool:
+        return "bool";
+    case TypeKind::Char:
+        return "char";
+    case TypeKind::String:
+        return "string";
+    case TypeKind::Integer:
+        if (const auto *int_type = integer(resolved); int_type != nullptr)
+            return std::string(int_type->isSigned ? "i" : "u") + std::to_string(int_type->bits);
+        return "integer";
+    case TypeKind::Float:
+        if (const auto *float_type = float_kind(resolved); float_type != nullptr)
+            return "f" + std::to_string(float_type->bits);
+        return "float";
+    case TypeKind::Pointer:
+        if (const auto *ptr = pointer(resolved); ptr != nullptr)
+            return "*" + typeToString(ptr->pointee);
+        return "pointer";
+    case TypeKind::Optional:
+        if (const auto *opt = optional(resolved); opt != nullptr)
+            return "?" + typeToString(opt->inner);
+        return "optional";
+    case TypeKind::Slice:
+        if (const auto *slice = this->slice(resolved); slice != nullptr)
+            return "[]" + typeToString(slice->element);
+        return "slice";
+    case TypeKind::Array:
+        if (const auto *array = this->array(resolved); array != nullptr)
+            return "[" + std::to_string(array->size) + "]" + typeToString(array->element);
+        return "array";
+    case TypeKind::Function:
+        if (const auto *fn = function(resolved); fn != nullptr) {
+            std::string result = "fn(";
+            for (size_t index = 0; index < fn->params.size(); ++index) {
+                if (index != 0)
+                    result += ", ";
+                result += typeToString(fn->params[index]);
+            }
+            result += "): " + typeToString(fn->result);
+            return result;
+        }
+        return "fn";
+    case TypeKind::Struct:
+        if (const auto *st = struct_type(resolved); st != nullptr)
+            return std::string(st->name);
+        return "struct";
+    case TypeKind::Enum:
+        if (const auto *et = enum_type(resolved); et != nullptr)
+            return std::string(et->name);
+        return "enum";
+    case TypeKind::Union:
+        if (const auto *ut = union_type(resolved); ut != nullptr)
+            return std::string(ut->name);
+        return "union";
+    case TypeKind::Trait:
+        if (const auto *tt = trait(resolved); tt != nullptr)
+            return std::string(tt->name);
+        return "trait";
+    case TypeKind::TypeVar:
+        if (const auto *var = type_var(resolved); var != nullptr)
+            return "type$" + std::to_string(var->id);
+        return "typevar";
+    case TypeKind::Unknown:
+        return "unknown";
+    case TypeKind::GenericParam:
+        return "T";
+    case TypeKind::Sum:
+        if (const auto *sum = this->sum(resolved); sum != nullptr) {
+            std::string result;
+            for (size_t index = 0; index < sum->members.size(); ++index) {
+                if (index != 0)
+                    result += " | ";
+                result += typeToString(sum->members[index]);
+            }
+            return result;
+        }
+        return "sum";
+    case TypeKind::Failable:
+        if (const auto *fail = failable(resolved); fail != nullptr)
+            return "!" + typeToString(fail->inner);
+        return "failable";
+    case TypeKind::Pack:
+        return "pack";
+    case TypeKind::Alias:
+        if (const auto *alias = this->alias(resolved); alias != nullptr)
+            return typeToString(alias->target);
+        return "alias";
+    case TypeKind::Incomplete:
+        return "incomplete";
+    case TypeKind::Qualified:
+        if (const auto *qual = qualified(resolved); qual != nullptr)
+            return typeToString(qual->inner);
+        return "qualified";
+    }
+    if (entry->kind == EntryKind::Name && !entry->name_view.empty())
+        return std::string(entry->name_view);
+    return "unknown";
 }
 
 void TypeTable::genericParamOrigin(TypeId id, uint32_t *decl_id,
@@ -337,6 +466,21 @@ const AliasType *TypeTable::alias(TypeId id) const noexcept {
     return entry && entry->kind == EntryKind::Alias ? entry->alias_ty : nullptr;
 }
 
+const QualifiedType *TypeTable::qualified(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry && entry->kind == EntryKind::Qualified ? entry->qualified_ty : nullptr;
+}
+
+TypeId TypeTable::stripQualifiers(TypeId id) const noexcept {
+    for (unsigned guard = 0; guard < 8U; ++guard) {
+        const auto *qual = qualified(canonical(id));
+        if (qual == nullptr)
+            break;
+        id = qual->inner;
+    }
+    return canonical(id);
+}
+
 const IncompleteType *TypeTable::incomplete(TypeId id) const noexcept {
     const auto *entry = findEntry(id);
     return entry && entry->kind == EntryKind::Incomplete ? entry->incomplete_ty : nullptr;
@@ -377,6 +521,24 @@ void TypeTable::registerNamed(std::string_view name, TypeId id) {
     named_registry_.insert(name, id);
 }
 
+types::OwnershipKind mapOwnership(frontend::OwnershipKind kind) noexcept {
+    switch (kind) {
+    case frontend::OwnershipKind::Unique:
+        return types::OwnershipKind::Unique;
+    case frontend::OwnershipKind::Share:
+        return types::OwnershipKind::Share;
+    case frontend::OwnershipKind::Lend:
+        return types::OwnershipKind::Lend;
+    case frontend::OwnershipKind::View:
+        return types::OwnershipKind::View;
+    case frontend::OwnershipKind::Belong:
+        return types::OwnershipKind::Belong;
+    case frontend::OwnershipKind::Default:
+        break;
+    }
+    return types::OwnershipKind::Default;
+}
+
 TypeId TypeTable::lowerTypeExpr(const frontend::FrontendSnapshot &snapshot,
                                 frontend::TypeExprId id) noexcept {
     if (!id)
@@ -385,7 +547,23 @@ TypeId TypeTable::lowerTypeExpr(const frontend::FrontendSnapshot &snapshot,
     if (id.value > type_expressions.size())
         return kInvalidTypeId;
     const auto &type = type_expressions[id.value - 1U];
+    // A memory qualifier wraps the type it annotates; `resolve`/`stripQualifiers`
+    // look through the wrapper so unification is unaffected.
+    if (type.ownership != frontend::OwnershipKind::Default || type.isMut) {
+        frontend::TypeExpression bare = type;
+        bare.ownership                = frontend::OwnershipKind::Default;
+        bare.isMut                    = false;
+        bare.hasMutKeyword            = false;
+        const TypeId inner            = lowerTypeExprBare(snapshot, bare);
+        if (!inner)
+            return kInvalidTypeId;
+        return internQualified(inner, mapOwnership(type.ownership), type.isMut);
+    }
+    return lowerTypeExprBare(snapshot, type);
+}
 
+TypeId TypeTable::lowerTypeExprBare(const frontend::FrontendSnapshot &snapshot,
+                                    const frontend::TypeExpression &type) noexcept {
     switch (type.kind) {
     case frontend::TypeExprKind::Name: {
         // Do not invent a permissive Unknown for unresolved names; the caller (PerModuleSema)
@@ -418,6 +596,10 @@ TypeId TypeTable::lowerTypeExpr(const frontend::FrontendSnapshot &snapshot,
         if (!type.arguments.empty())
             return internSlice(lowerTypeExpr(snapshot, type.arguments[0]));
         return internSlice(kInvalidTypeId);
+    case frontend::TypeExprKind::Opaque:
+        // `raw opaque` is pointer-to-void. `void` is registered by PerModuleSema before any
+        // type expression is lowered, so the lookup only fails on a table with no primitives.
+        return internPointer(lookupNamed("void"));
     case frontend::TypeExprKind::Error:
         return kInvalidTypeId;
     }

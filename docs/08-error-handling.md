@@ -23,6 +23,44 @@ Failable types may be stacked, and the notation reads linearly:
 
 Read left to right, outer to inner: an *optional* **pointer** to an *optional* **Result**, where the Result's success type is `?i32` and its error type is `IoError`.
 
+### 8.1.1 C pointers are `?*T`
+
+Every pointer imported from a C header is typed `?*T`, not `*T`: a C pointer is nullable, and
+`?*T` uses the nullptr niche, so the layout is exactly the bare pointer. `is null` is the
+canonical way to check one:
+
+```zith
+import "stdio.h"
+
+let f = fopen("data.bin", "r");   // f: ?*FILE
+if (f is null) {
+    return 1;
+}
+```
+
+Comparing a pointer against an integer is an error, including the C idiom `p != 0` and its hex
+spelling `p != 0x0`: no integer-to-pointer coercion exists.
+
+Reinterpreting a C pointer keeps its nullability: the target of the cast must itself be
+nullable, so `as ?*T` is the accepted form and `as *T` reports `E3003` with a diagnostic that
+names the `?*T` spelling.
+
+```zith
+import "stdlib.h"
+
+let cell = malloc(64) as ?*i32;   // ok: cell is ?*i32
+let bad  = malloc(64) as *i32;    // E3003: use 'as ?*T'
+```
+
+In the other direction no cast is needed at all: any pointer, nullable or not, is accepted
+where a C `void*` (`raw opaque`) is expected, so `free(cell)` and `free(&local)` both compile.
+That coercion is one-way; going from `raw opaque` back to a concrete `?*T` still requires `as`.
+
+> **Temporary:** flow-sensitive narrowing after `is null` is not implemented yet, so a `?*T`
+> from C is currently accepted unchecked wherever a `*T` is expected. This allowance lives in
+> a single predicate (`PerModuleSema::allowsUncheckedNullablePointer`) and will be removed once
+> narrowing (and/or `must`/`raw`) lands, at which point unchecked use becomes a diagnostic.
+
 ### 8.2 `must` vs. `raw`
 
 | | Debug mode | Release mode |

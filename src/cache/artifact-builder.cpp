@@ -169,6 +169,169 @@ uint32_t ArtifactBuilder::internType(types::TypeId id) {
     return compact_id;
 }
 
+CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
+    CompactExpr out;
+    const auto &expr = hir_.getExpr(id);
+    hir::visitExpr(expr, common::overloaded{
+                             [&](const hir::HirLiteral &lit) {
+                                 out.kind    = CompactExprKind::Literal;
+                                 out.type_id = internType(lit.type);
+                                 // HirLiteral stores the value in a union; the active member is
+                                 // recovered from the type below.
+                                 switch (types_.kindOf(lit.type)) {
+                                 case types::TypeKind::Bool:
+                                     out.flags   = 2; // bool
+                                     out.int_val = lit.b ? 1 : 0;
+                                     break;
+                                 case types::TypeKind::Float:
+                                     out.flags   = 1; // float
+                                     out.flt_val = lit.f;
+                                     break;
+                                 case types::TypeKind::Ptr:
+                                     out.flags   = 3; // string/ptr literal
+                                     out.name_id = internString(interner_.lookup(lit.str_val));
+                                     break;
+                                 default:
+                                     out.flags   = 0; // int/char
+                                     out.int_val = lit.i;
+                                     break;
+                                 }
+                             },
+                             [&](const hir::HirBinary &bin) {
+                                 out.kind    = CompactExprKind::Binary;
+                                 out.type_id = internType(bin.type);
+                                 out.ref_a   = bin.lhs;
+                                 out.ref_b   = bin.rhs;
+                                 out.op      = static_cast<uint8_t>(bin.op);
+                                 out.ref_e   = internType(bin.operand_type);
+                             },
+                             [&](const hir::HirUnary &un) {
+                                 out.kind    = CompactExprKind::Unary;
+                                 out.type_id = internType(un.type);
+                                 out.ref_a   = un.operand;
+                                 out.op      = static_cast<uint8_t>(un.op);
+                             },
+                             [&](const hir::HirLet &let) {
+                                 out.kind    = CompactExprKind::Let;
+                                 out.name_id = internString(interner_.lookup(let.name));
+                                 out.type_id = internType(let.type);
+                                 out.ref_a   = let.init;
+                             },
+                             [&](const hir::HirVar &var) {
+                                 out.kind    = CompactExprKind::Var;
+                                 out.name_id = internString(interner_.lookup(var.name));
+                                 out.ref_c   = var.version;
+                             },
+                             [&](const hir::HirCall &call) {
+                                 out.kind  = CompactExprKind::Call;
+                                 out.ref_a = call.callee;
+                                 out.ref_b = call.resolved_fn;
+                                 for (auto arg : call.args)
+                                     out.args.push_back(arg);
+                                 for (auto arg_type : call.argument_types)
+                                     out.arg_types.push_back(internType(arg_type));
+                             },
+                             [&](const hir::HirRet &ret) {
+                                 out.kind  = CompactExprKind::Ret;
+                                 out.ref_a = ret.value;
+                             },
+                             [&](const hir::HirBranch &branch) {
+                                 out.kind  = CompactExprKind::Branch;
+                                 out.ref_a = branch.cond;
+                                 out.ref_c = branch.then_block;
+                                 out.ref_d = branch.else_block;
+                             },
+                             [&](const hir::HirJump &jump) {
+                                 out.kind  = CompactExprKind::Jump;
+                                 out.ref_c = jump.target;
+                             },
+                             [&](const hir::HirPhi &phi) {
+                                 out.kind = CompactExprKind::Phi;
+                                 for (auto in : phi.incoming)
+                                     out.args.push_back(in);
+                             },
+                             [&](const hir::HirAssign &assign) {
+                                 out.kind  = CompactExprKind::Assign;
+                                 out.ref_a = assign.target;
+                                 out.ref_b = assign.value;
+                             },
+                             [&](const hir::HirIndex &idx) {
+                                 out.kind    = CompactExprKind::Index;
+                                 out.type_id = internType(idx.type);
+                                 out.ref_a   = idx.object;
+                                 out.ref_b   = idx.index;
+                                 out.ref_e   = internType(idx.obj_type);
+                                 out.flags   = idx.is_array ? 1 : 0;
+                             },
+                             [&](const hir::HirField &field) {
+                                 out.kind    = CompactExprKind::Field;
+                                 out.type_id = internType(field.type);
+                                 out.ref_a   = field.object;
+                                 out.ref_c   = field.index;
+                                 out.ref_e   = internType(field.object_type);
+                             },
+                             [&](const hir::HirStructLiteral &lit) {
+                                 out.kind    = CompactExprKind::StructLiteral;
+                                 out.type_id = internType(lit.type);
+                                 for (auto v : lit.values)
+                                     out.args.push_back(v);
+                             },
+                             [&](const hir::HirArrayLiteral &lit) {
+                                 out.kind    = CompactExprKind::ArrayLiteral;
+                                 out.type_id = internType(lit.type);
+                                 for (auto e : lit.elements)
+                                     out.args.push_back(e);
+                             },
+                             [&](const hir::HirEnumValue &ev) {
+                                 out.kind    = CompactExprKind::EnumValue;
+                                 out.type_id = internType(ev.type);
+                                 out.int_val = ev.value;
+                             },
+                             [&](const hir::HirSlotAlloca &sa) {
+                                 out.kind    = CompactExprKind::SlotAlloca;
+                                 out.ref_a   = sa.slot;
+                                 out.type_id = internType(sa.type);
+                             },
+                             [&](const hir::HirSlotStore &ss) {
+                                 out.kind  = CompactExprKind::SlotStore;
+                                 out.ref_a = ss.slot;
+                                 out.ref_b = ss.value;
+                             },
+                             [&](const hir::HirSlotLoad &sl) {
+                                 out.kind    = CompactExprKind::SlotLoad;
+                                 out.ref_a   = sl.slot;
+                                 out.type_id = internType(sl.type);
+                             },
+                             [&](const hir::HirSlotAddr &sa) {
+                                 out.kind    = CompactExprKind::SlotAddr;
+                                 out.ref_a   = sa.slot;
+                                 out.type_id = internType(sa.type);
+                             },
+                             [&](const hir::HirMakeNone &mn) {
+                                 out.kind    = CompactExprKind::MakeNone;
+                                 out.type_id = internType(mn.type);
+                             },
+                             [&](const hir::HirMakeSome &ms) {
+                                 out.kind    = CompactExprKind::MakeSome;
+                                 out.type_id = internType(ms.type);
+                                 out.ref_a   = ms.value;
+                             },
+                             [&](const hir::HirCast &cast) {
+                                 out.kind  = CompactExprKind::Cast;
+                                 out.ref_a = cast.value;
+                                 out.ref_e = internType(cast.from);
+                                 out.ref_b = internType(cast.to);
+                             },
+                             [&](const hir::HirLayoutIntrinsic &li) {
+                                 out.kind    = CompactExprKind::LayoutIntrinsic;
+                                 out.type_id = internType(li.type);
+                                 out.ref_e   = static_cast<uint32_t>(li.which);
+                                 out.ref_f   = li.field_index;
+                             },
+                         });
+    return out;
+}
+
 uint64_t ArtifactBuilder::computePublicAbiHash() const {
     std::ostringstream primary;
     std::ostringstream secondary;
@@ -208,11 +371,16 @@ Artifact ArtifactBuilder::build(std::string_view canonical_path, std::string_vie
     art.deps = deps;
 
     // Collect exported/module-visible declarations.
+    std::unordered_map<symbols::SymId, size_t> sym_to_decl;
+    std::vector<symbols::SymId> decl_sym_ids;
+    decl_sym_ids.reserve(syms_.symbolCount());
     for (symbols::SymId id = 0; id < static_cast<symbols::SymId>(syms_.symbolCount()); ++id) {
         const auto &sym = syms_.get(id);
         if (sym.visibility != symbols::SymbolVisibility::Public &&
             sym.visibility != symbols::SymbolVisibility::Module)
             continue;
+        sym_to_decl[id] = art.decls.size();
+        decl_sym_ids.push_back(id);
         DeclRecord decl;
         decl.name       = std::string(interner_.lookup(sym.name));
         decl.name_id    = internString(interner_.lookup(sym.name));
@@ -220,6 +388,72 @@ Artifact ArtifactBuilder::build(std::string_view canonical_path, std::string_vie
         decl.visibility = sym.visibility;
         decl.mod_depth  = sym.mod_depth;
         art.decls.push_back(std::move(decl));
+        auto &out_decl = art.decls.back();
+
+        if (sym.kind == symbols::SymKind::Fn && sym.target != symbols::kInvalidSym) {
+            const auto &target = syms_.get(sym.target);
+            if (target.kind == symbols::SymKind::Variable) {
+                const auto fn_type = types_.lookupNamedType(interner_.lookup(target.name));
+                if (fn_type != types::kErrorType)
+                    out_decl.type_id = internType(fn_type);
+            }
+        } else {
+            const auto type_id = types_.lookupNamedType(interner_.lookup(sym.name));
+            if (type_id != types::kErrorType)
+                out_decl.type_id = internType(type_id);
+        }
+
+        const auto type_id = types_.lookupNamedType(interner_.lookup(sym.name));
+        if (sym.kind == symbols::SymKind::Struct || sym.kind == symbols::SymKind::Union ||
+            sym.kind == symbols::SymKind::Component) {
+            uint32_t def_id = ~uint32_t{0};
+            if (const auto *td = std::get_if<types::TypeStruct>(&types_.lookup(type_id)))
+                def_id = td->def_id;
+            else if (const auto *ud = std::get_if<types::TypeUnion>(&types_.lookup(type_id))) {
+                def_id = ud->def_id;
+            }
+            if (def_id != ~uint32_t{0}) {
+                if (const auto *sd = types_.lookupStructDef(def_id)) {
+                    for (const auto &field : sd->fields) {
+                        out_decl.field_name_ids.push_back(
+                            internString(interner_.lookup(field.name)));
+                        out_decl.field_type_ids.push_back(internType(field.type));
+                    }
+                } else if (const auto *ud = types_.lookupUnionDef(def_id)) {
+                    for (const auto member : ud->members)
+                        out_decl.field_type_ids.push_back(internType(member));
+                }
+            }
+        }
+
+        if (sym.kind == symbols::SymKind::Enum) {
+            const auto *ed = std::get_if<types::TypeEnum>(&types_.lookup(type_id));
+            if (ed != nullptr) {
+                const auto *def = types_.lookupEnumDef(ed->def_id);
+                if (def != nullptr)
+                    for (const auto &variant : def->variants)
+                        out_decl.field_name_ids.push_back(
+                            internString(interner_.lookup(variant.name)));
+            }
+        }
+    }
+
+    // Resolve method references to artifact declaration indices after the full
+    // declaration table has been collected, so cache consumers never have to
+    // guess at session-local SymbolTable ids.
+    for (size_t di = 0; di < art.decls.size(); ++di) {
+        const auto &decl = art.decls[di];
+        const auto id    = decl_sym_ids[di];
+        if (decl.kind != cache::CompactSymKind::Struct &&
+            decl.kind != cache::CompactSymKind::Union &&
+            decl.kind != cache::CompactSymKind::Component)
+            continue;
+        auto &out_decl = art.decls[di];
+        for (const auto member_id : syms_.get(id).members) {
+            const auto it = sym_to_decl.find(member_id);
+            if (it != sym_to_decl.end())
+                out_decl.method_decl_indices.push_back(static_cast<uint32_t>(it->second));
+        }
     }
 
     // Extract concrete HIR functions into the code section.
@@ -229,6 +463,7 @@ Artifact ArtifactBuilder::build(std::string_view canonical_path, std::string_vie
         cfn.name           = std::string(interner_.lookup(fn.name));
         cfn.name_id        = internString(interner_.lookup(fn.name));
         cfn.is_extern      = fn.blocks.empty();
+        cfn.is_variadic    = fn.isVariadic;
         cfn.return_type_id = internType(fn.return_type);
         for (size_t pi = 0; pi < fn.params.size(); ++pi) {
             cfn.param_type_ids.push_back(internType(fn.params[pi]));
@@ -242,13 +477,100 @@ Artifact ArtifactBuilder::build(std::string_view canonical_path, std::string_vie
             cblk.terminator = blk.terminator;
             cfn.blocks.push_back(std::move(cblk));
         }
-        // Flatten HIR expressions into compact form.
-        // Exprs are indexed by HirExprId; we copy them in order.
-        for (size_t ei = 0; ei < fi; ++ei) {
-            // The HirModule does not expose expr count directly; we skip expr
-            // detail in v1 and rely on block instruction ids for structure.
-        }
+        // HIR expression ids are module-global and shared by all functions.
+        // The codec's per-function `exprs` list stores that global table on the
+        // first function so hydration can restore the module-level pool once.
+        if (fi == 0)
+            for (hir::HirExprId eid = 0; eid < hir_.exprCount(); ++eid)
+                cfn.exprs.push_back(convertExpr(eid));
         art.functions.push_back(std::move(cfn));
+    }
+
+    for (size_t slot = 0; slot < hir_.attrs().slotCount(); ++slot) {
+        const auto attrs = hir_.attrs().trySlot(static_cast<hir::HirSlotId>(slot));
+        if (attrs == nullptr || !attrs->hasResidualFacts())
+            continue;
+        HirSlotAttrsRecord rec;
+        rec.slot      = static_cast<uint32_t>(slot);
+        rec.ownership = static_cast<uint8_t>(attrs->ownership);
+        rec.consumed  = static_cast<uint8_t>(attrs->consumed);
+        rec.nonNull   = attrs->nonNull;
+        art.attrs_slots.push_back(std::move(rec));
+    }
+    for (hir::HirExprId call_id = 0; call_id < hir_.exprCount(); ++call_id) {
+        const auto *attrs = hir_.attrs().tryCall(call_id);
+        if (attrs == nullptr || !attrs->hasResidualFacts())
+            continue;
+        HirCallAttrsRecord rec;
+        rec.expr_id     = call_id;
+        rec.returns_arg = attrs->returnsArg;
+        for (const auto &arg : attrs->args)
+            rec.arg_escapes.push_back(static_cast<uint32_t>(arg.escape));
+        art.attrs_calls.push_back(std::move(rec));
+    }
+    for (size_t fn_index = 0; fn_index < hir_.attrs().fnCount(); ++fn_index) {
+        const auto *attrs = hir_.attrs().tryFn(fn_index);
+        if (attrs == nullptr || !attrs->hasResidualFacts())
+            continue;
+        HirFnAttrsRecord rec;
+        rec.fn_index        = static_cast<uint32_t>(fn_index);
+        rec.return_consumed = static_cast<uint8_t>(attrs->returnConsumed);
+        rec.nonNull         = attrs->nonNull;
+        rec.noAlias         = attrs->noAlias;
+        rec.readOnly        = attrs->readOnly;
+        rec.noCapture       = attrs->noCapture;
+        art.attrs_fns.push_back(std::move(rec));
+    }
+
+    // Composite definitions are needed to hydrate private/internal named types
+    // that appear in HIR but are absent from the exported DeclRecord surface.
+    // Enum variants also need their non-index discriminants for exact codegen.
+    for (size_t def_id = 0; def_id < types_.structDefCount(); ++def_id) {
+        const auto *sd = types_.lookupStructDef(static_cast<uint32_t>(def_id));
+        if (sd == nullptr)
+            continue;
+        CompactStructDef cdef;
+        const auto name = interner_.lookup(sd->name);
+        cdef.name       = std::string(name);
+        cdef.name_id    = internString(name);
+        for (const auto &field : sd->fields) {
+            cdef.field_name_ids.push_back(internString(interner_.lookup(field.name)));
+            cdef.field_type_ids.push_back(internType(field.type));
+        }
+        art.struct_defs.push_back(std::move(cdef));
+    }
+    for (size_t def_id = 0; def_id < types_.enumDefCount(); ++def_id) {
+        const auto *ed = types_.lookupEnumDef(static_cast<uint32_t>(def_id));
+        if (ed == nullptr)
+            continue;
+        CompactEnumDef cdef;
+        const auto name = interner_.lookup(ed->name);
+        cdef.name       = std::string(name);
+        cdef.name_id    = internString(name);
+        cdef.underlying_id =
+            ed->underlying != types::kErrorType ? internType(ed->underlying) : ~uint32_t{0};
+        for (const auto &variant : ed->variants) {
+            CompactEnumVariant cvariant;
+            const auto vname      = interner_.lookup(variant.name);
+            cvariant.name         = std::string(vname);
+            cvariant.name_id      = internString(vname);
+            cvariant.discriminant = variant.discriminant;
+            cdef.variants.push_back(std::move(cvariant));
+        }
+        art.enum_defs.push_back(std::move(cdef));
+    }
+    for (size_t def_id = 0; def_id < types_.unionDefCount(); ++def_id) {
+        const auto *ud = types_.lookupUnionDef(static_cast<uint32_t>(def_id));
+        if (ud == nullptr)
+            continue;
+        CompactUnionDef cdef;
+        const auto name = interner_.lookup(ud->name);
+        cdef.name       = std::string(name);
+        cdef.name_id    = internString(name);
+        cdef.is_raw     = ud->is_raw;
+        for (const auto member : ud->members)
+            cdef.member_type_ids.push_back(internType(member));
+        art.union_defs.push_back(std::move(cdef));
     }
 
     // Commit string and type tables.

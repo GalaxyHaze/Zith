@@ -198,6 +198,137 @@ void test_c_header_import_lowers_external_function() {
 #endif
 }
 
+void test_pipeline_macro_expansion_lowers() {
+    Workspace workspace;
+    workspace.write("main.zith", "macro twice(v: expr) { v + v }\n"
+                                 "macro mk(v: expr) { let inner = v; inner }\n"
+                                 "fn add_one(n: i32): i32 { n + 1 }\n"
+                                 "macro call1(x: expr) { add_one(x) }\n"
+                                 "fn main(): i32 {\n"
+                                 "    let x = @twice(21);\n"
+                                 "    let inner = 5;\n"
+                                 "    let y = @mk(inner);\n"
+                                 "    let z = @call1(@mk(4));\n"
+                                 "    x + y + z\n"
+                                 "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "macro expansion survives sema and lowers to HIR");
+    CHECK(session.hirModule().getFnCount() >= 2u,
+          "HIR contains user functions plus generated code paths");
+    CHECK(session.snapshot() != nullptr && session.snapshot()->diagnostics().empty(),
+          "expanded macro bodies produce no semantic diagnostics");
+}
+
+void test_pipeline_raw_macro_lowers() {
+    Workspace workspace;
+    workspace.write("main.zith", "raw macro swap(a: identifier, b: identifier) {\n"
+                                 "    let tmp = a;\n"
+                                 "    a = b;\n"
+                                 "    b = tmp;\n"
+                                 "}\n"
+                                 "fn main(): i32 {\n"
+                                 "    var first = 3;\n"
+                                 "    var second = 7;\n"
+                                 "    @swap(first, second);\n"
+                                 "    first - second\n"
+                                 "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "raw macro statements splice and lower through the modern pipeline");
+    CHECK(session.snapshot() != nullptr && session.snapshot()->diagnostics().empty(),
+          "raw macro expansion produces no semantic diagnostics");
+}
+
+void test_pipeline_normal_macro_hygiene_and_call_site_scope() {
+    Workspace workspace;
+    workspace.write("main.zith", "global base: i32 = 100;\n"
+                                 "global inner: i32 = 9;\n"
+                                 "macro norm() { base }\n"
+                                 "macro inject() { let inner = 99; inner }\n"
+                                 "fn main(): i32 {\n"
+                                 "    let base: i32 = 7;\n"
+                                 "    let first = @norm();\n"
+                                 "    let second = @inject();\n"
+                                 "    first + second + inner\n"
+                                 "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "normal macro resolution prefers call-site scope and keeps bindings hygienic");
+    CHECK(session.snapshot() != nullptr && session.snapshot()->diagnostics().empty(),
+          "normal macro hygiene/scope case produces no semantic diagnostics");
+}
+
+void test_pipeline_raw_macro_sees_call_site_then_module() {
+    Workspace workspace;
+    workspace.write("main.zith", "global base: i32 = 10;\n"
+                                 "raw macro pick_raw() { target = base }\n"
+                                 "raw macro inject() { let inner = 99; inner }\n"
+                                 "fn main(): i32 {\n"
+                                 "    let base: i32 = 7;\n"
+                                 "    var target: i32 = 0;\n"
+                                 "    @pick_raw();\n"
+                                 "    @inject();\n"
+                                 "    target\n"
+                                 "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "raw macro body resolves from its splice scope and can see the module fallback");
+    CHECK(session.snapshot() != nullptr && session.snapshot()->diagnostics().empty(),
+          "raw macro call-site/global scope case produces no semantic diagnostics");
+}
+
+void test_pipeline_tag_macro_expands() {
+    Workspace workspace;
+    workspace.write("main.zith", "tag macro RunTwice(attributes, body: body) {\n"
+                                 "    let title = attributes.title;\n"
+                                 "    body;\n"
+                                 "    body;\n"
+                                 "}\n"
+                                 "fn main(): i32 {\n"
+                                 "    var total = 0;\n"
+                                 "    <RunTwice title: 1>\n"
+                                 "        total = total + 1;\n"
+                                 "    </RunTwice>\n"
+                                 "    total\n"
+                                 "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "tag macro body and attributes lower through the modern pipeline");
+    CHECK(session.snapshot() != nullptr && session.snapshot()->diagnostics().empty(),
+          "tag macro expansion produces no semantic diagnostics");
+}
+
 } // namespace
 
 static void test_frontend_modern_pipeline() {
@@ -208,6 +339,11 @@ static void test_frontend_modern_pipeline() {
     test_pipeline_while_loop_lowers();
     test_pipeline_if_else_lowers();
     test_c_header_import_lowers_external_function();
+    test_pipeline_macro_expansion_lowers();
+    test_pipeline_raw_macro_lowers();
+    test_pipeline_normal_macro_hygiene_and_call_site_scope();
+    test_pipeline_raw_macro_sees_call_site_then_module();
+    test_pipeline_tag_macro_expands();
 }
 
 TEST_MAIN(frontend_modern_pipeline)

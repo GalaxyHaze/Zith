@@ -15,6 +15,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace zith::sema::modern {
 
@@ -57,6 +58,7 @@ struct PerModuleSema {
     SemaPipeline *owner = nullptr;
 
     TypeId error_type;
+    TypeId invalid_type;
     TypeId void_type;
     TypeId bool_type;
     TypeId char_type;
@@ -113,6 +115,9 @@ private:
     /// Decl id of the declaration currently being lowered or inferred (0 = none).
     uint32_t currentDeclId_ = 0;
 
+    /// Whether the resolved binding's function accepts a trailing variadic tail.
+    [[nodiscard]] static bool bindingIsVariadic(const session::ResolvedName &binding) noexcept;
+
     /// Collects `marker` statement names within a function body (hoisted labels).
     void collectMarkers(frontend::ExprId id);
     /// Marker names visible to `jump` statements in the current function.
@@ -120,6 +125,8 @@ private:
 
     void checkReturnStatement(const frontend::Statement &stmt);
     TypeId lowerTypeExpr(frontend::TypeExprId id);
+    /// Lowers `type` ignoring its own memory qualifier; `lowerTypeExpr` wraps the result.
+    TypeId lowerBareTypeExpr(const frontend::TypeExpression &type);
     TypeId lowerForeignType(const cinterop::Type &type);
     TypeId inferExpr(frontend::ExprId id);
     TypeId inferLiteral(frontend::ExprId id, std::string_view text);
@@ -127,12 +134,20 @@ private:
     TypeId inferUnary(frontend::ExprId id);
     TypeId inferBinary(frontend::ExprId id);
     TypeId inferCall(frontend::ExprId id);
+    /// Try to resolve a Field/Arrow callee as a method call.
+    /// Returns the result type, or kInvalidTypeId (with a diagnostic)
+    /// when the field is not a method.
+    TypeId inferMethodCall(const frontend::Expression &call, const frontend::Expression &callee);
     TypeId inferBlock(frontend::ExprId id);
     TypeId inferIf(frontend::ExprId id);
     TypeId inferWhile(frontend::ExprId id);
     TypeId inferFor(frontend::ExprId id);
     TypeId inferReturn(frontend::ExprId id);
     TypeId inferAssign(frontend::ExprId id);
+    /// Root name of a place expression (`p.inner.x` -> `p`), or an empty id.
+    frontend::ExprId assignmentRoot(frontend::ExprId id) const noexcept;
+    /// Reports `WriteThroughView` when the assignment target is rooted at a `view` binding.
+    void checkAssignableOwnership(frontend::ExprId target, frontend::TextSpan span);
     TypeId inferOptionalProp(frontend::ExprId id);
     TypeId inferIndex(frontend::ExprId id);
     TypeId inferField(frontend::ExprId id);
@@ -146,10 +161,38 @@ private:
     TypeId inferStructLiteral(frontend::ExprId id);
     TypeId inferArrayLiteral(frontend::ExprId id);
     TypeId inferCast(frontend::ExprId id);
+    /// True for the two supported pointer casts: `raw opaque as *T` and `*T as raw opaque`.
+    [[nodiscard]] bool isOpaquePointerCast(TypeId from, TypeId to) const;
+    /// The pointer type inside `type`, looking through at most one `Optional` (a C pointer
+    /// is `?*T`). Invalid when `type` is not a pointer or nullable pointer.
+    [[nodiscard]] TypeId pointerBase(TypeId type) const noexcept;
+    /// True for `?*T`: an `Optional` whose inner type is a pointer.
+    [[nodiscard]] bool isNullablePointer(TypeId type) const noexcept;
+    /// True for `*void` and `?*void`, the two spellings a C `void*` can take.
+    [[nodiscard]] bool isVoidPointer(TypeId type) const noexcept;
     TypeId inferIsNull(frontend::ExprId id);
     TypeId inferWhen(frontend::ExprId id);
     TypeId inferRange(frontend::ExprId id);
     TypeId inferLayoutIntrinsic(frontend::ExprId id);
+
+    /// Candidate set for an overloaded call: one entry per visible declaration.
+    struct OverloadCandidate {
+        const session::ResolvedName *binding = nullptr;
+        TypeId type                          = kInvalidTypeId;
+        const FunctionType *fn               = nullptr;
+        frontend::TextSpan span{};
+    };
+
+    /// Function type of a binding (declaration, import, or foreign function).
+    TypeId typeOfResolvedBinding(const session::ResolvedName &binding);
+    /// Picks the single candidate every argument fits, reporting `NoMatchingFn`
+    /// when none survives and `AmbiguousCall` when more than one does.  Returns
+    /// nullptr in both failure cases; `reported` says whether it diagnosed.
+    const OverloadCandidate *selectOverload(const frontend::Expression &call,
+                                            const std::vector<OverloadCandidate> &candidates,
+                                            size_t implicit_args, bool &reported);
+    /// Non-mutating form of `adaptNumericLiteral`, used while probing candidates.
+    bool literalAdaptsTo(frontend::ExprId value, TypeId target) const noexcept;
 
     /// Adapts a numeric literal operand to `target` when possible. This is the only implicit
     /// numeric conversion the language keeps; conversions between variables need `as`.
@@ -166,6 +209,10 @@ private:
     bool sameType(TypeId a, TypeId b) const noexcept;
     /// True when a value of `source` is acceptable where `target` is expected,
     /// including the implicit `T -> ?T` and `null -> ?T` coercions.
+    /// TEMPORARY allowance for `?*T` where `*T` is expected; see the definition. Kept as a
+    /// named predicate so the next iteration (flow-sensitive narrowing after `is null`) has
+    /// exactly one place to remove.
+    bool allowsUncheckedNullablePointer(TypeId target, TypeId source) const noexcept;
     bool coercesTo(TypeId target, TypeId source) const noexcept;
     TypeId resolve(TypeId t) const noexcept;
     TypeId concreteBase(TypeId t) const noexcept;
@@ -180,6 +227,20 @@ private:
                                       size_t field_index) const noexcept;
 
     TypeId typeOfDeclInModule(session::ModuleKey module, frontend::DeclId id) const noexcept;
+
+public:
+    /// Declaration chosen for an overloaded call, keyed by the callee expression.
+    /// HIR lowering consults this so it does not re-resolve to the first candidate.
+    struct CallTarget {
+        session::ModuleKey module;
+        frontend::DeclId decl;
+    };
+    [[nodiscard]] const CallTarget *resolvedCallTarget(frontend::ExprId callee) const noexcept;
+
+private:
+    void setResolvedCallTarget(frontend::ExprId callee, session::ModuleKey module,
+                               frontend::DeclId decl);
+    std::unordered_map<uint32_t, CallTarget> call_targets_;
 };
 
 class SemaPipeline {

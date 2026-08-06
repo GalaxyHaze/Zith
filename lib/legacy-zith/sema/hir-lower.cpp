@@ -570,7 +570,7 @@ hir::HirExprId HirLower::visitCall(ast::ExprId id, const ast::CallNode &n) {
         }
     }
 
-    hir::HirCall call{callee, std::move(hir_args)};
+    hir::HirCall call{callee, std::move(hir_args), std::move(arg_types)};
     call.resolved_fn = resolved_fn;
     (void)id;
     return addHirExpr(hir::HirExpr{std::move(call)});

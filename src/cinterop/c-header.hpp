@@ -14,6 +14,8 @@ struct Type {
     uint8_t bits  = 0;
     bool isSigned = false;
     bool isConst  = false;
+    /// Plain C `char` (not `signed char`/`unsigned char`), lowered to Zith `char`.
+    bool isChar = false;
     std::string name;
     std::shared_ptr<const Type> pointee;
 };
@@ -23,6 +25,7 @@ struct Function {
     std::string linkageName;
     std::vector<Type> parameters;
     Type result;
+    bool isVariadic = false;
 };
 
 struct Diagnostic {
@@ -37,6 +40,9 @@ struct CHeaderArtifact {
     std::vector<Function> functions;
     std::vector<std::string> dependencies;
     std::vector<Diagnostic> diagnostics;
+    /// Declarations skipped because a parameter or result type is not representable.
+    /// Kept out of `diagnostics` so one unsupported decl does not fail the import.
+    std::vector<std::string> skippedFunctions;
 };
 
 struct ParseOptions {
@@ -49,5 +55,10 @@ struct ParseOptions {
 [[nodiscard]] bool available() noexcept;
 [[nodiscard]] std::shared_ptr<const CHeaderArtifact> parseHeader(const std::string &headerPath,
                                                                  const ParseOptions &options);
+
+/// Directories the host C toolchain searches for system headers. Discovered once
+/// per (target triple, sysroot) pair; empty when no directory can be determined.
+[[nodiscard]] std::vector<std::string> systemIncludeDirs(const std::string &targetTriple,
+                                                         const std::string &sysroot);
 
 } // namespace zith::cinterop

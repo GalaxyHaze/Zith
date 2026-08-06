@@ -1,16 +1,17 @@
 ## 18. C Interop
 
 > **Implementation status:** `extern fn` bindings are **working** on all targets. Native libclang
-> C header import is **partial** — macros, variadics, callbacks, and complex layouts are
-> unsupported. See [impl-status.md](impl-status.md).
+> C header import is **working** for common libc-style declarations (including variadic functions,
+> array-decayed parameters, `va_list`, and function-pointer parameters) and **partial** for
+> macros, globals, bitfields, and complex layouts. See [impl-status.md](impl-status.md).
 
 Zith supports manual `extern fn` bindings on every target. Native builds which find libclang also
 support a restricted, automatic C-header import path.
 
 ### 18.1 Automatic Binding via `.h`
 
-Native builds with libclang can import a `.h` file. The importer exposes supported external,
-non-variadic C functions directly; it does not generate Zith source.
+Native builds with libclang can import a `.h` file. The importer exposes supported external C
+functions directly, preserving their variadic status; it does not generate Zith source.
 
 ```zith
 import "mylib.h";
@@ -20,15 +21,71 @@ my_function();
 ```
 
 Only C ABI headers are accepted. `.hpp` files report that C++ headers are unsupported. Macros,
-callbacks/function pointers, variadic functions, globals, bitfields, packed or anonymous records,
-flexible arrays, and other non-representable layouts are not imported. Use manual `extern fn` for
-APIs outside this surface and for all builds without libclang, including WASM and cross builds.
+globals, bitfields, packed or anonymous records, flexible arrays, and other non-representable
+layouts are not imported. A single unsupported declaration is skipped rather than failing the
+whole header; the importer records the reason in `skippedFunctions` so the rest of the file stays
+available. Use manual `extern fn` for APIs outside this surface and for all builds without
+libclang, including WASM and cross builds.
+
+### 18.1.1 Variadic C Functions
+
+Variadic declarations use `...` as the final token of an `extern fn` parameter list. The fixed
+parameters are type-checked normally; the variadic tail accepts any number of arguments and
+reaches the native ABI as a variadic call.
+
+```zith
+extern fn printf(fmt: *char, ...): i32
+
+fn main(): i32 {
+    printf("n=%d\n", 7);
+    return 0;
+}
+```
+
+A non-`extern` function cannot declare `...`, and the tail must be the last element of the
+parameter list. Declarations produced by the C header importer carry the same variadic flag into
+resolution, HIR, and LLVM.
+
+At a variadic call site the compiler applies the C default argument promotions to the variadic
+tail: `f32` is widened to `f64`, and `bool`/`char`/small integer arguments are widened to `i32`.
+Fixed parameters keep their declared ABI types.
+
+String and character literals decode the C-like escape set (`\n`, `\r`, `\t`, `\0`, `\\`, `\'`,
+`\"`, and `\xHH`) before reaching LLVM, so `printf("v=%d\n", 42)` prints a real newline. Unknown
+escape sequences are rejected with `E0001` at the literal's span.
+
+`char` literals such as `'B'` are typed as `char`, and `... as char` conversions are accepted.
+Plain C `char` parameters and results import as Zith `char`.
 
 | C type | Imported Zith type |
 |---|---|
 | `void`, `_Bool`, integers, floats | ABI-width primitive equivalent |
-| `T*`, `const T*` | Pointer preserving pointee constness |
+| `T*`, `const T*` | Nullable pointer `?*T`, preserving pointee constness |
+| `T[N]`, `char[20]` (parameters) | Pointer to `T` / opaque pointer after C array decay |
+| `va_list` | The decayed `struct __va_list_tag *` pointer carried by the function type |
+| `int (*)(...)` (parameters) | Opaque pointer; callable through an existing C pointer value |
 | simple records and enums | Named foreign type |
+
+Because a C pointer imports as `?*T` (see
+[8.1.1](08-error-handling.md#811-c-pointers-are-t)), reinterpreting one is written `as ?*T`;
+`as *T` is rejected with `E3003` so the null case cannot be dropped silently. Passing a pointer
+the other way needs no cast: any `*T` or `?*T` is accepted for a C `void*` parameter.
+
+```zith
+import "stdlib.h"
+
+fn main(): i32 {
+    let cell: ?*i32 = malloc(64) as ?*i32;
+    free(cell);                             // ?*i32 -> void*, no cast
+    var local: i32 = 7;
+    free(&local);                           // *i32  -> void*, no cast
+    return 0;
+}
+```
+
+Records passed or returned **by value** import as named foreign types but have no verified ABI;
+constructing or reading their fields from Zith is not supported yet (see Known Debt in
+[impl-status.md](impl-status.md)).
 
 The project may configure C parsing and linking in `ZithProject.toml`:
 
@@ -42,6 +99,28 @@ defines = ["MYLIB_FEATURE=1"]
 
 `-I`, `-D`, `-L`, and `-l` add command-line values after project values. Library names are
 validated and linked without passing a shell command string.
+
+#### System C headers
+
+System C headers resolve without any `-I` flag. On startup the compiler probes libclang once per
+`(target triple, sysroot)` pair to discover the toolchain's default include directories, so
+`import "stdint.h"` works out of the box. The clang resource directory (containing compiler-built
+headers such as `stddef.h`) is found during CMake configuration from the LLVM package and pushed
+both to the probe and to every header parse. Builds without libclang fall back to `/usr/include`
+and `/usr/local/include` when they exist.
+
+```zith
+import "stdint.h";
+```
+
+These directories are searched **last**. Stdlib roots, `-I` roots, the workspace root, and the
+importing file's own directory all take precedence, so a project-local `stdint.h` shadows the
+system one. Pass `--no-system-includes` to disable the behaviour entirely; imports then resolve
+only from explicitly configured roots. The discovered directories are part of the artifact cache
+key, so changing them does not reuse stale cached modules.
+
+Only C spellings with a `.h` extension resolve this way. Extensionless C++ names such as
+`cstdint` are not supported.
 
 ### 18.2 Manual Binding with Semantic Annotation
 

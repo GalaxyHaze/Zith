@@ -335,6 +335,98 @@ void test_parameter_shadowing_in_body_is_a_duplicate() {
              "a body local may not shadow a parameter of the same function");
 }
 
+void test_lookup_binding_walks_module_fallback() {
+    // Regression for the macro/scope wave: the internal helper must keep the
+    // nearest-scope-first contract used by expanded macro names.
+    Workspace workspace;
+    workspace.write("main.zith", "fn f(x: i32): i32 { x }\n");
+
+    FrontendContext context(workspace.config(1));
+    auto result = context.analyzeFile(workspace.path("main.zith"));
+    CHECK(result.isOk(), "analysis succeeds");
+    if (!result)
+        return;
+
+    const auto *resolution = rootResolution(*result.value(), workspace);
+    CHECK(resolution != nullptr, "root module has a resolution table");
+    if (!resolution)
+        return;
+
+    const auto *module =
+        result.value()->findModule(SourceCatalog::canonicalPath(workspace.path("main.zith")));
+    CHECK(module != nullptr, "root module artifact exists");
+    if (!module || module->frontend == nullptr)
+        return;
+
+    const frontend::ScopeId first_scope =
+        module->frontend->expressions()[module->frontend->declarations()[0].body.value - 1U].scope;
+    const auto *bound = lookupBinding(*resolution, "x", first_scope, module->frontend->scopes());
+    CHECK(bound != nullptr, "parameter resolves from the function body scope");
+    if (bound)
+        CHECK_EQ(bound->local.value, module->frontend->declarations()[0].parameters[0].id.value,
+                 "lookupBinding finds the nearest local binding first");
+}
+
+void test_system_include_roots() {
+    Workspace workspace;
+    workspace.write("main.zith", "import \"stdint.h\"\nfn main() { }\n");
+
+    auto disabled_cfg                  = workspace.config(1);
+    disabled_cfg.useSystemIncludeRoots = false;
+    FrontendContext disabled(std::move(disabled_cfg));
+    auto disabled_result = disabled.analyzeFile(workspace.path("main.zith"));
+    CHECK(disabled_result.isOk(), "analysis runs with system includes disabled");
+    if (!disabled_result)
+        return;
+    bool saw_unresolved = false;
+    for (const auto &diagnostic : disabled_result.value()->diagnostics())
+        saw_unresolved |=
+            diagnostic.message.find("could not resolve import 'stdint.h'") != std::string::npos;
+    CHECK(saw_unresolved, "system header import fails without system include roots");
+
+    FrontendContext enabled(workspace.config(1));
+    CHECK(enabled.cacheKey().identity() != disabled.cacheKey().identity(),
+          "system include roots change the cache identity");
+    CHECK(!enabled.cacheKey().systemIncludeRoots.empty(),
+          "the context populates system include roots");
+    CHECK(disabled.cacheKey().systemIncludeRoots.empty(),
+          "disabling clears the system include roots");
+
+#ifdef ZITH_ENABLE_C_INTEROP
+    auto enabled_result = enabled.analyzeFile(workspace.path("main.zith"));
+    CHECK(enabled_result.isOk(), "analysis runs with system includes enabled");
+    if (!enabled_result)
+        return;
+    CHECK(!enabled_result.value()->hasErrors(), "system header import resolves by default");
+    bool saw_c_header = false;
+    for (const auto &edge : enabled_result.value()->importGraph())
+        saw_c_header |= edge.targetKind == ImportTargetKind::CHeader;
+    CHECK(saw_c_header, "the resolved system header is a C header edge");
+#endif
+}
+
+void test_workspace_header_shadows_system_header() {
+    Workspace workspace;
+    workspace.write("main.zith", "import \"stdint.h\"\nfn main() { }\n");
+    workspace.write("stdint.h", "int zith_local_marker(void);\n");
+
+    FrontendContext context(workspace.config(1));
+    auto result = context.analyzeFile(workspace.path("main.zith"));
+    CHECK(result.isOk(), "analysis with a workspace-local header succeeds");
+    if (!result)
+        return;
+
+    const auto expected = SourceCatalog::canonicalPath(workspace.path("stdint.h"));
+    bool shadowed       = false;
+    for (const auto &edge : result.value()->importGraph()) {
+        if (edge.targetKind != ImportTargetKind::CHeader)
+            continue;
+        for (const auto &target : edge.targets)
+            shadowed |= target == expected;
+    }
+    CHECK(shadowed, "a workspace-local header shadows the system one");
+}
+
 void test_syntax_errors_reach_the_diagnostic_engine() {
     Workspace workspace;
     workspace.write("main.zith", "fn f( {\n");
@@ -367,7 +459,10 @@ static void test_frontend_context() {
     test_local_bindings_are_scoped();
     test_nested_block_shadowing_is_allowed();
     test_parameter_shadowing_in_body_is_a_duplicate();
+    test_lookup_binding_walks_module_fallback();
     test_syntax_errors_reach_the_diagnostic_engine();
+    test_system_include_roots();
+    test_workspace_header_shadows_system_header();
 }
 
 TEST_MAIN(frontend_context)

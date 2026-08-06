@@ -53,6 +53,37 @@ struct CompactType {
     std::vector<uint32_t> arg_names; // pack member names (string ids)
 };
 
+// Definition payload for named composite types referenced by CompactType.
+// The compact type table carries only def ids, so this table lets a cache reader
+// rebuild private/internal composite definitions that are not part of the
+// exported DeclRecord table.
+struct CompactStructDef {
+    std::string name;
+    uint32_t name_id = 0;
+    std::vector<uint32_t> field_name_ids;
+    std::vector<uint32_t> field_type_ids;
+};
+
+struct CompactEnumVariant {
+    std::string name;
+    uint32_t name_id     = 0;
+    int64_t discriminant = 0;
+};
+
+struct CompactEnumDef {
+    std::string name;
+    uint32_t name_id       = 0;
+    uint32_t underlying_id = ~uint32_t{0};
+    std::vector<CompactEnumVariant> variants;
+};
+
+struct CompactUnionDef {
+    std::string name;
+    uint32_t name_id = 0;
+    std::vector<uint32_t> member_type_ids;
+    bool is_raw = false;
+};
+
 // A dependency on another module.  Resolved at load time by matching the
 // dependency's canonical path and public ABI hash against what the importer
 // currently sees.
@@ -146,6 +177,14 @@ enum class CompactExprKind : uint8_t {
     StructLiteral,
     ArrayLiteral,
     EnumValue,
+    SlotAlloca,
+    SlotStore,
+    SlotLoad,
+    SlotAddr,
+    MakeNone,
+    MakeSome,
+    Cast,
+    LayoutIntrinsic,
 };
 
 enum class CompactBinaryOp : uint8_t {
@@ -175,12 +214,15 @@ struct CompactExpr {
     uint32_t ref_b       = 0; // rhs / index / value
     uint32_t ref_c       = 0; // then_block / field index / version
     uint32_t ref_d       = 0; // else_block
+    uint32_t ref_e       = 0; // Cast::from / LayoutIntrinsic::which / operand type
+    uint32_t ref_f       = 0; // LayoutIntrinsic::field_index
     uint8_t op           = 0; // binary/unary op
     uint8_t flags        = 0; // is_array / literal sub-tag
     int64_t int_val      = 0;
     double flt_val       = 0.0;
-    uint32_t name_id     = 0;   // let/var name
-    std::vector<uint32_t> args; // call args / phi incoming / literal values
+    uint32_t name_id     = 0;        // let/var name
+    std::vector<uint32_t> args;      // call args / phi incoming / literal values
+    std::vector<uint32_t> arg_types; // call argument types
 };
 
 struct CompactBasicBlock {
@@ -196,7 +238,30 @@ struct CompactFunction {
     uint32_t return_type_id = 0;
     std::vector<CompactBasicBlock> blocks;
     std::vector<CompactExpr> exprs;
-    bool is_extern = false;
+    bool is_extern   = false;
+    bool is_variadic = false;
+};
+
+struct HirSlotAttrsRecord {
+    uint32_t slot     = 0;
+    uint8_t ownership = 0;
+    uint8_t consumed  = 0;
+    bool nonNull      = false;
+};
+
+struct HirCallAttrsRecord {
+    uint32_t expr_id = 0;
+    std::vector<uint32_t> arg_escapes;
+    uint32_t returns_arg = ~uint32_t{0};
+};
+
+struct HirFnAttrsRecord {
+    uint32_t fn_index       = 0;
+    uint8_t return_consumed = 0;
+    bool nonNull            = false;
+    bool noAlias            = false;
+    bool readOnly           = false;
+    bool noCapture          = false;
 };
 
 // The full decoded artifact.  Built by the reader and consumed by the hydrator.
@@ -217,6 +282,15 @@ struct Artifact {
     std::vector<DeclRecord> decls;            // sec3
     std::vector<TemplateBlueprint> templates; // sec4
     std::vector<CompactFunction> functions;   // sec5
+    // Definition tables used to restore composite types regardless of whether
+    // they appear among exported DeclRecord entries.
+    std::vector<CompactStructDef> struct_defs;
+    std::vector<CompactEnumDef> enum_defs;
+    std::vector<CompactUnionDef> union_defs;
+    // sec6 ownership/call/fn residual facts (HirAttrs)
+    std::vector<HirSlotAttrsRecord> attrs_slots;
+    std::vector<HirCallAttrsRecord> attrs_calls;
+    std::vector<HirFnAttrsRecord> attrs_fns;
 };
 
 } // namespace zith::cache

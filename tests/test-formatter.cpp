@@ -243,6 +243,104 @@ static void test_compilation_session_fmt_uses_frontend_snapshot() {
     CHECK(session.snapshot() != nullptr, "fmt stage builds a modern frontend snapshot");
 }
 
+static void test_formatter_memory_qualifier_round_trip() {
+    // Every qualifier must survive `zithc fmt`; losing one would silently change
+    // ownership and mutability.
+    const char *qualified[] = {
+        "fn f(p: lend i32) {}\n",     "fn f(p: view i32) {}\n",   "fn f(p: unique i32) {}\n",
+        "fn f(p: share i32) {}\n",    "fn f(p: belong i32) {}\n", "fn f(p: mut i32) {}\n",
+        "fn f(p: mut lend i32) {}\n", "fn f(p: lend *i32) {}\n",  "fn f(p: ?view i32) {}\n",
+        "fn f(): view i32 {}\n",
+    };
+
+    for (const char *source : qualified) {
+        auto snapshot = frontend::parse(source);
+        formatter::FmtVisitor formatter(snapshot);
+        formatter.format();
+        CHECK_EQ(formatter.result(), std::string(source), "qualified type round-trips through fmt");
+
+        auto reparsed = frontend::parse(formatter.result());
+        CHECK(reparsed.diagnostics().empty(), "formatted qualified type re-parses cleanly");
+        formatter::FmtVisitor second(reparsed);
+        second.format();
+        CHECK_EQ(second.result(), formatter.result(), "qualifier formatting is idempotent");
+    }
+}
+
+static void test_formatter_variadic_declaration_round_trip() {
+    const std::string source = "extern fn printf(fmt: *char, ...): i32;\n";
+    auto snapshot            = frontend::parse(source);
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+    CHECK_EQ(formatter.result(), source, "variadic tail round-trips through fmt");
+
+    auto reparsed = frontend::parse(formatter.result());
+    CHECK(reparsed.diagnostics().empty(), "formatted variadic declaration re-parses cleanly");
+}
+
+static void test_formatter_compound_assign_round_trip() {
+    // Compound assignment is stored desugared as `x = x op v`; fmt must recover the
+    // source spelling rather than printing the expanded form.
+    const std::string source = "fn main(): i32 {\n"
+                               "    var x: i32 = 1;\n"
+                               "    var y: i32 = 2;\n"
+                               "    x += 2;\n"
+                               "    x -= 1;\n"
+                               "    x *= 3;\n"
+                               "    x /= 2;\n"
+                               "    x %= 5;\n"
+                               "    x <<= 1;\n"
+                               "    x >>= 1;\n"
+                               "    x &= 3;\n"
+                               "    x |= 4;\n"
+                               "    x ^= 1;\n"
+                               "    x = (y += 1);\n"
+                               "    return x;\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    CHECK(snapshot.diagnostics().empty(), "compound assignment source parses cleanly");
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+    CHECK_EQ(formatter.result(), source, "every compound assignment round-trips through fmt");
+
+    auto reparsed = frontend::parse(formatter.result());
+    formatter::FmtVisitor second(reparsed);
+    second.format();
+    CHECK_EQ(second.result(), formatter.result(), "compound assignment formatting is idempotent");
+}
+
+static void test_formatter_bitwise_operator_round_trip() {
+    // Parenthesization here is driven by the parser and formatter agreeing on the new
+    // precedences: `&.` binds tighter than `^.`, which binds tighter than `|.`.
+    const std::string source = "fn main(): i32 {\n"
+                               "    var a: i32 = 6;\n"
+                               "    var b: i32 = 3;\n"
+                               "    var c: i32 = a |. b ^. a &. b;\n"
+                               "    var d: i32 = a &. (b |. a);\n"
+                               "    var e: i32 = ~a + 1;\n"
+                               "    var f: bool = a &. b == 0;\n"
+                               "    return c;\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    CHECK(snapshot.diagnostics().empty(), "bitwise operator source parses cleanly");
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+    CHECK_EQ(formatter.result(), source, "bitwise operators and '~' round-trip through fmt");
+}
+
+static void test_formatter_raw_opaque_round_trip() {
+    const std::string source = "fn thru(p: raw opaque): raw opaque {\n"
+                               "    return p;\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+    CHECK_EQ(formatter.result(), source, "'raw opaque' round-trips through fmt");
+
+    auto reparsed = frontend::parse(formatter.result());
+    CHECK(reparsed.diagnostics().empty(), "formatted 'raw opaque' re-parses cleanly");
+}
+
 static void test_formatter() {
     test_formatter_normalizes_supported_snapshot_nodes();
     test_formatter_normalizes_extern_and_unary();
@@ -256,6 +354,11 @@ static void test_formatter() {
     test_formatter_preserves_unsupported_subtrees();
     test_formatter_preserves_comments();
     test_formatter_index_and_optional_round_trip();
+    test_formatter_memory_qualifier_round_trip();
+    test_formatter_variadic_declaration_round_trip();
+    test_formatter_compound_assign_round_trip();
+    test_formatter_bitwise_operator_round_trip();
+    test_formatter_raw_opaque_round_trip();
     test_compilation_session_fmt_uses_frontend_snapshot();
 }
 

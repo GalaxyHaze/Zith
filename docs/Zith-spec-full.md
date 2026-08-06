@@ -39,7 +39,7 @@ This is a draft specification and remains subject to change as the compiler matu
 7. [Memory Model (NRA)](#7-memory-model-nra)
 8. [Error Handling](#8-error-handling)
 9. [Control Flow](#9-control-flow)
-10. [Concurrency & Threads](#10-concurrency--threads)
+10. [Concurrency & Runtime APIs](#10-concurrency--runtime-apis)
 11. [Comptime](#11-comptime)
 12. [Assets](#12-assets)
 13. [Raw & Unsafe](#13-raw--unsafe)
@@ -70,7 +70,7 @@ The compiler is a copilot: it gives you the tools, and you build the systems.
 |---|---|
 | `struct`, `fn`, `lend`, `view`, `trait`, `interface` | `marker`, `dock`, `jump` — for Games, State Machine, OS & embedded |
 | `?T`, `T!`, `or` | `context`, `word` — for DSLs and APIs |
-| `when`, `for`, `->` | `async` — for data pipelines |
+| `when`, `for`, `->` | runtime/stdlib concurrency APIs — for parallel work without special syntax |
 
 ### 1.3 Design Goals
 
@@ -101,7 +101,7 @@ use SQL;   // pollutes the rest of the file
 The `zithc` compiler follows a multi-stage pipeline:
 
 ```
-source -> lex -> scan -> resolve(import/symbols) -> sema -> comptime -> NRA -> HIR -> LLVM
+source -> lex -> scan -> resolve(import/symbols) -> sema -> comptime/solve -> NTA/NRA -> HIR -> LLVM
 ```
 > Note: when you compile a library, after LLVM it outputs `.zirl` (Zith Intermediate Representation Library).
 
@@ -112,9 +112,9 @@ source -> lex -> scan -> resolve(import/symbols) -> sema -> comptime -> NRA -> H
 | `scan` | Find top-level declarations from the token stream |
 | `resolve` | Resolve imported symbols, report duplicates |
 | `sema` | Semantic analysis — name resolution, type checking, visibility |
-| `comptime` | Generic instantiation, macro expansion, `comptime` evaluation |
-| `NRA` | Apply NRA to ensure memory safety |
-| `HIR` | Build High-level IR — desugared, typed, NRA-validated |
+| `comptime/solve` | Generic instantiation, macro expansion, `comptime` evaluation, and the solved semantic view that still preserves resource identity for ownership proof |
+| `NTA/NRA` | Accumulate semantic/resource facts, prove ownership rules, emit diagnostics, and apply only internal canonicalizations that do not change public ABI |
+| `HIR` | Build High-level IR — desugared, typed, NRA-validated, carrying only residual facts needed after the proof boundary |
 | `LLVM` | Code generation via the LLVM backend |
 
 `.zirl` files serve as cache and distribution format for compiled libraries — no headers needed, OS-agnostic, and you choose static or dynamic linking at the client side. Distribute once, link however the consumer prefers.
@@ -583,7 +583,7 @@ Capabilities are special traits that feed the compiler more information, unlocki
 | `Null` | A negative capability — its traits activate only once NRA has proven a value IS `null`. Outside the proven-null branch, calling the method is a **compile error**. |
 | `Fail` | A negative capability — its traits activate only once NRA has proven a value IS an error. Cannot coexist with `Null` on the **same level**, but `?T!` can have `Null` on the outer level and `Fail` on the inner. |
 | `Allocator` | To provide custom allocators |
-| `Generator` | Allows creating custom Generators & receive the return of an `async fn`.  |
+| `Generator` | Allows creating runtime-defined resumable or streaming protocols without introducing a dedicated core function kind. |
 | `Share` | Required for `global: share` and crossing thread boundaries |
 | `Lent` | Enables `global: unique`, a runtime-checked exclusive borrow. `global` bindings cannot be moved — `Lent` manages thread-safe distribution. Also allows `lend` parameters. |
 | `Trust` | A trait extending `Trust` may contain `raw fn` methods callable from safe contexts. |
@@ -701,7 +701,6 @@ fn first<T>(slice: []T): ?T {
 |---|---|
 | `fn` | Standard runtime function. |
 | `const fn` | Resolved entirely at compile time. |
-| `async fn` | Returns `Coroutine<T>` — a lazy generator with a default base implementation. Must be consumed by a type implementing `Generator`. |
 | `flow fn` | Enables marker/dock control flow ([§9.4](09-control-flow.md#94-flow-functions--markers)). |
 | `raw fn` | Always unchecked, bypassing safety in both debug and release. The compiler warns in release builds if `raw` could be removed. |
 
@@ -709,17 +708,20 @@ fn first<T>(slice: []T): ?T {
 
 Macro calls use the `@` prefix — `@println`, `@log`, `@serialize` — while ordinary function calls use a bare name, such as `console.write`, `process`, or `save`. See [§15](15-macros.md) for the full rule.
 
-### 5.3 `async fn` & `yield`
+### 5.3 Runtime Tasks, Coroutines, and Concurrency APIs
 
 ```zith
-// An async fn returns Coroutine<T>, not T directly.
-// Coroutine<T> has a default base implementation.
-// Only types implementing Generator can receive it.
-async fn fetch(url: string): Response! {
-    yield;
-    get_response()!
+// Runtime task types are ordinary library types.
+// The core language has no `async fn`, `yield`, `spawn`, or `await` syntax.
+fn fetch(url: string): Task<Response!> {
+    return runtime.schedule(url);
 }
 ```
+
+Concurrency is modeled by `stdlib` or runtime APIs, not by dedicated syntax or a special function
+kind. A library may expose `Task<T>`, `Generator<T>`, channels, executors, or thread handles, but
+the compiler only sees ordinary declarations, calls, traits/capabilities, and the NRA facts needed
+to validate resource usage around them.
 
 ## 6. Mutability & Bindings
 
@@ -794,6 +796,13 @@ let r = for ([acc, i]: i32), (i in 0..n) {
 
 ### 7.1 What NRA Tracks
 
+The ownership system is split conceptually into two layers:
+
+- `NTA` accumulates semantic facts over a representation that still preserves resource identity,
+  qualifier distinctions, captures, escapes, branch facts, and return-path structure.
+- `NRA` consumes those facts, applies the four ownership rules, emits diagnostics, and performs
+  only the internal canonicalizations that are safe to materialize after the proof boundary.
+
 NRA watches every value in your program and classifies it into one of three states:
 
 | State | Meaning |
@@ -812,6 +821,8 @@ It also tracks the **origin** of each node — where the value came from:
 | `view` | Read-only reference to another node |
 
 With these two axes (state + origin), NRA enforces the rules in [§7.4](#74-the-four-nra-rules).
+NTA also records aliasing, branch-local facts, whether a return value is the same node received as
+an argument, and whether a `belong` or borrowed value escapes its legal region.
 
 ### 7.2 Move Semantics
 
@@ -870,7 +881,7 @@ Each memory modifier carries an implicit content mutability level:
 
 **Rule 4 — `lend` Behavioral Promise.** A `lend` value cannot be stored, moved, or captured. It may be passed as a call argument or returned — in the latter case, passing the promise on to the caller.
 
-> For details on how NRA resolves nodes and validates these rules, see [§7.8](#78-how-nra-resolves-nodes).
+> For details on how NRA resolves nodes and validates these rules, see [§7.9](#79-how-nra-resolves-nodes).
 
 ### 7.5 NRA in Practice
 
@@ -900,26 +911,39 @@ struct Tree<T> {
 fn getParent(self: view Node): lend Node { self.parent }
 ```
 
-### 7.6 NRA Limitations & Escape Hatches
+### 7.6 Boundary Before HIR
 
-NRA cannot statically validate every shared or viewed cycle across threads. Three escape hatches cover the remaining cases:
+The main NRA proof runs before the final HIR is formed. That boundary exists so the analysis still
+sees:
 
-```zith
-// await -- safe: the compiler knows the thread is done before the scope ends
-let handle = spawn worker(shared_data);
-await handle;
+- binding identity and resource graphs;
+- the difference between `default`, `view`, `lend`, `unique`, `share`, and `belong`;
+- branch facts, narrowing facts, and return-path equivalence;
+- call, capture, and escape structure before lowering erases it.
 
-// #wont_remain -- a promise that the thread dies before the scope ends
-#wont_remain let _ = spawn quick_task(shared_data);
+The final HIR is therefore not the place where ownership is re-proven. It receives a typed,
+desugared, NRA-validated view of the program plus only the residual facts that still matter for
+lowering, cache serialization, and backend hints.
 
-// Rc -- runtime ref-count wrapper, provides thread safety for any type
-let shared = Rc.new(HeavyResource.init());
-let _ = spawn worker(Rc.clone(shared));
-```
+### 7.7 Residual Facts and Internal Canonicalization
 
-> `Rc<T>` and `Arc<T>` are wrappers that provide thread safety for any type `T` — no `Share` requirement on `T` itself. The wrapper handles synchronization internally.
+NRA may materialize limited internal canonicalizations after it has proven the ownership contract,
+but those rewrites do not change a public signature or observable ABI. For example, forwarding a
+proven move internally or removing a temporary introduced only to preserve ownership is valid;
+redefining an exported function's calling convention is not.
 
-### 7.7 Self-Referential Types
+Residual facts that may survive into HIR include:
+
+- consumed vs. non-consumed value state when lowering depends on it;
+- non-null or otherwise narrowed facts that affect control-flow lowering;
+- borrow, capture, or escape decisions that codegen and caching must preserve;
+- internal calling-convention details only when they stay behind a stable boundary.
+
+LLVM is not the source of truth for ownership. At most it receives hints already decided by NRA,
+such as `nonnull`, `noalias`, `readonly`, `nocapture`, or opportunities to remove redundant
+temporaries and stores.
+
+### 7.8 Self-Referential Types
 
 ```zith
 struct Node<T> {
@@ -939,11 +963,13 @@ implement Node<T> {
 - NRA guarantees `prev` (`belong`) never outlives its owner.
 - `belong` fields may be passed as `lend` to functions.
 
-### 7.8 How NRA Resolves Nodes
+### 7.9 How NRA Resolves Nodes
 
 > *This section is relevant for tooling authors and compiler contributors.*
 
-Every symbol gets a **resource node**. NRA is **lazy** — it only validates a node when you use, view, or return it.
+Every symbol gets a **resource node** before final HIR lowering. NTA and NRA are lazy in the sense
+that they validate nodes when use, view, move, return, capture, or escape facts make the proof
+relevant.
 
 #### Node Validation
 
@@ -956,16 +982,21 @@ If a node is `dead` (say, after a move), NRA records where and why. You get an e
 
 #### Function Evaluation
 
-NRA caches function results. If it has seen a function before, it reuses the cached analysis. Otherwise, it inspects every return path:
+NRA caches function results. If it has seen a function before, it reuses the cached analysis.
+Otherwise, it inspects every return path:
 
-- **Every** path returns one of the function's arguments → caller's node is **not consumed** (ownership stays with you).
+- **Every** path returns one of the function's arguments → caller's node is **not consumed**
+  (ownership stays with you).
 - **Any** path doesn't return an argument → the result is **consumed**.
 
-Since memory modifiers (`lend`, `view`, `unique`, ...) are in the function signature, NRA knows everything it needs without re-analyzing the body.
+Those return facts are preserved into HIR only in residual form. HIR should not have to rediscover
+which node a return came from.
 
 #### Branch Isolation (`if` / `else` / `when`)
 
-Each branch runs in isolation. A move inside one branch cannot affect the others. After all branches complete, NRA applies the side effects of whichever branch actually ran.
+Each branch runs in isolation. A move inside one branch cannot affect the others. After all branches
+complete, NRA applies the side effects of whichever branch actually ran and emits only the merged
+facts that lowering still needs.
 
 ## 8. Error Handling
 
@@ -1246,48 +1277,48 @@ flow fn run(data: Stream): void {
 
 ---
 
-## 10. Concurrency & Threads
+## 10. Concurrency & Runtime APIs
 
-### 10.1 Spawning
+### 10.1 Core-Language Position
 
-```zith
-// Default thread type
-let handle = spawn worker_fn(data);
+Zith's core language does not define concurrency-specific statements, operators, or function kinds.
+There are no dedicated HIR nodes for tasks, threads, `await`, or coroutine suspension. The compiler
+understands only:
 
-// Explicit thread type
-let handle = spawn worker_fn(data) with GreenThread;
+- ordinary declarations and calls;
+- library-defined handle, channel, task, or executor types;
+- traits/capabilities used to describe what those types guarantee;
+- NRA facts about sharing, lending, capture, escape, and ownership across those calls.
 
-// Fire-and-forget
-let _ = spawn background_task();
+### 10.2 Runtime Surface
 
-// #wont_remain -- promise the thread dies before the scope ends
-#wont_remain let _ = spawn quickTask(sharedData);
-```
-
-### 10.2 Compile-Time Safety Enforcement
-
-If a thread accesses shared data, the compiler requires **one of**:
-
-- `await handle` before the shared data goes out of scope, or
-- the `#wont_remain` attribute on the spawn.
-
-Missing both is a **compile error**. Violating the `#wont_remain` promise is not caught by the compiler — the shared data may become a dangling reference. An alternative to both is using `global: share T` or `Rc`.
-
-| Keyword / Method | Semantics |
-|---|---|
-| `await handle` | Waits for the thread to finish. |
-| `await globalVar` | Blocks until the global variable has been initialized. |
-| `handle.send(msg)` | Sends a message to the running thread. |
-| `#wont_remain` | Attribute on `spawn`. Promises the thread dies before the enclosing scope ends. |
+The standard library or an alternate runtime may expose APIs such as thread spawners, executors,
+message queues, join handles, or resumable tasks. Those APIs are library surface, not syntax:
 
 ```zith
-let handle = spawn worker(sharedData);
-await handle;
+let handle = runtime.spawn(workerFn, sharedData);
+runtime.join(handle);
 
-global cfg: Config;
-await cfg;
-@println(cfg.host);
+let task: Task<Response!> = runtime.schedule(fetchRequest);
+let response = runtime.blockOn(task);
 ```
+
+API names above are illustrative. The compiler does not reserve them.
+
+### 10.3 What the Compiler Proves
+
+Concurrency-related safety is enforced through the same pre-HIR ownership proof used everywhere
+else:
+
+- whether a call duplicates a resource illegally;
+- whether a borrowed or `belong` value escapes;
+- whether narrowing facts or branch facts justify later lowering decisions;
+- whether shared/runtime-managed resources are passed only through the capabilities and wrapper types
+  that define the contract.
+
+The compiler does not special-case threads or async control flow. If a runtime API needs stronger
+guarantees, it must express them through normal signatures, types, and traits that NRA can reason
+about before HIR is finalized.
 
 ---
 
@@ -1598,8 +1629,8 @@ If you try to use a non-object-safe trait with `dyn`, the compiler rejects it.
 
 | Type | Description |
 |---|---|
-| Normal (scoped) | Hygienic — symbols do not leak into the call site's scope. Requires the `@` prefix at the call site. |
-| Raw macro | Inserts code literally at the call site; not hygienic. Also requires the `@` prefix. |
+| Normal (scoped) | Hygienic for bindings introduced by the macro, but template names are resolved from the call-site scope, so globals and imports remain visible when not shadowed. Requires the `@` prefix at the call site. |
+| Raw macro | Inserts code literally at the call site; not hygienic. Names resolve in the call-site scope first and fall back to globals/imports. Also requires the `@` prefix. |
 | Tag macro | HTML-like syntax. Tag attributes (e.g. `id=5`) are available as `attributes` when the macro is the first argument; content between tags forms the remaining arguments. Uses `<>` syntax — no `@` prefix. |
 
 > Best practice: define macros inside a `context` block ([§17](17-contexts.md)) rather than activating them globally.
@@ -1622,6 +1653,23 @@ raw macro swap(a: identifier, b: identifier) {
 
 // Macro parameter meta-types: identifier, expr, condition, body
 ```
+
+### Scope and Hygiene
+
+Normal macros keep macro-local bindings hygienic: a `let`/`var` introduced by
+the template does not leak into the call site, and a call-site local does not
+accidentally capture a same-named macro-local. Names that are not macro-locals
+(e.g. a function or global referenced by the template) still resolve through
+the call-site scope chain and can reach globals and imports.
+
+Raw macros are literal: their `let`/`var` bindings and name reads use the
+call-site scope. A raw macro name first resolves against call-site locals, then
+the enclosing scopes, then the module/global scope. Splice statements remain in
+the call-site block and can see names declared before or after the call in that
+block.
+
+The `::` scope-resolution operator remains a separate roadmap item; this
+chapter describes only the default and raw macro resolution behaviour.
 
 ### 15.1 The `@` Prefix Rule
 
@@ -1983,19 +2031,16 @@ The Rule of Three keeps code readable. Zith gives you many tools — you don't h
 | `pub` / `mod` / `mod(..)` / `mod(N)` | Visibility | Public / module-local, with optional depth. |
 | `let` / `var` / `global` / `const` | Bindings | Immutable / mutable / static storage / compile-time constant. |
 | `default` / `lend` / `view` / `unique` / `share` / `belong` | Memory | NRA memory modifiers — `default` is implicit when no keyword is written ([§7](07-memory-model.md)). |
-| `fn` / `const fn` / `async fn` / `flow fn` / `raw fn` | Functions | Function kinds. Orthogonal; cannot be combined. |
-| `yield` | Functions | Suspend an async fn, optionally producing a value. |
+| `fn` / `const fn` / `flow fn` / `raw fn` | Functions | Function kinds. Orthogonal; cannot be combined. |
 | `trait` / `interface` / `extends` / `requires` / `dyn` | OOP | Nominal traits, structural interfaces, extension, constraints, dynamic dispatch. |
 | `Copy` / `Functor` / `Arithmetic` / `Error` | Capabilities | Operator and behavior capabilities. |
 | `Null` / `Fail` | Capabilities | Negative — activate only in proven-invalid states. |
-| `Allocator` / `Generator` / `Share` / `Lent` / `Trust` / `Unique` | Capabilities | Memory, async, threading, and safety capabilities. |
+| `Allocator` / `Generator` / `Share` / `Lent` / `Trust` / `Unique` | Capabilities | Memory, runtime protocol, and safety capabilities. |
 | `marker` / `dock` / `jump` | Flow | Hoisted blocks, jump sites, and invocations for `flow fn`. |
 | `stackful` | Flow | Opt-in modifier for stackful markers (stackless is the default). |
 | `->` / `..` | Chain | Chain flow / placeholder for the previous value. Left-to-right. |
 | `,` (in a chain) | Chain | Sub-chain — applies but does not advance the main chain value. |
 | `operator` / `token` | Words | Custom operator definition / token word definition ([§16](16-words.md)). Must be defined inside a `context` — global operator overloading is prohibited. |
-| `spawn` / `await` / `handle.send` | Threads | Spawn a thread, wait on it, send it a message. |
-| `#wont_remain` | Threads | Promise that the thread dies before the enclosing scope ends. |
 | `?T` / `T!` | Errors | Optional / Result types. May be stacked. |
 | `?` / `!` (postfix) | Errors | Propagate Option / Result. No semicolon. Propagate out of chains. |
 | `or` | Errors / Loops / Types | Fallback / collapse an optional loop return / type constraint separator. |
@@ -2038,7 +2083,6 @@ The Rule of Three keeps code readable. Zith gives you many tools — you don't h
 |---|---|
 | `#volatile` | The variable is volatile; the compiler must not optimize it away. |
 | `#thread_local` | The variable uses thread-local storage. |
-| `#wont_remain` | A promise that the thread dies before the enclosing scope ends. |
 
 ---
 

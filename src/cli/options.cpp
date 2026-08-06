@@ -45,7 +45,14 @@ static ModeDefaults getDefaults(Options::Mode mode) {
 }
 
 void Options::deriveTargetStage() {
+    // Run/Execute need a binary; Build needs at least an object file, so all
+    // three go through codegen unless an explicit --emit target says otherwise.
     if (command == Command::Run || command == Command::Execute) {
+        targetStage = session::Stage::Cached;
+        return;
+    }
+    if (command == Command::Build && emitTarget == EmitTarget::None && !flags.emitHir() &&
+        !flags.emitIr() && !flags.emitAsm()) {
         targetStage = session::Stage::Cached;
         return;
     }
@@ -398,6 +405,12 @@ void Cli::parseArgs(int argc, char **argv) {
             continue;
         }
 
+        // --no-system-includes
+        if (std::strcmp(argv[i], "--no-system-includes") == 0) {
+            opts.systemIncludes = false;
+            continue;
+        }
+
         // --opt-level
         if (std::strcmp(argv[i], "--opt-level") == 0) {
             requireValue(i, "--opt-level");
@@ -455,6 +468,11 @@ void Cli::parseArgs(int argc, char **argv) {
         // -i / --in-place (fmt)
         if (std::strcmp(argv[i], "-i") == 0 || std::strcmp(argv[i], "--in-place") == 0) {
             opts.flags.fmtInPlace(true);
+            continue;
+        }
+
+        if (std::strcmp(argv[i], "--cache-stats") == 0) {
+            opts.flags.cacheStats(true);
             continue;
         }
 

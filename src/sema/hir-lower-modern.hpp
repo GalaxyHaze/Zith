@@ -5,6 +5,7 @@
 #include "memory/arena.hpp"
 #include "memory/flat-map.hpp"
 #include "memory/string-interner.hpp"
+#include "sema/nra-facts.hpp"
 #include "sema/sema-modern.hpp"
 #include "session/frontend-context.hpp"
 #include "types/type-intern.hpp"
@@ -19,7 +20,8 @@ class HirLowerModern {
 public:
     HirLowerModern(memory::Arena &arena, diagnostics::DiagnosticEngine &diags,
                    const session::CompilationSnapshot &snapshot, const SemaPipeline &sema,
-                   types::TypeIntern &types, memory::StringInterner &interner);
+                   types::TypeIntern &types, memory::StringInterner &interner,
+                   const NraFacts *nra = nullptr);
 
     bool run();
     hir::HirModule takeHir() {
@@ -47,6 +49,7 @@ private:
     const SemaPipeline &sema_;
     types::TypeIntern &types_;
     memory::StringInterner &interner_;
+    const NraFacts *nra_;
     hir::HirModule hir_;
     memory::FlatMap<uint32_t, types::TypeId> lowered_types_;
     std::vector<FunctionInfo> functions_;
@@ -77,6 +80,8 @@ private:
     const frontend::Declaration *findDecl(const session::ModuleArtifact &module,
                                           frontend::DeclId id) const noexcept;
     const session::ResolvedName *findResolvedExpr(frontend::ExprId id) const noexcept;
+    /// Declaration sema selected for an overloaded call at this callee, if any.
+    const PerModuleSema::CallTarget *overloadTarget(frontend::ExprId callee) const noexcept;
     const frontend::Declaration *
     resolvedFunctionDecl(const session::ResolvedName &resolved,
                          const session::ModuleArtifact **module_out = nullptr) const noexcept;

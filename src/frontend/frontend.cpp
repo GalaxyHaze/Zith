@@ -1,7 +1,9 @@
 #include "frontend/frontend.hpp"
 #include "diagnostics/error-codes.hpp"
+#include "frontend/macro-expand.hpp"
 
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
@@ -33,7 +35,7 @@ namespace {
 }
 
 [[nodiscard]] bool isPunctuation(char character) {
-    constexpr std::string_view punctuation = "()[]{}:;,.#@`";
+    constexpr std::string_view punctuation = "()[]{}:;,.@`";
     return punctuation.find(character) != std::string_view::npos;
 }
 
@@ -50,7 +52,7 @@ namespace {
         "when",    "match",  "return", "break",   "continue",  "jump",    "while",     "marker",
         "spawn",   "await",  "with",   "catch",   "must",      "throw",   "fail",      "drop",
         "require", "is",     "prefix", "suffix",  "infix",     "nop",     "and",       "or",
-        "not",     "xor",
+        "not",     "xor",    "tag",
     };
     for (const auto keyword : keywords)
         if (word == keyword)
@@ -171,17 +173,43 @@ void lex(FrontendSnapshot &snapshot) {
             continue;
         }
 
+        if (source.substr(position).starts_with("...")) {
+            position += 3;
+            snapshot.tokens_.push_back(
+                Token{TokenKind::Punctuation, TextSpan{start, position}, triviaStart,
+                      static_cast<uint32_t>(snapshot.trivia_.size()) - triviaStart});
+            continue;
+        }
+
         ++position;
         if (isOperator(source[start])) {
-            // Maximal munch over a closed set of two-character operators. Deliberately limited to
-            // these seven: tokens the expression parser has no precedence for (`&&`, `+=`, ...)
-            // must stay single-character, otherwise the binary loop would stop without consuming
-            // them.
-            if (position < source.size()) {
+            // Longest-first maximal munch over a closed set of multi-character operators.
+            // `&&` and `||` are munched only so the expression parser can reject them with a
+            // dedicated diagnostic pointing at `and` / `or`. `..` is deliberately absent: the
+            // when-case range pattern relies on it lexing per character.
+            static constexpr std::string_view kThreeChar[] = {"<<=", ">>="};
+            static constexpr std::string_view kTwoChar[]   = {
+                "==", "!=", "<=", ">=", "->", "<<", ">>", "+=", "-=", "*=",
+                "/=", "%=", "&=", "|=", "^=", "&.", "|.", "^.", "&&", "||"};
+            bool munched = false;
+            if (start + 3U <= source.size()) {
+                const std::string_view triple = source.substr(start, 3);
+                for (const auto candidate : kThreeChar) {
+                    if (triple == candidate) {
+                        position = start + 3U;
+                        munched  = true;
+                        break;
+                    }
+                }
+            }
+            if (!munched && start + 2U <= source.size()) {
                 const std::string_view pair = source.substr(start, 2);
-                if (pair == "==" || pair == "!=" || pair == "<=" || pair == ">=" || pair == "->" ||
-                    pair == "<<" || pair == ">>")
-                    ++position;
+                for (const auto candidate : kTwoChar) {
+                    if (pair == candidate) {
+                        position = start + 2U;
+                        break;
+                    }
+                }
             }
             snapshot.tokens_.push_back(
                 Token{TokenKind::Operator, TextSpan{start, position}, triviaStart,
@@ -332,6 +360,8 @@ public:
     void run() {
         current_scope_        = addScope({}, {0, static_cast<uint32_t>(snapshot_.source_.size())});
         Visibility visibility = Visibility::Private;
+        // Set by a preceding `extern` keyword; consumed by the next declaration.
+        bool is_extern = false;
         // Start index of the current run of unexpected top-level tokens; the run is
         // coalesced into a single diagnostic.  token_count_ means "no active run".
         uint32_t bad_run_start = token_count_;
@@ -371,18 +401,53 @@ public:
             const auto kind = declarationKind(word);
             if (kind) {
                 flushBadRun();
-                lowerDeclaration(start, *kind, visibility);
+                lowerDeclaration(start, *kind, visibility, {}, is_extern);
+                visibility = Visibility::Private;
+                is_extern  = false;
+                continue;
+            }
+
+            // `raw` before a macro declaration: `raw macro name(...) { }`.
+            if (word == "raw" && index_ + 1 < token_count_ && text(index_ + 1) == "macro") {
+                flushBadRun();
+                ++index_; // consume 'raw'
+                lowerMacroDeclaration(start, visibility, true, false);
                 visibility = Visibility::Private;
                 continue;
             }
 
-            // Unimplemented-but-planned top-level constructs are tolerated without a
-            // diagnostic to preserve current behavior (`extern fn` still parses, and
-            // `use`/`implement`/`macro`/`unsafe`/`raw`/`;` stay silent).
-            if (word == "extern" || word == "use" || word == "implement" || word == "macro" ||
-                word == "unsafe" || word == "raw" || word == ";") {
+            // `tag macro Name(...) { }` — invoked as `<Name ...> ... </Name>`.
+            // A bare `tag` elsewhere stays an ordinary identifier.
+            if (word == "tag" && index_ + 1 < token_count_ && text(index_ + 1) == "macro") {
                 flushBadRun();
+                ++index_; // consume 'tag'
+                lowerMacroDeclaration(start, visibility, false, true);
+                visibility = Visibility::Private;
+                continue;
+            }
+
+            // `macro` declaration: `macro name(...) { body }`.
+            if (word == "macro") {
+                flushBadRun();
+                lowerMacroDeclaration(start, visibility, false, false);
+                visibility = Visibility::Private;
+                continue;
+            }
+
+            if (word == "extern" || word == "use" || word == "unsafe" || word == ";") {
+                flushBadRun();
+                if (word == "extern")
+                    is_extern = true;
                 ++index_;
+                continue;
+            }
+
+            // `implement Type { ... }` or `impl Type { ... }`: method-bearing type
+            // bodies and trait implementations.
+            if (word == "implement" || word == "impl") {
+                flushBadRun();
+                lowerImplementBlock(start, visibility);
+                visibility = Visibility::Private;
                 continue;
             }
 
@@ -489,13 +554,92 @@ private:
         return id;
     }
 
+    /// Maps a memory-qualifier keyword to its ownership kind. Returns false for
+    /// any other word, so `parseType` can stop consuming prefixes.
+    static bool ownershipKeyword(std::string_view word, OwnershipKind &out) {
+        if (word == "lend")
+            out = OwnershipKind::Lend;
+        else if (word == "view")
+            out = OwnershipKind::View;
+        else if (word == "unique")
+            out = OwnershipKind::Unique;
+        else if (word == "share")
+            out = OwnershipKind::Share;
+        else if (word == "belong")
+            out = OwnershipKind::Belong;
+        else
+            return false;
+        return true;
+    }
+
     [[nodiscard]] TypeExprId parseType() {
+        if (index_ >= token_count_)
+            return {};
+        const uint32_t qualifier_start = index_;
+        OwnershipKind ownership        = OwnershipKind::Default;
+        bool has_ownership             = false;
+        bool has_mut                   = false;
+        // Zero or more memory qualifiers may precede the type itself; the prefix
+        // annotates the type instead of introducing a new node, so `?lend T`,
+        // `[]view T` and `lend *T` all keep working through the recursion below.
+        while (index_ < token_count_) {
+            const auto word = text(index_);
+            OwnershipKind parsed{};
+            if (word == "mut") {
+                if (has_mut) {
+                    snapshot_.diagnostics_.push_back({tokenSpan(index_),
+                                                      "duplicate 'mut' qualifier on this type",
+                                                      false, diagnostics::err::ExpectedExpr});
+                }
+                has_mut = true;
+                ++index_;
+                continue;
+            }
+            if (!ownershipKeyword(word, parsed))
+                break;
+            if (has_ownership) {
+                snapshot_.diagnostics_.push_back({tokenSpan(index_),
+                                                  "a type may carry only one ownership qualifier",
+                                                  false, diagnostics::err::ExpectedExpr});
+            }
+            ownership     = parsed;
+            has_ownership = true;
+            ++index_;
+        }
+        // `mut view T` is contradictory: `view` is read-only by definition.
+        if (has_mut && ownership == OwnershipKind::View) {
+            snapshot_.diagnostics_.push_back({range(qualifier_start, index_),
+                                              "'view' is read-only and cannot be combined with "
+                                              "'mut'",
+                                              false, diagnostics::err::ExpectedExpr});
+        }
         if (index_ >= token_count_)
             return {};
         const uint32_t start = index_;
         TypeExpression type;
-        type.kind = TypeExprKind::Error;
-        if (matchesToken(snapshot_, index_, "?")) {
+        type.kind          = TypeExprKind::Error;
+        type.ownership     = ownership;
+        type.hasMutKeyword = has_mut;
+        switch (ownership) {
+        case OwnershipKind::Lend:
+        case OwnershipKind::Unique:
+        case OwnershipKind::Share:
+        case OwnershipKind::Belong:
+            type.isMut = true;
+            break;
+        case OwnershipKind::View:
+            type.isMut = false;
+            break;
+        case OwnershipKind::Default:
+            type.isMut = has_mut;
+            break;
+        }
+        // `raw opaque` is a single type, not a qualifier plus a name. `raw` followed by
+        // anything else in type position falls through to the diagnostics below.
+        if (isKeywordToken("raw") && index_ + 1U < token_count_ && text(index_ + 1U) == "opaque") {
+            index_ += 2U;
+            type.kind = TypeExprKind::Opaque;
+        } else if (matchesToken(snapshot_, index_, "?")) {
             ++index_;
             type.kind = TypeExprKind::Optional;
             type.arguments.push_back(parseType());
@@ -534,8 +678,24 @@ private:
             snapshot_.diagnostics_.push_back({tokenSpan(index_), "expected a type"});
             ++index_;
         }
-        type.span = range(start, index_);
+        type.span = range(qualifier_start, index_);
         return addType(std::move(type));
+    }
+
+    // Intrinsics from docs/Zith-spec.md section A.2: resolved by the compiler,
+    // never treated as user macros.
+    static constexpr const char *kIntrinsicNames[] = {
+        "offsetOf",  "alignOf",  "sizeOf", "fields",      "hasTrait",    "struct",
+        "component", "union",    "enum",   "nullable",    "primitive",   "allocate",
+        "pack",      "toStruct", "toPack", "appendField", "removeField", "appendMethod",
+        "file",      "line",     "fnName", "location",    "ok",          "err",
+    };
+
+    static bool isIntrinsicName(std::string_view name) {
+        for (const auto *k : kIntrinsicNames)
+            if (name == k)
+                return true;
+        return false;
     }
 
     [[nodiscard]] ExprId parsePrimary() {
@@ -545,6 +705,13 @@ private:
         const uint32_t start = index_;
         if (punctuation(index_, '{'))
             return parseBlock();
+
+        // `<Name ...> ... </Name>` tag-macro invocation in expression position is
+        // parsed as a MacroCall so value-position checks can reject it cleanly.
+        if (isTagMacroOpen()) {
+            const auto tag = parseTagMacroCall();
+            return parsePostfix(tag, start);
+        }
 
         // `[a, b, c]` is an array literal at primary position; `[` after an
         // expression is postfix indexing (handled in parsePostfix).
@@ -573,58 +740,107 @@ private:
             return parsePostfix(addExpression(std::move(array_lit)), array_start);
         }
 
-        // `@offsetOf(Type, field)` / `@alignOf(Type)` / `@sizeOf(Type)` are layout
-        // intrinsics; any other `@name(...)` is an unimplemented user macro.
+        // `@name` — intrinsics (from kIntrinsicNames) or user macros.
         if (punctuation(index_, '@')) {
             ++index_;
-            if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
-                const auto intrinsic = std::string(text(index_++));
-                Expression intrinsic_expr;
-                intrinsic_expr.scope = current_scope_;
-                if (intrinsic == "offsetOf" || intrinsic == "alignOf" || intrinsic == "sizeOf") {
-                    intrinsic_expr.kind = ExprKind::LayoutIntrinsic;
-                    intrinsic_expr.text = intrinsic;
-                    if (punctuation(index_, '('))
+            if (index_ < token_count_ && (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
+                                          snapshot_.tokens_[index_].kind == TokenKind::Keyword)) {
+                const auto name = std::string(text(index_++));
+                Expression expr;
+                expr.scope = current_scope_;
+                if (isIntrinsicName(name)) {
+                    expr.kind = ExprKind::LayoutIntrinsic;
+                    expr.text = name;
+                    // Only offsetOf/alignOf/sizeOf parse a type+field argument.
+                    if ((name == "offsetOf" || name == "alignOf" || name == "sizeOf") &&
+                        punctuation(index_, '(')) {
                         ++index_;
-                    else
-                        snapshot_.diagnostics_.push_back(
-                            {range(start, index_), "expected '(' after '@" + intrinsic + "'"});
-                    intrinsic_expr.cast_type = parseType();
-                    if (punctuation(index_, ',')) {
-                        ++index_;
-                        if (index_ < token_count_ &&
-                            (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
-                             snapshot_.tokens_[index_].kind == TokenKind::Keyword)) {
-                            intrinsic_expr.field_names.push_back(std::string(text(index_++)));
-                        } else {
-                            snapshot_.diagnostics_.push_back(
-                                {range(start, index_), "expected a field name"});
-                        }
-                    }
-                    if (punctuation(index_, ')'))
-                        ++index_;
-                    else
-                        snapshot_.diagnostics_.push_back(
-                            {range(start, index_), "expected ')' after intrinsic arguments"});
-                } else {
-                    // User macro call: consume the balanced arguments and only warn.
-                    intrinsic_expr.kind = ExprKind::Error;
-                    if (punctuation(index_, '(')) {
-                        uint32_t depth = 0;
-                        do {
-                            if (punctuation(index_, '('))
-                                ++depth;
-                            else if (punctuation(index_, ')'))
-                                --depth;
+                        expr.cast_type = parseType();
+                        if (punctuation(index_, ',')) {
                             ++index_;
-                        } while (index_ < token_count_ && depth != 0);
+                            if (index_ < token_count_ &&
+                                (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
+                                 snapshot_.tokens_[index_].kind == TokenKind::Keyword)) {
+                                expr.field_names.push_back(std::string(text(index_++)));
+                            } else {
+                                snapshot_.diagnostics_.push_back(
+                                    {range(start, index_), "expected a field name"});
+                            }
+                        }
+                        if (punctuation(index_, ')'))
+                            ++index_;
+                        else
+                            snapshot_.diagnostics_.push_back(
+                                {range(start, index_), "expected ')' after intrinsic arguments"});
                     }
-                    snapshot_.diagnostics_.push_back(
-                        Diagnostic{range(start, index_), "user macros are not implemented yet",
-                                   true, diagnostics::err::NotImplemented});
+                } else {
+                    // User macro call @name(|attrs|)(args) or @name(args).
+                    expr.kind = ExprKind::MacroCall;
+                    expr.text = name;
+                    // Optional `|attributes|` before arguments. An empty list is written
+                    // `||`, which the lexer munches as one token, so accept it directly.
+                    if (text(index_) == "||") {
+                        ++index_;
+                    } else if (text(index_) == "|") {
+                        ++index_; // opening |
+                        while (index_ < token_count_ && !(text(index_) == "|")) {
+                            if (punctuation(index_, ',')) {
+                                ++index_;
+                                continue;
+                            }
+                            std::string attr_name;
+                            if (snapshot_.tokens_[index_].kind == TokenKind::Identifier &&
+                                index_ + 1 < token_count_ && text(index_ + 1) == ":") {
+                                attr_name = std::string(text(index_));
+                                index_ += 2; // skip name + ':'
+                                expr.attributes.push_back(parseAttributeValue());
+                            } else {
+                                expr.attributes.push_back(parseAttributeValue());
+                            }
+                            expr.attributeNames.push_back(std::move(attr_name));
+                            if (punctuation(index_, ','))
+                                ++index_;
+                            else if (!(text(index_) == "|"))
+                                break;
+                        }
+                        if (text(index_) == "|")
+                            ++index_; // closing |
+                    }
+                    // Arguments: `(arg1, arg2, ...)`.
+                    if (punctuation(index_, '(')) {
+                        ++index_;
+                        while (index_ < token_count_ && !punctuation(index_, ')')) {
+                            if (punctuation(index_, ',')) {
+                                ++index_;
+                                continue;
+                            }
+                            bool uneval              = false;
+                            const uint32_t arg_start = index_;
+                            if (text(index_) == "=") {
+                                uneval = true;
+                                ++index_;
+                            }
+                            if (punctuation(index_, '{')) {
+                                expr.operands.push_back(parseBlock());
+                            } else {
+                                expr.operands.push_back(parseExpression());
+                            }
+                            expr.argIsUnevaluated.push_back(uneval);
+                            expr.argSpans.push_back(range(arg_start, index_));
+                            if (punctuation(index_, ','))
+                                ++index_;
+                            else if (!punctuation(index_, ')'))
+                                break;
+                        }
+                        if (punctuation(index_, ')'))
+                            ++index_;
+                        else
+                            snapshot_.diagnostics_.push_back(
+                                {range(start, index_), "expected ')' after macro arguments"});
+                    }
                 }
-                intrinsic_expr.span = range(start, index_);
-                return parsePostfix(addExpression(std::move(intrinsic_expr)), start);
+                expr.span = range(start, index_);
+                return parsePostfix(addExpression(std::move(expr)), start);
             }
             Expression error_expr;
             error_expr.kind  = ExprKind::Error;
@@ -783,6 +999,16 @@ private:
     [[nodiscard]] bool isKeywordToken(const std::string_view word) const {
         return index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Keyword &&
                text(index_) == word;
+    }
+
+    /// Parse an attribute value.  Used for `|attributes|` (to stop before `|`
+    /// is consumed as OR) and for tag attributes (to stop before the `>` close).
+    /// Plain `:` and `,` are not Zith binary operators, so a full expression
+    /// parses exactly the value and leaves the attribute separator behind.
+    [[nodiscard]] ExprId parseAttributeValue() {
+        const uint32_t start = index_;
+        const auto primary   = parsePrimary();
+        return parsePostfix(primary, start);
     }
 
     /// Parses the postfix chain (calls, indexing, casts, `?`) applied to `result`.
@@ -947,18 +1173,61 @@ private:
         return result;
     }
 
+    /// Binary operator precedences. These must stay in lockstep with
+    /// `FmtVisitor::binaryPrecedence`, otherwise `zithc fmt` would insert or drop
+    /// parentheses that change the meaning of the code.
     [[nodiscard]] static int precedence(const std::string_view op) {
-        if (op == "=")
+        if (isAssignmentOp(op))
             return 1;
         if (op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=")
-            return 2;
-        if (op == "<<" || op == ">>")
-            return 3;
-        if (op == "+" || op == "-")
-            return 4;
-        if (op == "*" || op == "/" || op == "%")
             return 5;
+        if (op == "|.")
+            return 6;
+        if (op == "^.")
+            return 7;
+        if (op == "&.")
+            return 8;
+        if (op == "<<" || op == ">>")
+            return 9;
+        if (op == "+" || op == "-")
+            return 10;
+        if (op == "*" || op == "/" || op == "%")
+            return 11;
         return -1;
+    }
+
+    /// Unary prefix operators bind tighter than every binary operator.
+    static constexpr int kUnaryPrecedence = 12;
+
+    [[nodiscard]] static bool isAssignmentOp(const std::string_view op) {
+        return op == "=" || compoundBaseOp(op) != std::string_view{};
+    }
+
+    /// For a compound assignment, the base operator it desugars to. Empty for
+    /// anything else. The bitwise compounds drop the `.` of their base spelling
+    /// because there is no ambiguity in assignment position.
+    [[nodiscard]] static std::string_view compoundBaseOp(const std::string_view op) {
+        if (op == "+=")
+            return "+";
+        if (op == "-=")
+            return "-";
+        if (op == "*=")
+            return "*";
+        if (op == "/=")
+            return "/";
+        if (op == "%=")
+            return "%";
+        if (op == "<<=")
+            return "<<";
+        if (op == ">>=")
+            return ">>";
+        if (op == "&=")
+            return "&.";
+        if (op == "|=")
+            return "|.";
+        if (op == "^=")
+            return "^.";
+        return {};
     }
 
     [[nodiscard]] ExprId parseExpression(const int minimum_precedence = 0) {
@@ -971,7 +1240,7 @@ private:
         if (snapshot_.tokens_[index_].kind == TokenKind::Operator &&
             (text(index_) == "?" || text(index_) == "!")) {
             const auto op = std::string(text(index_++));
-            (void)parseExpression(5); // consume the operand
+            (void)parseExpression(kUnaryPrecedence); // consume the operand
             Expression error_expr;
             error_expr.kind  = ExprKind::Error;
             error_expr.text  = op;
@@ -985,14 +1254,14 @@ private:
         }
         if ((snapshot_.tokens_[index_].kind == TokenKind::Operator &&
              (text(index_) == "-" || text(index_) == "!" || text(index_) == "&" ||
-              text(index_) == "*")) ||
+              text(index_) == "*" || text(index_) == "~")) ||
             text(index_) == "not") {
             const auto op = std::string(text(index_++));
             Expression unary;
             unary.kind  = ExprKind::Unary;
             unary.text  = op;
             unary.scope = current_scope_;
-            unary.operands.push_back(parseExpression(5));
+            unary.operands.push_back(parseExpression(kUnaryPrecedence));
             unary.span = range(start, index_);
             left       = addExpression(std::move(unary));
         } else {
@@ -1002,7 +1271,7 @@ private:
         while (index_ < token_count_) {
             // `x is null` sits at comparison precedence; no other `is` form exists yet.
             if (isKeywordToken("is")) {
-                if (2 < minimum_precedence)
+                if (5 < minimum_precedence)
                     break;
                 ++index_;
                 Expression is_null;
@@ -1024,15 +1293,63 @@ private:
             }
             if (snapshot_.tokens_[index_].kind != TokenKind::Operator)
                 break;
-            const auto op         = text(index_);
+            const auto op = text(index_);
+            // `&&` / `||` are lexed only to be rejected here: Zith spells them `and` / `or`.
+            if (op == "&&" || op == "||") {
+                const std::string spelling(op);
+                ++index_;
+                (void)parseExpression(); // consume the rhs so no cascading errors follow
+                Expression error_expr;
+                error_expr.kind  = ExprKind::Error;
+                error_expr.text  = spelling;
+                error_expr.scope = current_scope_;
+                error_expr.span  = range(start, index_);
+                snapshot_.diagnostics_.push_back(
+                    {error_expr.span,
+                     "'" + spelling + "' is not a Zith operator; use '" +
+                         (spelling == "&&" ? std::string("and") : std::string("or")) + "'",
+                     false, diagnostics::err::UnsupportedSyntax});
+                left = addExpression(std::move(error_expr));
+                continue;
+            }
             const int op_priority = precedence(op);
             if (op_priority < minimum_precedence)
                 break;
+            const std::string spelling(op);
             ++index_;
-            const auto right = parseExpression(op_priority + 1);
+            // Assignment is right-associative (`a = b = 1` is `a = (b = 1)`), so the rhs is
+            // parsed at the same precedence rather than one above it.
+            const bool is_assignment = isAssignmentOp(spelling);
+            const auto right = parseExpression(is_assignment ? op_priority : op_priority + 1);
+            if (const std::string_view base = compoundBaseOp(spelling); !base.empty()) {
+                // `x op= v` desugars to `x = x op v`, so it yields a value exactly like `=`.
+                // The lhs expression id is shared by the assignment target and the binary
+                // operand: sema types it once, HIR lowers it twice. That is safe for every
+                // lvalue form supported today (name, field, arrow, index, deref) because
+                // lowering an lvalue is side-effect-free address computation. A future lvalue
+                // that can have side effects must spill its address to a slot first.
+                Expression operation;
+                operation.kind  = ExprKind::Binary;
+                operation.text  = std::string(base);
+                operation.scope = current_scope_;
+                operation.operands.push_back(left);
+                operation.operands.push_back(right);
+                operation.span      = range(start, index_);
+                const ExprId folded = addExpression(std::move(operation));
+                Expression assign;
+                // The original compound spelling is preserved so `fmt` round-trips it.
+                assign.kind  = ExprKind::Assign;
+                assign.text  = spelling;
+                assign.scope = current_scope_;
+                assign.operands.push_back(left);
+                assign.operands.push_back(folded);
+                assign.span = range(start, index_);
+                left        = addExpression(std::move(assign));
+                continue;
+            }
             Expression binary;
-            binary.kind  = op == "=" ? ExprKind::Assign : ExprKind::Binary;
-            binary.text  = std::string(op);
+            binary.kind  = spelling == "=" ? ExprKind::Assign : ExprKind::Binary;
+            binary.text  = spelling;
             binary.scope = current_scope_;
             binary.operands.push_back(left);
             binary.operands.push_back(right);
@@ -1347,6 +1664,124 @@ private:
         return addExpression(std::move(expression));
     }
 
+    /// True when the token at `index_ + offset` is the operator `text`.
+    [[nodiscard]] bool isOperatorAt(const uint32_t offset, const std::string_view op) const {
+        const auto i = index_ + offset;
+        return i < token_count_ && snapshot_.tokens_[i].kind == TokenKind::Operator &&
+               text(i) == op;
+    }
+
+    /// True at `<Name` where Name starts with an upper-case letter, i.e. the
+    /// opening of a tag-macro invocation.  `a < b` and `f<T>(x)` are excluded:
+    /// the former has no upper-case identifier, the latter is caught by
+    /// isGenericApplication() before this is consulted.
+    [[nodiscard]] bool isTagMacroOpen() const {
+        if (!isOperatorToken("<") || isGenericApplication())
+            return false;
+        if (index_ + 1U >= token_count_)
+            return false;
+        if (snapshot_.tokens_[index_ + 1U].kind != TokenKind::Identifier)
+            return false;
+        const auto name = text(index_ + 1U);
+        if (name.empty() || !(name.front() >= 'A' && name.front() <= 'Z'))
+            return false;
+        // The opening tag must close with `>` before the statement ends.
+        for (uint32_t i = index_ + 2U; i < token_count_; ++i) {
+            const auto &token = snapshot_.tokens_[i];
+            if (token.kind == TokenKind::End)
+                return false;
+            if (token.kind == TokenKind::Operator && text(i) == ">")
+                return true;
+            if (token.kind == TokenKind::Punctuation && (text(i) == ";" || text(i) == "}"))
+                return false;
+        }
+        return false;
+    }
+
+    /// Parse `<Name attr: value, ...> statements </Name>` into a MacroCall whose
+    /// single argument is a block holding the tag body.
+    [[nodiscard]] ExprId parseTagMacroCall() {
+        const uint32_t start = index_;
+        ++index_; // consume '<'
+        Expression expr;
+        expr.kind           = ExprKind::MacroCall;
+        expr.scope          = current_scope_;
+        expr.text           = std::string(text(index_));
+        const auto nameSpan = tokenSpan(index_);
+        ++index_;
+
+        // Attributes: `name: value` pairs separated by commas.
+        while (index_ < token_count_ && !isOperatorToken(">")) {
+            if (punctuation(index_, ',')) {
+                ++index_;
+                continue;
+            }
+            if (snapshot_.tokens_[index_].kind != TokenKind::Identifier ||
+                !punctuation(index_ + 1U, ':')) {
+                snapshot_.diagnostics_.push_back(
+                    {tokenSpan(index_), "expected 'name: value' in tag attributes"});
+                break;
+            }
+            expr.attributeNames.push_back(std::string(text(index_)));
+            index_ += 2; // name + ':'
+            expr.attributes.push_back(parseAttributeValue());
+            if (punctuation(index_, ','))
+                ++index_;
+        }
+        if (isOperatorToken(">"))
+            ++index_;
+        else
+            snapshot_.diagnostics_.push_back({range(start, index_), "expected '>' to close tag"});
+
+        // Body: statements until `</`.
+        Expression body;
+        body.kind             = ExprKind::Block;
+        const auto bodyStart  = index_;
+        const auto savedScope = current_scope_;
+        body.scope            = addScope(savedScope, tokenSpan(bodyStart));
+        current_scope_        = body.scope;
+        while (index_ < token_count_ && snapshot_.tokens_[index_].kind != TokenKind::End &&
+               !(isOperatorToken("<") && isOperatorAt(1U, "/"))) {
+            const auto before = index_;
+            body.statements.push_back(parseStatement());
+            if (index_ == before)
+                ++index_; // never spin on an unconsumed token
+        }
+        current_scope_ = savedScope;
+        body.span      = range(bodyStart, index_);
+        expr.operands.push_back(addExpression(std::move(body)));
+        expr.argIsUnevaluated.push_back(false);
+        expr.argSpans.push_back(range(bodyStart, index_));
+
+        // Closing tag: `</Name>`.
+        if (isOperatorToken("<") && isOperatorAt(1U, "/")) {
+            index_ += 2;
+            if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+                if (text(index_) != expr.text) {
+                    snapshot_.diagnostics_.push_back({tokenSpan(index_),
+                                                      "closing tag '" + std::string(text(index_)) +
+                                                          "' does not match '" + expr.text + "'",
+                                                      false, diagnostics::err::MacroTagMismatch});
+                }
+                ++index_;
+            } else {
+                snapshot_.diagnostics_.push_back(
+                    {tokenSpan(index_), "expected a tag name after '</'"});
+            }
+            if (isOperatorToken(">"))
+                ++index_;
+            else
+                snapshot_.diagnostics_.push_back(
+                    {range(start, index_), "expected '>' to close the closing tag"});
+        } else {
+            snapshot_.diagnostics_.push_back({nameSpan, "unterminated tag '" + expr.text + "'",
+                                              false, diagnostics::err::MacroTagMismatch});
+        }
+
+        expr.span = range(start, index_);
+        return addExpression(std::move(expr));
+    }
+
     [[nodiscard]] StmtId parseStatement() {
         const uint32_t start = index_;
         Statement statement;
@@ -1412,6 +1847,8 @@ private:
                                               false, diagnostics::err::UnsupportedSyntax});
             while (index_ < token_count_ && !punctuation(index_, ';'))
                 ++index_;
+        } else if (isTagMacroOpen()) {
+            statement.expression = parseTagMacroCall();
         } else {
             statement.expression = parseExpression();
             // Word-operator sequences such as `1 nop 2` are not implemented yet.
@@ -1600,11 +2037,156 @@ private:
                 {import.pathSpan, "expected '}' after import selectors"});
     }
 
-    void lowerDeclaration(const uint32_t start, const DeclKind kind, const Visibility visibility) {
+    /// Parse `[raw|tag] macro name(p: meta_type, ...) { body }`.
+    void lowerMacroDeclaration(const uint32_t start, const Visibility visibility, const bool isRaw,
+                               const bool isTag) {
+        ++index_; // consume `macro`
+        Declaration declaration;
+        declaration.kind       = DeclKind::Macro;
+        declaration.visibility = visibility;
+        declaration.isRawMacro = isRaw;
+        declaration.isTagMacro = isTag;
+
+        if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+            declaration.name = std::string(text(index_++));
+        } else {
+            snapshot_.diagnostics_.push_back({tokenSpan(index_), "expected a macro name"});
+            declaration.kind = DeclKind::Error;
+        }
+
+        // Parameter list: `(p: identifier, msg: expr, ...)`.
+        // Known meta-types: identifier, expr, condition, block, body.
+        // The special first parameter `attributes` (no type) signals that the
+        // call site may supply `|attrs|` and is not counted toward arity.
+        if (punctuation(index_, '(')) {
+            ++index_;
+            bool first = true;
+            while (index_ < token_count_ && !punctuation(index_, ')')) {
+                Parameter parameter;
+                if (punctuation(index_, ',')) {
+                    ++index_;
+                    first = false;
+                    continue;
+                }
+                if (snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+                    const auto param_name = std::string(text(index_));
+                    const auto param_span = tokenSpan(index_);
+                    ++index_;
+                    // Handle `attributes` — special first param with no type.
+                    if (first && !punctuation(index_, ':') && param_name == "attributes") {
+                        declaration.hasAttributesParam = true;
+                    } else {
+                        parameter.id   = LocalId{statementCountLocals_++};
+                        parameter.name = param_name;
+                        parameter.span = param_span;
+                        if (punctuation(index_, ':')) {
+                            ++index_;
+                            parameter.type = parseType();
+                            // Diagnose unknown meta-type at declaration time.
+                            if (parameter.type) {
+                                const auto ti = parameter.type.value - 1U;
+                                if (ti < snapshot_.type_expressions_.size()) {
+                                    const auto &te = snapshot_.type_expressions_[ti];
+                                    if (te.kind == frontend::TypeExprKind::Name &&
+                                        te.name != "identifier" && te.name != "expr" &&
+                                        te.name != "condition" && te.name != "block" &&
+                                        te.name != "body") {
+                                        snapshot_.diagnostics_.push_back(
+                                            {te.span, "unknown meta-type '" + te.name + "'"});
+                                    }
+                                }
+                            }
+                        }
+                        declaration.parameters.push_back(std::move(parameter));
+                    }
+                } else {
+                    snapshot_.diagnostics_.push_back(
+                        {tokenSpan(index_), "expected a parameter name"});
+                    ++index_;
+                    first = false;
+                }
+                if (punctuation(index_, ','))
+                    ++index_;
+                else if (!punctuation(index_, ')'))
+                    break;
+                first = false;
+            }
+            if (punctuation(index_, ')'))
+                ++index_;
+            else
+                snapshot_.diagnostics_.push_back(
+                    {range(index_ - 5, index_), "expected ')' after macro parameters"});
+        }
+
+        // Body: `{ ... }`
+        if (punctuation(index_, '{')) {
+            declaration.body = parseBlock();
+        } else {
+            snapshot_.diagnostics_.push_back(
+                {tokenSpan(index_), "expected a body block for macro"});
+        }
+
+        if (punctuation(index_, ';'))
+            ++index_;
+        declaration.span = range(start, index_);
+        declaration.id   = DeclId{static_cast<uint32_t>(snapshot_.declarations_.size() + 1U)};
+        snapshot_.declarations_.push_back(std::move(declaration));
+    }
+
+    /// Parse `implement Owner { ... }` or `impl Owner { ... }` (optionally
+    /// `as Trait` or `for Trait`). Each `fn` inside the body becomes a method
+    /// declaration with ownerName set to Owner.
+    void lowerImplementBlock(const uint32_t start, const Visibility visibility) {
+        ++index_; // consume `implement` or `impl`
+
+        if (index_ >= token_count_ || snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
+            snapshot_.diagnostics_.push_back(
+                {tokenSpan(index_), "expected a type name after 'implement'"});
+            return;
+        }
+        const std::string owner_name = std::string(text(index_++));
+
+        // Optional `as TraitName` or `for TraitName` — parsed but not enforced.
+        if (index_ < token_count_ && (isKeywordToken("as") || isKeywordToken("for")))
+            ++index_;
+        if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier)
+            ++index_;
+
+        if (!punctuation(index_, '{')) {
+            snapshot_.diagnostics_.push_back(
+                {tokenSpan(index_), "expected '{' after implement block header"});
+            return;
+        }
+        ++index_;
+        while (index_ < token_count_ && !punctuation(index_, '}')) {
+            if (punctuation(index_, ',')) {
+                ++index_;
+                continue;
+            }
+            if (isKeywordToken("fn")) {
+                const auto method_start = index_;
+                lowerDeclaration(method_start, DeclKind::Function, visibility, owner_name);
+                continue;
+            }
+            snapshot_.diagnostics_.push_back(
+                {tokenSpan(index_), "expected a method declaration or '}'"});
+            ++index_;
+        }
+        if (punctuation(index_, '}'))
+            ++index_;
+        else
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_), "expected '}' after implement block"});
+    }
+
+    void lowerDeclaration(const uint32_t start, const DeclKind kind, const Visibility visibility,
+                          std::string ownerName = {}, const bool isExtern = false) {
         Declaration declaration;
         declaration.id         = DeclId{static_cast<uint32_t>(snapshot_.declarations_.size() + 1U)};
         declaration.kind       = kind;
         declaration.visibility = visibility;
+        declaration.ownerName  = std::move(ownerName);
+        declaration.isExtern   = isExtern;
         ++index_;
         if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
             declaration.name = std::string(text(index_++));
@@ -1644,6 +2226,16 @@ private:
         if (kind == DeclKind::Function && punctuation(index_, '(')) {
             ++index_;
             while (index_ < token_count_ && !punctuation(index_, ')')) {
+                if (matchesToken(snapshot_, index_, "...")) {
+                    if (!isExtern) {
+                        snapshot_.diagnostics_.push_back(
+                            {tokenSpan(index_), "only 'extern fn' may declare variadic parameters",
+                             false, diagnostics::err::ExpectedExpr});
+                    }
+                    declaration.isVariadic = true;
+                    ++index_;
+                    break;
+                }
                 Parameter parameter;
                 if (snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
                     parameter.id   = LocalId{statementCountLocals_++};
@@ -1690,6 +2282,12 @@ private:
                     ++index_;
                     continue;
                 }
+                if (isKeywordToken("fn")) {
+                    const auto method_start = index_;
+                    lowerDeclaration(method_start, DeclKind::Function, Visibility::Private,
+                                     declaration.name);
+                    continue;
+                }
                 if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
                     snapshot_.diagnostics_.push_back({tokenSpan(index_), "expected a field name"});
                     ++index_;
@@ -1705,6 +2303,27 @@ private:
                         ++index_;
                         field.defaultValue = parseExpression();
                     }
+                } else if (index_ < token_count_ && text(index_) == "=") {
+                    // This is a rejected field syntax, not a field type: consume the
+                    // expression so we do not also leave its tokens for top-level recovery.
+                    ++index_;
+                    (void)parseExpression();
+                    snapshot_.diagnostics_.push_back(
+                        {TextSpan{field.span.start,
+                                  index_ > 0U ? tokenSpan(index_ - 1U).end : field.span.end},
+                         "unsupported: field '" + field.name +
+                             " = <expr>'; use 'name: Type' or 'name: Type = default'",
+                         false, diagnostics::err::UnsupportedSyntax});
+                    declaration.parameters.push_back(std::move(field));
+                    if (punctuation(index_, ','))
+                        ++index_;
+                    else if (!punctuation(index_, '}'))
+                        break;
+                    continue;
+                } else if (index_ < token_count_ && !punctuation(index_, ',')) {
+                    snapshot_.diagnostics_.push_back(
+                        {field.span, "expected ':' after field name '" + field.name + "'", false,
+                         diagnostics::err::UnsupportedSyntax});
                 }
                 declaration.parameters.push_back(std::move(field));
                 if (punctuation(index_, ','))
@@ -1770,6 +2389,10 @@ private:
         if (punctuation(index_, ';'))
             ++index_;
         declaration.span = range(start, index_);
+        // Re-stamp the id at push time: a struct or implement body pushes its
+        // nested method declarations while this one is still being parsed, so
+        // the id reserved on entry would collide with the first nested method.
+        declaration.id = DeclId{static_cast<uint32_t>(snapshot_.declarations_.size() + 1U)};
         snapshot_.declarations_.push_back(std::move(declaration));
     }
 
@@ -1836,7 +2459,85 @@ FrontendSnapshot parse(std::string source) {
     lex(snapshot);
     parseCst(snapshot);
     lowerAst(snapshot);
+    // Flag template bodies *before* expansion, so only the original template
+    // nodes are inert and their clones stay analysable.
+    markMacroTemplates(snapshot);
+    const auto expand_start = std::chrono::steady_clock::now();
+    expandMacros(snapshot);
+    snapshot.expandMs_ =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - expand_start)
+            .count();
     return snapshot;
+}
+
+std::string canonicalTypeString(const FrontendSnapshot &snapshot, const TypeExprId id) {
+    if (!id || id.value > snapshot.typeExpressions().size())
+        return "?";
+    const auto &type  = snapshot.typeExpressions()[id.value - 1U];
+    const auto nested = [&](const size_t index) {
+        return index < type.arguments.size() ? canonicalTypeString(snapshot, type.arguments[index])
+                                             : std::string("?");
+    };
+    switch (type.kind) {
+    case TypeExprKind::Name:
+        return type.name;
+    case TypeExprKind::Pointer:
+        return "*" + nested(0);
+    case TypeExprKind::Optional:
+        return "?" + nested(0);
+    case TypeExprKind::Slice:
+        return "[]" + nested(0);
+    case TypeExprKind::Opaque:
+        return "raw opaque";
+    case TypeExprKind::Array:
+        return "[" + std::to_string(type.arrayLength) + "]" + nested(0);
+    case TypeExprKind::Function: {
+        std::string result = "fn(";
+        for (size_t index = 0; index + 1 < type.arguments.size(); ++index) {
+            if (index != 0)
+                result += ",";
+            result += canonicalTypeString(snapshot, type.arguments[index]);
+        }
+        result += ")";
+        if (!type.arguments.empty())
+            result += ":" + canonicalTypeString(snapshot, type.arguments.back());
+        return result;
+    }
+    case TypeExprKind::Error:
+        break;
+    }
+    return "?";
+}
+
+std::string functionSignature(const FrontendSnapshot &snapshot, const Declaration &decl) {
+    std::string result = "(";
+    bool first         = true;
+    const auto append  = [&](const std::string &text) {
+        if (!first)
+            result += ",";
+        result += text;
+        first = false;
+    };
+    // A method always takes a receiver; when `self` is implicit (absent, or written
+    // without a type) it is spelled `*Owner` so signatures stay comparable.
+    const bool implicit_self =
+        !decl.ownerName.empty() &&
+        (decl.parameters.empty() ||
+         (decl.parameters.front().name == "self" && !decl.parameters.front().type));
+    if (implicit_self)
+        append("*" + decl.ownerName);
+    for (size_t index = 0; index < decl.parameters.size(); ++index) {
+        if (implicit_self && index == 0)
+            continue;
+        append(canonicalTypeString(snapshot, decl.parameters[index].type));
+    }
+    if (decl.isVariadic) {
+        if (!first)
+            result += ",";
+        result += "...";
+    }
+    result += ")";
+    return result;
 }
 
 } // namespace zith::frontend

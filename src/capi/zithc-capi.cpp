@@ -83,6 +83,8 @@ std::string renderTypeExpr(const zith::frontend::TypeExpression &te,
             result += renderTypeExpr(all_types[te.arguments.back().value - 1U], all_types);
         return result;
     }
+    case zith::frontend::TypeExprKind::Opaque:
+        return "raw opaque";
     case zith::frontend::TypeExprKind::Slice: {
         std::string inner = te.arguments.empty()
                                 ? "?"

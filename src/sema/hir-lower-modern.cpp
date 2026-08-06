@@ -1,7 +1,12 @@
 #include "sema/hir-lower-modern.hpp"
 
+#include <filesystem>
+
 #include "common/overloaded.hpp"
 #include "diagnostics/error-codes.hpp"
+#include "hir/hir-attrs.hpp"
+#include "sema/nra-facts.hpp"
+#include "support/int-literal.hpp"
 #include "types/type-kind.hpp"
 
 #include <cctype>
@@ -36,11 +41,13 @@ hir::HirBinaryOp mapBinaryOp(std::string_view text) {
         return hir::HirBinaryOp::Gt;
     if (text == ">=")
         return hir::HirBinaryOp::Ge;
-    if (text == "and")
+    // The keyword forms and the `.`-suffixed bitwise operators share one HIR op each:
+    // `and`/`&.`, `or`/`|.`, `xor`/`^.`.
+    if (text == "and" || text == "&.")
         return hir::HirBinaryOp::And;
-    if (text == "or")
+    if (text == "or" || text == "|.")
         return hir::HirBinaryOp::Or;
-    if (text == "xor")
+    if (text == "xor" || text == "^.")
         return hir::HirBinaryOp::Xor;
     if (text == "<<")
         return hir::HirBinaryOp::Shl;
@@ -58,6 +65,8 @@ hir::HirUnaryOp mapUnaryOp(std::string_view text) {
         return hir::HirUnaryOp::Ref;
     if (text == "*")
         return hir::HirUnaryOp::Deref;
+    if (text == "~")
+        return hir::HirUnaryOp::BitNot;
     return hir::HirUnaryOp::Neg;
 }
 
@@ -83,8 +92,105 @@ types::FloatWidth mapFloatWidth(const FloatType &floating) {
     return types::FloatWidth::F128;
 }
 
+/// Decodes the C-like escape set inside string/char literal bodies. Returns false
+/// (without touching `output`) when an escape is malformed or unknown.
+bool decodeEscapes(std::string_view text, std::string &output) {
+    for (size_t index = 0; index < text.size(); ++index) {
+        const char current = text[index];
+        if (current != '\\') {
+            output.push_back(current);
+            continue;
+        }
+        if (index + 1 >= text.size())
+            return false;
+        const char escaped = text[++index];
+        switch (escaped) {
+        case 'n':
+            output.push_back('\n');
+            break;
+        case 'r':
+            output.push_back('\r');
+            break;
+        case 't':
+            output.push_back('\t');
+            break;
+        case '0':
+            output.push_back('\0');
+            break;
+        case '\\':
+            output.push_back('\\');
+            break;
+        case '\'':
+            output.push_back('\'');
+            break;
+        case '"':
+            output.push_back('"');
+            break;
+        case 'x': {
+            if (index + 2 >= text.size() ||
+                !std::isxdigit(static_cast<unsigned char>(text[index + 1])) ||
+                !std::isxdigit(static_cast<unsigned char>(text[index + 2]))) {
+                return false;
+            }
+            const unsigned high = static_cast<unsigned char>(text[index + 1]);
+            const unsigned low  = static_cast<unsigned char>(text[index + 2]);
+            const auto hex      = [](unsigned c) {
+                return c >= '0' && c <= '9'   ? c - '0'
+                            : c >= 'a' && c <= 'f' ? c - 'a' + 10U
+                                                   : c - 'A' + 10U;
+            };
+            output.push_back(static_cast<char>((hex(high) << 4U) | hex(low)));
+            index += 2U;
+            break;
+        }
+        default:
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string functionKey(std::string_view module, frontend::DeclId decl) {
     return std::string(module) + "#" + std::to_string(decl.value);
+}
+
+/// Dot-separated module namespace for `module_key`, derived from the longest
+/// configured root that prefixes it: `stdlib/std/io/console.zith` under the
+/// stdlib root `stdlib` becomes `std.io.console`.  Falls back to the file stem.
+std::string moduleNamespace(std::string_view module_key, const session::CacheKey &cache_key) {
+    const std::filesystem::path path{module_key};
+    std::string best_relative;
+    size_t best_root_length = 0;
+    const auto consider     = [&](const std::string &root) {
+        if (root.empty())
+            return;
+        std::error_code ec;
+        const auto relative = std::filesystem::relative(path, std::filesystem::path(root), ec);
+        if (ec || relative.empty())
+            return;
+        const auto text = relative.generic_string();
+        // A relative path escaping the root is not "inside" it.
+        if (text.starts_with(".."))
+            return;
+        if (root.size() >= best_root_length) {
+            best_root_length = root.size();
+            best_relative    = text;
+        }
+    };
+    for (const auto &root : cache_key.stdlibRoots)
+        consider(root);
+    for (const auto &root : cache_key.includeRoots)
+        consider(root);
+    consider(cache_key.workspaceRoot);
+
+    std::string relative = best_relative.empty() ? path.stem().string() : best_relative;
+    if (relative.size() > 5U && relative.compare(relative.size() - 5U, 5U, ".zith") == 0)
+        relative.erase(relative.size() - 5U);
+    for (auto &character : relative) {
+        if (character == '/' || character == '\\')
+            character = '.';
+    }
+    return relative;
 }
 
 } // namespace
@@ -92,9 +198,9 @@ std::string functionKey(std::string_view module, frontend::DeclId decl) {
 HirLowerModern::HirLowerModern(memory::Arena &arena, diagnostics::DiagnosticEngine &diags,
                                const session::CompilationSnapshot &snapshot,
                                const SemaPipeline &sema, types::TypeIntern &types,
-                               memory::StringInterner &interner)
+                               memory::StringInterner &interner, const NraFacts *nra)
     : arena_(arena), diags_(diags), snapshot_(snapshot), sema_(sema), types_(types),
-      interner_(interner), hir_(arena), lowered_types_() {}
+      interner_(interner), nra_(nra), hir_(arena), lowered_types_() {}
 
 bool HirLowerModern::run() {
     return predeclareFunctions() && lowerFunctionBodies() && !diags_.hasErrors();
@@ -111,9 +217,30 @@ bool HirLowerModern::predeclareFunctions() {
             if (decl.kind != frontend::DeclKind::Function || decl.name.empty())
                 continue;
 
-            auto &hir_fn   = hir_.addFn(interner_.intern(decl.name));
-            hir_fn.sym_id  = static_cast<symbols::SymId>(functions_.size() + next_sym_id_);
-            hir_fn.decl_id = static_cast<ast::DeclId>(decl.id.value);
+            // Linkage name: `<namespace>.<Owner>.<name>(<param types>)`.  `extern fn`
+            // (fixed C ABI) and `main` (needed verbatim by the linker) keep the
+            // source name; everything else is qualified so overloads and
+            // same-named functions in different modules get distinct symbols.
+            std::string fn_name = decl.name;
+            if (!decl.isExtern && decl.name != "main") {
+                const auto name_space = moduleNamespace(module.key, snapshot_.cacheKey());
+                std::string qualified;
+                if (!name_space.empty())
+                    qualified = name_space + ".";
+                if (!decl.ownerName.empty())
+                    qualified += decl.ownerName + ".";
+                qualified += decl.name;
+                qualified += frontend::functionSignature(*module.frontend, decl);
+                fn_name = std::move(qualified);
+            } else if (!decl.ownerName.empty()) {
+                fn_name = decl.ownerName + "." + fn_name;
+            }
+
+            auto &hir_fn      = hir_.addFn(interner_.intern(fn_name));
+            hir_fn.sym_id     = static_cast<symbols::SymId>(functions_.size() + next_sym_id_);
+            hir_fn.decl_id    = static_cast<ast::DeclId>(decl.id.value);
+            hir_fn.fnSpan     = memory::Span{0, decl.span.start, decl.span.end};
+            hir_fn.isVariadic = decl.isVariadic;
 
             const auto fn_type = module_sema->typeOfDecl(decl.id);
             if (const auto *fn = sema_.typeTable().function(fn_type)) {
@@ -144,6 +271,7 @@ bool HirLowerModern::predeclareFunctions() {
             auto &hir_fn       = hir_.addFn(interner_.intern(foreign.linkageName));
             hir_fn.sym_id      = static_cast<symbols::SymId>(functions_.size() + next_sym_id_);
             hir_fn.return_type = lowerForeignType(foreign.result);
+            hir_fn.isVariadic  = foreign.isVariadic;
             for (const auto &parameter : foreign.parameters) {
                 hir_fn.params.push(lowerForeignType(parameter));
                 hir_fn.param_names.push({});
@@ -154,6 +282,44 @@ bool HirLowerModern::predeclareFunctions() {
     }
     return true;
 }
+
+namespace {
+
+hir::HirOwnership mapHirOwnership(types::OwnershipKind kind) noexcept {
+    switch (kind) {
+    case types::OwnershipKind::Lend:
+        return hir::HirOwnership::Lend;
+    case types::OwnershipKind::View:
+        return hir::HirOwnership::View;
+    case types::OwnershipKind::Unique:
+        return hir::HirOwnership::Unique;
+    case types::OwnershipKind::Share:
+        return hir::HirOwnership::Share;
+    case types::OwnershipKind::Belong:
+        return hir::HirOwnership::Belong;
+    case types::OwnershipKind::Default:
+        break;
+    }
+    return hir::HirOwnership::Default;
+}
+
+hir::HirCallEscape mapHirEscape(sema::modern::NraArgEscape escape) noexcept {
+    switch (escape) {
+    case sema::modern::NraArgEscape::Borrow:
+        return hir::HirCallEscape::Borrow;
+    case sema::modern::NraArgEscape::Capture:
+        return hir::HirCallEscape::Capture;
+    case sema::modern::NraArgEscape::Escape:
+        return hir::HirCallEscape::Escape;
+    case sema::modern::NraArgEscape::Move:
+        return hir::HirCallEscape::Move;
+    case sema::modern::NraArgEscape::None:
+        break;
+    }
+    return hir::HirCallEscape::None;
+}
+
+} // namespace
 
 bool HirLowerModern::lowerFunctionBodies() {
     for (auto &function : functions_) {
@@ -173,7 +339,18 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
         return false;
     }
 
-    current_fn_    = &hir_.getFn(info.hir_index);
+    current_fn_ = &hir_.getFn(info.hir_index);
+
+    if (nra_ != nullptr && info.module != nullptr && info.decl != nullptr) {
+        const auto *fn_fact = nra_->functionFact(info.module->key, info.decl->id);
+        if (fn_fact != nullptr && fn_fact->hasResidual() && fn_fact->allReturnsParameter &&
+            fn_fact->parameterIndex != ~0U) {
+            auto &attrs          = hir_.attrs().fn(info.hir_index);
+            attrs.returnConsumed = hir::HirConsumedState::NonConsumed;
+            attrs.noAlias        = true;
+        }
+    }
+
     current_block_ = 0;
     next_slot_     = 0;
     loop_stack_.clear();
@@ -189,6 +366,16 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     for (size_t index = 0; index < info.decl->parameters.size(); ++index) {
         const auto &parameter = info.decl->parameters[index];
         const auto slot       = localSlot(parameter.id);
+        if (nra_ != nullptr) {
+            const auto *fact = nra_->localFact(parameter.id);
+            if (fact != nullptr && fact->hasResidual()) {
+                auto &attrs     = hir_.attrs().slot(slot);
+                attrs.ownership = mapHirOwnership(fact->ownership);
+                attrs.nonNull   = fact->nonNull;
+                attrs.consumed  = fact->knownAlive ? hir::HirConsumedState::NonConsumed
+                                                   : hir::HirConsumedState::Consumed;
+            }
+        }
         current_fn_->blocks[0].insts.push(emitSlotAlloca(slot, current_fn_->params[index]));
 
         hir::HirVar param_var;
@@ -224,6 +411,7 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
     types::TypeId lowered = types::kErrorType;
     switch (sema_.typeTable().kindOf(type)) {
     case TypeKind::Error:
+    case TypeKind::Invalid:
         lowered = types::kErrorType;
         break;
     case TypeKind::Void:
@@ -402,6 +590,12 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
         lowered           = alias != nullptr ? lowerType(alias->target) : types::kErrorType;
         break;
     }
+    case TypeKind::Qualified: {
+        // HIR and codegen do not represent ownership: strip to the inner type.
+        const auto *qual = sema_.typeTable().qualified(type);
+        lowered          = qual != nullptr ? lowerType(qual->inner) : types::kErrorType;
+        break;
+    }
     }
 
     lowered_types_.insert(type.intern_seq, lowered);
@@ -415,12 +609,19 @@ types::TypeId HirLowerModern::lowerForeignType(const cinterop::Type &type) {
     case cinterop::TypeKind::Bool:
         return types::kBoolType;
     case cinterop::TypeKind::Integer:
+        if (type.isChar)
+            return types::kCharType;
         return types_.internInt(type.isSigned ? mapIntegerWidth({type.bits, true})
                                               : mapIntegerWidth({type.bits, false}));
     case cinterop::TypeKind::Float:
         return types_.internFloat(mapFloatWidth({type.bits}));
-    case cinterop::TypeKind::Pointer:
-        return types_.internPtr(type.pointee ? lowerForeignType(*type.pointee) : types::kErrorType);
+    case cinterop::TypeKind::Pointer: {
+        // Mirrors `PerModuleSema::lowerForeignType`: a C pointer is `?*T`, which the
+        // niche layout emits as the bare pointer.
+        const types::TypeId pointee =
+            type.pointee ? lowerForeignType(*type.pointee) : types::kErrorType;
+        return types_.internOptional(types_.internPtr(pointee));
+    }
     case cinterop::TypeKind::Record:
         return types_.registerNamedType(type.name, types::TypeKind::Struct);
     case cinterop::TypeKind::Enum:
@@ -450,18 +651,21 @@ const frontend::Declaration *HirLowerModern::findDecl(const session::ModuleArtif
     return &module.frontend->declarations()[id.value - 1U];
 }
 
+const PerModuleSema::CallTarget *
+HirLowerModern::overloadTarget(frontend::ExprId callee) const noexcept {
+    if (current_module_ == nullptr)
+        return nullptr;
+    const auto *module_sema = sema_.findModuleSema(current_module_->key);
+    return module_sema == nullptr ? nullptr : module_sema->resolvedCallTarget(callee);
+}
+
 const session::ResolvedName *HirLowerModern::findResolvedExpr(frontend::ExprId id) const noexcept {
     if (current_module_ == nullptr || current_resolution_ == nullptr || !id ||
         id.value > current_module_->frontend->expressions().size()) {
         return nullptr;
     }
 
-    const auto &expr = current_module_->frontend->expressions()[id.value - 1U];
-    for (const auto &resolved : current_resolution_->expressions) {
-        if (resolved.span.start == expr.span.start && resolved.span.end == expr.span.end)
-            return &resolved;
-    }
-    return nullptr;
+    return session::lookupExprResolution(*current_resolution_, id);
 }
 
 const frontend::Declaration *
@@ -507,8 +711,19 @@ hir::HirSlotId HirLowerModern::localSlot(frontend::LocalId id) {
         return hir::kInvalidHirSlot;
     if (id.value >= local_slots_.size())
         local_slots_.resize(id.value + 1U, hir::kInvalidHirSlot);
-    if (local_slots_[id.value] == hir::kInvalidHirSlot)
+    if (local_slots_[id.value] == hir::kInvalidHirSlot) {
         local_slots_[id.value] = next_slot_++;
+        if (nra_ != nullptr) {
+            const auto *fact = nra_->localFact(id);
+            if (fact != nullptr && fact->hasResidual()) {
+                auto &attrs     = hir_.attrs().slot(local_slots_[id.value]);
+                attrs.ownership = mapHirOwnership(fact->ownership);
+                attrs.nonNull   = fact->nonNull;
+                attrs.consumed  = fact->knownAlive ? hir::HirConsumedState::NonConsumed
+                                                   : hir::HirConsumedState::Consumed;
+            }
+        }
+    }
     return local_slots_[id.value];
 }
 
@@ -562,6 +777,12 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
         return lowerIsNull(expr);
     case frontend::ExprKind::LayoutIntrinsic:
         return lowerLayoutIntrinsic(expr);
+    case frontend::ExprKind::MacroCall: {
+        // Transparent: delegate to expansion.
+        if (expr.expansion)
+            return lowerExpr(expr.expansion);
+        return hir::kInvalidHirExpr;
+    }
     case frontend::ExprKind::Return:
     case frontend::ExprKind::Placeholder:
     case frontend::ExprKind::Error:
@@ -587,15 +808,46 @@ hir::HirExprId HirLowerModern::lowerLiteral(const frontend::Expression &expr,
     case types::TypeKind::Float:
         literal.f = std::strtod(expr.text.c_str(), nullptr);
         break;
+    case types::TypeKind::Char: {
+        if (expr.text.size() < 3U || expr.text.front() != '\'' || expr.text.back() != '\'')
+            return hir::kInvalidHirExpr;
+        std::string decoded;
+        const std::string_view body(expr.text.data() + 1U, expr.text.size() - 2U);
+        if (!decodeEscapes(body, decoded) || decoded.size() != 1U) {
+            if (current_module_ != nullptr) {
+                diags_.report(
+                    diagnostics::Severity::Error, diagnostics::err::InvalidEscape,
+                    "invalid escape sequence in char literal",
+                    memory::Span{current_module_->fileId, expr.span.start, expr.span.end});
+            }
+            return hir::kInvalidHirExpr;
+        }
+        literal.i = static_cast<unsigned char>(decoded.front());
+        break;
+    }
     case types::TypeKind::Ptr: {
         auto text = std::string_view(expr.text);
-        if (text.size() >= 2U && text.front() == '"' && text.back() == '"')
-            text = text.substr(1U, text.size() - 2U);
-        literal.str_val = interner_.intern(text);
+        if (text.size() >= 2U && text.front() == '"' && text.back() == '"') {
+            std::string decoded;
+            if (!decodeEscapes(std::string_view(text.data() + 1U, text.size() - 2U), decoded)) {
+                if (current_module_ != nullptr) {
+                    diags_.report(
+                        diagnostics::Severity::Error, diagnostics::err::InvalidEscape,
+                        "invalid escape sequence in string literal",
+                        memory::Span{current_module_->fileId, expr.span.start, expr.span.end});
+                }
+                return hir::kInvalidHirExpr;
+            }
+            literal.str_val = interner_.intern(decoded);
+        } else {
+            literal.str_val = interner_.intern(text);
+        }
         break;
     }
     default:
-        literal.i = std::strtoll(expr.text.c_str(), nullptr, 10);
+        // Honour the radix prefix the lexer accepted (`0x`, `0c`, `0b`). Sema has already
+        // rejected literals that do not fit 64 bits, so Overflow here leaves the value at 0.
+        (void)support::parseIntegerLiteral(expr.text, literal.i);
         break;
     }
     return addExpr(std::move(literal));
@@ -615,9 +867,21 @@ hir::HirExprId HirLowerModern::lowerName(const frontend::Expression &expr) {
             var.version = 0;
             return addExpr(std::move(var));
         }
-        if (const auto *decl = resolvedFunctionDecl(*resolved)) {
+        const session::ModuleArtifact *decl_module = nullptr;
+        if (const auto *decl = resolvedFunctionDecl(*resolved, &decl_module)) {
             hir::HirVar var;
-            var.name    = interner_.intern(decl->name);
+            // Use the predeclared (qualified) linkage name so the reference and the
+            // definition agree.
+            var.name = interner_.intern(decl->name);
+            if (decl_module != nullptr) {
+                const auto key = functionKey(decl_module->key, decl->id);
+                for (const auto &function : functions_) {
+                    if (function.key == key) {
+                        var.name = hir_.getFn(function.hir_index).name;
+                        break;
+                    }
+                }
+            }
             var.version = 0;
             return addExpr(std::move(var));
         }
@@ -677,21 +941,123 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
     if (expr.operands.empty())
         return hir::kInvalidHirExpr;
 
-    const auto callee = lowerExpr(expr.operands[0]);
-    if (callee == hir::kInvalidHirExpr)
-        return hir::kInvalidHirExpr;
+    const frontend::ExprId callee_id = expr.operands[0];
+    const auto &callee_expr = current_module_->frontend->expressions()[callee_id.value - 1U];
+
+    // A Field/Arrow callee is only a method call when a matching method
+    // declaration actually exists on the receiver's struct type. Module
+    // aliases and callable fields also parse as Field/Arrow, so resolve
+    // first and fall back to a plain call when nothing matches.
+    const frontend::Declaration *method_decl = nullptr;
+    if ((callee_expr.kind == frontend::ExprKind::Field ||
+         callee_expr.kind == frontend::ExprKind::Arrow) &&
+        !callee_expr.operands.empty()) {
+        const sema::modern::TypeId base_type =
+            sema_.typeTable().stripQualifiers(semaTypeOfExpr(callee_expr.operands[0]));
+        sema::modern::TypeId pointee = base_type;
+        if (base_type && sema_.typeTable().kindOf(base_type) == TypeKind::Pointer) {
+            if (const auto *ptr = sema_.typeTable().pointer(base_type))
+                pointee = sema_.typeTable().stripQualifiers(ptr->pointee);
+        } else if (base_type && sema_.typeTable().kindOf(base_type) == TypeKind::Optional) {
+            if (const auto *opt = sema_.typeTable().optional(base_type))
+                pointee = sema_.typeTable().stripQualifiers(opt->inner);
+        }
+        if (const auto *st = sema_.typeTable().struct_type(pointee)) {
+            for (const auto &decl : current_module_->frontend->declarations()) {
+                if (decl.kind != frontend::DeclKind::Function)
+                    continue;
+                if (decl.ownerName != st->name || decl.name != callee_expr.text)
+                    continue;
+                method_decl = &decl;
+                break;
+            }
+        }
+    }
+    const bool is_method_call = method_decl != nullptr;
+
+    hir::HirExprId callee = hir::kInvalidHirExpr;
+    if (!is_method_call) {
+        callee = lowerExpr(callee_id);
+        if (callee == hir::kInvalidHirExpr)
+            return hir::kInvalidHirExpr;
+    }
 
     memory::DynArray<hir::HirExprId> args(arena_);
+    memory::DynArray<types::TypeId> arg_types(arena_);
+
+    if (is_method_call) {
+        // Insert the implicit self argument: for `.` take the address of the
+        // base value, for `->` the base is already a pointer.
+        const frontend::ExprId base_id = callee_expr.operands[0];
+        hir::HirExprId self_arg        = lowerExpr(base_id);
+        if (self_arg == hir::kInvalidHirExpr)
+            return hir::kInvalidHirExpr;
+        if (callee_expr.kind == frontend::ExprKind::Field) {
+            const auto base_hir_type = typeOfExpr(base_id);
+            const auto self_slot     = next_slot_++;
+            current_fn_->blocks[current_block_].insts.push(
+                emitSlotAlloca(self_slot, base_hir_type));
+            current_fn_->blocks[current_block_].insts.push(emitSlotStore(self_slot, self_arg));
+            self_arg = addExpr(hir::HirSlotAddr{self_slot, base_hir_type});
+        }
+        args.push(self_arg);
+        const auto self_type = typeOfExpr(base_id);
+        if (self_type != types::kInvalidType)
+            arg_types.push(self_type);
+    }
+
     for (size_t index = 1; index < expr.operands.size(); ++index) {
         const auto argument = lowerExpr(expr.operands[index]);
         if (argument != hir::kInvalidHirExpr)
             args.push(argument);
+        const auto argument_type = typeOfExpr(expr.operands[index]);
+        if (argument_type != types::kInvalidType)
+            arg_types.push(argument_type);
     }
 
-    hir::HirCall call{callee, std::move(args)};
-    if (const auto *resolved = findResolvedExpr(expr.operands[0]))
+    hir::HirCall call{callee, std::move(args), std::move(arg_types)};
+    call.resolved_fn = symbols::kInvalidSym;
+    if (is_method_call) {
+        if (const auto *target = overloadTarget(callee_id);
+            target != nullptr && target->module == current_module_->key) {
+            method_decl = findDecl(*current_module_, target->decl);
+        }
+        const auto key = functionKey(current_module_->key, method_decl->id);
+        for (const auto &function : functions_) {
+            if (function.key == key) {
+                call.resolved_fn = function.sym_id;
+                break;
+            }
+        }
+    } else if (const auto *target = overloadTarget(callee_id)) {
+        // Sema already picked one declaration out of an overload set; re-resolving
+        // here would silently fall back to the first candidate.
+        const auto key = functionKey(target->module, target->decl);
+        for (const auto &function : functions_) {
+            if (function.key == key) {
+                call.resolved_fn = function.sym_id;
+                break;
+            }
+        }
+    } else if (const auto *resolved = findResolvedExpr(callee_id)) {
         call.resolved_fn = resolvedFunctionSym(*resolved);
-    return addExpr(std::move(call));
+    }
+    const hir::HirExprId call_id = addExpr(std::move(call));
+    if (nra_ != nullptr) {
+        const auto *call_fact = nra_->callFact(expr.id);
+        if (call_fact != nullptr && call_fact->hasResidual()) {
+            auto &attrs = hir_.attrs().call(call_id);
+            if (call_fact->returnsArgument != ~0U)
+                attrs.returnsArg = call_fact->returnsArgument;
+            for (const auto escape : call_fact->argEscapes)
+                attrs.args.emplace(hir::HirCallArgAttr{mapHirEscape(escape)});
+            if (call_fact->duplicatedShareOrView) {
+                while (attrs.args.size() < call_fact->argEscapes.size())
+                    attrs.args.emplace(hir::HirCallArgAttr{hir::HirCallEscape::None});
+            }
+        }
+    }
+    return call_id;
 }
 
 hir::HirExprId HirLowerModern::lowerBlock(const frontend::Expression &expr) {
@@ -1154,8 +1520,9 @@ memory::Optional<int64_t> HirLowerModern::enumVariantValue(frontend::ExprId oper
     const auto *decl = findDecl(*current_module_, resolved->declaration);
     if (decl == nullptr || decl->kind != frontend::DeclKind::Enum)
         return {};
-    const auto enum_type = sema_.typeTable().canonical(sema_.typeTable().lookupNamed(decl->name));
-    const auto *et       = sema_.typeTable().enum_type(enum_type);
+    const auto enum_type =
+        sema_.typeTable().stripQualifiers(sema_.typeTable().lookupNamed(decl->name));
+    const auto *et = sema_.typeTable().enum_type(enum_type);
     if (et == nullptr)
         return {};
     for (size_t i = 0; i < et->variant_names.size(); ++i) {
@@ -1197,7 +1564,7 @@ hir::HirExprId HirLowerModern::lowerField(const frontend::Expression &expr,
     if (object == hir::kInvalidHirExpr)
         return hir::kInvalidHirExpr;
     // Resolve the sema struct type to find the field index by name
-    const auto sema_type = sema_.typeTable().canonical(semaTypeOfExpr(expr.operands[0]));
+    const auto sema_type = sema_.typeTable().stripQualifiers(semaTypeOfExpr(expr.operands[0]));
     const int idx        = sema_.typeTable().fieldIndex(sema_type, expr.text);
     if (idx < 0)
         return hir::kInvalidHirExpr;
@@ -1212,14 +1579,14 @@ hir::HirExprId HirLowerModern::lowerArrow(const frontend::Expression &expr,
     if (ptr == hir::kInvalidHirExpr)
         return hir::kInvalidHirExpr;
     // Deref the pointer first
-    auto sema_ptr_type = sema_.typeTable().canonical(semaTypeOfExpr(expr.operands[0]));
+    auto sema_ptr_type = sema_.typeTable().stripQualifiers(semaTypeOfExpr(expr.operands[0]));
     // Match sema: `?*T` behaves as `*T` here because None is represented as nullptr.
     if (const auto *opt = sema_.typeTable().optional(sema_ptr_type))
-        sema_ptr_type = sema_.typeTable().canonical(opt->inner);
+        sema_ptr_type = sema_.typeTable().stripQualifiers(opt->inner);
     const auto *pt = sema_.typeTable().pointer(sema_ptr_type);
     if (pt == nullptr)
         return hir::kInvalidHirExpr;
-    const auto sema_struct = sema_.typeTable().canonical(pt->pointee);
+    const auto sema_struct = sema_.typeTable().stripQualifiers(pt->pointee);
     const auto struct_type = lowerType(sema_struct);
     const auto deref       = addExpr(hir::HirUnary{hir::HirUnaryOp::Deref, ptr, struct_type});
     const int idx          = sema_.typeTable().fieldIndex(sema_struct, expr.text);

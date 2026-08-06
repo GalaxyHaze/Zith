@@ -41,7 +41,7 @@ The compiler is a copilot: it gives you the tools, and you build the systems.
 |---|---|
 | `struct`, `fn`, `lend`, `view`, `trait`, `interface` | `marker`, `dock`, `jump` — for Games, State Machine, OS & embedded |
 | `?T`, `T!`, `or` | `context`, `word` — for DSLs and APIs |
-| `when`, `for`, `->` | `async` — for data pipelines |
+| `when`, `for`, `->` | runtime/stdlib concurrency APIs — for parallel work without special syntax |
 
 ### 1.3 Design Goals
 
@@ -72,7 +72,7 @@ use SQL;   // pollutes the rest of the file
 The `zithc` compiler follows a multi-stage pipeline:
 
 ```
-source -> lex -> scan -> resolve(import/symbols) -> sema -> comptime -> NRA -> HIR -> LLVM
+source -> lex -> scan -> resolve(import/symbols) -> sema -> comptime/solve -> NTA/NRA -> HIR -> LLVM
 ```
 > Note: when you compile a library, after LLVM it outputs `.zirl` (Zith Intermediate Representation Library).
 
@@ -83,9 +83,9 @@ source -> lex -> scan -> resolve(import/symbols) -> sema -> comptime -> NRA -> H
 | `scan` | Find top-level declarations from the token stream |
 | `resolve` | Resolve imported symbols, report duplicates |
 | `sema` | Semantic analysis — name resolution, type checking, visibility |
-| `comptime` | Generic instantiation, macro expansion, `comptime` evaluation |
-| `NRA` | Apply NRA to ensure memory safety |
-| `HIR` | Build High-level IR — desugared, typed, NRA-validated |
+| `comptime/solve` | Generic instantiation, macro expansion, `comptime` evaluation, and the solved semantic view that still preserves resource identity for ownership proof |
+| `NTA/NRA` | Accumulate semantic/resource facts, prove ownership rules, emit diagnostics, and apply only internal canonicalizations that do not change public ABI |
+| `HIR` | Build High-level IR — desugared, typed, NRA-validated, carrying only residual facts needed after the proof boundary |
 | `LLVM` | Code generation via the LLVM backend |
 
 `.zirl` files serve as cache and distribution format for compiled libraries — no headers needed, OS-agnostic, and you choose static or dynamic linking at the client side. Distribute once, link however the consumer prefers.
@@ -99,17 +99,17 @@ source -> lex -> scan -> resolve(import/symbols) -> sema -> comptime -> NRA -> H
 | 2 | [Module System](02-module-system.md) | `02-module-system.md` | `import`, `from`, `export`, `alias`, `use`, visibility |
 | 3 | [Type System](03-type-system.md) | `03-type-system.md` | Primitives, structs, enums, unions, generics, `when` |
 | 4 | [Traits, Interfaces & Capabilities](04-traits-interfaces.md) | `04-traits-interfaces.md` | Nominal traits, structural interfaces, capabilities, operator overloading |
-| 5 | [Functions](05-functions.md) | `05-functions.md` | `fn`, `const fn`, `async fn`, `flow fn`, `raw fn`, return types |
+| 5 | [Functions](05-functions.md) | `05-functions.md` | `fn`, `const fn`, `flow fn`, `raw fn`, return types |
 | 6 | [Mutability & Bindings](06-mutability-bindings.md) | `06-mutability-bindings.md` | `let`, `var`, `global`, `const`, deep mutability, destructuring |
 | 7 | [Memory Model (NRA)](07-memory-model.md) | `07-memory-model.md` | Ownership, `lend`/`view`/`unique`/`share`/`belong`, the four rules |
 | 8 | [Error Handling](08-error-handling.md) | `08-error-handling.md` | `?T`, `T!`, `with`/`catch`, `fail` blocks, `throw` |
 | 9 | [Control Flow](09-control-flow.md) | `09-control-flow.md` | `if`, `when`, `for`, `->`, `flow fn`, markers, docks |
-| 10 | [Concurrency & Threads](10-concurrency.md) | `10-concurrency.md` | `spawn`, `await`, `#wont_remain`, thread safety |
+| 10 | [Concurrency & Runtime APIs](10-concurrency.md) | `10-concurrency.md` | stdlib/runtime concurrency surface, resource safety, no core syntax |
 | 11 | [Comptime](11-comptime.md) | `11-comptime.md` | `const`, reflection, type manipulation, intrinsics |
 | 12 | [Assets](12-assets.md) | `12-assets.md` | Compile-time asset processing, `ZithProject.toml` |
 | 13 | [Raw & Unsafe](13-raw-unsafe.md) | `13-raw-unsafe.md` | `raw`, `unsafe`, `Trust` capability |
 | 14 | [Polymorphism](14-polymorphism.md) | `14-polymorphism.md` | `dyn`, static vs dynamic dispatch, object safety |
-| 15 | [Macros](15-macros.md) | `15-macros.md` | Scoped, raw, tag macros, `@` prefix |
+| 15 | [Macros](15-macros.md) | `15-macros.md` | Scoped, raw, tag macros, `@` prefix, call-site scope behaviour |
 | 16 | [Words](16-words.md) | `16-words.md` | Custom operators, `operator`, `token`, precedence |
 | 17 | [Contexts](17-contexts.md) | `17-contexts.md` | DSL bundling, scoped activation |
 | 18 | [C Interop](18-c-interop.md) | `18-c-interop.md` | `.h` import, manual binding, `extern 'C'` |
@@ -142,19 +142,16 @@ source -> lex -> scan -> resolve(import/symbols) -> sema -> comptime -> NRA -> H
 | `pub` / `mod` / `mod(..)` / `mod(N)` | Visibility | Public / module-local, with optional depth. |
 | `let` / `var` / `global` / `const` | Bindings | Immutable / mutable / static storage / compile-time constant. |
 | `default` / `lend` / `view` / `unique` / `share` / `belong` | Memory | NRA memory modifiers — `default` is implicit when no keyword is written. |
-| `fn` / `const fn` / `async fn` / `flow fn` / `raw fn` | Functions | Function kinds. Orthogonal; cannot be combined. |
-| `yield` | Functions | Suspend an async fn, optionally producing a value. |
+| `fn` / `const fn` / `flow fn` / `raw fn` | Functions | Function kinds. Orthogonal; cannot be combined. |
 | `trait` / `interface` / `extends` / `requires` / `dyn` | OOP | Nominal traits, structural interfaces, extension, constraints, dynamic dispatch. |
 | `Copy` / `Functor` / `Arithmetic` / `Error` | Capabilities | Operator and behavior capabilities. |
 | `Null` / `Fail` | Capabilities | Negative — activate only in proven-invalid states. |
-| `Allocator` / `Generator` / `Share` / `Lent` / `Trust` / `Unique` | Capabilities | Memory, async, threading, and safety capabilities. |
+| `Allocator` / `Generator` / `Share` / `Lent` / `Trust` / `Unique` | Capabilities | Memory, runtime protocol, and safety capabilities. |
 | `marker` / `dock` / `jump` | Flow | Hoisted blocks, jump sites, and invocations for `flow fn`. |
 | `stackful` | Flow | Opt-in modifier for stackful markers (stackless is the default). |
 | `->` / `..` | Chain | Chain flow / placeholder for the previous value. Left-to-right. |
 | `,` (in a chain) | Chain | Sub-chain — applies but does not advance the main chain value. |
 | `operator` / `token` | Words | Custom operator definition / token word definition. Must be defined inside a `context`. |
-| `spawn` / `await` / `handle.send` | Threads | Spawn a thread, wait on it, send it a message. |
-| `#wont_remain` | Threads | Promise that the thread dies before the enclosing scope ends. |
 | `?T` / `T!` | Errors | Optional / Result types. May be stacked. |
 | `?` / `!` (postfix) | Errors | Propagate Option / Result. No semicolon. Propagate out of chains. |
 | `or` | Errors / Loops / Types | Fallback / collapse an optional loop return / type constraint separator. |
@@ -197,7 +194,6 @@ source -> lex -> scan -> resolve(import/symbols) -> sema -> comptime -> NRA -> H
 |---|---|
 | `#volatile` | The variable is volatile; the compiler must not optimize it away. |
 | `#thread_local` | The variable uses thread-local storage. |
-| `#wont_remain` | A promise that the thread dies before the enclosing scope ends. |
 
 ---
 

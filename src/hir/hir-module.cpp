@@ -5,7 +5,7 @@
 
 namespace zith::hir {
 
-HirModule::HirModule(memory::Arena &arena) : exprs_(arena), fns_(arena) {}
+HirModule::HirModule(memory::Arena &arena) : exprs_(arena), fns_(arena), attrs_(arena) {}
 
 HirExprId HirModule::addExpr(HirExpr expr) {
     HirExprId id = static_cast<HirExprId>(exprs_.size());

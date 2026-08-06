@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cache/cache-entry.hpp"
 #include "cache/cache-types.hpp"
 #include "cache/manifest.hpp"
 #include "session/frontend-context.hpp" // session::CacheKey, session::ContentFingerprint
@@ -34,6 +35,12 @@ public:
     [[nodiscard]] std::optional<Artifact> load(std::string_view canonical_path,
                                                const session::ContentFingerprint &fp);
 
+    // Try to load and validate the artifact for `canonical_path` whose source
+    // fingerprint is `fp`.  Returns a fully validated CacheEntry on a full hit,
+    // or std::nullopt on any miss/invalidation/corruption.
+    [[nodiscard]] std::optional<CacheEntry> loadEntry(std::string_view canonical_path,
+                                                      const session::ContentFingerprint &fp);
+
     // Persist `artifact` to disk and update the manifest.  Best-effort: disk
     // write failures are swallowed and only reflected in metrics.
     void store(const Artifact &artifact);
@@ -56,8 +63,6 @@ private:
     StoreMetrics metrics_;
 
     [[nodiscard]] std::string artifactPath(std::string_view canonical_path) const;
-    [[nodiscard]] bool validateArtifact(const Artifact &art,
-                                        const session::ContentFingerprint &fp) const;
     void bumpHits() {
         std::lock_guard<std::mutex> lock(metrics_mutex_);
         ++metrics_.hits;

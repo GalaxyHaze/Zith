@@ -55,11 +55,56 @@ void CodeGen::llvmError(const std::string &msg) {
 bool CodeGen::verifyCurrentFunction(llvm::Function *llvmFn) {
     std::string buf;
     llvm::raw_string_ostream os(buf);
-    if (llvm::verifyFunction(*llvmFn, &os)) {
-        llvmError("IR verification failed for function '" + std::string(llvmFn->getName()) +
-                  "': " + buf);
-        return false;
+    if (!llvm::verifyFunction(*llvmFn, &os))
+        return true;
+
+    // Keep the primary message on one line; the raw (possibly multi-line) LLVM
+    // verifier output is attached as a suggestion so it renders below the note.
+    invalidIR_  = true;
+    auto msg    = "IR verification failed for function '" + std::string(llvmFn->getName()) + "'";
+    auto detail = buf;
+    while (!detail.empty() && (detail.back() == '\n' || detail.back() == '\r'))
+        detail.pop_back();
+
+    if (diags_) {
+        if (detail.empty())
+            diags_->report(diagnostics::Severity::Error, diagnostics::err::InvalidIR, msg,
+                           currentFnSpan_);
+        else
+            diags_->report(diagnostics::Severity::Error, diagnostics::err::InvalidIR, msg,
+                           currentFnSpan_, {detail});
+    } else {
+        llvm::errs() << msg << (detail.empty() ? "" : ": " + detail) << "\n";
     }
+    return false;
+}
+
+bool CodeGen::verifyWholeModule() {
+    if (!module_)
+        return false;
+    // A per-function failure was already reported with a precise span; re-running the
+    // module verifier would only duplicate it.
+    if (invalidIR_)
+        return false;
+    std::string buf;
+    llvm::raw_string_ostream os(buf);
+    if (!llvm::verifyModule(*module_, &os))
+        return true;
+
+    invalidIR_         = true;
+    std::string detail = buf;
+    while (!detail.empty() && (detail.back() == '\n' || detail.back() == '\r'))
+        detail.pop_back();
+    llvmError("IR verification failed for module" + (detail.empty() ? "" : ": " + detail));
+    return false;
+}
+
+bool CodeGen::refuseInvalidIR(const char *what) {
+    if (!invalidIR_)
+        return false;
+    // Running LLVM codegen over invalid IR is not a diagnosable error, it is a crash
+    // (a block without a terminator segfaults inside MachineBasicBlock construction).
+    llvmError(std::string("refusing to ") + what + ": module failed IR verification");
     return true;
 }
 
@@ -93,7 +138,7 @@ void CodeGen::ensureTargetInfo() {
 }
 
 void CodeGen::optimize() {
-    if (optLevel_ == 0)
+    if (optLevel_ == 0 || invalidIR_)
         return;
 
     std::string error;
@@ -147,6 +192,9 @@ void CodeGen::emit(const hir::HirModule &hirModule, std::string_view moduleName)
         if (!fn.blocks.empty())
             emitFnBody(fn, hirModule);
     }
+
+    // Invariant: no consumer ever sees a module that fails verifyModule.
+    verifyWholeModule();
 }
 
 llvm::Function *CodeGen::declareFn(const hir::HirFunction &fn) {
@@ -158,7 +206,7 @@ llvm::Function *CodeGen::declareFn(const hir::HirFunction &fn) {
         paramTypes.push_back(typeGen.lower(param_type));
     auto *retType = typeGen.lower(fn.return_type);
 
-    auto *fnType = llvm::FunctionType::get(retType, paramTypes, false);
+    auto *fnType = llvm::FunctionType::get(retType, paramTypes, fn.isVariadic);
     auto *llvmFn = llvm::Function::Create(fnType, llvm::Function::ExternalLinkage,
                                           llvm::StringRef(name.data(), name.size()), module_.get());
     if (fn.blocks.empty())
@@ -193,18 +241,31 @@ void CodeGen::emitFnBody(const hir::HirFunction &fn, const hir::HirModule &mod) 
     emit.registerParams(fn, llvmFn);
     emit.emitBody(fn, mod);
 
-    // Add terminators to blocks that lack one
+    currentFnSpan_ = fn.fnSpan;
+
+    // A HIR block that carries a terminator but produced no LLVM terminator means an
+    // operand failed to lower (an expression emitting nullptr). That is an internal
+    // compiler error, and the unterminated block would crash LLVM codegen rather than be
+    // diagnosed, so report it and mark the module unusable.
     for (size_t i = 0; i < fn.blocks.size(); i++) {
-        if (fn.blocks[i].terminator == hir::kInvalidHirExpr) {
-            auto *bb = llvmBlocks[i];
-            if (!bb->getTerminator()) {
-                llvm::IRBuilder<> termBuilder(bb);
-                if (retType->isVoidTy())
-                    termBuilder.CreateRetVoid();
-                else
-                    termBuilder.CreateUnreachable();
-            }
+        if (fn.blocks[i].terminator != hir::kInvalidHirExpr && !llvmBlocks[i]->getTerminator()) {
+            invalidIR_ = true;
+            llvmError("failed to emit the terminator of a block in function '" + std::string(name) +
+                      "'");
+            break;
         }
+    }
+
+    // Terminate every block that still lacks one, so the module stays verifiable even on
+    // the failure path above: no consumer may ever see an unterminated block.
+    for (auto *bb : llvmBlocks) {
+        if (bb->getTerminator())
+            continue;
+        llvm::IRBuilder<> termBuilder(bb);
+        if (retType->isVoidTy())
+            termBuilder.CreateRetVoid();
+        else
+            termBuilder.CreateUnreachable();
     }
 
     verifyCurrentFunction(llvmFn);
@@ -256,6 +317,8 @@ static bool setupTargetMachine(llvm::Module *module, const std::string &tripleSt
 }
 
 bool CodeGen::emitObject(const std::string &outputPath) {
+    if (refuseInvalidIR("emit an object file"))
+        return false;
     std::unique_ptr<llvm::TargetMachine> tm;
     if (!setupTargetMachine(module_.get(), effectiveTriple(), llvmOptLevel(), tm, diags_))
         return false;
@@ -280,6 +343,8 @@ bool CodeGen::emitObject(const std::string &outputPath) {
 }
 
 bool CodeGen::emitAsm(const std::string &outputPath) {
+    if (refuseInvalidIR("emit an assembly file"))
+        return false;
     std::unique_ptr<llvm::TargetMachine> tm;
     if (!setupTargetMachine(module_.get(), effectiveTriple(), llvmOptLevel(), tm, diags_))
         return false;
@@ -304,6 +369,8 @@ bool CodeGen::emitAsm(const std::string &outputPath) {
 }
 
 std::string CodeGen::printAsm() {
+    if (refuseInvalidIR("print assembly"))
+        return "";
     std::unique_ptr<llvm::TargetMachine> tm;
     if (!setupTargetMachine(module_.get(), effectiveTriple(), llvmOptLevel(), tm, diags_))
         return "";

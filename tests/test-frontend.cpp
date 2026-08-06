@@ -480,6 +480,29 @@ static void test_consecutive_garbage_coalesces_into_one_diagnostic() {
     CHECK(found_ok, "declaration after coalesced garbage is still collected");
 }
 
+static void test_struct_field_syntax_diagnostics() {
+    auto eq = frontend::parse("struct S { x = 5 }\n");
+    CHECK_EQ(eq.diagnostics().size(), 1u, "field = expr reports one unsupported-syntax error");
+    CHECK_EQ(eq.diagnostics()[0].code, diagnostics::err::UnsupportedSyntax,
+             "field = expr uses UnsupportedSyntax");
+    CHECK(eq.diagnostics()[0].message.find("unsupported: field 'x = <expr>'") != std::string::npos,
+          "field = expr diagnostic names the field");
+
+    auto missing = frontend::parse("struct S { x }\n");
+    CHECK_EQ(missing.diagnostics().size(), 1u,
+             "a field without ':' or '=' reports one expected-colon error");
+    CHECK(missing.diagnostics()[0].message.find("expected ':' after field name 'x'") !=
+              std::string::npos,
+          "field without type reports expected ':'");
+
+    auto mixed = frontend::parse("struct S { x: i32 = 5, y = 6 }\n");
+    CHECK_EQ(mixed.diagnostics().size(), 1u,
+             "mixing a valid typed default with field = expr keeps only the real diagnostic");
+    CHECK(mixed.diagnostics()[0].message.find("unsupported: field 'y = <expr>'") !=
+              std::string::npos,
+          "the unsupported-field diagnostic names the offending field");
+}
+
 static void test_frontend() {
     test_lossless_trivia_and_spans();
     test_keywords_and_module_ast();
@@ -505,6 +528,7 @@ static void test_frontend() {
     test_macro_invocation_is_tolerated();
     test_extern_before_declaration_is_tolerated();
     test_consecutive_garbage_coalesces_into_one_diagnostic();
+    test_struct_field_syntax_diagnostics();
 }
 
 TEST_MAIN(frontend)

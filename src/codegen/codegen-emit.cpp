@@ -121,7 +121,11 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 const auto to_kind     = types_.kindOf(cast.to);
                 const bool from_signed = isSignedType(cast.from);
                 const bool to_signed   = isSignedType(cast.to);
-                if (from_kind == types::TypeKind::Int && to_kind == types::TypeKind::Int) {
+                const bool from_int =
+                    from_kind == types::TypeKind::Int || from_kind == types::TypeKind::Char;
+                const bool to_int =
+                    to_kind == types::TypeKind::Int || to_kind == types::TypeKind::Char;
+                if (from_int && to_int) {
                     const unsigned from_bits = value->getType()->getIntegerBitWidth();
                     const unsigned to_bits   = to_type->getIntegerBitWidth();
                     if (to_bits == from_bits)
@@ -215,6 +219,8 @@ void CodeGenEmit::registerParams(const hir::HirFunction &fn, llvm::Function *llv
 }
 
 llvm::Value *CodeGenEmit::emitLiteral(const hir::HirLiteral &lit) {
+    if (lit.type == types::kErrorType || lit.type == types::kInvalidType)
+        return nullptr;
     return types::visitType(
         types_.lookup(lit.type),
         common::overloaded{
@@ -273,9 +279,7 @@ llvm::Value *CodeGenEmit::emitLiteral(const hir::HirLiteral &lit) {
                 return llvm::ConstantExpr::getInBoundsGetElementPtr(str->getType(), global,
                                                                     indices);
             },
-            [&](const auto &) -> llvm::Value * {
-                return llvm::Constant::getNullValue(llvm::Type::getVoidTy(builder_.getContext()));
-            },
+            [](const auto &) -> llvm::Value * { return nullptr; },
         });
 }
 
@@ -475,6 +479,30 @@ llvm::Value *CodeGenEmit::emitCall(const hir::HirCall &call, const hir::HirModul
         llvm::errs() << "ERROR: emitCall failed to resolve callee (resolved_fn=" << call.resolved_fn
                      << ")\n";
         return nullptr;
+    }
+
+    // C default argument promotions apply only to the variadic tail: float -> double,
+    // and bool/char/small ints -> int. Fixed parameters keep their declared ABI types.
+    const auto *fn_type = fn->getFunctionType();
+    if (fn_type->isVarArg()) {
+        const auto fixed_count = fn_type->getNumParams();
+        for (size_t index = fixed_count; index < args.size(); ++index) {
+            llvm::Value *value = args[index];
+            if (value->getType()->isFloatingPointTy() && value->getType()->isFloatTy()) {
+                args[index] =
+                    builder_.CreateFPExt(value, llvm::Type::getDoubleTy(builder_.getContext()));
+            } else if (value->getType()->isIntegerTy() &&
+                       value->getType()->getIntegerBitWidth() < 32U) {
+                const auto arg_type = index < call.argument_types.size()
+                                          ? call.argument_types[index]
+                                          : types::kInvalidType;
+                const bool extend   = arg_type != types::kInvalidType && isSignedType(arg_type);
+                args[index] =
+                    extend
+                        ? builder_.CreateSExt(value, llvm::Type::getInt32Ty(builder_.getContext()))
+                        : builder_.CreateZExt(value, llvm::Type::getInt32Ty(builder_.getContext()));
+            }
+        }
     }
 
     return builder_.CreateCall(fn, args);

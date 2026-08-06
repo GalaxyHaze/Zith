@@ -1,49 +1,50 @@
-## 10. Concurrency & Threads
+## 10. Concurrency & Runtime APIs
 
-> **Implementation status:** `async fn` is accepted by the parser but the body is skipped
-> (**parse skipped**). `yield`, `spawn`, and `await` are **spec-only** with no compiler support.
-> See [impl-status.md](impl-status.md).
+> **Implementation status:** concurrency is not a core syntax feature. The compiler does not model
+> `async fn`, `yield`, `spawn`, or `await` as language constructs; any future concurrency support is
+> expected to arrive through `stdlib` and runtime APIs built from ordinary functions, types, and
+> NRA-checked resource rules. See [impl-status.md](impl-status.md).
 
-### 10.1 Spawning
+### 10.1 Core-Language Position
 
-```zith
-// Default thread type
-let handle = spawn worker_fn(data);
+Zith's core language does not define concurrency-specific statements, operators, or function kinds.
+There are no dedicated HIR nodes for tasks, threads, `await`, or coroutine suspension. The compiler
+understands only:
 
-// Explicit thread type
-let handle = spawn worker_fn(data) with GreenThread;
+- ordinary declarations and calls;
+- library-defined handle, channel, task, or executor types;
+- traits/capabilities used to describe what those types guarantee;
+- NRA facts about sharing, lending, capture, escape, and ownership across those calls.
 
-// Fire-and-forget
-let _ = spawn background_task();
+### 10.2 Runtime Surface
 
-// #wont_remain -- promise the thread dies before the scope ends
-#wont_remain let _ = spawn quickTask(sharedData);
-```
-
-### 10.2 Compile-Time Safety Enforcement
-
-If a thread accesses shared data, the compiler requires **one of**:
-
-- `await handle` before the shared data goes out of scope, or
-- the `#wont_remain` attribute on the spawn.
-
-Missing both is a **compile error**. Violating the `#wont_remain` promise is not caught by the compiler — the shared data may become a dangling reference. An alternative to both is using `global: share T` or `Rc`.
-
-| Keyword / Method | Semantics |
-|---|---|
-| `await handle` | Waits for the thread to finish. |
-| `await globalVar` | Blocks until the global variable has been initialized. |
-| `handle.send(msg)` | Sends a message to the running thread. |
-| `#wont_remain` | Attribute on `spawn`. Promises the thread dies before the enclosing scope ends. |
+The standard library or an alternate runtime may expose APIs such as thread spawners, executors,
+message queues, join handles, or resumable tasks. Those APIs are library surface, not syntax:
 
 ```zith
-let handle = spawn worker(sharedData);
-await handle;
+let handle = runtime.spawn(workerFn, sharedData);
+runtime.join(handle);
 
-global cfg: Config;
-await cfg;
-@println(cfg.host);
+let task: Task<Response!> = runtime.schedule(fetchRequest);
+let response = runtime.blockOn(task);
 ```
+
+API names above are illustrative. The compiler does not reserve them.
+
+### 10.3 What the Compiler Proves
+
+Concurrency-related safety is enforced through the same pre-HIR ownership proof used everywhere
+else:
+
+- whether a call duplicates a resource illegally;
+- whether a borrowed or `belong` value escapes;
+- whether narrowing facts or branch facts justify later lowering decisions;
+- whether shared/runtime-managed resources are passed only through the capabilities and wrapper types
+  that define the contract.
+
+The compiler does not special-case threads or async control flow. If a runtime API needs stronger
+guarantees, it must express them through normal signatures, types, and traits that NRA can reason
+about before HIR is finalized.
 
 ---
 

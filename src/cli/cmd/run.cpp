@@ -5,6 +5,7 @@
 
 #include <cstdio>
 #include <future>
+#include <string>
 
 namespace zith::cli::commands {
 
@@ -35,7 +36,16 @@ int execute(const Options &opts) {
             continue;
         }
 
-        if (!session.linkAndExec()) {
+        bool executed = session.linkAndExec();
+        // Compiler diagnostics emitted during link/exec stay on stderr; the
+        // program's own bytes go to stdout verbatim, even if it then failed.
+        std::fputs(session.flushOutput().c_str(), stderr);
+        const std::string childOutput = session.takeChildOutput();
+        if (!childOutput.empty())
+            std::fwrite(childOutput.data(), 1, childOutput.size(), stdout);
+        std::fflush(stdout);
+
+        if (!executed) {
             allPassed = false;
         } else {
             exitCode = session.childExitCode();

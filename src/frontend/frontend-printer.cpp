@@ -51,6 +51,8 @@ namespace {
         return "Word";
     case DeclKind::Import:
         return "Import";
+    case DeclKind::Macro:
+        return "Macro";
     case DeclKind::Error:
         return "Error";
     }
@@ -105,6 +107,8 @@ namespace {
         return "Placeholder";
     case ExprKind::LayoutIntrinsic:
         return "LayoutIntrinsic";
+    case ExprKind::MacroCall:
+        return "MacroCall";
     case ExprKind::Error:
         return "Error";
     }
@@ -222,6 +226,8 @@ void printDeclarations(const FrontendSnapshot &snapshot) {
 
         std::printf("Declaration %s '%s' (%s)", declKindName(decl.kind), decl.name.c_str(),
                     visibilityName(decl.visibility));
+        if (!decl.ownerName.empty())
+            std::printf(" owner='%s'", decl.ownerName.c_str());
         if (decl.kind == DeclKind::Import) {
             std::printf(" path='%s'", decl.import.rawPath.c_str());
             if (!decl.import.alias.empty())

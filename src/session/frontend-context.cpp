@@ -194,7 +194,8 @@ size_t SourceCatalog::size() const noexcept {
 std::string CacheKey::identity() const {
     std::ostringstream output;
     // The published module shape changed from legacy parser objects to frontend artifacts.
-    output << "frontend-artifact-v2\n"
+    output << "frontend-artifact-v3\n"
+           << workspaceRoot << '\n'
            << compilerVersion << '\n'
            << targetTriple << '\n'
            << parseFlags << '\n'
@@ -204,6 +205,8 @@ std::string CacheKey::identity() const {
         output << "I:" << root << '\n';
     for (const auto &root : stdlibRoots)
         output << "S:" << root << '\n';
+    for (const auto &root : systemIncludeRoots)
+        output << "Y:" << root << '\n';
     for (const auto &define : cDefines)
         output << "D:" << define << '\n';
     return output.str();
@@ -211,11 +214,12 @@ std::string CacheKey::identity() const {
 
 CacheKey FrontendConfig::cacheKey() const {
     CacheKey key{
-        compilerVersion, targetTriple, parseFlags,  visibilityFlags,
-        sysroot,         includeRoots, stdlibRoots, cDefines,
+        workspaceRoot, compilerVersion, targetTriple, parseFlags,         visibilityFlags,
+        sysroot,       includeRoots,    stdlibRoots,  systemIncludeRoots, cDefines,
     };
     normalizeRoots(key.includeRoots);
     normalizeRoots(key.stdlibRoots);
+    normalizeRoots(key.systemIncludeRoots);
     std::sort(key.cDefines.begin(), key.cDefines.end());
     key.cDefines.erase(std::unique(key.cDefines.begin(), key.cDefines.end()), key.cDefines.end());
     return key;
@@ -468,6 +472,12 @@ FrontendContext::FrontendContext(FrontendConfig config)
     normalizeRoots(config_.includeRoots);
     normalizeRoots(config_.stdlibRoots);
     normalizeRoots(config_.assetRoots);
+    if (config_.useSystemIncludeRoots && config_.systemIncludeRoots.empty())
+        config_.systemIncludeRoots =
+            cinterop::systemIncludeDirs(config_.targetTriple, config_.sysroot);
+    if (!config_.useSystemIncludeRoots)
+        config_.systemIncludeRoots.clear();
+    normalizeRoots(config_.systemIncludeRoots);
     cache_key_ = config_.cacheKey();
 }
 
@@ -528,7 +538,8 @@ void FrontendContext::invalidatePath(const std::string_view path) {
 std::vector<std::string> FrontendContext::visibleRootsFor(const std::string_view root_path) const {
     (void)root_path;
     std::vector<std::string> roots;
-    roots.reserve(config_.stdlibRoots.size() + config_.includeRoots.size() + 2U);
+    roots.reserve(config_.stdlibRoots.size() + config_.includeRoots.size() +
+                  config_.systemIncludeRoots.size() + 2U);
     roots.insert(roots.end(), config_.stdlibRoots.begin(), config_.stdlibRoots.end());
     roots.insert(roots.end(), config_.includeRoots.begin(), config_.includeRoots.end());
     if (!config_.workspaceRoot.empty())
@@ -536,6 +547,8 @@ std::vector<std::string> FrontendContext::visibleRootsFor(const std::string_view
 #ifndef ZITH_IS_WASM
     roots.push_back(fs::path(root_path).parent_path().generic_string());
 #endif
+    // System headers resolve last so project and -I roots always shadow them.
+    roots.insert(roots.end(), config_.systemIncludeRoots.begin(), config_.systemIncludeRoots.end());
     normalizeRoots(roots);
     return roots;
 }
@@ -661,6 +674,7 @@ ModuleArtifactPtr FrontendContext::buildModule(SourceCatalog::SourcePtr source) 
     artifact->timings.lexMs =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - parse_start)
             .count();
+    artifact->timings.expandMs = artifact->frontend->expandMs();
 
     for (const auto &diagnostic : artifact->frontend->diagnostics()) {
         artifact->diagnostics.push_back({
@@ -673,6 +687,8 @@ ModuleArtifactPtr FrontendContext::buildModule(SourceCatalog::SourcePtr source) 
         });
     }
     for (const auto &declaration : artifact->frontend->declarations()) {
+        if (declaration.kind == frontend::DeclKind::Macro)
+            continue;
         if (declaration.kind == frontend::DeclKind::Import) {
             ImportRequest request;
             request.path       = declaration.import.path;
@@ -698,8 +714,16 @@ ModuleArtifactPtr FrontendContext::buildModule(SourceCatalog::SourcePtr source) 
         if (declaration.kind == frontend::DeclKind::Error ||
             declaration.visibility == frontend::Visibility::Private)
             continue;
-        LocalSymbolInfo symbol{frontend::SymbolId{declaration.id.value}, declaration.name,
-                               declaration.visibility, declaration.kind, declaration.span};
+        LocalSymbolInfo symbol{frontend::SymbolId{declaration.id.value},
+                               declaration.name,
+                               declaration.visibility,
+                               declaration.kind,
+                               declaration.span,
+                               declaration.kind == frontend::DeclKind::Function
+                                   ? frontend::functionSignature(*artifact->frontend, declaration)
+                                   : std::string{},
+                               declaration.isExtern,
+                               declaration.isVariadic};
         if (symbol.visibility == frontend::Visibility::Public)
             artifact->publicSymbols.push_back(std::move(symbol));
         else
@@ -737,6 +761,20 @@ FrontendContext::mergeSymbols(const std::vector<ModuleArtifactPtr> &modules) {
     return result;
 }
 
+const ResolvedName *lookupExprResolution(const ModuleResolution &resolution,
+                                         frontend::ExprId expr) noexcept {
+    if (!expr)
+        return nullptr;
+    const auto begin = resolution.expressions.begin();
+    const auto end   = resolution.expressions.end();
+    const auto found = std::lower_bound(
+        begin, end, expr.value,
+        [](const ResolvedName &entry, const uint32_t value) { return entry.expr.value < value; });
+    if (found == end || found->expr != expr || found->name.empty())
+        return nullptr;
+    return &*found;
+}
+
 const ResolvedName *lookupBinding(const ModuleResolution &resolution, std::string_view name,
                                   frontend::ScopeId from,
                                   const std::vector<frontend::Scope> &scopes) noexcept {
@@ -765,6 +803,29 @@ const ResolvedName *lookupBinding(const ModuleResolution &resolution, std::strin
     return result;
 }
 
+std::vector<const ResolvedName *> lookupOverloads(const ModuleResolution &resolution,
+                                                  std::string_view name, frontend::ScopeId from,
+                                                  const std::vector<frontend::Scope> &scopes) {
+    std::vector<const ResolvedName *> result;
+    frontend::ScopeId current = from;
+    for (unsigned guard = 0; guard < 256U; ++guard) {
+        for (const auto &binding : resolution.bindings) {
+            if (binding.scope == current && binding.name == name)
+                result.push_back(&binding);
+        }
+        // The nearest scope that declares the name wins outright: an inner
+        // declaration shadows an outer overload set rather than extending it.
+        if (!result.empty() || !current)
+            break;
+        if (current.value > scopes.size()) {
+            current = frontend::ScopeId{};
+            continue;
+        }
+        current = scopes[current.value - 1U].parent;
+    }
+    return result;
+}
+
 std::vector<ModuleResolution>
 FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                                   const std::vector<ImportEdge> &import_graph,
@@ -780,18 +841,29 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
         resolution.module = module->key;
         // Bindings are keyed by (scope, name): a name only conflicts with another
         // binding declared in the *same* scope.  The module scope is ScopeId{}.
-        std::map<std::pair<uint32_t, std::string>, size_t> bindings;
+        std::map<std::pair<uint32_t, std::string>, std::vector<size_t>> bindings;
         auto add_binding = [&](ResolvedName binding, const frontend::ScopeId scope) {
             binding.scope  = scope;
             const auto key = std::make_pair(scope.value, binding.name);
-            if (const auto existing = bindings.find(key); existing != bindings.end()) {
+            auto &slots    = bindings[key];
+            for (const auto index : slots) {
+                const auto &existing = resolution.bindings[index];
+                // Two `fn` declarations may share a name (overloading) as long as
+                // neither is `extern` (the C ABI fixes one linkage name) and their
+                // parameter types differ after stripping memory qualifiers.
+                const bool both_fn = existing.declKind == frontend::DeclKind::Function &&
+                                     binding.declKind == frontend::DeclKind::Function;
+                if (both_fn && !existing.isExtern && !binding.isExtern &&
+                    existing.signature != binding.signature) {
+                    continue;
+                }
                 diagnostics.push_back({diagnostics::Severity::Error,
                                        diagnostics::err::DuplicateDecl,
                                        "duplicate binding '" + binding.name + "' in this scope",
                                        module->fileId, binding.span.start, binding.span.end});
                 return;
             }
-            bindings.emplace(key, resolution.bindings.size());
+            slots.push_back(resolution.bindings.size());
             resolution.bindings.push_back(std::move(binding));
         };
 
@@ -799,14 +871,24 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
             if (declaration.kind == frontend::DeclKind::Import ||
                 declaration.kind == frontend::DeclKind::Error || declaration.name.empty())
                 continue;
-            add_binding({declaration.name,
-                         ResolutionKind::Declaration,
-                         declaration.span,
-                         {module->key, frontend::SymbolId{declaration.id.value}},
-                         declaration.id,
-                         {},
-                         {}},
-                        frontend::ScopeId{});
+            // Macros live in their own namespace, resolved during expansion.
+            if (declaration.kind == frontend::DeclKind::Macro)
+                continue;
+            ResolvedName decl_binding{declaration.name,
+                                      ResolutionKind::Declaration,
+                                      declaration.span,
+                                      {module->key, frontend::SymbolId{declaration.id.value}},
+                                      declaration.id,
+                                      {},
+                                      {}};
+            decl_binding.declKind   = declaration.kind;
+            decl_binding.isExtern   = declaration.isExtern;
+            decl_binding.isVariadic = declaration.isVariadic;
+            if (declaration.kind == frontend::DeclKind::Function) {
+                decl_binding.signature =
+                    frontend::functionSignature(*module->frontend, declaration);
+            }
+            add_binding(std::move(decl_binding), frontend::ScopeId{});
             // Parameters live in the scope of the function body block, so two
             // functions may reuse the same parameter name.
             frontend::ScopeId parameter_scope;
@@ -840,6 +922,9 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
         for (const auto &statement : module->frontend->statements()) {
             if (statement.kind != frontend::StmtKind::Binding || statement.binding.name.empty())
                 continue;
+            // Bindings inside a macro template are not real declarations.
+            if (module->frontend->isMacroTemplateStmt(statement.id))
+                continue;
             frontend::ScopeId statement_scope;
             if (const auto found = statement_scopes.find(statement.id.value);
                 found != statement_scopes.end()) {
@@ -862,15 +947,18 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 if (edge.cHeader == nullptr)
                     continue;
                 for (const auto &function : edge.cHeader->functions) {
-                    add_binding({function.name,
-                                 ResolutionKind::Foreign,
-                                 edge.request.pathSpan,
-                                 {},
-                                 {},
-                                 {},
-                                 {},
-                                 &function},
-                                frontend::ScopeId{});
+                    ResolvedName foreign_binding{function.name,
+                                                 ResolutionKind::Foreign,
+                                                 edge.request.pathSpan,
+                                                 {},
+                                                 {},
+                                                 {},
+                                                 {},
+                                                 &function};
+                    foreign_binding.declKind   = frontend::DeclKind::Function;
+                    foreign_binding.isExtern   = true;
+                    foreign_binding.isVariadic = function.isVariadic;
+                    add_binding(std::move(foreign_binding), frontend::ScopeId{});
                 }
                 if (!edge.request.alias.empty()) {
                     add_binding({edge.request.alias,
@@ -907,14 +995,19 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                         for (const auto &symbol : module_it->second->publicSymbols) {
                             if (symbol.name != selector.name)
                                 continue;
-                            add_binding({selector.alias.empty() ? selector.name : selector.alias,
-                                         ResolutionKind::Import,
-                                         selector.span,
-                                         {target, symbol.id},
-                                         {},
-                                         {},
-                                         {}},
-                                        frontend::ScopeId{});
+                            ResolvedName imported{selector.alias.empty() ? selector.name
+                                                                         : selector.alias,
+                                                  ResolutionKind::Import,
+                                                  selector.span,
+                                                  {target, symbol.id},
+                                                  {},
+                                                  {},
+                                                  {}};
+                            imported.declKind   = symbol.kind;
+                            imported.signature  = symbol.signature;
+                            imported.isExtern   = symbol.isExtern;
+                            imported.isVariadic = symbol.isVariadic;
+                            add_binding(std::move(imported), frontend::ScopeId{});
                             found = true;
                             break;
                         }
@@ -937,14 +1030,18 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                     if (module_it == module_by_key.end())
                         continue;
                     for (const auto &symbol : module_it->second->publicSymbols) {
-                        add_binding({symbol.name,
-                                     ResolutionKind::Import,
-                                     edge.request.span,
-                                     {target, symbol.id},
-                                     {},
-                                     {},
-                                     {}},
-                                    frontend::ScopeId{});
+                        ResolvedName imported{symbol.name,
+                                              ResolutionKind::Import,
+                                              edge.request.span,
+                                              {target, symbol.id},
+                                              {},
+                                              {},
+                                              {}};
+                        imported.declKind   = symbol.kind;
+                        imported.signature  = symbol.signature;
+                        imported.isExtern   = symbol.isExtern;
+                        imported.isVariadic = symbol.isVariadic;
+                        add_binding(std::move(imported), frontend::ScopeId{});
                     }
                 }
             } else if (edge.request.alias.empty() && !default_name.empty()) {
@@ -960,6 +1057,8 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
         }
 
         for (const auto &expression : module->frontend->expressions()) {
+            if (module->frontend->isMacroTemplateExpr(expression.id))
+                continue;
             if (expression.kind == frontend::ExprKind::Field && !expression.operands.empty()) {
                 // `console.println` where `console` is an `import ... as console` alias:
                 // resolve the member against the aliased module's public symbols and bind
@@ -984,13 +1083,19 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 for (const auto &symbol : module_it->second->publicSymbols) {
                     if (symbol.name != expression.text)
                         continue;
-                    resolution.expressions.push_back({expression.text,
-                                                      ResolutionKind::Import,
-                                                      expression.span,
-                                                      {target_module, symbol.id},
-                                                      {},
-                                                      {},
-                                                      expression.scope});
+                    ResolvedName member{expression.text,
+                                        ResolutionKind::Import,
+                                        expression.span,
+                                        {target_module, symbol.id},
+                                        {},
+                                        {},
+                                        expression.scope};
+                    member.expr       = expression.id;
+                    member.declKind   = symbol.kind;
+                    member.signature  = symbol.signature;
+                    member.isExtern   = symbol.isExtern;
+                    member.isVariadic = symbol.isVariadic;
+                    resolution.expressions.push_back(std::move(member));
                     found = true;
                     break;
                 }
@@ -1014,6 +1119,7 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 name.span  = expression.span;
                 name.scope = expression.scope;
             }
+            name.expr = expression.id;
             resolution.expressions.push_back(std::move(name));
         }
         std::sort(resolution.bindings.begin(), resolution.bindings.end(),
@@ -1022,8 +1128,13 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                           return left.name < right.name;
                       return left.scope.value < right.scope.value;
                   });
+        // Sorted by node id so a consumer can binary-search by ExprId; spans are
+        // ambiguous after macro expansion (every expanded node carries the
+        // call-site span).
         std::sort(resolution.expressions.begin(), resolution.expressions.end(),
                   [](const ResolvedName &left, const ResolvedName &right) {
+                      if (left.expr.value != right.expr.value)
+                          return left.expr.value < right.expr.value;
                       if (left.span.start != right.span.start)
                           return left.span.start < right.span.start;
                       return left.name < right.name;
@@ -1188,8 +1299,10 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
                         options.targetTriple = config_.targetTriple;
                         options.sysroot      = config_.sysroot;
                         options.includeDirs  = config_.includeRoots;
-                        options.defines      = config_.cDefines;
-                        header               = cinterop::parseHeader(header_path, options);
+                        for (const auto &root : config_.systemIncludeRoots)
+                            options.includeDirs.push_back(root);
+                        options.defines = config_.cDefines;
+                        header          = cinterop::parseHeader(header_path, options);
                         c_headers_by_path[header_path] = header;
                     }
                     edge.cHeader = header;

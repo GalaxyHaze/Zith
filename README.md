@@ -20,7 +20,8 @@ overhead. The syntax stays clean; the compiler does the hard work.
 NRA tracks ownership, lending, and aliasing through five qualifiers — `lend`, `view`, `unique`,
 `share`, and `belong` — without requiring lifetime annotations. Beyond memory safety, Zith ships a
 large toolbox for domain-specific work: custom operators (`word`), scoped DSLs (`context`), structured
-goto (`flow fn` / `marker` / `dock`), and first-class compile-time computation.
+goto (`flow fn` / `marker` / `dock`), first-class compile-time computation, and runtime-driven
+concurrency APIs that do not require special syntax.
 
 ---
 
@@ -85,7 +86,6 @@ fn main() {
 - `fn` — regular function
 - `const fn` — resolved entirely at compile time
 - `flow fn` — structured goto with `marker` / `dock` / `jump` (no spaghetti, compiler-verified)
-- `async fn` / `yield` — suspend/resume (parsed; semantic layer in progress)
 - `raw fn` — opt out of NRA for C-interop
 
 **Control Flow**
@@ -129,7 +129,7 @@ fn main() {
 | `?` / `!` propagation / fallback | **Blocked (E2010)** | Parsed; sema rejects before HIR |
 | `word` / `context` / `use` | **Blocked (E2010)** | Parsed; sema rejects before HIR |
 | `macro` / `@macro` calls | Semantic warning | Parses; expansion not implemented |
-| `async fn` / `yield` / `spawn` / `await` | Spec only | No compiler support yet |
+| Core concurrency syntax (`async fn`, `yield`, `spawn`, `await`) | Not part of the core language contract | Concurrency is being documented as stdlib/runtime APIs instead of frontend syntax |
 | NRA pass | Spec only | Pipeline stub exists; analysis not implemented |
 | `comptime` blocks | Spec only | No evaluation yet |
 | `zithc test` / `zithc repl` / `zithc deps` | Stub | Returns "not implemented" |
@@ -162,7 +162,7 @@ fn main() {
 ## Compilation Pipeline
 
 ```
-Source -> Lex -> Scan -> Import -> Resolve -> TypeCheck -> Solve -> NRA -> HIR -> Codegen -> Cache
+Source -> Lex -> Scan -> Import -> Resolve -> TypeCheck -> Comptime/Solve -> NTA/NRA -> HIR -> Codegen -> Cache
 ```
 
 | Stage | Description |
@@ -172,9 +172,9 @@ Source -> Lex -> Scan -> Import -> Resolve -> TypeCheck -> Solve -> NRA -> HIR -
 | `Import` | Resolve module imports |
 | `Resolve` | Bind names to symbols |
 | `TypeCheck` | Infer and check types (sema) |
-| `Solve` | Generic instantiation, monomorphization |
-| `NRA` | Node Resource Analysis — ownership pass (stub) |
-| `HIR` | Lower typed AST to High-level IR |
+| `Comptime/Solve` | Generic instantiation, macro expansion, monomorphization, and the solved semantic view used by ownership proof |
+| `NTA/NRA` | Fact accumulation plus Node Resource Analysis — the target pre-HIR ownership phase (still a stub) |
+| `HIR` | Lower the typed, desugared, NRA-validated program while preserving only residual facts needed after the proof boundary |
 | `Codegen` | Emit LLVM IR -> native or WASM binary |
 
 ---

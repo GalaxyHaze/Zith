@@ -168,6 +168,41 @@ static void test_composite_variants() {
     CHECK_EQ(table.incomplete(incomplete)->args.size(), 1u, "incomplete has one arg");
 }
 
+static void test_type_descriptor() {
+    memory::Arena arena;
+    sema::modern::TypeTable table(arena);
+
+    auto invalid = table.internInvalid();
+    CHECK_EQ(table.kindOf(invalid), sema::modern::TypeKind::Invalid,
+             "invalid is an internal distinct type kind");
+    CHECK_EQ(table.typeToString(invalid), std::string("invalid"),
+             "invalid prints as a compiler-internal marker");
+
+    auto i32 = table.internInteger({32, true});
+    CHECK_EQ(table.typeToString(i32), std::string("i32"), "integer descriptor uses spelling");
+
+    memory::DynArray<sema::modern::TypeId> params(arena);
+    params.push(i32);
+    auto fn = table.internFunction(params, table.internFloat({64}));
+    CHECK_EQ(table.typeToString(fn), std::string("fn(i32): f64"),
+             "function descriptor includes params and result");
+
+    memory::DynArray<sema::modern::TypeId> field_list(arena);
+    field_list.push(table.internInteger({8, false}));
+    field_list.push(table.internInteger({16, true}));
+    auto st = table.internStruct("Pair", field_list);
+    CHECK_EQ(table.typeToString(st), std::string("Pair"), "struct descriptor uses its name");
+
+    auto opt = table.internOptional(i32);
+    CHECK_EQ(table.typeToString(opt), std::string("?i32"), "optional descriptor uses ?T");
+    auto ptr = table.internPointer(i32);
+    CHECK_EQ(table.typeToString(ptr), std::string("*i32"), "pointer descriptor uses *T");
+    auto slice = table.internSlice(i32);
+    CHECK_EQ(table.typeToString(slice), std::string("[]i32"), "slice descriptor uses []T");
+    auto arr = table.internArray(i32, 4);
+    CHECK_EQ(table.typeToString(arr), std::string("[4]i32"), "array descriptor uses [N]T");
+}
+
 static void test_modern_types() {
     test_primitive_types();
     test_function_and_struct();
@@ -175,6 +210,7 @@ static void test_modern_types() {
     test_named_registry();
     test_enum_union_trait_alias();
     test_composite_variants();
+    test_type_descriptor();
 }
 
 TEST_MAIN(modern_types)

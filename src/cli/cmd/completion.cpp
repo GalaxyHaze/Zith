@@ -24,7 +24,7 @@ _zithc() {
 
     cmds="build run execute check fmt create deps test docs repl clean completion"
 
-    opts="-h --help --version -m --mode -o --output -I --include -L -l -D -A --assets --check -i --in-place --emit --target --sysroot --emit-tokens --emit-ast --emit-hir --emit-ir --emit-asm --emit-all --interpreted --opt-level --debug-level -s --strict --lto --strip-debug -c --color -v --verbose"
+    opts="-h --help --version -m --mode -o --output -I --include -L -l -D -A --assets --check -i --in-place --emit --target --sysroot --no-system-includes --emit-tokens --emit-ast --emit-hir --emit-ir --emit-asm --emit-all --interpreted --opt-level --debug-level -s --strict --lto --strip-debug -c --color -v --verbose"
 
     # Specific option completions
     case "$prev" in
@@ -95,7 +95,7 @@ _zithc() {
 
     cmds="build run execute check fmt create deps test docs repl clean completion"
 
-    opts="-h --help --version -m --mode -o --output -I --include -L -l -D -A --assets --check -i --in-place --emit --target --sysroot --emit-tokens --emit-ast --emit-hir --emit-ir --emit-asm --emit-all --interpreted --opt-level --debug-level -s --strict --lto --strip-debug -c --color -v --verbose"
+    opts="-h --help --version -m --mode -o --output -I --include -L -l -D -A --assets --check -i --in-place --emit --target --sysroot --no-system-includes --emit-tokens --emit-ast --emit-hir --emit-ir --emit-asm --emit-all --interpreted --opt-level --debug-level -s --strict --lto --strip-debug -c --color -v --verbose"
 
     case "$prev" in
         -m|--mode)
@@ -174,6 +174,7 @@ complete -c zithc -s i -l in-place -d "Format files in-place"
 complete -c zithc -l emit -r -f -a "ast hir ir asm obj bin" -d "Emit intermediate representation"
 complete -c zithc -l target -r -d "Target triple for cross-compilation"
 complete -c zithc -l sysroot -r -d "Sysroot for cross-compilation linking"
+complete -c zithc -l no-system-includes -d "Do not resolve imports from system C header dirs"
 complete -c zithc -l emit-tokens -d "Print and emit tokens"
 complete -c zithc -l emit-ast -d "Emit AST"
 complete -c zithc -l emit-hir -d "Emit HIR"

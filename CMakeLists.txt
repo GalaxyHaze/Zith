@@ -55,6 +55,16 @@ if(ZITH_ENABLE_C_INTEROP AND NOT ZITH_IS_WASM AND NOT CMAKE_CROSSCOMPILING)
     )
     if(ZITH_LIBCLANG_INCLUDE_DIR AND ZITH_LIBCLANG_LIBRARY)
         set(ZITH_C_INTEROP_AVAILABLE ON)
+        set(ZITH_CLANG_RESOURCE_INCLUDE_DIR
+            "${LLVM_LIBRARY_DIRS}/clang/${LLVM_VERSION_MAJOR}/include")
+        if(NOT IS_DIRECTORY "${ZITH_CLANG_RESOURCE_INCLUDE_DIR}")
+            # Older CMake LLVM packages do not fill LLVM_VERSION_MAJOR; derive it
+            # from the package version reported by find_package(LLVM).
+            string(REPLACE "." ";" _llvm_version_parts "${LLVM_PACKAGE_VERSION}")
+            list(GET _llvm_version_parts 0 _llvm_version_major)
+            set(ZITH_CLANG_RESOURCE_INCLUDE_DIR
+                "${LLVM_LIBRARY_DIRS}/clang/${_llvm_version_major}/include")
+        endif()
     else()
         message(WARNING
             "libclang was not found; automatic C header imports are disabled. "
@@ -201,11 +211,20 @@ if(ZITH_HAS_LLVM AND NOT ZITH_IS_WASM)
     endif()
 endif()
 target_compile_definitions(zithcLib PUBLIC ZITH_VERSION="${ZITH_VERSION}")
+if(ZITH_HAS_LLVM AND NOT ZITH_IS_WASM AND LLVM_PACKAGE_VERSION)
+    target_compile_definitions(zithcLib PUBLIC
+        ZITH_LLVM_VERSION="${LLVM_PACKAGE_VERSION}")
+endif()
 
 if(ZITH_C_INTEROP_AVAILABLE)
     target_include_directories(zithcLib SYSTEM PRIVATE ${ZITH_LIBCLANG_INCLUDE_DIR})
     target_link_libraries(zithcLib PRIVATE ${ZITH_LIBCLANG_LIBRARY})
     target_compile_definitions(zithcLib PUBLIC ZITH_ENABLE_C_INTEROP=1)
+    if(IS_DIRECTORY "${ZITH_CLANG_RESOURCE_INCLUDE_DIR}")
+        target_compile_definitions(zithcLib PUBLIC
+            ZITH_CLANG_RESOURCE_INCLUDE_DIR="${ZITH_CLANG_RESOURCE_INCLUDE_DIR}")
+        message(STATUS "Clang resource include dir: ${ZITH_CLANG_RESOURCE_INCLUDE_DIR}")
+    endif()
     message(STATUS "C header interop enabled with ${ZITH_LIBCLANG_LIBRARY}")
 endif()
 
@@ -229,12 +248,16 @@ include(CTest)
 
 if(BUILD_TESTING AND NOT ZITH_IS_WASM)
     function(add_zith_test NAME SOURCE)
-        add_executable(${NAME} ${SOURCE})
-        target_compile_definitions(${NAME} PRIVATE
-            ZITH_STDLIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/stdlib")
+    add_executable(${NAME} ${SOURCE})
+    target_compile_definitions(${NAME} PRIVATE
+        ZITH_STDLIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/stdlib")
         target_link_libraries(${NAME} PRIVATE zithcLib)
         if(TARGET legacy-zith)
-            target_link_libraries(${NAME} PRIVATE legacy-zith zithcLib)
+            # zithcLib and legacy-zith reference each other: module-loader in the
+            # modern library uses the legacy parser and the legacy sema pipeline
+            # uses modern type lowering, so the two archives must be rescanned.
+            target_link_libraries(${NAME} PRIVATE
+                -Wl,--start-group legacy-zith zithcLib -Wl,--end-group)
         endif()
         add_test(NAME ${NAME} COMMAND ${NAME})
     endfunction()
@@ -250,6 +273,7 @@ if(BUILD_TESTING AND NOT ZITH_IS_WASM)
     add_zith_test(test-telemetry tests/test-telemetry.cpp)
     add_zith_test(test-frontend-context tests/test-frontend-context.cpp)
     add_zith_test(test-frontend tests/test-frontend.cpp)
+    add_zith_test(test-macro tests/test-macro.cpp)
     add_zith_test(test-memory tests/test-memory.cpp)
     add_zith_test(test-parser-expr tests/test-parser-expr.cpp)
     add_zith_test(test-cache tests/test-cache.cpp)
@@ -258,6 +282,14 @@ if(BUILD_TESTING AND NOT ZITH_IS_WASM)
     add_zith_test(test-hir-lower-modern tests/test-hir-lower-modern.cpp)
     add_zith_test(test-cinterop tests/test-cinterop.cpp)
     add_zith_test(test-optional-slice tests/test-optional-slice.cpp)
+    add_zith_test(test-zirl-sections tests/test-zirl-sections.cpp)
+    add_zith_test(test-cache-entry tests/test-cache-entry.cpp)
+    add_zith_test(test-cli-commands tests/test-cli-commands.cpp)
+    add_zith_test(test-diagnostics-render tests/test-diagnostics-render.cpp)
+    add_zith_test(test-overload tests/test-overload.cpp)
+    add_zith_test(test-memory-qualifiers tests/test-memory-qualifiers.cpp)
+    add_zith_test(test-variadic tests/test-variadic.cpp)
+    add_zith_test(test-compound-assign tests/test-compound-assign.cpp)
     add_executable(test-lexer-benchmark tests/test-lexer-benchmark.cpp bench/lexer-benchmark.cpp)
     target_include_directories(test-lexer-benchmark PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(test-lexer-benchmark PRIVATE legacy-zith zithcLib)

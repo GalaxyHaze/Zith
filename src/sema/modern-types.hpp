@@ -4,8 +4,10 @@
 #include "memory/arena.hpp"
 #include "memory/dyn-array.hpp"
 #include "memory/flat-map.hpp"
+#include "types/type-kind.hpp"
 
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 namespace zith::sema::modern {
@@ -23,6 +25,9 @@ inline constexpr TypeId kInvalidTypeId{};
 
 enum class TypeKind : uint8_t {
     Error,
+    /// Compiler-internal type for a binding whose type is not yet known.
+    /// Not available as a user-written type name.
+    Invalid,
     Void,
     Never,
     Bool,
@@ -46,7 +51,10 @@ enum class TypeKind : uint8_t {
     Failable,
     Pack,
     Alias,
-    GenericParam
+    GenericParam,
+    /// A type carrying a memory-model qualifier (`lend T`, `view T`, ...).
+    /// `resolve()` looks through it, so unification is unaffected.
+    Qualified
 };
 
 struct IntegerType {
@@ -111,12 +119,22 @@ struct IncompleteType {
     TypeId base;
     memory::DynArray<TypeId> &args;
 };
+struct QualifiedType {
+    TypeId inner;
+    types::OwnershipKind ownership = types::OwnershipKind::Default;
+    bool isMut                     = false;
+};
+
+/// Maps a parsed ownership prefix onto the shared `types::OwnershipKind` enum.
+[[nodiscard]] types::OwnershipKind mapOwnership(frontend::OwnershipKind kind) noexcept;
 
 class TypeTable {
 public:
     explicit TypeTable(memory::Arena &arena);
 
     [[nodiscard]] TypeId internName(std::string_view name, TypeKind kind = TypeKind::Unknown);
+    /// The internal "not inferred yet" type used for uninitialized local bindings.
+    [[nodiscard]] TypeId internInvalid();
     [[nodiscard]] TypeId internInteger(IntegerType int_type);
     [[nodiscard]] TypeId internFloat(FloatType float_type);
     [[nodiscard]] TypeId internPointer(TypeId pointee);
@@ -144,8 +162,13 @@ public:
     [[nodiscard]] TypeId internPack(memory::DynArray<TypeId> &members,
                                     memory::DynArray<std::string_view> &names);
     [[nodiscard]] TypeId internAlias(TypeId target);
+    [[nodiscard]] TypeId internQualified(TypeId inner, types::OwnershipKind ownership, bool is_mut);
 
     [[nodiscard]] TypeKind kindOf(TypeId id) const noexcept;
+
+    /// Stable diagnostic description of a type: `i32`, `*T`, `?T`, `[]T`,
+    /// `[N]T`, named structs/enums, and function types.
+    [[nodiscard]] std::string typeToString(TypeId id) const;
 
     [[nodiscard]] const PointerType *pointer(TypeId id) const noexcept;
     [[nodiscard]] const OptionalType *optional(TypeId id) const noexcept;
@@ -163,6 +186,9 @@ public:
     [[nodiscard]] const FailableType *failable(TypeId id) const noexcept;
     [[nodiscard]] const PackType *pack(TypeId id) const noexcept;
     [[nodiscard]] const AliasType *alias(TypeId id) const noexcept;
+    [[nodiscard]] const QualifiedType *qualified(TypeId id) const noexcept;
+    /// Strips every qualifier (and nominal placeholder) layer from `id`.
+    [[nodiscard]] TypeId stripQualifiers(TypeId id) const noexcept;
     [[nodiscard]] const IncompleteType *incomplete(TypeId id) const noexcept;
 
     [[nodiscard]] size_t size() const noexcept;
@@ -185,6 +211,7 @@ public:
 private:
     enum class EntryKind : uint8_t {
         Name,
+        Invalid,
         Integer,
         Float,
         Pointer,
@@ -203,7 +230,8 @@ private:
         Failable,
         Pack,
         Alias,
-        GenericParam
+        GenericParam,
+        Qualified
     };
 
     struct Entry {
@@ -228,6 +256,7 @@ private:
         FailableType failable_ty{};
         PackType *pack_ty                                = nullptr;
         AliasType *alias_ty                              = nullptr;
+        QualifiedType *qualified_ty                      = nullptr;
         uint32_t generic_decl_id                         = 0;
         uint32_t generic_param_index                     = 0;
         memory::DynArray<TypeId> *storage                = nullptr;
@@ -242,6 +271,10 @@ private:
     uint32_t next_seq_ = 1;
     uint32_t next_var_ = 1;
     memory::FlatMap<std::string_view, TypeId> named_registry_;
+
+    /// Lowers `type` ignoring its own memory qualifier (the caller wraps the result).
+    [[nodiscard]] TypeId lowerTypeExprBare(const frontend::FrontendSnapshot &snapshot,
+                                           const frontend::TypeExpression &type) noexcept;
 
     Entry &pushEntry(EntryKind kind);
     memory::DynArray<TypeId> &makeStorage();

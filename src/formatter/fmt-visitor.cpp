@@ -289,6 +289,35 @@ void FmtVisitor::emitType(const frontend::TypeExprId id) {
     if (type == nullptr)
         return;
 
+    // Memory qualifiers are a prefix on the type, not a separate node: re-print
+    // them here or `zithc fmt` would silently drop them.  The kinds below that
+    // fall back to `emitOriginal` already replay the prefix from the source span.
+    if (type->kind == frontend::TypeExprKind::Name ||
+        type->kind == frontend::TypeExprKind::Pointer ||
+        type->kind == frontend::TypeExprKind::Optional) {
+        if (type->hasMutKeyword)
+            emit("mut ");
+        switch (type->ownership) {
+        case frontend::OwnershipKind::Unique:
+            emit("unique ");
+            break;
+        case frontend::OwnershipKind::Share:
+            emit("share ");
+            break;
+        case frontend::OwnershipKind::Lend:
+            emit("lend ");
+            break;
+        case frontend::OwnershipKind::View:
+            emit("view ");
+            break;
+        case frontend::OwnershipKind::Belong:
+            emit("belong ");
+            break;
+        case frontend::OwnershipKind::Default:
+            break;
+        }
+    }
+
     switch (type->kind) {
     case frontend::TypeExprKind::Name:
         emit(type->name);
@@ -302,6 +331,9 @@ void FmtVisitor::emitType(const frontend::TypeExprId id) {
         emit("?");
         if (!type->arguments.empty())
             emitType(type->arguments.front());
+        break;
+    case frontend::TypeExprKind::Opaque:
+        emit("raw opaque");
         break;
     case frontend::TypeExprKind::Array:
     case frontend::TypeExprKind::Function:
@@ -344,6 +376,11 @@ void FmtVisitor::emitFunctionDecl(const frontend::Declaration &decl) {
             emit(": ");
             emitType(decl.parameters[index].type);
         }
+    }
+    if (decl.isVariadic) {
+        if (!decl.parameters.empty())
+            emit(", ");
+        emit("...");
     }
     emit(")");
     if (decl.declaredType) {
@@ -435,6 +472,7 @@ void FmtVisitor::visitDecl(const frontend::DeclId id) {
     case frontend::DeclKind::Interface:
     case frontend::DeclKind::Context:
     case frontend::DeclKind::Word:
+    case frontend::DeclKind::Macro:
     case frontend::DeclKind::Error:
         emitDeclPrefix(decl->span);
         emitOriginal(decl->span);
@@ -528,8 +566,13 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
     }
 
     const int current_prec = exprPrecedence(*expr);
+    // Call, Field and Arrow are left-associative postfix forms: as the base of
+    // another postfix expression they never need parentheses (`c.bump(3)`, not
+    // `(c.bump)(3)`). Cast still does, since `x as T` binds looser than `.`.
     const bool needs_paren = parent_prec >= 0 && current_prec >= 0 && current_prec <= parent_prec &&
-                             expr->kind != frontend::ExprKind::Call;
+                             expr->kind != frontend::ExprKind::Call &&
+                             expr->kind != frontend::ExprKind::Field &&
+                             expr->kind != frontend::ExprKind::Arrow;
     if (needs_paren)
         emit("(");
 
@@ -548,17 +591,28 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
             visitExpr(expr->operands.front(), current_prec);
         break;
     case frontend::ExprKind::Binary:
-    case frontend::ExprKind::Assign:
+    case frontend::ExprKind::Assign: {
         if (expr->operands.size() != 2U) {
             emitOriginal(expr->span);
             break;
+        }
+        // A compound assignment is stored desugared as `x = x op v`, so printing its rhs
+        // verbatim would emit `x += x op v`. Re-print only `v`, recovering the source form.
+        frontend::ExprId value = expr->operands[1];
+        if (expr->kind == frontend::ExprKind::Assign && expr->text != "=") {
+            if (const auto *folded = expression(value);
+                folded != nullptr && folded->kind == frontend::ExprKind::Binary &&
+                folded->operands.size() == 2U) {
+                value = folded->operands[1];
+            }
         }
         visitExpr(expr->operands[0], current_prec);
         emit(" ");
         emit(expr->text);
         emit(" ");
-        visitExpr(expr->operands[1], current_prec);
+        visitExpr(value, current_prec);
         break;
+    }
     case frontend::ExprKind::Call:
         if (expr->operands.empty()) {
             emitOriginal(expr->span);
@@ -745,6 +799,9 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
     case frontend::ExprKind::LayoutIntrinsic:
         emitOriginal(expr->span);
         break;
+    case frontend::ExprKind::MacroCall:
+        emitOriginal(expr->span);
+        break;
     case frontend::ExprKind::Error:
         emitOriginal(expr->span);
         break;
@@ -760,10 +817,47 @@ void FmtVisitor::format() {
     for (const auto &decl : decls) {
         if (decl.kind == frontend::DeclKind::Error && decl.span.size() == 0U)
             continue;
+        // Methods are printed by their owner: a struct-body method is already
+        // inside the struct's emitted body, and an implement-block method is
+        // re-emitted below under its `implement Owner { ... }` header.
+        if (!decl.ownerName.empty())
+            continue;
         if (emitted_decl)
             blankLine();
         visitDecl(decl.id);
         emitted_decl = true;
+
+        // After a nominal declaration, emit the implement blocks that carry its
+        // methods, so `implement Owner { fn m() {} }` survives formatting.
+        if (decl.kind != frontend::DeclKind::Struct && decl.kind != frontend::DeclKind::Enum &&
+            decl.kind != frontend::DeclKind::Union && decl.kind != frontend::DeclKind::Trait)
+            continue;
+        bool opened = false;
+        for (const auto &method : decls) {
+            if (method.kind != frontend::DeclKind::Function || method.ownerName != decl.name)
+                continue;
+            // Skip methods written inside the owner's own body: already emitted.
+            if (method.span.start >= decl.span.start && method.span.end <= decl.span.end)
+                continue;
+            if (!opened) {
+                blankLine();
+                emit("implement ");
+                emit(decl.name);
+                emit(" {");
+                newline();
+                ++indent_;
+                opened = true;
+            } else {
+                blankLine();
+            }
+            emitFunctionDecl(method);
+        }
+        if (opened) {
+            --indent_;
+            newline();
+            emit("}");
+            newline();
+        }
     }
 
     if (!snapshot_.tokens().empty()) {

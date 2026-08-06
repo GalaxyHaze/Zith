@@ -30,6 +30,11 @@ int version() {
                 "unknown compiler"
 #endif
     );
+#ifdef ZITH_LLVM_VERSION
+    std::printf("LLVM:     %s (enabled)\n", ZITH_LLVM_VERSION);
+#else
+    std::printf("LLVM:     disabled\n");
+#endif
     return 0;
 }
 
@@ -85,6 +90,7 @@ int help(FILE *dest) {
     p.flag("    --emit <ast|hir|ir|asm|obj|bin>", "Emit intermediate representation");
     p.flag("    --target <TRIPLE>", "Target triple for cross-compilation");
     p.flag("    --sysroot <DIR>", "Sysroot for cross-compilation linking");
+    p.flag("    --no-system-includes", "Do not resolve imports from system C header dirs");
     p.flag("    --emit-tokens", "Print and emit tokens");
     p.flag("    --emit-ast", "Emit AST");
     p.flag("    --emit-hir", "Emit HIR");

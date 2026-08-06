@@ -89,6 +89,37 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
         return ErrorInfo{code, 'E', "semantic", "Unsupported syntax",
                          "This syntax is parsed, but does not have defined semantic behavior yet"};
 
+    // Macro
+    case err::MacroUnknown:
+        return ErrorInfo{code, 'E', "macro", "Unknown macro",
+                         "Define the macro before using it, or check the spelling"};
+    case err::MacroArity:
+        return ErrorInfo{code, 'E', "macro", "Wrong number of macro arguments",
+                         "Check the macro definition and provide the correct number of arguments"};
+    case err::MacroArgKind:
+        return ErrorInfo{code, 'E', "macro", "Wrong argument kind for macro parameter",
+                         "Use the meta-type required by the macro parameter"};
+    case err::MacroRecursion:
+        return ErrorInfo{code, 'E', "macro", "Macro recursion limit exceeded",
+                         "Check for infinite macro expansion or increase the depth limit"};
+    case err::MacroDuplicate:
+        return ErrorInfo{code, 'E', "macro", "Duplicate macro",
+                         "Rename one of the macros or remove the duplicate"};
+    case err::MacroRawValue:
+        return ErrorInfo{code, 'E', "macro", "raw macro cannot be used as a value",
+                         "Call the raw macro as a standalone statement, not inside an expression"};
+    case err::MacroTagValue:
+        return ErrorInfo{code, 'E', "macro", "tag macro cannot be used as a value",
+                         "Use the tag as a standalone statement, not inside an expression"};
+    case err::MacroTagMismatch:
+        return ErrorInfo{code, 'E', "macro", "Mismatched closing tag",
+                         "Close the tag with the same name that opened it"};
+    case err::MacroAttrUnknown:
+        return ErrorInfo{code, 'E', "macro", "Unknown macro attribute",
+                         "Pass the attribute at the call site, or check the spelling"};
+    case err::MacroAttrNotAllowed:
+        return ErrorInfo{code, 'E', "macro", "Macro does not accept attributes",
+                         "Declare an 'attributes' parameter on the macro to accept them"};
     // Types
     case err::TypeMismatch:
         return ErrorInfo{code, 'E', "types", "Type mismatch",
@@ -107,6 +138,21 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
                          "Use 'if (x is null) { } else { ... }' or 'for (not (x is null))' "
                          "to prove the value is non-null before dereferencing"};
 
+    case err::CoercionFailure:
+        return ErrorInfo{code, 'E', "types", "Implicit coercion not allowed",
+                         "Use an explicit `as` cast or change the expression to produce the "
+                         "expected type directly"};
+
+    case err::WidthMismatch:
+        return ErrorInfo{code, 'E', "types", "Integer width mismatch",
+                         "Arithmetic and assignment require matching integer widths. "
+                         "Cast explicitly with `as` or use a compatible type."};
+
+    case err::OptionalViolation:
+        return ErrorInfo{code, 'E', "types", "Optional type violation",
+                         "A non-optional value is required here, but an optional (?T) was "
+                         "provided. Unwrap with a null check or use `!` if safe."};
+
     // Ownership
     case err::UseAfterMove:
         return ErrorInfo{code, 'E', "ownership", "Use after move",
@@ -117,6 +163,9 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
     case err::DoubleBorrow:
         return ErrorInfo{code, 'E', "ownership", "Double borrow",
                          "Only one mutable borrow is allowed at a time"};
+    case err::WriteThroughView:
+        return ErrorInfo{code, 'E', "ownership", "Write through a view",
+                         "A `view` binding is read-only; take `lend` to mutate it"};
 
     // MIR
     case err::InvalidIR:

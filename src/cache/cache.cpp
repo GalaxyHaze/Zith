@@ -1,5 +1,6 @@
 #include "cache.hpp"
 
+#include "cache/cache-entry.hpp"
 #include "zirl/zirl-reader.hpp"
 #include "zirl/zirl-writer.hpp"
 
@@ -7,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <unordered_set>
 
 namespace zith::cache {
 
@@ -35,16 +37,6 @@ std::string Store::artifactPath(std::string_view canonical_path) const {
     return oss.str();
 }
 
-bool Store::validateArtifact(const Artifact &art, const session::ContentFingerprint &fp) const {
-    if (art.cache_key_hash != cache_key_hash_)
-        return false;
-    // Source fingerprint (64-bit primary) must match the current file.
-    if (art.source_fp_hi != static_cast<uint32_t>(fp.primary >> 32u) ||
-        art.source_fp_lo != static_cast<uint32_t>(fp.primary & 0xFFFFFFFFu))
-        return false;
-    return true;
-}
-
 std::optional<Artifact> Store::load(std::string_view canonical_path,
                                     const session::ContentFingerprint &fp) {
     const auto path = artifactPath(canonical_path);
@@ -59,7 +51,7 @@ std::optional<Artifact> Store::load(std::string_view canonical_path,
         bumpInvalid();
         return std::nullopt;
     }
-    if (!validateArtifact(*artifact, fp)) {
+    if (!validateArtifact(*artifact, cache_key_hash_, fp)) {
         bumpInvalid();
         return std::nullopt;
     }
@@ -80,6 +72,18 @@ std::optional<Artifact> Store::load(std::string_view canonical_path,
     }
     bumpHits();
     return std::optional<Artifact>{std::in_place, std::move(*artifact)};
+}
+
+std::optional<CacheEntry> Store::loadEntry(std::string_view canonical_path,
+                                           const session::ContentFingerprint &fp) {
+    auto art = load(canonical_path, fp);
+    if (!art)
+        return std::nullopt;
+    CacheEntry entry;
+    entry.artifact    = std::move(*art);
+    entry.fingerprint = fp;
+    entry.state       = CacheEntryState::Hydrated;
+    return std::optional<CacheEntry>{std::in_place, std::move(entry)};
 }
 
 void Store::store(const Artifact &artifact) {
@@ -120,19 +124,22 @@ void Store::store(const Artifact &artifact) {
 
 void Store::invalidate(std::string_view canonical_path) {
     const auto deps = manifest_.dependentsOf(canonical_path);
-    // Remove the artifact file for each invalidated module.
-    auto evict = [&](std::string_view p) {
+    // Collect all paths to evict: original + transitive dependents, deduplicated.
+    // Deduplication guards against any overlap between dependentsOf output and
+    // the input path, and ensures idempotency over dependency cycles.
+    std::unordered_set<std::string> to_evict;
+    to_evict.emplace(canonical_path);
+    for (const auto &dep : deps)
+        to_evict.emplace(dep);
+    for (const auto &p : to_evict) {
         std::error_code ec;
         fs::remove(artifactPath(p), ec);
         manifest_.remove(p);
-    };
-    evict(canonical_path);
-    for (const auto &dep : deps)
-        evict(dep);
+    }
     manifest_.save();
     {
         std::lock_guard<std::mutex> lock(metrics_mutex_);
-        metrics_.evictions += 1 + deps.size();
+        metrics_.evictions += to_evict.size();
     }
 }
 

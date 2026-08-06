@@ -84,6 +84,10 @@ public:
 
     const StructDef &getStructDef(TypeId struct_type) const;
     StructDef &getStructDef(TypeId struct_type);
+    const StructDef *lookupStructDef(uint32_t def_id) const noexcept;
+    [[nodiscard]] size_t structDefCount() const noexcept {
+        return struct_defs_.size();
+    }
     size_t fieldCount(TypeId struct_type) const;
     const StructField &getField(TypeId struct_type, size_t index) const;
     bool hasField(TypeId struct_type, std::string_view name);
@@ -91,15 +95,24 @@ public:
     size_t fieldIndex(TypeId struct_type, std::string_view name) const;
 
     TypeId defineEnum(std::string_view name, TypeId underlying);
+    void setEnumUnderlying(TypeId enum_type, TypeId underlying);
     void addEnumVariant(TypeId enum_type, std::string_view name, int64_t discriminant);
     const EnumDef &getEnumDef(TypeId enum_type) const;
     EnumDef &getEnumDef(TypeId enum_type);
+    const EnumDef *lookupEnumDef(uint32_t def_id) const noexcept;
+    [[nodiscard]] size_t enumDefCount() const noexcept {
+        return enum_defs_.size();
+    }
     bool enumValue(TypeId enum_type, std::string_view name, int64_t &value) const;
 
     TypeId defineUnion(std::string_view name, bool is_raw);
     void addUnionMember(TypeId union_type, TypeId member);
     const UnionDef &getUnionDef(TypeId union_type) const;
     UnionDef &getUnionDef(TypeId union_type);
+    const UnionDef *lookupUnionDef(uint32_t def_id) const noexcept;
+    [[nodiscard]] size_t unionDefCount() const noexcept {
+        return union_defs_.size();
+    }
 
     // ── Query ────────────────────────────────────────────────────
     const TypeData &lookup(TypeId id) const;

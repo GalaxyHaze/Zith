@@ -87,6 +87,9 @@ private:
 
 /// Immutable fields which affect a cached frontend artifact.
 struct CacheKey {
+    /// Project root, used (with the include/stdlib roots) to derive the module
+    /// namespace that qualifies a function's linkage name.
+    std::string workspaceRoot;
     std::string compilerVersion;
     std::string targetTriple;
     std::string parseFlags;
@@ -94,6 +97,7 @@ struct CacheKey {
     std::string sysroot;
     std::vector<std::string> includeRoots;
     std::vector<std::string> stdlibRoots;
+    std::vector<std::string> systemIncludeRoots;
     std::vector<std::string> cDefines;
 
     [[nodiscard]] std::string identity() const;
@@ -111,6 +115,10 @@ struct FrontendConfig {
     std::vector<std::string> includeRoots;
     std::vector<std::string> stdlibRoots;
     std::vector<std::string> assetRoots;
+    /// System C header directories, appended at lowest resolution priority.
+    /// Filled in by FrontendContext when empty and useSystemIncludeRoots is set.
+    std::vector<std::string> systemIncludeRoots;
+    bool useSystemIncludeRoots = true;
     std::vector<std::string> cDefines;
 
     [[nodiscard]] CacheKey cacheKey() const;
@@ -208,6 +216,14 @@ struct LocalSymbolInfo {
     frontend::Visibility visibility = frontend::Visibility::Private;
     frontend::DeclKind kind         = frontend::DeclKind::Error;
     frontend::TextSpan span{};
+    /// Canonical parameter-type list for a function, e.g. `(i32,i32)`.  Empty for
+    /// anything that is not a function; used to tell overloads from duplicates
+    /// after the symbol crosses a module boundary.
+    std::string signature;
+    /// True for `extern fn`: the C ABI fixes its name, so it never overloads.
+    bool isExtern = false;
+    /// True when a C-ABI function accepts a trailing variadic tail.
+    bool isVariadic = false;
 };
 
 struct ModuleTimings {
@@ -260,6 +276,19 @@ struct ResolvedName {
     frontend::LocalId local;
     frontend::ScopeId scope;
     const cinterop::Function *foreignFunction = nullptr;
+    /// Expression occurrence this resolution belongs to.  Node identity (not the
+    /// text span) keys lookups: macro expansion gives every expanded node the
+    /// span of its call site, so spans alone are ambiguous.
+    frontend::ExprId expr;
+    /// Declaration kind this name binds to, when known.  Only `Function` bindings
+    /// may share a name within one scope (overloading).
+    frontend::DeclKind declKind = frontend::DeclKind::Error;
+    /// Canonical parameter-type list of the bound function, e.g. `(i32,i32)`.
+    std::string signature;
+    /// True for `extern fn`: the C ABI fixes its linkage name, so it never overloads.
+    bool isExtern = false;
+    /// True when the bound function accepts a variadic tail.
+    bool isVariadic = false;
 };
 
 struct ModuleResolution {
@@ -268,11 +297,24 @@ struct ModuleResolution {
     std::vector<ResolvedName> expressions;
 };
 
+/// Looks up the resolution recorded for the expression node `expr`.  Keyed by
+/// node identity because macro-expanded nodes all share the call-site span.
+/// `resolution.expressions` is sorted by `expr`, so this is a binary search.
+[[nodiscard]] const ResolvedName *lookupExprResolution(const ModuleResolution &resolution,
+                                                       frontend::ExprId expr) noexcept;
+
 /// Resolves `name` starting at scope `from`, walking the parent chain and
 /// finally the module scope (`ScopeId{}`).  Returns nullptr when unresolved.
 [[nodiscard]] const ResolvedName *
 lookupBinding(const ModuleResolution &resolution, std::string_view name, frontend::ScopeId from,
               const std::vector<frontend::Scope> &scopes) noexcept;
+
+/// Every binding of `name` in the nearest enclosing scope that declares it.  The
+/// search never mixes scopes: the closest scope holding the name wins and shadows
+/// the outer ones, so an inner declaration hides an outer overload set entirely.
+[[nodiscard]] std::vector<const ResolvedName *>
+lookupOverloads(const ModuleResolution &resolution, std::string_view name, frontend::ScopeId from,
+                const std::vector<frontend::Scope> &scopes);
 
 struct MergedSymbol {
     std::string name;
