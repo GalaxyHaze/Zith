@@ -150,7 +150,7 @@ private:
     const session::ModuleArtifact *current_module_ = nullptr;
     const PerModuleSema *current_sema_             = nullptr;
     const TypedMap *current_typed_                 = nullptr;
-    memory::InternedId current_key_ = 0;
+    uint64_t current_key_ = 0;
     std::vector<frontend::LocalId> current_params_;
     frontend::ExprId current_condition_ = {};
     bool any_return_                    = false;

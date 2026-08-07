@@ -414,6 +414,7 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
             lowered = types::kErrorType;
             break;
         }
+        // Register the name (done by the named-type not found path).
         lowered = types_.registerNamedType(structure->name, types::TypeKind::Struct);
         // Register the name (done above) before lowering field types so self-referential
         // structs (`next: *Node`) terminate. Fields are copied once, on first lowering.
