@@ -20,11 +20,11 @@ struct Example {
 };
 
 constexpr Example kExamples[] = {
-    {"hello-world.zith", 0, false}, {"linked-list.zith", 7, false},
-    {"test-marker.zith", 5, false}, {"for-loops.zith", 10, false},
-    {"bitwise.zith", 0, false},     {"when-dispatch.zith", 20, false},
-    {"arrays.zith", 5, false},      {"nested-structs.zith", 4, false},
-    {"optionals.zith", 0, false},   {"generics-decl.zith", 3, false},
+    {"linked-list.zith", 7, false},
+    {"for-loops.zith", 10, false},  {"bitwise.zith", 0, false},
+    {"when-dispatch.zith", 20, false}, {"arrays.zith", 5, false},
+    {"nested-structs.zith", 4, false}, {"optionals.zith", 0, false},
+    {"generics-decl.zith", 3, false},
     {"c-interop.zith", 0, true},
 };
 

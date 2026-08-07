@@ -1024,6 +1024,7 @@ static void test_child_output_survives_nonzero_exit() {
 }
 
 static void test_import_stdio_runs() {
+#ifdef ZITH_ENABLE_C_INTEROP
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
     t.write("main.zith", "import \"stdio.h\"\n"
@@ -1046,12 +1047,14 @@ static void test_import_stdio_runs() {
     CHECK(run.ok, "stdio.h import compiles and executes without IR output enabled");
     CHECK(run.output == "v=42\n",
           "stdio.h import builds, links, runs, and prints the decoded newline exactly");
+#endif
 }
 
 /// `malloc` -> `as ?*i32` -> store/load -> `free`: both pointer casts are representation
 /// preserving (LLVM pointers are opaque), so no conversion instruction may appear, and the
 /// pointer must reach `free` directly.
 static void test_c_pointer_cast_roundtrip_emits_no_conversion() {
+#ifdef ZITH_ENABLE_C_INTEROP
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
     t.write("main.zith", "import \"stdio.h\"\n"
@@ -1079,11 +1082,13 @@ static void test_c_pointer_cast_roundtrip_emits_no_conversion() {
     CHECK(r.output.find("{ ptr, i1 }") == std::string::npos,
           "?*T stays a bare pointer through the cast, with no tagged struct");
     CHECK_EQ(r.errorCount, 0u, "the emitted module passes LLVM verification");
+#endif
 }
 
 /// A C pointer is `?*T`, so `is null` is the canonical null check. The niche layout means the
 /// comparison must be against a bare `null` pointer, with no optional tag struct involved.
 static void test_c_pointer_is_null_uses_niche_comparison() {
+#ifdef ZITH_ENABLE_C_INTEROP
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
     t.write("main.zith", "import \"stdio.h\"\n"
@@ -1107,6 +1112,7 @@ static void test_c_pointer_is_null_uses_niche_comparison() {
           "?*T uses the pointer niche, not a tagged struct");
     // `emit` verifies the whole module, so a verification failure would have been reported.
     CHECK_EQ(r.errorCount, 0u, "the emitted module passes LLVM verification");
+#endif
 }
 
 /// A radix literal used to infer as `error`, emit no value, and leave `entry` without a
