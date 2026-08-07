@@ -186,18 +186,7 @@ Keep the name short but descriptive. The `D-` prefix avoids conflicts with other
 
 ## Page Metadata
 
-The `D-home.html` shell displays metadata for each loaded page. If you want to update the metadata, edit the `.info` div in `D-home.html`:
-
-```html
-<div class="info">
-    <p> /*===== Documentation =====*/</p>
-    <p class="lastUpdated">Last time updated: DD/MM/YYYY</p>
-    <p class="versionAdded">Version added: 0.0.0</p>
-    <p class="lastUpdate">Version last updated: 0.0.0</p>
-    <p class="outdated">Outdated: No</p>
-    <p class="owner">Owner: GalaxyHaze</p>
-</div>
-```
+The `D-home.html` shell no longer displays per-page metadata. The header only contains the logo, the file bar, and the Helios CTA.
 
 ## Styling
 

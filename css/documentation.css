@@ -13,8 +13,6 @@ VARS
     --color-cyan: #00ffff;
     --color-orange: #ff6d1f;
     --color-yellow: #fbff1f;
-    --color-owner: rgb(255, 85, 0);
-
     --color-tree-line: rgba(255, 255, 255, 0.2);
     --color-hover: rgba(255, 255, 255, 0.08);
     --color-vignette: rgba(0, 0, 0, 0.6);
@@ -41,10 +39,6 @@ VARS
         0 0 2px rgba(251,255,31,var(--text-glow-alpha)),
         0 0 8px rgba(255,109,31,var(--text-glow-alpha)),
         0 0 20px rgba(255,109,31,0.15);
-    --glow-owner:
-        0 0 2px rgba(255,85,0,var(--text-glow-alpha)),
-        0 0 6px rgba(255,85,0,var(--text-glow-alpha));
-
 }
 
 /*==================
@@ -227,17 +221,6 @@ COMPONENTS
     white-space: pre;
 
     max-width: 100%;
-}
-
-.lastUpdated,
-.versionAdded,
-.lastUpdate,
-.outdated {
-    color: var(--color-yellow);
-}
-
-.owner {
-    color: var(--color-owner);
 }
 
 /*=================
@@ -669,18 +652,6 @@ EFEITOS
     text-transform: uppercase;
 }
 
-.lastUpdated,
-.versionAdded,
-.lastUpdate,
-.outdated {
-    text-shadow: 0 0 4px rgba(251,255,31,0.25), 0 0 10px rgba(255,109,31,0.15);
-}
-
-.owner{
-    text-shadow: 0 0 4px rgba(255,85,0,0.3);
-}
-
-
 .crt-overlay {
     position: fixed;
     inset: 0;
@@ -807,10 +778,6 @@ MOBILE
     .bottom {
         flex: 1;
         min-height: 0;
-    }
-
-    .header-meta .info {
-        display: none;
     }
 
     .header-meta .logo {
