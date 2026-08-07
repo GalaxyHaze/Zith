@@ -3,8 +3,10 @@
 #include "diagnostics/error-codes.hpp"
 #include "legacy-zith/parser/operators.hpp"
 #include "legacy-zith/parser/scan-helpers.hpp"
+#include "support/int-literal.hpp"
 
 #include <array>
+#include <limits>
 #include <cstdlib>
 #include <string>
 #include <string_view>
@@ -185,9 +187,10 @@ ast::TypeExprId Parser::parsePrimaryType() {
         uint32_t count_val = 0;
         if (peek().is(lexer::TokenKind::LitVal)) {
             auto lex = lexeme();
-            try {
-                count_val = static_cast<uint32_t>(std::stoul(std::string(lex)));
-            } catch (...) {
+            std::int64_t parsed = 0;
+            if (support::parseIntegerLiteral(lex, parsed) == support::IntLiteralStatus::Ok &&
+                parsed >= 0 && parsed <= std::numeric_limits<uint32_t>::max()) {
+                count_val = static_cast<uint32_t>(parsed);
             }
         }
         auto count_expr = bld->inferExpr();

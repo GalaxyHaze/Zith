@@ -91,7 +91,7 @@ symbols::SymbolVisibility mapFrontendVisibility(const frontend::Visibility visib
     return symbols::SymbolVisibility::Private;
 }
 
-bool isValidLibraryName(const std::string_view name) {
+[[maybe_unused]] bool isValidLibraryName(const std::string_view name) {
     if (name.empty())
         return false;
     return std::all_of(name.begin(), name.end(), [](const unsigned char character) {
@@ -100,7 +100,7 @@ bool isValidLibraryName(const std::string_view name) {
     });
 }
 
-int runProgram(const std::vector<std::string> &arguments) {
+[[maybe_unused]] int runProgram(const std::vector<std::string> &arguments) {
     if (arguments.empty())
         return -1;
 
@@ -136,7 +136,8 @@ int runProgram(const std::vector<std::string> &arguments) {
 #endif
 }
 
-int captureProgram(const std::vector<std::string> &arguments, std::string &output) {
+[[maybe_unused]] int captureProgram(const std::vector<std::string> &arguments,
+                                    std::string &output) {
 #if defined(_WIN32) || defined(ZITH_IS_WASM)
     (void)arguments;
     (void)output;
@@ -193,18 +194,27 @@ int captureProgram(const std::vector<std::string> &arguments, std::string &outpu
 }
 
 // Runs a FILE*-based dump into an in-memory string so dump text can be routed
-// through the session's own output band instead of the process stdout.
+// through the session's own output band instead of the process stdout. The
+// temporary file is used because the dump APIs still take a FILE*; it is
+// removed as soon as the captured bytes have been copied out.
 template <typename Fn> std::string captureStdioDump(Fn &&dump) {
     std::string result;
-#ifdef _WIN32
+
+    const auto uniqueSuffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const std::filesystem::path tmpPath =
+        std::filesystem::temp_directory_path() /
+        ("zithc-dump-" + std::to_string(uniqueSuffix) + ".tmp");
+
     FILE *tmp = nullptr;
-    if (_tmpfile_s(&tmp) != 0)
+#ifdef _WIN32
+    if (_wfopen_s(&tmp, tmpPath.c_str(), L"wb+") != 0)
         return result;
 #else
-    FILE *tmp = std::tmpfile();
+    tmp = std::fopen(tmpPath.c_str(), "wb+");
     if (tmp == nullptr)
         return result;
 #endif
+
     dump(tmp);
     std::fflush(tmp);
     std::rewind(tmp);
@@ -213,10 +223,12 @@ template <typename Fn> std::string captureStdioDump(Fn &&dump) {
     while ((bytes = std::fread(buffer, 1, sizeof(buffer), tmp)) > 0)
         result.append(buffer, bytes);
     std::fclose(tmp);
+    std::error_code ignored;
+    std::filesystem::remove(tmpPath, ignored);
     return result;
 }
 
-std::string displayCommand(const std::vector<std::string> &arguments) {
+[[maybe_unused]] std::string displayCommand(const std::vector<std::string> &arguments) {
     std::string command;
     for (const auto &argument : arguments) {
         if (!command.empty())
@@ -998,7 +1010,7 @@ bool CompilationSession::link() {
 
 namespace {
 // Normalizes a waitpid()/spawn status into a process exit code.
-int normalizeExitStatus(const int status) {
+[[maybe_unused]] int normalizeExitStatus(const int status) {
 #ifdef _WIN32
     return status;
 #else

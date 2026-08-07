@@ -63,19 +63,20 @@ void normalizeRoots(std::vector<std::string> &roots) {
     roots = std::move(normalized);
 }
 
-[[nodiscard]] bool isZithFile(const fs::path &path) {
+[[maybe_unused]] [[nodiscard]] bool isZithFile(const fs::path &path) {
     return path.extension() == ".zith";
 }
 
-[[nodiscard]] bool isHeaderFile(const fs::path &path) {
+[[maybe_unused]] [[nodiscard]] bool isHeaderFile(const fs::path &path) {
     return path.extension() == ".h";
 }
 
-[[nodiscard]] bool isCppHeaderFile(const fs::path &path) {
+[[maybe_unused]] [[nodiscard]] bool isCppHeaderFile(const fs::path &path) {
     return path.extension() == ".hpp";
 }
 
-[[nodiscard]] bool isWithinRoots(const fs::path &path, const std::vector<std::string> &roots) {
+[[maybe_unused]] [[nodiscard]] bool isWithinRoots(const fs::path &path,
+                                                  const std::vector<std::string> &roots) {
     const auto normalized_path = fs::weakly_canonical(path).lexically_normal();
     for (const auto &root : roots) {
         std::error_code error;
