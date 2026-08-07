@@ -16,7 +16,7 @@
 #include <limits.h>
 #include <mach-o/dyld.h>
 #elif defined(_WIN32)
-#include <windows.h>
+#include <Windows.h>
 #endif
 
 namespace zith::support {
@@ -47,11 +47,12 @@ std::string executablePath() {
     auto len = ::GetModuleFileNameW(nullptr, buf, MAX_PATH);
     if (len == 0 || len >= MAX_PATH)
         return {};
-    int needed = ::WideCharToMultiByte(CP_UTF8, 0, buf, -1, nullptr, 0, nullptr, nullptr);
+    const int needed = ::WideCharToMultiByte(CP_UTF8, 0, buf, -1, nullptr, 0, nullptr, nullptr);
     if (needed <= 0)
         return {};
-    std::string result(needed - 1, '\0');
-    ::WideCharToMultiByte(CP_UTF8, 0, buf, -1, &result[0], needed, nullptr, nullptr);
+    std::string result(static_cast<std::size_t>(needed) - 1U, '\0');
+    ::WideCharToMultiByte(CP_UTF8, 0, buf, -1, &result[0], static_cast<int>(result.size() + 1U),
+                          nullptr, nullptr);
     return result;
 #else
     return {};
@@ -62,13 +63,31 @@ std::string executablePath() {
 
 std::vector<std::string> findStdlibRoots() {
     // ZITH_STDLIB override
-    if (const char *env = std::getenv("ZITH_STDLIB")) {
+    char *env = nullptr;
+#ifdef _WIN32
+    std::size_t env_size = 0;
+    if (_dupenv_s(&env, &env_size, "ZITH_STDLIB") != 0)
+        return {};
+#else
+    env = std::getenv("ZITH_STDLIB");
+#endif
+    if (env != nullptr) {
         std::string path(env);
 #ifdef ZITH_IS_WASM
-        return {path};
+#ifdef _WIN32
+        std::free(env);
+#endif
+        return {std::move(path)};
 #else
-        if (std::filesystem::is_directory(path))
+        if (std::filesystem::is_directory(path)) {
+#ifdef _WIN32
+            std::free(env);
+#endif
             return {path};
+        }
+#ifdef _WIN32
+        std::free(env);
+#endif
         return {};
 #endif
     }

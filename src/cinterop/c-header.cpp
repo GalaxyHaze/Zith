@@ -221,8 +221,8 @@ void collectProbeDirectory(const CXFile included_file, CXSourceLocation *, const
         directories.push_back(std::move(text));
 }
 
-std::vector<std::string> probeSystemIncludeDirs(const std::string &targetTriple,
-                                                const std::string &sysroot) {
+[[maybe_unused]] std::vector<std::string> probeSystemIncludeDirs(const std::string &targetTriple,
+                                                                 const std::string &sysroot) {
     static constexpr const char *kProbeSource = "#include <stddef.h>\n"
                                                 "#include <stdarg.h>\n"
                                                 "#include <stdint.h>\n"
@@ -269,7 +269,7 @@ std::vector<std::string> probeSystemIncludeDirs(const std::string &targetTriple,
 
 #endif
 
-std::vector<std::string> fallbackSystemIncludeDirs(const std::string &sysroot) {
+[[maybe_unused]] std::vector<std::string> fallbackSystemIncludeDirs(const std::string &sysroot) {
     std::vector<std::string> directories;
     for (const char *candidate : {"/usr/include", "/usr/local/include"}) {
         std::filesystem::path path =
@@ -376,14 +376,15 @@ std::vector<std::string> systemIncludeDirs(const std::string &targetTriple,
     (void)sysroot;
     return {};
 #else
+    static auto &cacheMutex = *new std::mutex();
+
     const std::string key = targetTriple + '\0' + sysroot;
 
-    static std::mutex cache_mutex;
     // Intentionally leaked: the cache lives for the whole process and must not be
     // torn down at exit while other translation units may still query it.
     static auto &cache = *new std::map<std::string, std::vector<std::string>>();
 
-    const std::lock_guard<std::mutex> lock(cache_mutex);
+    const std::lock_guard<std::mutex> lock(cacheMutex);
     if (const auto cached = cache.find(key); cached != cache.end())
         return cached->second;
 

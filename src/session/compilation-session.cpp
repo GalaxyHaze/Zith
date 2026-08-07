@@ -19,10 +19,6 @@
 #include "cache/cache-paths.hpp"
 #include "zirl/zirl-reader.hpp"
 
-#ifdef ZITH_HAS_LLVM
-#include "codegen/codegen.hpp"
-#endif
-
 #include "support/stdlib-discovery.hpp"
 
 #include "common/ast-ids.hpp"
@@ -115,7 +111,10 @@ int runProgram(const std::vector<std::string> &arguments) {
     argv.push_back(nullptr);
 
 #ifdef _WIN32
-    return _spawnvp(_P_WAIT, argv.front(), argv.data());
+    const auto spawned = _spawnvp(_P_WAIT, argv.front(), argv.data());
+    if (spawned == -1)
+        return -1;
+    return static_cast<int>(spawned);
 #elif defined(ZITH_IS_WASM)
     (void)argv;
     return -1;
