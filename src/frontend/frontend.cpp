@@ -1,6 +1,7 @@
 #include "frontend/frontend.hpp"
 #include "diagnostics/error-codes.hpp"
 #include "frontend/macro-expand.hpp"
+#include "support/int-literal.hpp"
 
 #include <cctype>
 #include <chrono>
@@ -1979,10 +1980,13 @@ private:
             import.depth = -1;
             index_ += 2U;
         } else if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Literal) {
-            try {
-                import.depth = std::stoi(std::string(text(index_)));
-            } catch (...) {
+            std::int64_t depth = 1;
+            if (support::parseIntegerLiteral(text(index_), depth) != support::IntLiteralStatus::Ok ||
+                depth < std::numeric_limits<int32_t>::min() ||
+                depth > std::numeric_limits<int32_t>::max()) {
                 snapshot_.diagnostics_.push_back({tokenSpan(index_), "invalid import depth"});
+            } else {
+                import.depth = static_cast<int32_t>(depth);
             }
             ++index_;
         } else {

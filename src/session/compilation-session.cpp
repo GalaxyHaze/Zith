@@ -196,9 +196,15 @@ int captureProgram(const std::vector<std::string> &arguments, std::string &outpu
 // through the session's own output band instead of the process stdout.
 template <typename Fn> std::string captureStdioDump(Fn &&dump) {
     std::string result;
+#ifdef _WIN32
+    FILE *tmp = nullptr;
+    if (_tmpfile_s(&tmp) != 0)
+        return result;
+#else
     FILE *tmp = std::tmpfile();
     if (tmp == nullptr)
         return result;
+#endif
     dump(tmp);
     std::fflush(tmp);
     std::rewind(tmp);
@@ -696,7 +702,8 @@ bool CompilationSession::lowerStage() {
     // runs after lowering until generic instantiation moves onto sema/HIR.
 
     if (mOpts.get().flags.emitHir()) {
-        const std::string hir_text = mHirModule.toString(*mInterner);
+        const std::string hir_text =
+            captureStdioDump([this](FILE *out) { mHirModule.dump(out, *mInterner); });
         writeOutput("--- HIR ---\n%s---\n", hir_text.c_str());
     }
 
@@ -977,9 +984,8 @@ bool CompilationSession::performLink(std::string &exePath, bool &isWasm) {
     (void)exePath;
     (void)isWasm;
     (void)mObjectPath;
-    writeOutput("%s[error]%s cannot link on WASM target
-", ansicolor("[31m"),
-                ansicolor("[0m"));
+    writeOutput("%s[error]%s cannot link on WASM target\n", ansicolor("\033[31m"),
+                ansicolor("\033[0m"));
     return false;
 #endif
 }
@@ -996,7 +1002,7 @@ int normalizeExitStatus(const int status) {
 #ifdef _WIN32
     return status;
 #else
-    const int waitStatus = status;
+    int waitStatus = status;
     if (WIFEXITED(waitStatus))
         return WEXITSTATUS(waitStatus);
     if (WIFSIGNALED(waitStatus))
