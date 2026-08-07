@@ -129,9 +129,15 @@ void CodeGen::ensureTargetInfo() {
     auto *target = llvm::TargetRegistry::lookupTarget(tripleStr, error);
     if (target) {
         llvm::TargetOptions options;
+#if LLVM_VERSION_MAJOR >= 19
         auto tm = std::unique_ptr<llvm::TargetMachine>(target->createTargetMachine(
             triple, "generic", "", options, llvm::Reloc::PIC_, std::nullopt,
             static_cast<llvm::CodeGenOptLevel>(llvmOptLevel())));
+#else
+        auto tm = std::unique_ptr<llvm::TargetMachine>(target->createTargetMachine(
+            tripleStr, "generic", "", options, llvm::Reloc::PIC_, std::nullopt,
+            static_cast<llvm::CodeGenOptLevel>(llvmOptLevel())));
+#endif
         if (tm)
             module_->setDataLayout(tm->createDataLayout());
     }
@@ -148,9 +154,15 @@ void CodeGen::optimize() {
     std::unique_ptr<llvm::TargetMachine> tm;
     if (target) {
         llvm::TargetOptions options;
+#if LLVM_VERSION_MAJOR >= 19
         tm.reset(target->createTargetMachine(triple, "generic", "", options, llvm::Reloc::PIC_,
                                              std::nullopt,
                                              static_cast<llvm::CodeGenOptLevel>(llvmOptLevel())));
+#else
+        tm.reset(target->createTargetMachine(tripleStr, "generic", "", options, llvm::Reloc::PIC_,
+                                             std::nullopt,
+                                             static_cast<llvm::CodeGenOptLevel>(llvmOptLevel())));
+#endif
     }
 
     llvm::LoopAnalysisManager LAM;
@@ -299,9 +311,15 @@ static bool setupTargetMachine(llvm::Module *module, const std::string &tripleSt
     }
 
     llvm::TargetOptions options;
+#if LLVM_VERSION_MAJOR >= 19
     outTM.reset(target->createTargetMachine(triple, "generic", "", options, llvm::Reloc::PIC_,
                                             std::nullopt,
                                             static_cast<llvm::CodeGenOptLevel>(optLevel)));
+#else
+    outTM.reset(target->createTargetMachine(tripleStr, "generic", "", options, llvm::Reloc::PIC_,
+                                            std::nullopt,
+                                            static_cast<llvm::CodeGenOptLevel>(optLevel)));
+#endif
     if (!outTM) {
         std::string msg = "failed to create TargetMachine for " + tripleStr;
         if (diags)
