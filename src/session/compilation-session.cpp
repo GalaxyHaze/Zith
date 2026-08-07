@@ -721,7 +721,7 @@ bool CompilationSession::lowerStage() {
 
     comptime::Solver solver(mTypes, nullptr, nullptr, mSyms, mDiags, mHirArena,
                             mModernTypeTable.get());
-    if (!solver.solve(mHirModule)) {
+    if (!solver.runPostLower(mHirModule)) {
         mDiags.emit();
         return false;
     }
@@ -765,7 +765,7 @@ bool CompilationSession::nraStage() {
         return false;
     }
 
-    sema::modern::NraFacts nra(mHirArena, mDiags, *mSnapshot, *mModernSemaPipeline);
+    sema::modern::NraFacts nra(mHirArena, mDiags, *mSnapshot, *mModernSemaPipeline, *mInterner);
     if (!nra.run()) {
         mDiags.emit();
         return false;

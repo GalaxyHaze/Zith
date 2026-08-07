@@ -1,0 +1,26 @@
+# Project Memory
+
+Durable, topic-focused notes about the Zith codebase and development workflow.
+This complements `docs/` and the code search indexes by recording the non-obvious
+contracts, decisions, and gotchas that are not discoverable from the source alone.
+
+## Conventions
+
+- Create one file per topic or area under `memory/`.
+- Keep each file within 300 lines, preferably 200-300 lines.
+- Split overgrown topics into more focused files and link them from here.
+- Read the relevant file before working on that area.
+- Update notes when the repository behavior changes.
+- Invalidate or rewrite entries that are outdated instead of leaving
+  contradictory notes.
+
+## Index
+
+- [comptime-generics-traits.md](comptime-generics-traits.md): 0.7.0 planning
+  contract, pipeline order, step files, diagnostic reservation, and extension
+  recipe for the capability base.
+- [nra-hir-boundary.md](nra-hir-boundary.md): stable ownership/HIR boundary and
+  the pitfalls that keep the pre-HIR NRA contract intact.
+- [simd-intrinsics-asm.md](simd-intrinsics-asm.md): decision to prefer LLVM
+  intrinsics over assembly for native/SIMD support; vector types come after
+  scalar intrinsics.

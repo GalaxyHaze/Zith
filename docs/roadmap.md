@@ -133,7 +133,7 @@ Max parallelism: 2 agents (assets + stdlib).
 
 ## Wave 01 (Current)
 
-Infrastructure: ZIRL sections, cache hydration, CLI commands (`test`, `deps`, `docs`), diagnostics quality, roadmap, and infra tests.  No language-chain changes.  See [impl-status.md](impl-status.md) and [docs/plans/wave-01.md](plans/wave-01.md).
+Infrastructure: ZIRL sections, cache hydration, CLI commands (`test`, `deps`, `docs`), diagnostics quality, roadmap, and infra tests.  No language-chain changes.  See [impl-status.md](impl-status.md) and [docs/plans/0.7.0/README.md](0.7.0/README.md).
 
 ## Notes
 

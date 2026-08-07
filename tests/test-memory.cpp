@@ -82,6 +82,41 @@ void test_dynarray_moves_nontrivial_elements() {
                  "DynArray preserves moved elements");
 }
 
+void test_dynarray_resize_and_at() {
+    memory::Arena arena;
+    memory::DynArray<int> values(arena);
+
+    values.resize(3);
+    CHECK_EQ(values.size(), 3u, "resize grows to the requested size");
+    CHECK_EQ(values[1], 0, "resize default-constructs new elements");
+
+    values.resize(5, 7);
+    CHECK_EQ(values.size(), 5u, "resize with value grows to the requested size");
+    CHECK_EQ(values[3], 7, "resize with value fills appended elements");
+    CHECK_EQ(values[4], 7, "resize with value fills all appended elements");
+
+    values.resize(2);
+    CHECK_EQ(values.size(), 2u, "resize can shrink");
+    CHECK_EQ(values.at(1), 0, "at accesses an in-bounds element");
+    CHECK_EQ(values[0], 0, "shrinking preserves the first element");
+}
+
+void test_dynarray_append_range() {
+    memory::Arena arena;
+    memory::DynArray<int> values(arena);
+    const int source[] = {11, 22, 33};
+
+    values.appendRange(source, 3);
+    CHECK_EQ(values.size(), 3u, "appendRange appends pointer ranges");
+    CHECK_EQ(values[0], 11, "appendRange copies the first element");
+    CHECK_EQ(values[2], 33, "appendRange copies the last element");
+
+    values.appendRange(std::span<const int>(source, 2));
+    CHECK_EQ(values.size(), 5u, "appendRange appends span ranges");
+    CHECK_EQ(values[3], 11, "span append starts after existing values");
+    CHECK_EQ(values[4], 22, "span append copies values in order");
+}
+
 void test_result_void_and_movable_chains() {
     memory::Result<void> ok;
     auto mapped = ok.map([] { return std::string{"ready"}; });
@@ -109,6 +144,8 @@ static void test_memory() {
     test_arena_markpoint_rolls_back_destructors();
     test_arena_alignment_and_overflow();
     test_dynarray_moves_nontrivial_elements();
+    test_dynarray_resize_and_at();
+    test_dynarray_append_range();
     test_result_void_and_movable_chains();
 }
 

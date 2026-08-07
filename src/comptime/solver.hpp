@@ -56,6 +56,9 @@ public:
                     memory::Arena &hir_arena, sema::modern::TypeTable *modern_types = nullptr);
 
     bool solve(hir::HirModule &hir);
+    /// Runs only the residual post-lowering compatibility checks. Generic
+    /// instantiation itself remains scheduled for 0.7.0 step-04.
+    bool runPostLower(hir::HirModule &hir);
 };
 
 } // namespace zith::comptime

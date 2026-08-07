@@ -51,6 +51,9 @@ enum class TypeKind : uint8_t {
     Failable,
     Pack,
     Alias,
+    /// A `type Name = T` declaration: identity is nominal, but layout comes
+    /// from the single underlying field.
+    Nominal,
     GenericParam,
     /// A type carrying a memory-model qualifier (`lend T`, `view T`, ...).
     /// `resolve()` looks through it, so unification is unaffected.
@@ -115,6 +118,11 @@ struct PackType {
 struct AliasType {
     TypeId target;
 };
+struct NominalType {
+    std::string_view name;
+    TypeId target;
+    memory::DynArray<TypeId> &fields;
+};
 struct IncompleteType {
     TypeId base;
     memory::DynArray<TypeId> &args;
@@ -162,6 +170,7 @@ public:
     [[nodiscard]] TypeId internPack(memory::DynArray<TypeId> &members,
                                     memory::DynArray<std::string_view> &names);
     [[nodiscard]] TypeId internAlias(TypeId target);
+    [[nodiscard]] TypeId internNominal(std::string_view name, TypeId target);
     [[nodiscard]] TypeId internQualified(TypeId inner, types::OwnershipKind ownership, bool is_mut);
 
     [[nodiscard]] TypeKind kindOf(TypeId id) const noexcept;
@@ -186,8 +195,9 @@ public:
     [[nodiscard]] const FailableType *failable(TypeId id) const noexcept;
     [[nodiscard]] const PackType *pack(TypeId id) const noexcept;
     [[nodiscard]] const AliasType *alias(TypeId id) const noexcept;
+    [[nodiscard]] const NominalType *nominal(TypeId id) const noexcept;
     [[nodiscard]] const QualifiedType *qualified(TypeId id) const noexcept;
-    /// Strips every qualifier (and nominal placeholder) layer from `id`.
+    /// Strips every qualifier and transparent alias/nominal layer from `id`.
     [[nodiscard]] TypeId stripQualifiers(TypeId id) const noexcept;
     [[nodiscard]] const IncompleteType *incomplete(TypeId id) const noexcept;
 
@@ -230,6 +240,7 @@ private:
         Failable,
         Pack,
         Alias,
+        Nominal,
         GenericParam,
         Qualified
     };
@@ -256,6 +267,7 @@ private:
         FailableType failable_ty{};
         PackType *pack_ty                                = nullptr;
         AliasType *alias_ty                              = nullptr;
+        NominalType *nominal_ty                          = nullptr;
         QualifiedType *qualified_ty                      = nullptr;
         uint32_t generic_decl_id                         = 0;
         uint32_t generic_param_index                     = 0;

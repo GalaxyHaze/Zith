@@ -328,9 +328,7 @@ namespace {
 [[nodiscard]] std::optional<DeclKind> declarationKind(const std::string_view word) {
     if (word == "fn")
         return DeclKind::Function;
-    if (word == "type")
-        return DeclKind::TypeAlias;
-    if (word == "alias")
+    if (word == "type" || word == "alias")
         return DeclKind::TypeAlias;
     if (word == "struct" || word == "component")
         return DeclKind::Struct;
@@ -402,9 +400,11 @@ public:
             const auto kind = declarationKind(word);
             if (kind) {
                 flushBadRun();
-                lowerDeclaration(start, *kind, visibility, {}, is_extern);
-                visibility = Visibility::Private;
-                is_extern  = false;
+                declaration_is_nominal_ = word == "type";
+                lowerDeclaration(start, *kind, visibility, {}, {}, is_extern);
+                declaration_is_nominal_ = false;
+                visibility              = Visibility::Private;
+                is_extern               = false;
                 continue;
             }
 
@@ -508,6 +508,8 @@ private:
     uint32_t index_      = 0;
     uint32_t next_scope_ = 1;
     ScopeId current_scope_;
+    /// True while lowering the next top-level declaration written with `type`.
+    bool declaration_is_nominal_ = false;
     /// When set (while parsing a when-case condition), a '.' followed by another
     /// '.' is left unconsumed by postfix so the caller can form a `lo..hi` range.
     bool range_mode_ = false;
@@ -2150,11 +2152,18 @@ private:
         }
         const std::string owner_name = std::string(text(index_++));
 
+        std::string trait_name;
         // Optional `as TraitName` or `for TraitName` — parsed but not enforced.
-        if (index_ < token_count_ && (isKeywordToken("as") || isKeywordToken("for")))
+        if (index_ < token_count_ && (isKeywordToken("as") || isKeywordToken("for"))) {
             ++index_;
-        if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier)
-            ++index_;
+            if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+                trait_name = std::string(text(index_));
+                ++index_;
+            } else {
+                snapshot_.diagnostics_.push_back(
+                    {tokenSpan(index_), "expected a trait name after 'as'/'for'"});
+            }
+        }
 
         if (!punctuation(index_, '{')) {
             snapshot_.diagnostics_.push_back(
@@ -2169,7 +2178,8 @@ private:
             }
             if (isKeywordToken("fn")) {
                 const auto method_start = index_;
-                lowerDeclaration(method_start, DeclKind::Function, visibility, owner_name);
+                lowerDeclaration(method_start, DeclKind::Function, visibility, owner_name,
+                                 trait_name);
                 continue;
             }
             snapshot_.diagnostics_.push_back(
@@ -2184,13 +2194,16 @@ private:
     }
 
     void lowerDeclaration(const uint32_t start, const DeclKind kind, const Visibility visibility,
-                          std::string ownerName = {}, const bool isExtern = false) {
+                          std::string ownerName = {}, std::string traitName = {},
+                          const bool isExtern = false) {
         Declaration declaration;
         declaration.id         = DeclId{static_cast<uint32_t>(snapshot_.declarations_.size() + 1U)};
         declaration.kind       = kind;
         declaration.visibility = visibility;
         declaration.ownerName  = std::move(ownerName);
+        declaration.traitName  = std::move(traitName);
         declaration.isExtern   = isExtern;
+        declaration.isNominalType = declaration_is_nominal_;
         ++index_;
         if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
             declaration.name = std::string(text(index_++));
@@ -2290,6 +2303,70 @@ private:
                     const auto method_start = index_;
                     lowerDeclaration(method_start, DeclKind::Function, Visibility::Private,
                                      declaration.name);
+                    continue;
+                }
+                // Grouped field syntax: `{ [x, y, z]: Type, ... }`. Expanding the
+                // list into one Parameter per name keeps sema, HIR and codegen on
+                // the existing per-field path.
+                if (punctuation(index_, '[')) {
+                    const auto group_start = index_++;
+                    std::vector<Parameter> grouped;
+                    while (index_ < token_count_ && !punctuation(index_, '[') &&
+                           !punctuation(index_, ']') && !punctuation(index_, '}')) {
+                        if (punctuation(index_, ',')) {
+                            ++index_;
+                            continue;
+                        }
+                        if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
+                            snapshot_.diagnostics_.push_back(
+                                {tokenSpan(index_), "expected a field name in grouped field list"});
+                            ++index_;
+                            continue;
+                        }
+                        Parameter field;
+                        field.id   = LocalId{statementCountLocals_++};
+                        field.name = std::string(text(index_));
+                        field.span = tokenSpan(index_++);
+                        grouped.push_back(std::move(field));
+                    }
+                    if (!punctuation(index_, ']')) {
+                        snapshot_.diagnostics_.push_back(
+                            {range(group_start, index_),
+                             "expected ']' after grouped struct field names"});
+                        while (index_ < token_count_ && !punctuation(index_, '}') &&
+                               !punctuation(index_, ',')) {
+                            if (punctuation(index_, ']'))
+                                break;
+                            ++index_;
+                        }
+                    } else {
+                        ++index_; // consume ']'
+                    }
+                    if (!punctuation(index_, ':')) {
+                        snapshot_.diagnostics_.push_back(
+                            {range(group_start, index_), "expected ':' after grouped field names",
+                             false, diagnostics::err::UnsupportedSyntax});
+                    } else {
+                        ++index_;
+                        const auto type_id = parseType();
+                        ExprId default_value;
+                        if (index_ < token_count_ && text(index_) == "=") {
+                            ++index_;
+                            default_value = parseExpression();
+                        }
+                        for (auto &field : grouped) {
+                            field.type = type_id;
+                            if (default_value)
+                                field.defaultValue = default_value;
+                            declaration.parameters.push_back(std::move(field));
+                        }
+                    }
+                    if (!punctuation(index_, ',') && !punctuation(index_, '}')) {
+                        snapshot_.diagnostics_.push_back(
+                            {range(group_start, index_),
+                             "expected ',' after grouped struct fields"});
+                        ++index_;
+                    }
                     continue;
                 }
                 if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
@@ -2522,12 +2599,12 @@ std::string functionSignature(const FrontendSnapshot &snapshot, const Declaratio
         result += text;
         first = false;
     };
-    // A method always takes a receiver; when `self` is implicit (absent, or written
-    // without a type) it is spelled `*Owner` so signatures stay comparable.
-    const bool implicit_self =
-        !decl.ownerName.empty() &&
-        (decl.parameters.empty() ||
-         (decl.parameters.front().name == "self" && !decl.parameters.front().type));
+    // Methods without a receiver are static in this compiler. A `self`
+    // parameter without an explicit type is spelled `*Owner` so signatures
+    // stay comparable with the sema function type.
+    const bool implicit_self = !decl.ownerName.empty() && !decl.parameters.empty() &&
+                               decl.parameters.front().name == "self" &&
+                               !decl.parameters.front().type;
     if (implicit_self)
         append("*" + decl.ownerName);
     for (size_t index = 0; index < decl.parameters.size(); ++index) {

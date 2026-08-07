@@ -9,7 +9,7 @@ namespace {
 
 TypeKind kindFromIndex(size_t idx) {
     static constexpr TypeKind map[] = {
-        TypeKind::Error,        // TypeError      → 0
+        TypeKind::Error, // TypeError → 0
         TypeKind::Never,        // TypeNever      → 1
         TypeKind::Void,         // TypeVoid       → 2
         TypeKind::Bool,         // TypeBool       → 3
@@ -23,15 +23,19 @@ TypeKind kindFromIndex(size_t idx) {
         TypeKind::TypeVar,      // TypeTypeVar    → 11
         TypeKind::Optional,     // TypeOptional   → 12
         TypeKind::Failable,     // TypeFailable   → 13
-        TypeKind::Opaque,       // TypeOpaque     → 14
-        TypeKind::Unknown,      // TypeUnknown    → 15
-        TypeKind::Slice,        // TypeSlice      → 16
-        TypeKind::Enum,         // TypeEnum       → 17
-        TypeKind::Union,        // TypeUnion      → 18
-        TypeKind::Pack,         // TypePack       → 19
-        TypeKind::Sum,          // TypeSum        → 20
-        TypeKind::GenericParam, // TypeGenericParam → 21
-        TypeKind::Incomplete,   // TypeIncomplete → 22
+        TypeKind::Alias,        // TypeAlias      → 14
+        TypeKind::Nominal,      // TypeNominal    → 15
+        TypeKind::Trait,        // TypeTrait      → 16
+        TypeKind::Opaque,       // TypeOpaque     → 17
+        TypeKind::Unknown,      // TypeUnknown    → 18
+        TypeKind::Qualified,    // TypeQualified  → 19
+        TypeKind::Slice,        // TypeSlice      → 20
+        TypeKind::Enum,         // TypeEnum       → 21
+        TypeKind::Union,        // TypeUnion      → 22
+        TypeKind::Pack,         // TypePack       → 23
+        TypeKind::Sum,          // TypeSum        → 24
+        TypeKind::GenericParam, // TypeGenericParam → 25
+        TypeKind::Incomplete,   // TypeIncomplete → 26
     };
     return (idx < std::size(map)) ? map[idx] : TypeKind::Error;
 }
@@ -69,6 +73,15 @@ bool typeDataEqual(const TypeData &a, const TypeData &b) {
             [](const TypeTypeVar &va, const TypeTypeVar &vb) { return va.id == vb.id; },
             [](const TypeOptional &oa, const TypeOptional &ob) { return oa.inner == ob.inner; },
             [](const TypeFailable &fa, const TypeFailable &fb) { return fa.inner == fb.inner; },
+            [](const TypeAlias &aa, const TypeAlias &ab) { return aa.target == ab.target; },
+            [](const TypeNominal &na, const TypeNominal &nb) {
+                return na.name == nb.name && na.target == nb.target;
+            },
+            [](const TypeTrait &ta, const TypeTrait &tb) { return ta.name == tb.name; },
+            [](const TypeQualified &qa, const TypeQualified &qb) {
+                return qa.inner == qb.inner && qa.ownership == qb.ownership &&
+                       qa.isMut == qb.isMut;
+            },
             [](const TypeSlice &sa, const TypeSlice &sb) { return sa.elem == sb.elem; },
             [](const TypeEnum &ea, const TypeEnum &eb) { return ea.def_id == eb.def_id; },
             [](const TypeUnion &ua, const TypeUnion &ub) { return ua.def_id == ub.def_id; },
@@ -160,6 +173,17 @@ size_t TypeIntern::computeHash(const TypeData &data) {
                   [&](const TypeTypeVar &v) { h = hashCombine(h, v.id); },
                   [&](const TypeOptional &o) { h = hashCombine(h, o.inner); },
                   [&](const TypeFailable &f) { h = hashCombine(h, f.inner); },
+                  [&](const TypeAlias &a) { h = hashCombine(h, a.target); },
+                  [&](const TypeNominal &n) {
+                      h = hashCombine(h, n.name);
+                      h = hashCombine(h, n.target);
+                  },
+                  [&](const TypeTrait &t) { h = hashCombine(h, t.name); },
+                  [&](const TypeQualified &q) {
+                      h = hashCombine(h, q.inner);
+                      h = hashCombine(h, static_cast<size_t>(q.ownership));
+                      h = hashCombine(h, static_cast<size_t>(q.isMut));
+                  },
                   [&](const TypeSlice &s) { h = hashCombine(h, s.elem); },
                   [&](const TypeEnum &e) { h = hashCombine(h, e.def_id); },
                   [&](const TypeUnion &u) { h = hashCombine(h, u.def_id); },
@@ -239,6 +263,22 @@ TypeId TypeIntern::internFailable(TypeId inner) {
     return intern(TypeFailable{inner});
 }
 
+TypeId TypeIntern::internAlias(TypeId target) {
+    return intern(TypeAlias{target});
+}
+
+TypeId TypeIntern::internNominal(std::string_view name, TypeId target) {
+    return intern(TypeNominal{interner_.intern(name), target});
+}
+
+TypeId TypeIntern::internTrait(std::string_view name) {
+    return intern(TypeTrait{interner_.intern(name)});
+}
+
+TypeId TypeIntern::internQualified(TypeId inner, OwnershipKind ownership, bool is_mut) {
+    return intern(TypeQualified{inner, ownership, is_mut});
+}
+
 TypeId TypeIntern::internTypeVar() {
     return intern(TypeTypeVar{static_cast<uint32_t>(types_.size())});
 }
@@ -248,9 +288,10 @@ TypeId TypeIntern::internUnknown() {
 }
 
 TypeId TypeIntern::registerNamedType(std::string_view name, TypeKind kind) {
-    auto it = named_types_.find(std::string(name));
-    if (it != named_types_.end())
-        return it->second;
+    const auto id          = interner_.intern(name);
+    const auto *existing   = named_types_.get(id);
+    if (existing != nullptr)
+        return *existing;
 
     TypeId tid = kErrorType;
     switch (kind) {
@@ -266,19 +307,17 @@ TypeId TypeIntern::registerNamedType(std::string_view name, TypeKind kind) {
     default:
         return kErrorType;
     }
-    named_types_[std::string(name)] = tid;
+    named_types_.insert(id, tid);
     return tid;
 }
 
 TypeId TypeIntern::lookupNamedType(std::string_view name) const {
-    auto it = named_types_.find(std::string(name));
-    if (it != named_types_.end())
-        return it->second;
-    return kErrorType;
+    const auto *existing = named_types_.get(interner_.intern(name));
+    return existing != nullptr ? *existing : kErrorType;
 }
 
 void TypeIntern::registerTypeAlias(std::string_view name, TypeId target) {
-    named_types_[std::string(name)] = target;
+    named_types_.insert(interner_.intern(name), target);
 }
 
 TypeId TypeIntern::internSlice(TypeId elem) {
@@ -330,8 +369,8 @@ TypeId TypeIntern::internIncomplete(TypeId base, std::span<const TypeId> args) {
 TypeId TypeIntern::defineStruct(std::string_view name) {
     TypeId def_id = static_cast<TypeId>(struct_defs_.size());
     struct_defs_.push(StructDef{interner_.intern(name), memory::DynArray<StructField>(arena_)});
-    auto type                       = intern(TypeStruct{def_id});
-    named_types_[std::string(name)] = type;
+    auto type = intern(TypeStruct{def_id});
+    named_types_.insert(interner_.intern(name), type);
     return type;
 }
 
@@ -393,8 +432,8 @@ TypeId TypeIntern::defineEnum(std::string_view name, TypeId underlying) {
     TypeId def_id = static_cast<TypeId>(enum_defs_.size());
     enum_defs_.push(
         EnumDef{interner_.intern(name), underlying, memory::DynArray<EnumVariantDef>(arena_)});
-    auto type                       = intern(TypeEnum{def_id});
-    named_types_[std::string(name)] = type;
+    auto type = intern(TypeEnum{def_id});
+    named_types_.insert(interner_.intern(name), type);
     return type;
 }
 
@@ -436,8 +475,8 @@ bool TypeIntern::enumValue(TypeId enum_type, std::string_view name, int64_t &val
 TypeId TypeIntern::defineUnion(std::string_view name, bool is_raw) {
     TypeId def_id = static_cast<TypeId>(union_defs_.size());
     union_defs_.push(UnionDef{interner_.intern(name), is_raw, memory::DynArray<TypeId>(arena_)});
-    auto type                       = intern(TypeUnion{def_id});
-    named_types_[std::string(name)] = type;
+    auto type = intern(TypeUnion{def_id});
+    named_types_.insert(interner_.intern(name), type);
     return type;
 }
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## [Não Lançado] — `examples/` como suite de aceitação executável
+
+### Testes
+
+- **`test-examples`:** novo teste CTest que compila, liga e executa todos os programas de
+  `examples/` através do CLI `zithc`, comparando o exit code com o valor documentado no
+  cabeçalho de cada exemplo. Registado sob `ZITH_HAS_LLVM` porque exige codegen e linker.
+  Cada exemplo é copiado para `build/examples-run/` antes de correr, porque o `zithc` escreve
+  `target/` e `cache/` junto ao ficheiro fonte e correr in-place sujaria a árvore de trabalho.
+- **8 exemplos novos:** `for-loops` (as três formas de `for` e os compostos aritméticos),
+  `bitwise` (`&.` `|.` `^.` `~`, shifts, compostos e literais `0b`/`0x`/`0c`), `when-dispatch`
+  (arms literal, range, guarda booleana e `(_)`), `arrays` (literais, `[N]T`, `@sizeOf`),
+  `nested-structs` (structs aninhados, `&`, `->`, `*`), `optionals` (`?T`, propagação `?`,
+  `is null`, `?*T`), `c-interop` (`printf` variádico e `malloc`/`free`, só com
+  `ZITH_ENABLE_C_INTEROP`) e `generics-decl` (listas `<T>` em `struct`/`alias`).
+- **`hello-world.zith`:** passa a declarar `fn main(): i32` com `return 0` explícito. Sem tipo
+  de retorno o exit code era lixo não inicializado (64 nesta máquina), o que impedia asserção.
+
 ## [Não Lançado] — Operadores Compostos, Bitwise e `raw opaque`
 
 ### Operadores
@@ -71,6 +89,12 @@
   `linkAndExec()` e os bytes capturados morriam com a sessão; só o exit code sobrevivia.
 - **Separação de buffers:** `CompilationSession::flushOutput()` devolve apenas texto do compilador;
   o output do programa sai por `takeChildOutput()`.
+- **`zithc run`/`execute` são transparentes para o programa:** o processo filho **herda** o
+  `stdout`/`stderr` do terminal (`CompilationSession::linkAndExecDirect()`), pelo que output
+  intermédio sem newline, prompts e stdin interactivo funcionam. `linkAndExec()` +
+  `takeChildOutput()` mantêm-se para testes e clientes embutidos.
+- **Dumps `--emit-tokens`/`--emit-ast` na banda do compilador:** passam por `writeOutput()` como o
+  HIR/IR/ASM, logo em `run` saem no stderr e nunca contaminam o stdout do programa.
 - **`zithc build <ficheiro>` produz binário:** `deriveTargetStage()` leva `Command::Build` até
   codegen e o `build` liga o objecto via `CompilationSession::link()` (sem executar). `--emit
   obj/ir/asm/hir` mantêm o comportamento anterior.

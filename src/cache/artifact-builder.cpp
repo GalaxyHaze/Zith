@@ -115,8 +115,21 @@ CompactType ArtifactBuilder::convertType(types::TypeId id) {
                            out.ref0 = internType(t.inner);
                            return CompactTypeKind::Failable;
                        },
+                       [&](const types::TypeAlias &t) {
+                           out = convertType(t.target);
+                           return out.kind;
+                       },
+                       [&](const types::TypeNominal &t) {
+                           out = convertType(t.target);
+                           return out.kind;
+                       },
+                       [&](const types::TypeTrait &) { return CompactTypeKind::Opaque; },
                        [&](const types::TypeOpaque &) { return CompactTypeKind::Opaque; },
                        [&](const types::TypeUnknown &) { return CompactTypeKind::Error; },
+                       [&](const types::TypeQualified &t) {
+                           out = convertType(t.inner);
+                           return out.kind;
+                       },
                        [&](const types::TypeSlice &t) {
                            out.ref0 = internType(t.elem);
                            return CompactTypeKind::Slice;

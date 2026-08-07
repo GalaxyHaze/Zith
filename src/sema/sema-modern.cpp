@@ -1,6 +1,7 @@
 #include "sema/sema-modern.hpp"
 
 #include "diagnostics/error-codes.hpp"
+#include "sema/op-mapping.hpp"
 #include "support/int-literal.hpp"
 
 #include <cstring>
@@ -74,25 +75,6 @@ bool looksString(std::string_view text) {
 
 bool looksChar(std::string_view text) {
     return text.size() >= 3 && text.front() == '\'' && text.back() == '\'';
-}
-
-bool isComparisonOp(std::string_view text) {
-    return text == "==" || text == "!=" || text == "<" || text == ">" || text == "<=" ||
-           text == ">=";
-}
-
-bool isArithmeticOp(std::string_view text) {
-    return text == "+" || text == "-" || text == "*" || text == "/" || text == "%";
-}
-
-bool isShiftOp(std::string_view text) {
-    return text == "<<" || text == ">>";
-}
-
-/// The base bitwise operators keep the `.` suffix of the spec grammar so they are
-/// distinct from the address-of `&` and the attribute delimiter `|`.
-bool isBitwiseOp(std::string_view text) {
-    return text == "&." || text == "|." || text == "^.";
 }
 
 /// The single decision point for `as` conversions. User-defined casts will become a new
@@ -308,7 +290,6 @@ void PerModuleSema::lowerDeclarationTypes() {
                            diagnostics::err::UndefinedIdent);
                 }
             }
-            bool self_param_added = false;
             for (size_t i = 0; i < decl.parameters.size(); ++i) {
                 const auto &param = decl.parameters[i];
                 TypeId ptype      = lowerTypeExpr(param.type);
@@ -318,16 +299,15 @@ void PerModuleSema::lowerDeclarationTypes() {
                 // method gets the owner pointer type implicitly.
                 if (is_method && i == 0 && param.name == "self" && !decl.parameters.front().type &&
                     owner_type) {
-                    ptype            = type_table.internPointer(owner_type);
-                    self_param_added = true;
+                    ptype = type_table.internPointer(owner_type);
                 }
                 setLocalType(param.id, ptype);
                 params_storage.push(ptype);
             }
-            // No explicit self parameter: add an implicit *Owner.
-            if (is_method && !self_param_added && owner_type) {
-                params_storage.push(type_table.internPointer(owner_type));
-            }
+            // Methods without a declared receiver parameter are static in this
+            // compiler. They keep the exact parameter list they were written
+            // with, so `Type.foo()` resolves to a zero-parameter signature.
+            // Only an actual `self` parameter receives the owner pointer type.
             TypeId result = lowerTypeExpr(decl.declaredType);
             if (!result)
                 result = void_type;
@@ -345,7 +325,8 @@ void PerModuleSema::lowerDeclarationTypes() {
         case frontend::DeclKind::TypeAlias: {
             TypeId target = lowerTypeExpr(decl.declaredType);
             if (target) {
-                TypeId alias = type_table.internAlias(target);
+                TypeId alias = decl.isNominalType ? type_table.internNominal(decl.name, target)
+                                                  : type_table.internAlias(target);
                 setDeclType(decl.id, alias);
                 type_table.registerNamed(decl.name, alias);
             }
@@ -533,6 +514,25 @@ TypeId PerModuleSema::lowerTypeExpr(frontend::TypeExprId id) {
 TypeId PerModuleSema::lowerBareTypeExpr(const frontend::TypeExpression &type) {
     switch (type.kind) {
     case frontend::TypeExprKind::Name: {
+        // In implementations (`implement Point as Sample`), `Self` refers to the
+        // implemented owner, not to the trait name.
+        if (type.name == "Self") {
+            // In implementations (`implement Point as Sample`), `Self` refers to the
+            // implemented owner while this declaration is lowered.
+            if (currentDeclId_ != 0U && currentDeclId_ <= snapshot.declarations().size()) {
+                const auto &decl = snapshot.declarations()[currentDeclId_ - 1U];
+                if (decl.ownerName.empty()) {
+                    report(type.span, "'Self' is only valid inside an implementation",
+                           diagnostics::err::UndefinedIdent);
+                    return error_type;
+                }
+                if (const TypeId owner_type = type_table.lookupNamed(decl.ownerName))
+                    return owner_type;
+                report(type.span, "owner type '" + decl.ownerName + "' is not defined",
+                       diagnostics::err::UndefinedIdent);
+                return error_type;
+            }
+        }
         // A generic parameter name inside its own declaration resolves to an opaque
         // GenericParam type; the comptime solver rejects its use at instantiation.
         if (currentDeclId_ != 0U) {
@@ -831,17 +831,17 @@ TypeId PerModuleSema::inferBinary(frontend::ExprId id) {
         else if (adaptNumericLiteral(expr.operands[0], right))
             left = right;
     }
-    if (isComparisonOp(expr.text)) {
+    if (sema::isComparisonOp(expr.text)) {
         if (!sameType(left, right))
             report(expr.span, "comparison between incompatible types",
                    diagnostics::err::TypeMismatch);
         result = bool_type;
-    } else if (isShiftOp(expr.text) || isBitwiseOp(expr.text)) {
+    } else if (sema::isShiftOp(expr.text) || sema::isBitwiseOp(expr.text)) {
         // Both operands must be integers (after the numeric-literal adaptation above) and
         // share the same type, matching LLVM's same-type CreateShl/CreateAShr requirement.
         const bool left_integer          = type_table.integer(resolve(left)) != nullptr;
         const bool right_integer         = type_table.integer(resolve(right)) != nullptr;
-        const std::string_view kind_name = isShiftOp(expr.text) ? "shift" : "bitwise";
+        const std::string_view kind_name = sema::isShiftOp(expr.text) ? "shift" : "bitwise";
         if (!left_integer || !right_integer) {
             report(expr.span, std::string(kind_name) + " operator expects integer operands",
                    diagnostics::err::TypeMismatch);
@@ -853,7 +853,7 @@ TypeId PerModuleSema::inferBinary(frontend::ExprId id) {
         } else {
             result = left;
         }
-    } else if (isArithmeticOp(expr.text)) {
+    } else if (sema::isArithmeticOp(expr.text)) {
         if (!sameType(left, right))
             report(expr.span, "arithmetic between incompatible types",
                    diagnostics::err::TypeMismatch);
@@ -1158,29 +1158,37 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         }
     }
 
-    // Build the effective argument list: implicit self + explicit args.
-    // For `.` (Field): pass address of base value. For `->` (Arrow): pass
-    // the base pointer directly.
+    // Build the effective argument list. A method only receives an implicit
+    // self argument when it actually declares a receiver parameter (either
+    // `self` with no explicit type or `self: Type`). Methods declared with a
+    // normal parameter list such as `fn foo(): i32` are static in this
+    // compiler: `Point.foo()` passes no receiver and the resolved method
+    // signature has no owner pointer.
     const auto &fn_params = method_decl->parameters;
-    bool has_implicit_self =
-        fn_params.empty() || (fn_params.front().name == "self" && !fn_params.front().type);
-    TypeId self_type = kInvalidTypeId;
-    if (has_implicit_self && !fn_params.empty()) {
+    // A method receives an implicit self argument only when it declares a
+    // receiver parameter (`self`, or `self: Type`). A method with no declared
+    // parameters is static: `Type.method()` passes zero arguments.
+    const bool has_receiver  = !fn_params.empty() && fn_params.front().name == "self";
+    bool has_implicit_self   = has_receiver && !fn_params.front().type;
+    TypeId self_type         = kInvalidTypeId;
+    const auto saved_decl_id = currentDeclId_;
+    currentDeclId_           = method_decl->id.value;
+    if (has_implicit_self) {
         // First param is named self with no type: fill in *Owner.
         self_type = is_pointer ? base_type : type_table.internPointer(pointee);
-    } else if (has_implicit_self && fn_params.empty()) {
-        // No params at all: implicit self is *Owner.
-        self_type = is_pointer ? base_type : type_table.internPointer(pointee);
-    } else if (!fn_params.empty()) {
+    } else if (has_receiver) {
         // Explicit self param: use its declared type.
         self_type = lowerTypeExpr(fn_params.front().type);
     }
 
     // Check explicit arguments against remaining params.
-    size_t expected_args = fn_params.empty() ? 1 : fn_params.size();
-    size_t provided_args = call.operands.size() - 1;
-    if (provided_args != expected_args - (has_implicit_self ? 1 : 0)) {
+    // A method with no receiver is static: it expects exactly the explicit
+    // call arguments, so `Point.foo()` resolves with zero args.
+    const size_t expected_args = has_receiver ? fn_params.size() - 1 : fn_params.size();
+    const size_t provided_args = call.operands.size() - 1;
+    if (provided_args != expected_args) {
         report(call.span, "method call arity mismatch", diagnostics::err::NoMatchingFn);
+        currentDeclId_ = saved_decl_id;
         return error_type;
     }
     for (size_t i = 0; i < provided_args; ++i) {
@@ -1196,6 +1204,7 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
     TypeId result = lowerTypeExpr(method_decl->declaredType);
     if (!result)
         result = void_type;
+    currentDeclId_ = saved_decl_id;
     // Record a type for the Field/Arrow callee: it is a resolved method, not a
     // struct field, and the later standalone-expression sweep would otherwise
     // re-infer it as a field access and report "unknown field".
@@ -1371,6 +1380,19 @@ TypeId PerModuleSema::inferCast(frontend::ExprId id) {
         report(expr.span, "unknown target type in 'as' conversion", diagnostics::err::TypeMismatch);
         result = error_type;
     } else if (source && source != error_type) {
+        // `T as Nominal`/`Nominal as T` wraps or unwraps the nominal's single
+        // underlying field. This is the explicit construction/extraction path
+        // for `type Name = T` until a dedicated struct-literal syntax lands.
+        const auto *source_nominal = type_table.nominal(resolve(source));
+        const auto *target_nominal = type_table.nominal(resolve(target));
+        const TypeId nominal_target =
+            source_nominal ? source_nominal->target
+                           : (target_nominal ? target_nominal->target : kInvalidTypeId);
+        const TypeId other = source_nominal ? resolve(target) : resolve(source);
+        if (nominal_target && type_table.kindOf(other) == type_table.kindOf(nominal_target) &&
+            sameType(nominal_target, other)) {
+            return result;
+        }
         const TypeId from_resolved = resolve(source);
         const TypeId to_resolved   = resolve(target);
         CastKind kind =
@@ -2118,6 +2140,11 @@ bool PerModuleSema::sameType(TypeId a, TypeId b) const noexcept {
         const auto *alias_b = type_table.alias(resolved_b);
         return alias_a != nullptr && alias_b != nullptr &&
                sameType(alias_a->target, alias_b->target);
+    }
+    if (ka == TypeKind::Nominal) {
+        const auto *na = type_table.nominal(resolved_a);
+        const auto *nb = type_table.nominal(resolved_b);
+        return na != nullptr && nb != nullptr && na->name == nb->name;
     }
     return false;
 }

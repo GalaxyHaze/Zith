@@ -2,9 +2,10 @@
 
 > Last updated: 2026-08-06 (documentation architecture refresh).
 
-This document is the single source of truth for what the compiler supports today. Status reflects actual compiler behaviour at baseline `bf7925e`, verified by direct source-code inspection.
-feature was verified by running `build/zithc check` against a standalone test file; status
-reflects actual compiler behaviour, not spec intent.
+This document is the single source of truth for what the compiler supports today. Status reflects
+actual compiler behaviour at baseline `a5f3716`. Each feature was verified by running
+`build/zithc check` against a standalone test file, with source inspection where a status depends
+on internal structure; status reflects actual compiler behaviour, not spec intent.
 
 ---
 
@@ -16,7 +17,6 @@ reflects actual compiler behaviour, not spec intent.
 | **Check only**    | Passes `zithc check` but semantics are incidental (parsed as Name / Binary). No dedicated AST node, HIR, or codegen. |
 | **Parse skipped** | Declaration accepted; body entirely skipped by `skipDelimited('{', '}')`. No semantics. |
 | **Parse error**   | The parser itself rejects this construct. Does not reach sema. |
-| **In progress (uncommitted)** | AST nodes, parser handlers, sema inference, and HIR lowering exist in source but are not activated/committed. |
 | **Spec only**     | No compiler implementation. |
 | **Stub**          | CLI subcommand exists but returns "not implemented yet". |
 
@@ -32,7 +32,7 @@ reflects actual compiler behaviour, not spec intent.
 | Import resolution | **Working** | `import`, `from`, `export`, `alias`, `type` |
 | Name resolution | **Working** | Scope-chained `lookupBinding`. Per-scope `DuplicateDecl`. |
 | Type checking | **Working** | All `ExprKind` nodes. Optional/null validation. Index bounds. |
-| Generic instantiation | Partial | Basic `<T>` works; `T: Trait` constraints not enforced |
+| Generic instantiation | Partial | `<T, U>` parameter lists parse and type-check on declarations; calling a generic function still fails in the comptime solver with "generic parameter T has no concrete type". `T: Trait` constraints parse but are not enforced |
 | Comptime / Solve | Partial | Present in the documented target pipeline before ownership proof; some current frontend lowering still needs to stop erasing resource information before NRA |
 | NTA / NRA | **In progress** | Pre-HIR residual-fact boundary is implemented: semantic facts are accumulated and consumed before final lowering; the alive/dead/lent state machine and full diagnostics remain |
 | HIR lowering | **Working** | Covers all working features; stable boundary is `sema -> comptime/solve -> NTA/NRA -> HIR`, and residual ownership facts attach to side tables without introducing ownership HIR nodes |
@@ -47,7 +47,8 @@ reflects actual compiler behaviour, not spec intent.
 
 | Feature | Status | Notes |
 |---|---|---|
-| `fn` | **Working** | Parameters, return type, body. Overloading by parameter count and types (F-33); linkage names are qualified as `<module>.<Owner>.<name>(<params>)`, except `extern fn` and `main` |
+| `fn` | **Working** | Parameters, return type, body. The return type is written `fn f(x: T): R` or `fn f(x: T) -> R`; both spellings parse. Overloading by parameter count and types (F-33); linkage names are qualified as `<module>.<Owner>.<name>(<params>)`, except `extern fn` and `main` |
+| generic parameter lists `<T, U>` | **Working (parse + typing)** | Accepted on `fn`, `struct`, `type` alias, `enum`, `union` and `trait` declarations. Inside the declaration each parameter resolves as an opaque type. Instantiation is not solved: both `identity<i32>(42)` and inferred `identity(42)` report `E3001` "generic parameter T has no concrete type". `T: Trait` constraints parse but are not enforced |
 | `flow fn` | **Working** | Parsed and lowers; `marker`/`dock`/`jump` not exhaustively tested |
 | `raw fn` | **Working** | Parsed and lowers |
 | `const fn` | **Parse error** | `const` is a binding keyword; `const fn f()` parses as `const` binding named `fn`, not a const function |
@@ -70,7 +71,8 @@ reflects actual compiler behaviour, not spec intent.
 | `struct`, `component`, `enum`, `union` | **Working** | Declarations parse and resolve |
 | `trait`, `interface` | **Working** | Declarations parse and resolve |
 | `implement T as Trait {}` | **Working** | Method bodies lowered |
-| `type` alias | **Working** | |
+| `type` | **Partial** | `type Name = T` creates a nominal one-field wrapper and is not interchangeable with `T`; construction/field access still need an explicit value syntax |
+| `alias` | **Working** | Transparent alias: `alias Name = T` re-exports the same type |
 | memory qualifiers (`mut`, `lend`, `view`, `unique`, `share`, `belong`) | **Working (parse + types)** | Accepted as type prefixes anywhere a type is written; carried in the type table as `TypeKind::Qualified`; writing through a `view` binding reports `E4004`. HIR/codegen strip the qualifier, and residual ownership facts are produced by the pre-HIR NTA/NRA boundary (F-34, partial F-14) |
 
 ### Expressions
@@ -96,7 +98,7 @@ reflects actual compiler behaviour, not spec intent.
 | `is <type>` | **Parse error** | Only `is null` is supported; any other operand reports a dedicated diagnostic |
 | range `1..5` | **Check only** | Parsed as binary `..`; no dedicated sema |
 | struct literal `Foo { x: 1, y: 2 }` | **Working** | Struct literal with named fields via `{}` syntax |
-| `@sizeOf`, `@intrinsic` | **Parse error** | `@` in expression position not handled |
+| `@sizeOf`, `@offsetOf`, `@alignOf` | **Working** | `@` parses in expression position. `@sizeOf(T)` accepts any complete type and types as `u64`; `@offsetOf(S, field)` and `@alignOf(S)` are struct-only and type as `i32`. `@sizeOf(void)` reports `E3001` ("requires a complete type") |
 
 ### Control Flow
 
@@ -107,8 +109,9 @@ reflects actual compiler behaviour, not spec intent.
 | `break`, `continue` | **Working** | |
 | `return` (void and typed) | **Working** | |
 | `for (cond) { }`, `for { }` | **Working** | Conditional and infinite loop forms lower to the same CFG as `while` |
-| `for (x in xs)`, `for (init), (cond), (step)` | **Parse error** | Recognised and reported as not implemented yet |
-| `when` pattern match | **In progress (uncommitted)** | `ExprKind::When` with `Range`/`Placeholder`/`LayoutIntrinsic`, `parseWhen`, `inferWhen`/`inferRange`, `lowerWhen`/`lowerWhenCondition` exist uncommitted. Arm syntax unrecognised. |
+| `for (init; cond; step) { }` | **Working** | Three clauses separated by semicolons. `init` and `step` are both optional; `continue` still runs the step before the next test |
+| `for (x in xs)` | **Parse error** | The iterator form is recognised and reported as not implemented yet |
+| `when` / `match` pattern match | **Working** | Arms are written `(pattern) ~> body`, comma-separated; `match` is a parser synonym for `when`. Equality, boolean and range (`1..3`) patterns lower through HIR to codegen. `(_)` is the default arm and must come last; a value-producing `when` without a default reports non-exhaustive. Covered by the runtime test `test_when_expression_runtime` |
 | `marker` / `jump` | **Working** | Block-style go-to: `marker` declares a labeled block, `jump` transfers control to it. `dock` not implemented |
 | `dock` | **Parse error** | Not implemented yet |
 
@@ -119,7 +122,7 @@ reflects actual compiler behaviour, not spec intent.
 | `prefix`, `suffix`, `infix`, `nop` decls | **Parse skipped** | Body skipped via `skipDelimited` |
 | `context` declarations | **Parse skipped** | Body skipped |
 | `use` statements | **Parse skipped** | Body skipped |
-| `@macro` calls | **Working** | Normal macros rename template-local bindings hygienically and resolve other template names through the call-site scope (globals/imports visible when not shadowed). `raw macro` splices literally into the call-site scope and names resolve there before module/global fallback. Templates are not analysed as code; resolution is keyed by node id |
+| `macro` / `raw macro` declarations and `@name(...)` calls | **Working** | Normal macros rename template-local bindings hygienically and resolve other template names through the call-site scope (globals/imports visible when not shadowed). `raw macro` splices literally into the call-site scope and names resolve there before module/global fallback. Templates are not analysed as code; resolution is keyed by node id |
 | `tag macro` calls | **Working** | `<Section ...> ... </Section>`; named attributes via `attributes.name`; statement-position only |
 | word call expressions | **Parse error** | No parser support |
 | word sequence expressions | **Parse error** | No parser support |
@@ -147,8 +150,6 @@ reflects actual compiler behaviour, not spec intent.
 | Assets (`ZithProject.toml` asset paths) | [12-assets.md](12-assets.md) |
 | `.zirl` binary format | [01-overview (§1.5)](Zith-spec.md) |
 | `@appendField`, `@removeField`, `@appendMethod` | [11-comptime.md](11-comptime.md) |
-
-| `match` | [09-control-flow.md](09-control-flow.md) |
 | `dyn` dispatch | [14-polymorphism.md](14-polymorphism.md) |
 
 ---
@@ -167,37 +168,42 @@ reflects actual compiler behaviour, not spec intent.
 
 | Command | Status | Notes |
 |---|---|---|
-| `zithc build` | **Working** | Links an executable into `target/` by default; `--emit obj/ir/asm/hir` stop earlier |
+| `zithc build` | **Working** | Links an executable into `target/` by default; `--emit obj/ir/asm/hir` stop earlier; `--cache-stats` prints object-cache hit/miss counts |
 | `zithc run` | **Working** | Compiles + executes in one step; the program's stdout/stderr is forwarded to zithc's **stdout**, compiler diagnostics stay on stderr |
 | `zithc check` | **Working** | Type-checks without emitting. Errors forwarded from frontend snapshot |
 | `zithc fmt` | **Working** | Round-trip tested for `Index` and `OptionalProp` |
 | `zithc create <name>` | **Working** | |
 | `zithc clean` | **Working** | |
 | `zithc execute <file>` | **Working** | |
-| `zithc test` | **Stub** | |
+| `zithc test <path>` | **Working** | Discovers and runs test files under the given path |
 | `zithc repl` | **Stub** | |
-| `zithc deps` | **Stub** | |
+| `zithc deps list` | **Working** | Reads `ZithProject.toml` and lists declared dependencies |
+| `zithc deps add`, `deps remove` | **Stub** | |
+| `zithc docs` | **Working** | Generates documentation from source |
 
 ---
 
 ## Diagnostic Codes
 
-| Code | Severity | Meaning |
+Codes are grouped by pipeline stage. `E0000` remains the generic user-reported diagnostic.
+
+| Range | Stage | Codes |
 |---|---|---|
-| E0001 | Error | Parse error |
-| E0000 | Error | User-reported diagnostic (type mismatch, optional validation, etc.) |
-| E2002 | Error | `DuplicateDecl` — duplicate binding in same scope |
-| E1006 | Error | Import resolution failure |
-| E3003 | Error | `InvalidCast` — non-numeric `as` conversion |
-| W1008 | Warning | `DeprecatedSyntax` — `while` should be written `for (cond)` |
+| 0001-0005 | Lexical | `E0001` UnknownToken, `E0002` UnclosedString, `E0003` InvalidEscape, `E0004` InvalidIntLiteral, `E0005` UnclosedComment |
+| 1001-1008 | Parse | `E1001` ExpectedExpr, `E1002` ExpectedSemicolon, `E1003` UnclosedParen, `E1004` ExpectedIdent, `E1005` InvalidImportDepth, `E1006` ImportError, `E1007` TopLevelLetNotAllowed, `W1008` DeprecatedSyntax (`while` -> `for (cond)`) |
+| 2001-2010 | Semantic | `E2001` UndefinedIdent, `E2002` DuplicateDecl, `E2003` WrongArity, `E2004` UnusedDecl, `E2005` NotNamespace, `E2006` NoMember, `E2007` NoMatchingFn, `E2008` AmbiguousCall, `E2009` NotImplemented, `E2010` UnsupportedSyntax |
+| 2011-2020 | Macro | `E2011` MacroUnknown, `E2012` MacroArity, `E2013` MacroArgKind, `E2014` MacroRecursion, `E2015` MacroDuplicate, `E2016` MacroRawValue, `E2017` MacroTagValue, `E2018` MacroTagMismatch, `E2019` MacroAttrUnknown, `E2020` MacroAttrNotAllowed |
+| 3001-3008 | Types | `E3001` TypeMismatch, `E3002` CannotInfer, `E3003` InvalidCast, `E3004` CyclicType, `E3005` NullDerefUnproven, `E3006` CoercionFailure, `E3007` WidthMismatch, `E3008` OptionalViolation |
+| 4001-4004 | NRA / ownership | `E4001` UseAfterMove, `E4002` BorrowConflict, `E4003` DoubleBorrow, `E4004` WriteThroughView — only `E4004` is emitted today |
+| 5001-5002 | Lowering | `E5001` InvalidIR, `E5002` Unreachable |
+| 10001-10004 | Runtime | `R10001` IndexOutOfBounds, `R10002` DivisionByZero, `R10003` NullDeref, `R10004` Panic |
 
 ---
 
 ## Verification
-All statuses above were verified against source at commit `bf7925e` (direct code inspection, no build):
-
-`when`/`Range`/`Placeholder`/`LayoutIntrinsic` AST nodes and their sema/HIR handlers
-exist in source but are not yet committed/activated.
+All statuses above were verified against the binary built from commit `a5f3716`, by running
+`zithc check` on standalone files per feature and by inspecting the source where a status depends
+on internal structure (pipeline boundaries, linkage naming, diagnostic ranges).
 
 ---
 
@@ -212,7 +218,7 @@ Recorded deliberately; each item is a follow-up, not an unknown.
 | Unchecked `?*T` -> `*T` coercion | Every C pointer is `?*T`, but without flow-sensitive narrowing it is accepted unchecked where `*T` is expected. Isolated in `PerModuleSema::allowsUncheckedNullablePointer`; delete it when narrowing lands |
 | No flow-sensitive narrowing after `is null` | `p->field` on a `?*T` requires NonNull proof from `if (p is null) { } else { p->field }` or `for (not (p is null))`. Error code `E3005` |
 | `is` limited to `is null` | Union/type narrowing is not addressed |
-| `for` iterator and 3-clause forms unimplemented | Reported as errors rather than parsed |
+| `for` iterator form unimplemented | `for (x in xs)` is reported as an error rather than parsed; the 3-clause form works |
 | User-defined casts | To be added as a new branch in `classifyCast` |
 | No C struct-by-value ABI | `struct` parameters/results import as named foreign types, but there is no verified ABI and no Zith-visible layout, so constructing/passing records to C remains unsupported |
 | `..` lexes per character | Its `precedence()` is -1 and the when-case range pattern depends on the two `.` tokens. Every other multi-char operator is munched longest-first as one token and wired through the parser, sema and formatter |

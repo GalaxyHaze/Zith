@@ -1,0 +1,32 @@
+// Exercises: 3-clause `for (init; cond; step)`, conditional `for (cond)`,
+// bare `for { ... break }`, and the compound assignments `+=`, `-=`, `*=`.
+// Expected exit code: 10
+
+fn main(): i32 {
+    var sum: i32 = 0;
+    for (var i: i32 = 0; i < 5; i += 1) {
+        sum += i;
+    }
+    // sum == 10
+
+    var countdown: i32 = 3;
+    for (countdown > 0) {
+        countdown -= 1;
+    }
+    if (countdown != 0) {
+        return 1;
+    }
+
+    var doubled: i32 = 1;
+    for {
+        doubled *= 2;
+        if (doubled >= 8) {
+            break;
+        }
+    }
+    if (doubled != 8) {
+        return 2;
+    }
+
+    return sum;
+}

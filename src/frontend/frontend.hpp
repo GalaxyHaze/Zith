@@ -303,6 +303,13 @@ struct Declaration {
     bool isExtern = false;
     /// True when the declaration ends its parameter list with `...` (`extern fn` only).
     bool isVariadic = false;
+    /// True for `type Name = T`; the declaration creates a nominal wrapper.
+    /// `alias Name = T` remains a transparent type alias.
+    bool isNominalType = false;
+    /// Non-empty only for methods lowered from `implement Type as Trait`: the
+    /// trait name written after `as`/`for`. Not enforced for dispatch; kept for
+    /// context and for resolving `Self` to the implemented type.
+    std::string traitName;
     std::string name;
     ImportDecl import;
     std::vector<Parameter> parameters;

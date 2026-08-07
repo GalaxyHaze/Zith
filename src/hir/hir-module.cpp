@@ -2,6 +2,7 @@
 #include "common/overloaded.hpp"
 
 #include <cstdio>
+#include <string>
 
 namespace zith::hir {
 
@@ -37,152 +38,238 @@ size_t HirModule::getFnCount() const {
 }
 
 void HirModule::dump(FILE *out, const memory::StringInterner &interner) const {
+    const std::string text = toString(interner);
+    std::fwrite(text.data(), 1, text.size(), out);
+}
+
+std::string HirModule::toString(const memory::StringInterner &interner) const {
+    std::string buffer;
     for (size_t fi = 0; fi < fns_.size(); ++fi) {
         auto &fn     = fns_[fi];
         auto fn_name = interner.lookup(fn.name);
         if (fn.blocks.empty()) {
-            std::fprintf(out, "fn %.*s : extern\n", (int)fn_name.size(), fn_name.data());
+            buffer += "fn ";
+            buffer.append(fn_name.data(), fn_name.size());
+            buffer += " : extern\n";
             continue;
         }
-        std::fprintf(out, "fn %.*s", (int)fn_name.size(), fn_name.data());
-        std::fprintf(out, "(");
+        buffer += "fn ";
+        buffer.append(fn_name.data(), fn_name.size());
+        buffer += "(";
         for (size_t pi = 0; pi < fn.params.size(); ++pi) {
             if (pi > 0)
-                std::fprintf(out, ", ");
-            std::fprintf(out, "%%p%zu", pi);
+                buffer += ", ";
+            buffer += "%p";
+            buffer += std::to_string(pi);
         }
-        std::fprintf(out, ")");
-        std::fprintf(out, " -> %%t%u", fn.return_type);
-        std::fprintf(out, " {\n");
+        buffer += ")";
+        buffer += " -> %t";
+        buffer += std::to_string(fn.return_type);
+        buffer += " {\n";
         for (auto &block : fn.blocks) {
             for (auto inst_id : block.insts) {
-                std::fprintf(out, "  %%e%u = ", inst_id);
+                buffer += "  %e";
+                buffer += std::to_string(inst_id);
+                buffer += " = ";
                 auto &expr = exprs_[inst_id];
-                hir::visitExpr(
-                    expr,
-                    common::overloaded{
-                        [&](const HirLiteral &lit) {
-                            if (lit.type == static_cast<HirTypeId>(-1))
-                                std::fprintf(out, "literal<?>");
-                            else
-                                std::fprintf(out, "literal %%t%u", lit.type);
-                        },
-                        [&](const HirBinary &bin) {
-                            std::fprintf(out, "binary %%e%u op %%e%u", bin.lhs, bin.rhs);
-                        },
-                        [&](const HirUnary &un) {
-                            std::fprintf(out, "unary %%t%u op %%e%u", un.type, un.operand);
-                        },
-                        [&](const HirLet &let) {
-                            auto n = interner.lookup(let.name);
-                            std::fprintf(out, "let %.*s", (int)n.size(), n.data());
-                        },
-                        [&](const HirVar &var) {
-                            auto n = interner.lookup(var.name);
-                            std::fprintf(out, "var %.*s#%u", (int)n.size(), n.data(), var.version);
-                        },
-                        [&](const HirCall &call) {
-                            auto &callee = exprs_[call.callee];
-                            if (auto *calleeVar = std::get_if<HirVar>(&callee)) {
-                                auto n = interner.lookup(calleeVar->name);
-                                std::fprintf(out, "call %.*s(", (int)n.size(), n.data());
-                            } else {
-                                std::fprintf(out, "call %%e%u(", call.callee);
-                            }
-                            for (size_t ai = 0; ai < call.args.size(); ++ai) {
-                                if (ai > 0)
-                                    std::fprintf(out, ", ");
-                                std::fprintf(out, "%%e%u", call.args[ai]);
-                            }
-                            std::fprintf(out, ")");
-                        },
-                        [&](const HirRet &ret) {
-                            if (ret.value == kInvalidHirExpr)
-                                std::fprintf(out, "ret void");
-                            else
-                                std::fprintf(out, "ret %%e%u", ret.value);
-                        },
-                        [&](const HirJump &jump) { std::fprintf(out, "jump bb%u", jump.target); },
-                        [&](const HirBranch &branch) {
-                            std::fprintf(out, "branch %%e%u -> bb%u : bb%u", branch.cond,
-                                         branch.then_block, branch.else_block);
-                        },
-                        [&](const HirPhi &) { std::fprintf(out, "<expr>"); },
-                        [&](const HirAssign &assign) {
-                            std::fprintf(out, "assign %%e%u = %%e%u", assign.target, assign.value);
-                        },
-                        [&](const HirIndex &idx) {
-                            std::fprintf(out, "index %%e%u[%%e%u]", idx.object, idx.index);
-                        },
-                        [&](const HirField &field) {
-                            std::fprintf(out, "field %%e%u.%u", field.object, field.index);
-                        },
-                        [&](const HirStructLiteral &literal) {
-                            std::fprintf(out, "struct_literal %%t%u", literal.type);
-                        },
-                        [&](const HirArrayLiteral &literal) {
-                            std::fprintf(out, "array_literal %%t%u", literal.type);
-                        },
-                        [&](const HirEnumValue &value) {
-                            std::fprintf(out, "enum_value %%t%u", value.type);
-                        },
-                        [&](const HirSlotAlloca &s) {
-                            std::fprintf(out, "slot_alloca s%u : %%t%u", s.slot, s.type);
-                        },
-                        [&](const HirSlotStore &s) {
-                            std::fprintf(out, "slot_store s%u = %%e%u", s.slot, s.value);
-                        },
-                        [&](const HirSlotLoad &s) {
-                            std::fprintf(out, "slot_load s%u : %%t%u", s.slot, s.type);
-                        },
-                        [&](const HirSlotAddr &s) {
-                            std::fprintf(out, "slot_addr s%u : %%t%u", s.slot, s.type);
-                        },
-                        [&](const HirMakeNone &m) {
-                            std::fprintf(out, "make_none : %%t%u", m.type);
-                        },
-                        [&](const HirMakeSome &m) {
-                            std::fprintf(out, "make_some %%e%u : %%t%u", m.value, m.type);
-                        },
-                        [&](const HirCast &c) {
-                            std::fprintf(out, "cast %%e%u : %%t%u -> %%t%u", c.value, c.from, c.to);
-                        },
-                        [&](const HirLayoutIntrinsic &i) {
-                            std::fprintf(
-                                out, "%s %%t%u",
-                                i.which == HirLayoutIntrinsic::Which::OffsetOf  ? "offset_of"
-                                : i.which == HirLayoutIntrinsic::Which::AlignOf ? "align_of"
-                                                                                : "size_of",
-                                i.type);
-                        },
-                    });
-                std::fprintf(out, "\n");
+                hir::visitExpr(expr,
+                               common::overloaded{
+                                   [&](const HirLiteral &lit) {
+                                       if (lit.type == static_cast<HirTypeId>(-1))
+                                           buffer += "literal<?>";
+                                       else
+                                           buffer += "literal %t";
+                                       buffer += std::to_string(lit.type);
+                                   },
+                                   [&](const HirBinary &bin) {
+                                       buffer += "binary %e";
+                                       buffer += std::to_string(bin.lhs);
+                                       buffer += " op %e";
+                                       buffer += std::to_string(bin.rhs);
+                                   },
+                                   [&](const HirUnary &un) {
+                                       buffer += "unary %t";
+                                       buffer += std::to_string(un.type);
+                                       buffer += " op %e";
+                                       buffer += std::to_string(un.operand);
+                                   },
+                                   [&](const HirLet &let) {
+                                       auto n = interner.lookup(let.name);
+                                       buffer += "let ";
+                                       buffer.append(n.data(), n.size());
+                                   },
+                                   [&](const HirVar &var) {
+                                       auto n = interner.lookup(var.name);
+                                       buffer += "var ";
+                                       buffer.append(n.data(), n.size());
+                                       buffer += "#";
+                                       buffer += std::to_string(var.version);
+                                   },
+                                   [&](const HirCall &call) {
+                                       if (call.callee != kInvalidHirExpr) {
+                                           auto &callee = exprs_[call.callee];
+                                           if (auto *calleeVar = std::get_if<HirVar>(&callee)) {
+                                               auto n = interner.lookup(calleeVar->name);
+                                               buffer += "call ";
+                                               buffer.append(n.data(), n.size());
+                                               buffer += "(";
+                                           } else {
+                                               buffer += "call %e";
+                                               buffer += std::to_string(call.callee);
+                                               buffer += "(";
+                                           }
+                                       } else {
+                                           buffer += "call <resolved>(";
+                                       }
+                                       for (size_t ai = 0; ai < call.args.size(); ++ai) {
+                                           if (ai > 0)
+                                               buffer += ", ";
+                                           buffer += "%e";
+                                           buffer += std::to_string(call.args[ai]);
+                                       }
+                                       buffer += ")";
+                                   },
+                                   [&](const HirRet &ret) {
+                                       if (ret.value == kInvalidHirExpr)
+                                           buffer += "ret void";
+                                       else
+                                           buffer += "ret %e";
+                                       buffer += std::to_string(ret.value);
+                                   },
+                                   [&](const HirJump &jump) {
+                                       buffer += "jump bb";
+                                       buffer += std::to_string(jump.target);
+                                   },
+                                   [&](const HirBranch &branch) {
+                                       buffer += "branch %e";
+                                       buffer += std::to_string(branch.cond);
+                                       buffer += " -> bb";
+                                       buffer += std::to_string(branch.then_block);
+                                       buffer += " : bb";
+                                       buffer += std::to_string(branch.else_block);
+                                   },
+                                   [&](const HirPhi &) { buffer += "<expr>"; },
+                                   [&](const HirAssign &assign) {
+                                       buffer += "assign %e";
+                                       buffer += std::to_string(assign.target);
+                                       buffer += " = %e";
+                                       buffer += std::to_string(assign.value);
+                                   },
+                                   [&](const HirIndex &idx) {
+                                       buffer += "index %e";
+                                       buffer += std::to_string(idx.object);
+                                       buffer += "[%e";
+                                       buffer += std::to_string(idx.index);
+                                       buffer += "]";
+                                   },
+                                   [&](const HirField &field) {
+                                       buffer += "field %e";
+                                       buffer += std::to_string(field.object);
+                                       buffer += ".";
+                                       buffer += std::to_string(field.index);
+                                   },
+                                   [&](const HirStructLiteral &literal) {
+                                       buffer += "struct_literal %t";
+                                       buffer += std::to_string(literal.type);
+                                   },
+                                   [&](const HirArrayLiteral &literal) {
+                                       buffer += "array_literal %t";
+                                       buffer += std::to_string(literal.type);
+                                   },
+                                   [&](const HirEnumValue &value) {
+                                       buffer += "enum_value %t";
+                                       buffer += std::to_string(value.type);
+                                   },
+                                   [&](const HirSlotAlloca &s) {
+                                       buffer += "slot_alloca s";
+                                       buffer += std::to_string(s.slot);
+                                       buffer += " : %t";
+                                       buffer += std::to_string(s.type);
+                                   },
+                                   [&](const HirSlotStore &s) {
+                                       buffer += "slot_store s";
+                                       buffer += std::to_string(s.slot);
+                                       buffer += " = %e";
+                                       buffer += std::to_string(s.value);
+                                   },
+                                   [&](const HirSlotLoad &s) {
+                                       buffer += "slot_load s";
+                                       buffer += std::to_string(s.slot);
+                                       buffer += " : %t";
+                                       buffer += std::to_string(s.type);
+                                   },
+                                   [&](const HirSlotAddr &s) {
+                                       buffer += "slot_addr s";
+                                       buffer += std::to_string(s.slot);
+                                       buffer += " : %t";
+                                       buffer += std::to_string(s.type);
+                                   },
+                                   [&](const HirMakeNone &m) {
+                                       buffer += "make_none : %t";
+                                       buffer += std::to_string(m.type);
+                                   },
+                                   [&](const HirMakeSome &m) {
+                                       buffer += "make_some %e";
+                                       buffer += std::to_string(m.value);
+                                       buffer += " : %t";
+                                       buffer += std::to_string(m.type);
+                                   },
+                                   [&](const HirCast &c) {
+                                       buffer += "cast %e";
+                                       buffer += std::to_string(c.value);
+                                       buffer += " : %t";
+                                       buffer += std::to_string(c.from);
+                                       buffer += " -> %t";
+                                       buffer += std::to_string(c.to);
+                                   },
+                                   [&](const HirLayoutIntrinsic &i) {
+                                       buffer += i.which == HirLayoutIntrinsic::Which::OffsetOf
+                                                     ? "offset_of"
+                                                 : i.which == HirLayoutIntrinsic::Which::AlignOf
+                                                     ? "align_of"
+                                                     : "size_of";
+                                       buffer += " %t";
+                                       buffer += std::to_string(i.type);
+                                   },
+                               });
+                buffer += "\n";
             }
             if (block.terminator != kInvalidHirExpr) {
                 auto &term = exprs_[block.terminator];
-                hir::visitExpr(
-                    term, common::overloaded{
-                              [&](const HirRet &ret) {
-                                  if (ret.value == kInvalidHirExpr)
-                                      std::fprintf(out, "  ret void\n");
-                                  else
-                                      std::fprintf(out, "  ret %%e%u\n", ret.value);
-                              },
-                              [&](const HirJump &jump) {
-                                  std::fprintf(out, "  jump bb%u\n", jump.target);
-                              },
-                              [&](const HirBranch &branch) {
-                                  std::fprintf(out, "  branch %%e%u -> bb%u : bb%u\n", branch.cond,
-                                               branch.then_block, branch.else_block);
-                              },
-                              [&](const auto &) {
-                                  std::fprintf(out, "  terminal %%e%u\n", block.terminator);
-                              },
-                          });
+                hir::visitExpr(term, common::overloaded{
+                                         [&](const HirRet &ret) {
+                                             if (ret.value == kInvalidHirExpr)
+                                                 buffer += "  ret void\n";
+                                             else
+                                                 buffer += "  ret %e";
+                                             buffer += std::to_string(ret.value);
+                                             buffer += "\n";
+                                         },
+                                         [&](const HirJump &jump) {
+                                             buffer += "  jump bb";
+                                             buffer += std::to_string(jump.target);
+                                             buffer += "\n";
+                                         },
+                                         [&](const HirBranch &branch) {
+                                             buffer += "  branch %e";
+                                             buffer += std::to_string(branch.cond);
+                                             buffer += " -> bb";
+                                             buffer += std::to_string(branch.then_block);
+                                             buffer += " : bb";
+                                             buffer += std::to_string(branch.else_block);
+                                             buffer += "\n";
+                                         },
+                                         [&](const auto &) {
+                                             buffer += "  terminal %e";
+                                             buffer += std::to_string(block.terminator);
+                                             buffer += "\n";
+                                         },
+                                     });
             }
         }
-        std::fprintf(out, "}\n\n");
+        buffer += "}\n\n";
     }
+    return buffer;
 }
 
 } // namespace zith::hir

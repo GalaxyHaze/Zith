@@ -1,6 +1,7 @@
 #include "cli/options.hpp"
 #include "hir/hir-expr.hpp"
 #include "session/compilation-session.hpp"
+#include "symbols/symbol-id.hpp"
 #include "test-common.hpp"
 #include "types/type-kind.hpp"
 
@@ -741,6 +742,44 @@ void test_for_condition_lowers_like_while() {
     }
 }
 
+void test_static_method_call_has_resolved_callee_only() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "struct Point { x: i32 }\n"
+                                     "trait Sample {}\n"
+                                     "implement Point as Sample {\n"
+                                     "    fn foo(): i32 { 7 }\n"
+                                     "}\n"
+                                     "fn main(): i32 {\n"
+                                     "    Point.foo()\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "static method call lowers to HIR without a receiver");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main function is present in HIR");
+    if (main == nullptr)
+        return;
+    for (const auto &block : main->blocks) {
+        for (auto inst : block.insts) {
+            const auto &expr = hir.getExpr(inst);
+            const auto *call = std::get_if<hir::HirCall>(&expr);
+            if (call == nullptr)
+                continue;
+            CHECK(call->callee == hir::kInvalidHirExpr,
+                  "static method call keeps callee = kInvalidHirExpr");
+            CHECK(call->resolved_fn != symbols::kInvalidSym,
+                  "static method call carries a resolved symbol");
+            CHECK_EQ(call->args.size(), 0u, "static method call passes no receiver");
+        }
+    }
+}
+
 } // namespace
 
 static void test_hir_lower_modern() {
@@ -766,6 +805,7 @@ static void test_hir_lower_modern() {
     test_is_null_on_pointer_optional_uses_niche();
     test_is_null_on_value_optional_reads_tag();
     test_for_condition_lowers_like_while();
+    test_static_method_call_has_resolved_callee_only();
 }
 
 TEST_MAIN(hir_lower_modern)

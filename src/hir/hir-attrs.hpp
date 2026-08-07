@@ -103,9 +103,7 @@ public:
 
     HirSlotAttrs &slot(HirSlotId id) {
         if (id >= slots_.size())
-            slots_.reserve(id + 1U);
-        while (id >= slots_.size())
-            slots_.emplace();
+            slots_.resize(id + 1U);
         return slots_[id];
     }
 
@@ -115,9 +113,7 @@ public:
 
     HirCallAttrs &call(HirExprId id) {
         if (id >= calls_.size())
-            calls_.reserve(id + 1U);
-        while (id >= calls_.size())
-            calls_.emplace(*arena_);
+            calls_.resizeEmplace(id + 1U, *arena_);
         return calls_[id];
     }
 
@@ -127,9 +123,7 @@ public:
 
     HirFnAttrs &fn(size_t index) {
         if (index >= fns_.size())
-            fns_.reserve(index + 1U);
-        while (index >= fns_.size())
-            fns_.emplace();
+            fns_.resize(index + 1U);
         return fns_[index];
     }
 

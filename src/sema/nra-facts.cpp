@@ -7,9 +7,10 @@
 namespace zith::sema::modern {
 
 NraFacts::NraFacts(memory::Arena &, diagnostics::DiagnosticEngine &diagnostics,
-                   const session::CompilationSnapshot &snapshot, const SemaPipeline &sema)
-    : diagnostics_(diagnostics), snapshot_(snapshot), sema_(sema), local_facts_(), call_facts_(),
-      narrowing_facts_(), current_condition_(), any_return_(false),
+                   const session::CompilationSnapshot &snapshot, const SemaPipeline &sema,
+                   memory::StringInterner &interner)
+    : diagnostics_(diagnostics), snapshot_(snapshot), sema_(sema), interner_(&interner),
+      local_facts_(), call_facts_(), narrowing_facts_(), current_condition_(), any_return_(false),
       all_returns_same_parameter(true), returned_parameter_(~0U), has_errors_(false) {}
 
 bool NraFacts::run() {
@@ -39,7 +40,7 @@ void NraFacts::analyzeModule(const session::ModuleArtifact &module,
         if (decl.kind != frontend::DeclKind::Function)
             continue;
 
-        current_key_ = module.key + "#" + std::to_string(decl.id.value);
+        current_key_ = internFunctionKey(*interner_, module.key, decl.id);
         current_params_.clear();
         for (const auto &parameter : decl.parameters) {
             current_params_.push_back(parameter.id);
@@ -70,11 +71,11 @@ void NraFacts::analyzeModule(const session::ModuleArtifact &module,
     current_module_ = nullptr;
     current_sema_   = nullptr;
     current_typed_  = nullptr;
-    current_key_.clear();
+    current_key_ = 0;
 }
 
 void NraFacts::resolveCallsInFunction(const frontend::Declaration &decl) {
-    current_key_ = current_module_->key + "#" + std::to_string(decl.id.value);
+    current_key_ = internFunctionKey(*interner_, current_module_->key, decl.id);
     current_params_.clear();
     for (const auto &parameter : decl.parameters)
         current_params_.push_back(parameter.id);
@@ -89,7 +90,7 @@ void NraFacts::collectFunctionFact() {
     NraFunctionFact fact;
     fact.allReturnsParameter      = all_returns_same_parameter;
     fact.parameterIndex           = returned_parameter_;
-    function_facts_[current_key_] = fact;
+    function_facts_.insert(current_key_, fact);
 }
 
 void NraFacts::collectNarrowing(const frontend::FrontendSnapshot &frontend) {

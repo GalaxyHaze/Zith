@@ -51,33 +51,7 @@ the compiler behavior changed, list tests run, link relevant issues, and include
 sample source or output when diagnostics, syntax, or CLI behavior changes.
 
 <!-- BEGIN opencode-rag -->
-## Code Navigation & Semantic Search
-
-This project is indexed by **OpenCodeRAG** (`opencode-rag`, alias `open-rad`).
-It provides semantic code search, file skeletons, usage-finding, and image
-description tools that agents MUST use before any code task.
-
-### Setup (one-time)
-
-```bash
-# Initialise the workspace (already done — .opencode/ exists)
-opencode-rag init
-
-# Build the search index
-opencode-rag index
-
-# Verify the index is up to date
-opencode-rag status
-```
-
-If `opencode-rag` is not yet installed globally:
-
-```bash
-npm install -g opencode-rag-plugin
-opencode-rag setup   # registers the OpenCode plugin globally
-```
-
-### Mandatory tool-usage guidance
+## Code Navigation
 
 ALWAYS use OpenCodeRAG tools before reading or editing:
 - **Search first** — `search_semantic(query)` instead of grep/glob
@@ -133,6 +107,29 @@ If no results, run `opencode-rag index`.
 
 This project also uses **memsearch** for semantic memory search across
 markdown knowledge bases (docs, notes, project memory).
+
+### Project Memory Files
+
+Persist useful discoveries about the project as Markdown files under `memory/`,
+one file per topic or area. Keep every file between 200 and 300 lines; if a
+topic grows beyond 300 lines, split it into more focused files and link them
+from `memory/README.md`.
+
+Use these files as a lightweight durable memory layer, independent of code
+search indexes:
+- Save non-obvious facts, design decisions, conventions, workarounds, build
+  gotchas, and architecture notes discovered while working.
+- Consult the relevant file before answering code questions or editing that
+  area, whenever the memory entry could affect the work.
+- Update the file when the project behavior changes, not just when new facts
+  appear.
+- Invalidate or rewrite an entry when it becomes outdated, wrong, or misleading
+  instead of accumulating contradictory notes.
+
+File naming convention: `memory/<area>-<topic>.md` (for example
+`memory/build-cmake.md`). Start each file with a short title and one-paragraph
+summary, then use concise sections. Keep facts tied to the current state of the
+repository and include enough context to decide whether the note is still valid.
 
 ### Setup
 

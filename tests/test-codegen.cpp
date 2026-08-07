@@ -13,10 +13,14 @@
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/LLVMContext.h>
 
+#include <fcntl.h>
+#include <unistd.h>
+
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
 
@@ -645,15 +649,17 @@ static void test_modern_file_import_codegen_executes() {
 static void test_modern_file_type_alias_codegen_executes() {
     ModernFileCodegenTest t;
     t.write("main.zith", "type MyInt = i32\n"
-                         "fn main(): MyInt {\n"
-                         "    var x: MyInt = 44;\n"
-                         "    x\n"
+                         "alias AInt = i32\n"
+                         "fn main(): i32 {\n"
+                         "    var x: MyInt = 44 as MyInt;\n"
+                         "    var y: AInt = 4;\n"
+                         "    (x as i32) + y\n"
                          "}\n");
 
     auto r = t.run();
-    CHECK(r.usedModern, "Type-alias real-file program uses the modern frontend pipeline");
-    CHECK(r.ok, "Type alias program compiles and executes through modern codegen");
-    CHECK_EQ(r.exitCode, 44, "Type alias lowers to the aliased runtime representation");
+    CHECK(r.usedModern, "Nominal/alias real-file program uses the modern frontend pipeline");
+    CHECK(r.ok, "Nominal wrapper and transparent alias compile through modern codegen");
+    CHECK_EQ(r.exitCode, 48, "Nominal wrapper round-trips and alias stays transparent");
 }
 
 static void test_run_emit_hir_still_executes() {
@@ -670,6 +676,29 @@ static void test_run_emit_hir_still_executes() {
                                                 "}\n");
     CHECK(r.ok, "run --emit-hir still produces and runs an executable");
     CHECK_EQ(r.exitCode, 29, "run --emit-hir preserves program exit status");
+}
+
+static void test_emit_hir_static_method_dump() {
+    ModernFileCodegenTest t;
+    t.opts.targetStage = session::Stage::HirLowered;
+    t.opts.flags.emitHir(true);
+    t.write("main.zith", "struct Point { x: i32 }\n"
+                         "trait Sample {}\n"
+                         "implement Point as Sample {\n"
+                         "    fn foo(): i32 { 7 }\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    Point.foo()\n"
+                         "}\n");
+
+    session::CompilationSession session(t.opts, (t.root / "main.zith").string());
+    session.setBuffered(true);
+    auto ok = session.runTo(session::Stage::HirLowered);
+    CHECK(ok, "--emit-hir dumps a static method call without touching the invalid callee");
+    auto output = session.flushOutput();
+    CHECK(output.find("--- HIR ---") != std::string::npos &&
+              output.find("call <resolved>(") != std::string::npos,
+          "dumper prints the resolved static method call");
 }
 
 static void test_layout_api_matches_llvm() {
@@ -933,6 +962,53 @@ static void test_child_output_is_separate_from_compiler_output() {
     CHECK(session.takeChildOutput().empty(), "takeChildOutput() clears the captured buffer");
 }
 
+// `zithc run` executes the program with inherited stdio: nothing is captured,
+// the bytes land on the parent's real stdout, and only the exit code is recorded.
+static void test_direct_exec_inherits_parent_stdout() {
+    memory::Arena arena;
+    Options opts(arena);
+    session::CompilationSession session(opts, "/tmp/codegen-direct-exec.zith");
+    session.setBuffered(true);
+    session.setAlwaysEmitObject(true);
+    session.setContent("extern fn printf(fmt: *char, ...): i32\n"
+                       "fn main(): i32 {\n"
+                       "    printf(\"direct-says=%d\\n\", 7);\n"
+                       "    return 12;\n"
+                       "}\n");
+
+    CHECK(session.run(), "direct-exec program compiles");
+
+    // Redirect this process's stdout to a temp file so the inherited-fd write
+    // can be observed instead of polluting the test log.
+    const std::string capturePath = "/tmp/codegen-direct-exec-stdout.txt";
+    std::fflush(stdout);
+    const int savedStdout = dup(STDOUT_FILENO);
+    const int captureFd   = open(capturePath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    CHECK(savedStdout >= 0 && captureFd >= 0, "stdout redirection for direct exec is set up");
+    dup2(captureFd, STDOUT_FILENO);
+    close(captureFd);
+
+    const bool executed = session.linkAndExecDirect();
+
+    std::fflush(stdout);
+    dup2(savedStdout, STDOUT_FILENO);
+    close(savedStdout);
+
+    CHECK(executed, "direct-exec program links and executes");
+    CHECK_EQ(session.childExitCode(), 12, "direct exec preserves the program exit code");
+    CHECK(session.takeChildOutput().empty(), "direct exec captures no child bytes");
+
+    auto compilerOutput = session.flushOutput();
+    CHECK(compilerOutput.find("direct-says=7") == std::string::npos,
+          "direct exec keeps program bytes out of the compiler output band");
+
+    std::ifstream captured(capturePath, std::ios::binary);
+    std::string inherited((std::istreambuf_iterator<char>(captured)),
+                          std::istreambuf_iterator<char>());
+    CHECK(inherited == "direct-says=7\n", "program bytes reach the inherited stdout verbatim");
+    std::filesystem::remove(capturePath);
+}
+
 // A program that prints and then exits non-zero must still surface its output.
 static void test_child_output_survives_nonzero_exit() {
     CodegenTest t;
@@ -1154,6 +1230,8 @@ static void test_codegen() {
     test_modern_file_type_alias_codegen_executes();
     printf("Running test_run_emit_hir_still_executes\n");
     test_run_emit_hir_still_executes();
+    printf("Running test_emit_hir_static_method_dump\n");
+    test_emit_hir_static_method_dump();
     printf("Running test_struct_method_call_runtime\n");
     test_struct_method_call_runtime();
     printf("Running test_implement_block_method_runtime\n");
@@ -1164,6 +1242,8 @@ static void test_codegen() {
     test_c_default_arguments_and_string_escapes();
     printf("Running test_child_output_is_separate_from_compiler_output\n");
     test_child_output_is_separate_from_compiler_output();
+    printf("Running test_direct_exec_inherits_parent_stdout\n");
+    test_direct_exec_inherits_parent_stdout();
     printf("Running test_child_output_survives_nonzero_exit\n");
     test_child_output_survives_nonzero_exit();
     printf("Running test_import_stdio_runs\n");

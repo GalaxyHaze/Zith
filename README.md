@@ -71,7 +71,7 @@ fn main() {
 
 - Primitives: `u8`-`u128`, `i8`-`i128`, `f32`, `f64`, `bool`, `char`, `void`
 - Composite: `struct`, `component` (POD), `enum` (C-style, struct-backed, ADT), `union` (tagged & C-union hatch escape)
-- Generics, `type` aliases, and pattern matching with `when`
+- Generics, nominal `type`, transparent `alias`, and pattern matching with `when`
 
 **Memory Model (NRA)**
 

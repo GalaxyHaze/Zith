@@ -61,6 +61,15 @@ bool Solver::solve(hir::HirModule &hir) {
     return !diags_.hasErrors();
 }
 
+bool Solver::runPostLower(hir::HirModule &hir) {
+    for (size_t i = 0; i < hir.getFnCount(); i++) {
+        auto &fn = hir.getFn(i);
+        if (!resolveIncompleteInFn(fn))
+            return false;
+    }
+    return !diags_.hasErrors();
+}
+
 bool Solver::collectGenerics() {
     if (!ast_ || !program_)
         return true;

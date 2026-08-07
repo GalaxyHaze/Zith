@@ -127,6 +127,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
@@ -246,6 +249,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Zig
         shell: bash
@@ -292,6 +298,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create stdlib archives
         shell: bash
@@ -376,7 +385,9 @@ jobs:
       - name: Checkout Zith (local for ZITHC_SOURCE_DIR)
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           path: zithc-src
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
@@ -484,6 +495,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Emscripten
         uses: emscripten-core/setup-emsdk@v16

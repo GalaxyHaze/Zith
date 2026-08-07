@@ -1,7 +1,5 @@
-//from std/io/console
+import "stdio.h"
 
-extern fn puts(msg: *char)
-
-fn main(){
-    puts("Hello, world!");
+fn main() {
+    printf("Hello, world!");
 }

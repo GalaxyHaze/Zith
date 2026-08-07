@@ -62,6 +62,7 @@ public:
     }
 
     void dump(FILE *out, const memory::StringInterner &interner) const;
+    std::string toString(const memory::StringInterner &interner) const;
 };
 
 } // namespace zith::hir

@@ -4,6 +4,7 @@
 #include "frontend/frontend.hpp"
 #include "memory/arena.hpp"
 #include "memory/flat-map.hpp"
+#include "memory/string-interner.hpp"
 #include "sema/modern-types.hpp"
 #include "sema/sema-modern.hpp"
 #include "session/frontend-context.hpp"
@@ -77,7 +78,8 @@ struct NraNarrowingFact {
 class NraFacts {
 public:
     NraFacts(memory::Arena &arena, diagnostics::DiagnosticEngine &diagnostics,
-             const session::CompilationSnapshot &snapshot, const SemaPipeline &sema);
+             const session::CompilationSnapshot &snapshot, const SemaPipeline &sema,
+             memory::StringInterner &interner);
 
     bool run();
 
@@ -89,8 +91,7 @@ public:
     }
     [[nodiscard]] const NraFunctionFact *functionFact(session::ModuleKey module,
                                                       frontend::DeclId id) const noexcept {
-        const auto found = function_facts_.find(module + "#" + std::to_string(id.value));
-        return found == function_facts_.end() ? nullptr : &found->second;
+        return function_facts_.get(internFunctionKey(*interner_, module, id));
     }
     [[nodiscard]] const NraNarrowingFact *narrowingFact(frontend::LocalId id) const noexcept {
         const auto found = narrowing_facts_.find(id.value);
@@ -107,6 +108,13 @@ public:
     }
 
 private:
+    static uint64_t internFunctionKey(memory::StringInterner &interner,
+                                      std::string_view module,
+                                      frontend::DeclId id) noexcept {
+        const auto module_id = interner.intern(module);
+        return (static_cast<uint64_t>(module_id) << 32U) | id.value;
+    }
+
     void analyzeModule(const session::ModuleArtifact &module, const PerModuleSema &module_sema,
                        const TypedMap &typed);
     void analyzeCall(const frontend::Expression &call);
@@ -133,15 +141,16 @@ private:
     diagnostics::DiagnosticEngine &diagnostics_;
     const session::CompilationSnapshot &snapshot_;
     const SemaPipeline &sema_;
+    memory::StringInterner *interner_;
     memory::FlatMap<uint32_t, NraLocalFact> local_facts_;
     memory::FlatMap<uint32_t, NraCallFact> call_facts_;
     std::unordered_map<uint32_t, NraNarrowingFact> narrowing_facts_;
-    std::unordered_map<std::string, NraFunctionFact> function_facts_;
+    memory::FlatMap<uint64_t, NraFunctionFact> function_facts_;
 
     const session::ModuleArtifact *current_module_ = nullptr;
     const PerModuleSema *current_sema_             = nullptr;
     const TypedMap *current_typed_                 = nullptr;
-    std::string current_key_;
+    memory::InternedId current_key_ = 0;
     std::vector<frontend::LocalId> current_params_;
     frontend::ExprId current_condition_ = {};
     bool any_return_                    = false;

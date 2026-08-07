@@ -2,12 +2,12 @@
 
 #include "memory/arena.hpp"
 #include "memory/dyn-array.hpp"
+#include "memory/flat-map.hpp"
 #include "memory/string-interner.hpp"
 #include "types/type-kind.hpp"
 
 #include <string>
 #include <string_view>
-#include <unordered_map>
 
 namespace zith::types {
 
@@ -46,7 +46,7 @@ class TypeIntern {
     memory::DynArray<StructDef> struct_defs_;
     memory::DynArray<EnumDef> enum_defs_;
     memory::DynArray<UnionDef> union_defs_;
-    std::unordered_map<std::string, TypeId> named_types_;
+    memory::FlatMap<memory::InternedId, TypeId> named_types_;
 
     size_t computeHash(const TypeData &data);
 
@@ -65,6 +65,10 @@ public:
     TypeId internFn(std::span<const TypeId> params, TypeId ret);
     TypeId internOptional(TypeId inner);
     TypeId internFailable(TypeId inner);
+    TypeId internAlias(TypeId target);
+    TypeId internNominal(std::string_view name, TypeId target);
+    TypeId internTrait(std::string_view name);
+    TypeId internQualified(TypeId inner, OwnershipKind ownership, bool is_mut = false);
     TypeId internTypeVar();
     TypeId internUnknown();
     TypeId registerNamedType(std::string_view name, TypeKind kind);

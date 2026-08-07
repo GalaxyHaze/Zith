@@ -292,6 +292,7 @@ if(BUILD_TESTING AND NOT ZITH_IS_WASM)
     add_zith_test(test-diagnostics-render tests/test-diagnostics-render.cpp)
     add_zith_test(test-overload tests/test-overload.cpp)
     add_zith_test(test-memory-qualifiers tests/test-memory-qualifiers.cpp)
+    add_zith_test(test-op-mapping tests/test-op-mapping.cpp)
     add_zith_test(test-variadic tests/test-variadic.cpp)
     add_zith_test(test-compound-assign tests/test-compound-assign.cpp)
     add_executable(test-lexer-benchmark tests/test-lexer-benchmark.cpp bench/lexer-benchmark.cpp)
@@ -300,6 +301,15 @@ if(BUILD_TESTING AND NOT ZITH_IS_WASM)
     add_test(NAME test-lexer-benchmark COMMAND test-lexer-benchmark)
     if(ZITH_HAS_LLVM)
         add_zith_test(test-codegen tests/test-codegen.cpp)
+        # The example suite drives the real CLI, so it needs codegen and a linker.
+        if(TARGET zithc)
+            add_zith_test(test-examples tests/test-examples.cpp)
+            target_compile_definitions(test-examples PRIVATE
+                ZITH_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/examples"
+                ZITHC_BINARY="$<TARGET_FILE:zithc>"
+                ZITH_EXAMPLES_WORKDIR="${CMAKE_CURRENT_BINARY_DIR}/examples-run")
+            add_dependencies(test-examples zithc)
+        endif()
     endif()
 
     if(TARGET bench-lexer)

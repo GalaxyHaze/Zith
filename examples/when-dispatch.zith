@@ -1,0 +1,25 @@
+// Exercises: `when` in value position with literal, range, boolean-guard and
+// `(_)` default arms, plus `when` used as a statement.
+// Expected exit code: 20
+
+fn classify(n: i32): i32 {
+    return when (n) {
+        (0) ~> 1,
+        (1..3) ~> 2,
+        (n > 100) ~> 3,
+        (_) ~> 4,
+    };
+}
+
+fn main(): i32 {
+    var total: i32 = 0;
+    total += classify(0);
+    total += classify(2);
+    total += classify(500);
+    total += classify(42);
+    // 1 + 2 + 3 + 4 == 10
+    if (total != 10) {
+        return 1;
+    }
+    return total * 2;
+}

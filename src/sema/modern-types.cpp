@@ -245,6 +245,18 @@ TypeId TypeTable::internAlias(TypeId target) {
     return entry.id;
 }
 
+TypeId TypeTable::internNominal(std::string_view name, TypeId target) {
+    auto &entry           = pushEntry(EntryKind::Nominal);
+    entry.reported_kind   = TypeKind::Nominal;
+    auto &storage         = makeStorage();
+    const TypeId fields[] = {target};
+    for (const auto field : fields)
+        storage.push(field);
+    entry.nominal_ty = arena_->make<NominalType>(NominalType{name, target, storage});
+    entry.storage    = &storage;
+    return entry.id;
+}
+
 TypeId TypeTable::internQualified(TypeId inner, types::OwnershipKind ownership, bool is_mut) {
     auto &entry         = pushEntry(EntryKind::Qualified);
     entry.reported_kind = TypeKind::Qualified;
@@ -361,6 +373,10 @@ std::string TypeTable::typeToString(TypeId id) const {
         if (const auto *alias = this->alias(resolved); alias != nullptr)
             return typeToString(alias->target);
         return "alias";
+    case TypeKind::Nominal:
+        if (const auto *nom = nominal(resolved); nom != nullptr)
+            return std::string(nom->name);
+        return "nominal";
     case TypeKind::Incomplete:
         return "incomplete";
     case TypeKind::Qualified:
@@ -464,6 +480,11 @@ const PackType *TypeTable::pack(TypeId id) const noexcept {
 const AliasType *TypeTable::alias(TypeId id) const noexcept {
     const auto *entry = findEntry(id);
     return entry && entry->kind == EntryKind::Alias ? entry->alias_ty : nullptr;
+}
+
+const NominalType *TypeTable::nominal(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry && entry->kind == EntryKind::Nominal ? entry->nominal_ty : nullptr;
 }
 
 const QualifiedType *TypeTable::qualified(TypeId id) const noexcept {

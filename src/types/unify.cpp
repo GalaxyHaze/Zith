@@ -158,6 +158,20 @@ bool Unifier::unify(TypeId a, TypeId b, memory::Span span) {
             [&](const TypeFailable &fa, const TypeFailable &fb) -> bool {
                 return unify(fa.inner, fb.inner, span);
             },
+            [&](const TypeAlias &aa, const TypeAlias &ab) -> bool {
+                return unify(aa.target, ab.target, span);
+            },
+            [&](const TypeNominal &na, const TypeNominal &nb) -> bool {
+                return na.name == nb.name && unify(na.target, nb.target, span);
+            },
+            [&](const TypeTrait &ta, const TypeTrait &tb) -> bool {
+                return ta.name == tb.name;
+            },
+            [&](const TypeQualified &qa, const TypeQualified &qb) -> bool {
+                if (qa.ownership != qb.ownership || qa.isMut != qb.isMut)
+                    return false;
+                return unify(qa.inner, qb.inner, span);
+            },
             [&](const TypeSlice &sa, const TypeSlice &sb) -> bool {
                 return unify(sa.elem, sb.elem, span);
             },
@@ -293,6 +307,20 @@ bool Unifier::isAssignable(TypeId dst, TypeId src) const {
             },
             [&](const TypeFailable &fd, const TypeFailable &fs) -> bool {
                 return isAssignable(fd.inner, fs.inner);
+            },
+            [&](const TypeAlias &ad, const TypeAlias &as) -> bool {
+                return isAssignable(ad.target, as.target);
+            },
+            [&](const TypeNominal &nd, const TypeNominal &ns) -> bool {
+                return nd.name == ns.name && isAssignable(nd.target, ns.target);
+            },
+            [&](const TypeTrait &td, const TypeTrait &ts) -> bool {
+                return td.name == ts.name;
+            },
+            [&](const TypeQualified &qd, const TypeQualified &qs) -> bool {
+                if (qd.ownership != qs.ownership || qd.isMut != qs.isMut)
+                    return false;
+                return isAssignable(qd.inner, qs.inner);
             },
             [&](const TypeSlice &sd, const TypeSlice &ss) -> bool {
                 return isAssignable(sd.elem, ss.elem);

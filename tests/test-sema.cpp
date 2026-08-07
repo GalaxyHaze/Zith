@@ -804,12 +804,64 @@ static void test_modern_pointer_type_param() {
 
 static void test_modern_type_alias_use() {
     ModernSemaTest t;
-    auto r = t.run("type MyInt = i32\n"
-                   "fn main(): MyInt {\n"
-                   "    var x: MyInt = 42;\n"
+    auto r = t.run("alias MyInt = i32\n"
+                   "fn main(): i32 {\n"
+                   "    var x: MyInt = 3;\n"
                    "    x\n"
                    "}\n");
-    CHECK(r.ok, "Modern sema resolves a type alias in variable annotation and return type");
+    CHECK(r.ok, "Modern sema resolves a transparent type alias in variables and returns");
+
+    auto nominal = t.run("type MyInt = i32\n"
+                         "fn main(): i32 {\n"
+                         "    var x: MyInt = 3;\n"
+                         "    x as i32\n"
+                         "}\n");
+    CHECK(!nominal.ok, "nominal 'type' does not accept the underlying type implicitly");
+    CHECK(nominal.hasMessage("expected 'MyInt', has type 'i32'"),
+          "nominal binding reports the wrapper type");
+
+    auto wrapped = t.run("type MyInt = i32\n"
+                         "fn main(): i32 {\n"
+                         "    var x: MyInt = 3 as MyInt;\n"
+                         "    x as i32\n"
+                         "}\n");
+    CHECK(wrapped.ok, "explicit nominal wrap/unwrap type-checks");
+}
+
+static void test_modern_grouped_struct_fields() {
+    ModernSemaTest t;
+    auto r = t.run("struct Point { [x, y, z]: i32, name: char = 'p' }\n"
+                   "fn main(): i32 {\n"
+                   "    var p: Point = Point { x: 1, y: 2, z: 3, name: 'p' };\n"
+                   "    p.x + p.y + p.z\n"
+                   "}\n");
+    CHECK(r.ok, "grouped struct fields type-check as individual fields");
+}
+
+static void test_modern_static_method() {
+    ModernSemaTest t;
+    auto r = t.run("struct Point { x: i32 }\n"
+                   "trait Sample {}\n"
+                   "implement Point as Sample {\n"
+                   "    fn foo(): i32 { 7 }\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    Point.foo()\n"
+                   "}\n");
+    CHECK(r.ok, "static method called on the owner type type-checks");
+}
+
+static void test_modern_self_resolves_to_owner() {
+    ModernSemaTest t;
+    auto r = t.run("struct Point { x: i32 }\n"
+                   "trait Sample {}\n"
+                   "implement Point as Sample {\n"
+                   "    fn make(): Self { Point { x: 3 } }\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    Point.make().x\n"
+                   "}\n");
+    CHECK(r.ok, "'Self' in an implementation resolves to the implemented owner type");
 }
 
 static void test_modern_unary_minus_on_literal() {
@@ -1441,6 +1493,9 @@ static void test_sema() {
     test_modern_let_binding_without_annotation();
     test_modern_pointer_type_param();
     test_modern_type_alias_use();
+    test_modern_grouped_struct_fields();
+    test_modern_static_method();
+    test_modern_self_resolves_to_owner();
     test_modern_unary_minus_on_literal();
     test_modern_break_in_while();
     test_modern_continue_in_while();

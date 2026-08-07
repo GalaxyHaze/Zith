@@ -8,6 +8,7 @@
 *.dylib
 *.exe
 *.out
+.opencode
 
 # Build directories
 build/

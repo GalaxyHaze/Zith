@@ -30,7 +30,7 @@ public:
 
 private:
     struct FunctionInfo {
-        std::string key;
+        uint64_t key = 0;
         const session::ModuleArtifact *module = nullptr;
         const frontend::Declaration *decl     = nullptr;
         const cinterop::Function *foreign     = nullptr;
@@ -52,6 +52,8 @@ private:
     const NraFacts *nra_;
     hir::HirModule hir_;
     memory::FlatMap<uint32_t, types::TypeId> lowered_types_;
+    /// Maps `(interned module id, decl id)` to the predeclared HIR function index.
+    memory::FlatMap<uint64_t, size_t> function_index_by_key_;
     std::vector<FunctionInfo> functions_;
     std::vector<LoopTarget> loop_stack_;
     const session::ModuleArtifact *current_module_       = nullptr;

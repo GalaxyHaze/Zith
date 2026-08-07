@@ -89,39 +89,25 @@ cmake --build build -j --target test-hir-lower-modern test-memory-qualifiers tes
 Run the full suite before closing:
 
 ```bash
+cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-Useful source files for manual inspection:
-
-- `src/session/compilation-session.cpp` — stage sequencing and fact lifetime.
-- `src/sema/nra-facts.cpp` — residual fact accumulation.
-- `src/sema/hir-lower-modern.cpp` — HIR emission and side-table population.
-- `src/hir/hir-attrs.hpp` — residual fact structs and table access.
-- `tests/test-hir-lower-modern.cpp` and `tests/test-memory-qualifiers.cpp` — contract tests.
-
-When a fact or HIR node is missing, first decide whether it belongs before HIR or after HIR. Add a
-temporary trace only around the failing stage, run the focused target, and remove the trace before
-the final verification.
+Reproduce ownership diagnostics with `zithc check` because some NRA facts are
+diagnosed during sema even though the residual table is constructed before HIR.
 
 ## Validation Checklist
 
-- Confirm every playbook claim against the current state of `src/sema/nra-facts.*`,
-  `src/hir/hir-attrs.hpp`, `src/session/compilation-session.*`, and
-  `src/sema/hir-lower-modern.*`.
-- Confirm no invented ownership HIR nodes exist. The current node set in
-  `src/hir/hir-expr.hpp` has no `HirMove`, `HirBorrow`, or `HirYield`.
-- Confirm the documented pipeline matches `CompilationSession::runTo`.
-- Run the focused targets, then the full suite, then `fmt-check`.
-- Key scenarios must still be covered: HIR without ownership produces empty residual attrs;
-  `unique` forwarding sets `returnsArg == 0`; `belong` escape records `Escape`; duplicated
-  default/unique/lend vs `share` produce different facts; and `NonNull` narrowing survives as a
-  slot fact.
+- Build each touched target and the full test suite after changes.
+- Run `zithc check` on a reproducer for the exact diagnostic being changed, both
+  accepted and rejected forms.
+- Verify HIR emission no longer contains ownership fields after lowering:
+  `zithc build --emit hir` on a file with qualifiers.
+- Verify programs without ownership still produce empty `HirAttrs`.
+- Do not reset the semantic pipeline before NRA and HIR have consumed it.
 
 ## Docs That Must Stay Aligned
 
-- `docs/Zith-spec-full.md` — the authoritative pipeline and NRA boundary description.
-- `docs/impl-status.md` — feature status, including the pre-HIR residual-fact boundary and partial
-  F-14.
-- `docs/roadmap.md` — F-14 as a partially implemented structure and concurrency as
-  `stdlib`/runtime APIs, not core syntax or HIR nodes.
+- [docs/07-memory-model.md](../../docs/07-memory-model.md)
+- [docs/impl-status.md](../../docs/impl-status.md)
+- [docs/roadmap.md](../../docs/roadmap.md)

@@ -96,6 +96,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
       - name: Update scoop manifest

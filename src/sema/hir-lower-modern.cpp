@@ -6,6 +6,7 @@
 #include "diagnostics/error-codes.hpp"
 #include "hir/hir-attrs.hpp"
 #include "sema/nra-facts.hpp"
+#include "sema/op-mapping.hpp"
 #include "support/int-literal.hpp"
 #include "types/type-kind.hpp"
 
@@ -17,80 +18,6 @@
 namespace zith::sema::modern {
 
 namespace {
-
-hir::HirBinaryOp mapBinaryOp(std::string_view text) {
-    if (text == "+")
-        return hir::HirBinaryOp::Add;
-    if (text == "-")
-        return hir::HirBinaryOp::Sub;
-    if (text == "*")
-        return hir::HirBinaryOp::Mul;
-    if (text == "/")
-        return hir::HirBinaryOp::Div;
-    if (text == "%")
-        return hir::HirBinaryOp::Rem;
-    if (text == "==")
-        return hir::HirBinaryOp::Eq;
-    if (text == "!=")
-        return hir::HirBinaryOp::Ne;
-    if (text == "<")
-        return hir::HirBinaryOp::Lt;
-    if (text == "<=")
-        return hir::HirBinaryOp::Le;
-    if (text == ">")
-        return hir::HirBinaryOp::Gt;
-    if (text == ">=")
-        return hir::HirBinaryOp::Ge;
-    // The keyword forms and the `.`-suffixed bitwise operators share one HIR op each:
-    // `and`/`&.`, `or`/`|.`, `xor`/`^.`.
-    if (text == "and" || text == "&.")
-        return hir::HirBinaryOp::And;
-    if (text == "or" || text == "|.")
-        return hir::HirBinaryOp::Or;
-    if (text == "xor" || text == "^.")
-        return hir::HirBinaryOp::Xor;
-    if (text == "<<")
-        return hir::HirBinaryOp::Shl;
-    if (text == ">>")
-        return hir::HirBinaryOp::Shr;
-    return hir::HirBinaryOp::Add;
-}
-
-hir::HirUnaryOp mapUnaryOp(std::string_view text) {
-    if (text == "-")
-        return hir::HirUnaryOp::Neg;
-    if (text == "!" || text == "not")
-        return hir::HirUnaryOp::Not;
-    if (text == "&")
-        return hir::HirUnaryOp::Ref;
-    if (text == "*")
-        return hir::HirUnaryOp::Deref;
-    if (text == "~")
-        return hir::HirUnaryOp::BitNot;
-    return hir::HirUnaryOp::Neg;
-}
-
-types::IntWidth mapIntegerWidth(const IntegerType &integer) {
-    if (integer.bits == 8)
-        return integer.isSigned ? types::IntWidth::I8 : types::IntWidth::U8;
-    if (integer.bits == 16)
-        return integer.isSigned ? types::IntWidth::I16 : types::IntWidth::U16;
-    if (integer.bits == 32)
-        return integer.isSigned ? types::IntWidth::I32 : types::IntWidth::U32;
-    if (integer.bits == 64)
-        return integer.isSigned ? types::IntWidth::I64 : types::IntWidth::U64;
-    if (integer.bits == 128)
-        return integer.isSigned ? types::IntWidth::I128 : types::IntWidth::U128;
-    return types::IntWidth::Literal;
-}
-
-types::FloatWidth mapFloatWidth(const FloatType &floating) {
-    if (floating.bits <= 32)
-        return types::FloatWidth::F32;
-    if (floating.bits <= 64)
-        return types::FloatWidth::F64;
-    return types::FloatWidth::F128;
-}
 
 /// Decodes the C-like escape set inside string/char literal bodies. Returns false
 /// (without touching `output`) when an escape is malformed or unknown.
@@ -150,8 +77,10 @@ bool decodeEscapes(std::string_view text, std::string &output) {
     return true;
 }
 
-std::string functionKey(std::string_view module, frontend::DeclId decl) {
-    return std::string(module) + "#" + std::to_string(decl.value);
+uint64_t internFunctionKey(memory::StringInterner &interner, std::string_view module,
+                           frontend::DeclId decl) {
+    const uint64_t module_id = interner.intern(module);
+    return (module_id << 32U) | decl.value;
 }
 
 /// Dot-separated module namespace for `module_key`, derived from the longest
@@ -200,7 +129,8 @@ HirLowerModern::HirLowerModern(memory::Arena &arena, diagnostics::DiagnosticEngi
                                const SemaPipeline &sema, types::TypeIntern &types,
                                memory::StringInterner &interner, const NraFacts *nra)
     : arena_(arena), diags_(diags), snapshot_(snapshot), sema_(sema), types_(types),
-      interner_(interner), nra_(nra), hir_(arena), lowered_types_() {}
+      interner_(interner), nra_(nra), hir_(arena), lowered_types_(),
+      function_index_by_key_() {}
 
 bool HirLowerModern::run() {
     return predeclareFunctions() && lowerFunctionBodies() && !diags_.hasErrors();
@@ -260,8 +190,10 @@ bool HirLowerModern::predeclareFunctions() {
                 }
             }
 
-            functions_.push_back({functionKey(module.key, decl.id), module_ptr.get(), &decl,
-                                  nullptr, hir_fn.sym_id, hir_.getFnCount() - 1U});
+            const auto key = internFunctionKey(interner_, module.key, decl.id);
+            function_index_by_key_.insert(key, hir_.getFnCount() - 1U);
+            functions_.push_back(
+                {key, module_ptr.get(), &decl, nullptr, hir_fn.sym_id, hir_.getFnCount() - 1U});
         }
     }
     for (const auto &header : snapshot_.cHeaders()) {
@@ -276,8 +208,8 @@ bool HirLowerModern::predeclareFunctions() {
                 hir_fn.params.push(lowerForeignType(parameter));
                 hir_fn.param_names.push({});
             }
-            functions_.push_back({foreign.linkageName, nullptr, nullptr, &foreign, hir_fn.sym_id,
-                                  hir_.getFnCount() - 1U});
+            functions_.push_back(
+                {0, nullptr, nullptr, &foreign, hir_fn.sym_id, hir_.getFnCount() - 1U});
         }
     }
     return true;
@@ -428,14 +360,16 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
         break;
     case TypeKind::Integer: {
         const auto *integer = sema_.typeTable().integer(type);
-        lowered =
-            integer != nullptr ? types_.internInt(mapIntegerWidth(*integer)) : types::kErrorType;
+        lowered = integer != nullptr
+                      ? types_.internInt(sema::mapIntegerWidth(integer->bits, integer->isSigned))
+                      : types::kErrorType;
         break;
     }
     case TypeKind::Float: {
         const auto *floating = sema_.typeTable().float_kind(type);
         lowered =
-            floating != nullptr ? types_.internFloat(mapFloatWidth(*floating)) : types::kErrorType;
+            floating != nullptr ? types_.internFloat(sema::mapFloatWidth(floating->bits))
+                                : types::kErrorType;
         break;
     }
     case TypeKind::String:
@@ -552,7 +486,7 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
         members.reserve(sum->members.size());
         for (const auto member : sum->members)
             members.push_back(lowerType(member));
-        lowered = types_.internSum(std::span<const types::TypeId>(members.data(), members.size()));
+    lowered = types_.internSum(std::span<const types::TypeId>(members.data(), members.size()));
         break;
     }
     case TypeKind::Slice: {
@@ -590,6 +524,19 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
         lowered           = alias != nullptr ? lowerType(alias->target) : types::kErrorType;
         break;
     }
+    case TypeKind::Nominal: {
+        const auto *nom = sema_.typeTable().nominal(type);
+        if (nom == nullptr) {
+            lowered = types::kErrorType;
+            break;
+        }
+        lowered = types_.defineStruct(nom->name);
+        if (types_.fieldCount(lowered) == 0U) {
+            lowered_types_.insert(type.intern_seq, lowered);
+            types_.addField(lowered, "", lowerType(nom->target));
+        }
+        break;
+    }
     case TypeKind::Qualified: {
         // HIR and codegen do not represent ownership: strip to the inner type.
         const auto *qual = sema_.typeTable().qualified(type);
@@ -611,10 +558,9 @@ types::TypeId HirLowerModern::lowerForeignType(const cinterop::Type &type) {
     case cinterop::TypeKind::Integer:
         if (type.isChar)
             return types::kCharType;
-        return types_.internInt(type.isSigned ? mapIntegerWidth({type.bits, true})
-                                              : mapIntegerWidth({type.bits, false}));
+        return types_.internInt(sema::mapIntegerWidth(type.bits, type.isSigned));
     case cinterop::TypeKind::Float:
-        return types_.internFloat(mapFloatWidth({type.bits}));
+        return types_.internFloat(sema::mapFloatWidth(type.bits));
     case cinterop::TypeKind::Pointer: {
         // Mirrors `PerModuleSema::lowerForeignType`: a C pointer is `?*T`, which the
         // niche layout emits as the bare pointer.
@@ -698,11 +644,9 @@ HirLowerModern::resolvedFunctionSym(const session::ResolvedName &resolved) const
     const auto *decl                      = resolvedFunctionDecl(resolved, &module);
     if (decl == nullptr || module == nullptr)
         return symbols::kInvalidSym;
-    const auto key = functionKey(module->key, decl->id);
-    for (const auto &function : functions_) {
-        if (function.key == key)
-            return function.sym_id;
-    }
+    const auto key = internFunctionKey(interner_, module->key, decl->id);
+    if (const auto *function_index = function_index_by_key_.get(key))
+        return functions_[*function_index].sym_id;
     return symbols::kInvalidSym;
 }
 
@@ -874,13 +818,9 @@ hir::HirExprId HirLowerModern::lowerName(const frontend::Expression &expr) {
             // definition agree.
             var.name = interner_.intern(decl->name);
             if (decl_module != nullptr) {
-                const auto key = functionKey(decl_module->key, decl->id);
-                for (const auto &function : functions_) {
-                    if (function.key == key) {
-                        var.name = hir_.getFn(function.hir_index).name;
-                        break;
-                    }
-                }
+                const auto key = internFunctionKey(interner_, decl_module->key, decl->id);
+                if (const auto *function_index = function_index_by_key_.get(key))
+                    var.name = hir_.getFn(*function_index).name;
             }
             var.version = 0;
             return addExpr(std::move(var));
@@ -913,7 +853,7 @@ hir::HirExprId HirLowerModern::lowerUnary(const frontend::Expression &expr,
         return hir::kInvalidHirExpr;
 
     hir::HirUnary unary;
-    unary.op      = mapUnaryOp(expr.text);
+    unary.op      = sema::mapUnaryOp(expr.text);
     unary.operand = operand;
     unary.type    = type;
     return addExpr(std::move(unary));
@@ -931,7 +871,7 @@ hir::HirExprId HirLowerModern::lowerBinary(const frontend::Expression &expr,
     hir::HirBinary binary;
     binary.lhs          = lhs;
     binary.rhs          = rhs;
-    binary.op           = mapBinaryOp(expr.text);
+    binary.op           = sema::mapBinaryOp(expr.text);
     binary.type         = type;
     binary.operand_type = typeOfExpr(expr.operands[0]);
     return addExpr(std::move(binary));
@@ -973,21 +913,28 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
             }
         }
     }
-    const bool is_method_call = method_decl != nullptr;
+    // A method with a `self` receiver receives an implicit owner pointer
+    // argument. Methods without self are static in this compiler.
+    const bool is_receiver_method = method_decl != nullptr && !method_decl->parameters.empty() &&
+                                    method_decl->parameters.front().name == "self";
+    const bool is_method_call = is_receiver_method;
 
     hir::HirExprId callee = hir::kInvalidHirExpr;
     if (!is_method_call) {
-        callee = lowerExpr(callee_id);
-        if (callee == hir::kInvalidHirExpr)
-            return hir::kInvalidHirExpr;
+        if (method_decl == nullptr) {
+            callee = lowerExpr(callee_id);
+            if (callee == hir::kInvalidHirExpr)
+                return hir::kInvalidHirExpr;
+        } // Static methods keep callee = kInvalid and resolve by symbol below.
     }
 
     memory::DynArray<hir::HirExprId> args(arena_);
     memory::DynArray<types::TypeId> arg_types(arena_);
 
-    if (is_method_call) {
-        // Insert the implicit self argument: for `.` take the address of the
-        // base value, for `->` the base is already a pointer.
+    if (is_receiver_method) {
+        // Insert the implicit self argument only for actual receiver methods.
+        // For `.` take the address of the base value, for `->` the base is
+        // already a pointer.
         const frontend::ExprId base_id = callee_expr.operands[0];
         hir::HirExprId self_arg        = lowerExpr(base_id);
         if (self_arg == hir::kInvalidHirExpr)
@@ -1017,28 +964,20 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
 
     hir::HirCall call{callee, std::move(args), std::move(arg_types)};
     call.resolved_fn = symbols::kInvalidSym;
-    if (is_method_call) {
+    if (method_decl != nullptr) {
         if (const auto *target = overloadTarget(callee_id);
             target != nullptr && target->module == current_module_->key) {
             method_decl = findDecl(*current_module_, target->decl);
         }
-        const auto key = functionKey(current_module_->key, method_decl->id);
-        for (const auto &function : functions_) {
-            if (function.key == key) {
-                call.resolved_fn = function.sym_id;
-                break;
-            }
-        }
+        const auto key = internFunctionKey(interner_, current_module_->key, method_decl->id);
+        if (const auto *function_index = function_index_by_key_.get(key))
+            call.resolved_fn = functions_[*function_index].sym_id;
     } else if (const auto *target = overloadTarget(callee_id)) {
         // Sema already picked one declaration out of an overload set; re-resolving
         // here would silently fall back to the first candidate.
-        const auto key = functionKey(target->module, target->decl);
-        for (const auto &function : functions_) {
-            if (function.key == key) {
-                call.resolved_fn = function.sym_id;
-                break;
-            }
-        }
+        const auto key = internFunctionKey(interner_, target->module, target->decl);
+        if (const auto *function_index = function_index_by_key_.get(key))
+            call.resolved_fn = functions_[*function_index].sym_id;
     } else if (const auto *resolved = findResolvedExpr(callee_id)) {
         call.resolved_fn = resolvedFunctionSym(*resolved);
     }
@@ -1425,6 +1364,22 @@ hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,
     const auto from = typeOfExpr(expr.operands[0]);
     if (from == type)
         return value;
+    // Nominal casts (`T as Nominal` / `Nominal as T`) are lowered as the
+    // one-field wrapper's literal/extraction, not as numeric conversions.
+    if (types_.kindOf(type) == types::TypeKind::Struct && from != type) {
+        const auto wrapper_count = types_.fieldCount(type);
+        if (wrapper_count == 1U) {
+            hir::HirStructLiteral literal(arena_);
+            literal.type = type;
+            literal.values.push(value);
+            return addExpr(std::move(literal));
+        }
+    }
+    if (types_.kindOf(from) == types::TypeKind::Struct && from != type) {
+        const auto wrapper_count = types_.fieldCount(from);
+        if (wrapper_count == 1U)
+            return addExpr(hir::HirField{value, 0U, type, from});
+    }
     return addExpr(hir::HirCast{value, from, type});
 }
 

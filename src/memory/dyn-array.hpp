@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <span>
 #include <type_traits>
 #include <utility>
 
@@ -71,6 +72,59 @@ public:
         }
         ::new (&data_[size_]) T(std::move(value));
         size_++;
+    }
+
+    void resize(size_t count) requires std::is_default_constructible_v<T> {
+        if (count > size_) {
+            reserve(count);
+            while (size_ < count)
+                emplace();
+        } else if (count < size_) {
+            shrink_(count);
+        }
+    }
+
+    void resize(size_t count, const T &value) requires std::is_copy_constructible_v<T> {
+        if (count > size_) {
+            reserve(count);
+            while (size_ < count)
+                push(value);
+        } else if (count < size_) {
+            shrink_(count);
+        }
+    }
+
+private:
+    void shrink_(size_t count) noexcept {
+        if constexpr (!std::is_trivially_destructible_v<T>) {
+            for (size_t i = count; i < size_; ++i)
+                data_[i].~T();
+        }
+        size_ = count;
+    }
+
+public:
+
+    template <typename... Args> void resizeEmplace(size_t count, Args &&...args) {
+        if (count > size_) {
+            reserve(count);
+            while (size_ < count)
+                emplace(std::forward<Args>(args)...);
+        } else if (count < size_) {
+            shrink_(count);
+        }
+    }
+
+    void appendRange(const T *first, size_t count) requires std::is_copy_constructible_v<T> {
+        if (count == 0)
+            return;
+        reserve(size_ + count);
+        for (size_t i = 0; i < count; ++i)
+            push(first[i]);
+    }
+
+    void appendRange(std::span<const T> values) requires std::is_copy_constructible_v<T> {
+        appendRange(values.data(), values.size());
     }
 
     template <typename... Args> auto &emplace(Args &&...args) {
@@ -160,6 +214,23 @@ public:
         return data_[index];
     }
     auto operator[](size_t index) const -> const T & {
+        return data_[index];
+    }
+
+    auto at(size_t index) noexcept -> T & {
+        if (index >= size_) {
+            std::fprintf(stderr, "[error] DynArray::at index out of range: %zu >= %zu\n", index,
+                         size_);
+            std::abort();
+        }
+        return data_[index];
+    }
+    auto at(size_t index) const noexcept -> const T & {
+        if (index >= size_) {
+            std::fprintf(stderr, "[error] DynArray::at index out of range: %zu >= %zu\n", index,
+                         size_);
+            std::abort();
+        }
         return data_[index];
     }
 

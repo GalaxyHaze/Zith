@@ -1,0 +1,43 @@
+// Exercises: structs nested inside structs, nested struct literals, taking an
+// address with `&`, chained field access through `->`, and dereferencing `*`.
+// Expected exit code: 4
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Rect {
+    origin: Point,
+    size: Point,
+}
+
+fn width(r: *Rect): i32 {
+    return r->size.x;
+}
+
+fn main(): i32 {
+    var box: Rect = Rect {
+        origin: Point { x: 1, y: 2 },
+        size: Point { x: 4, y: 6 },
+    };
+
+    if (box.origin.y != 2) {
+        return 1;
+    }
+
+    let p: *Rect = &box;
+    if (p->origin.x != 1) {
+        return 2;
+    }
+    if (width(p) != 4) {
+        return 3;
+    }
+
+    let copy: Rect = *p;
+    if (copy.size.y != 6) {
+        return 5;
+    }
+
+    return copy.size.x;
+}

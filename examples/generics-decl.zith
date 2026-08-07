@@ -1,0 +1,22 @@
+// Exercises: generic parameter lists on `struct` and `alias` declarations.
+// Only the declarations are checked here. Generic *instantiation* (e.g.
+// `identity<i32>(42)`) is not supported yet, and a generic `fn` still reaches
+// codegen uninstantiated and fails with E3001, so neither appears below.
+// Expected exit code: 3
+
+struct Pair<T> {
+    first: T,
+    second: T,
+}
+
+struct Slot<K, V> {
+    key: K,
+    value: V,
+}
+
+alias Box<T> = i32
+
+fn main(): i32 {
+    let boxed: Box = 3;
+    return boxed;
+}

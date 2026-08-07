@@ -1,0 +1,57 @@
+// Exercises: bitwise `&.` `|.` `^.`, unary `~`, shifts `<<` `>>`, the compound
+// forms `&=` `|=` `^=` `<<=` `>>=`, and binary/hex/octal literals.
+// Expected exit code: 0
+
+fn main(): i32 {
+    let mask: i32 = 0b1100;
+    let bits: i32 = 0x0A;
+
+    if ((mask &. bits) != 8) {
+        return 1;
+    }
+    if ((mask |. bits) != 14) {
+        return 2;
+    }
+    if ((mask ^. bits) != 6) {
+        return 3;
+    }
+    if ((~0) != (0 - 1)) {
+        return 4;
+    }
+    if ((1 << 4) != 16) {
+        return 5;
+    }
+    if ((32 >> 2) != 8) {
+        return 6;
+    }
+
+    // Compound bitwise operators drop the dot of their binary counterparts.
+    var acc: i32 = 0b1111;
+    acc &= 0b0110;
+    if (acc != 6) {
+        return 7;
+    }
+    acc |= 0b1000;
+    if (acc != 14) {
+        return 8;
+    }
+    acc ^= 0b0010;
+    if (acc != 12) {
+        return 9;
+    }
+    acc <<= 1;
+    if (acc != 24) {
+        return 10;
+    }
+    acc >>= 3;
+    if (acc != 3) {
+        return 11;
+    }
+
+    // `0c` is the octal prefix: 0c17 == 15.
+    if (0c17 != 15) {
+        return 12;
+    }
+
+    return 0;
+}

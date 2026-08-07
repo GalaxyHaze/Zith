@@ -92,8 +92,23 @@ struct TypeOptional {
 struct TypeFailable {
     TypeId inner;
 };
+struct TypeAlias {
+    TypeId target;
+};
+struct TypeNominal {
+    memory::InternedId name;
+    TypeId target;
+};
+struct TypeTrait {
+    memory::InternedId name;
+};
 struct TypeOpaque {};
 struct TypeUnknown {};
+struct TypeQualified {
+    TypeId inner;
+    OwnershipKind ownership = OwnershipKind::Default;
+    bool isMut              = false;
+};
 struct TypeSlice {
     TypeId elem;
 };
@@ -124,12 +139,13 @@ struct TypeIncomplete {
 
 using TypeData =
     std::variant<TypeError, TypeNever, TypeVoid, TypeBool, TypeChar, TypeInt, TypeFloat, TypePtr,
-                 TypeArray, TypeStruct, TypeFn, TypeTypeVar, TypeOptional, TypeFailable, TypeOpaque,
-                 TypeUnknown, TypeSlice, TypeEnum, TypeUnion, TypePack, TypeSum, TypeGenericParam,
-                 TypeIncomplete>;
+                 TypeArray, TypeStruct, TypeFn, TypeTypeVar, TypeOptional, TypeFailable, TypeAlias,
+                 TypeNominal, TypeTrait, TypeOpaque, TypeUnknown, TypeQualified, TypeSlice, TypeEnum,
+                 TypeUnion, TypePack, TypeSum, TypeGenericParam, TypeIncomplete>;
 
 enum class TypeKind : uint8_t {
     Error,
+    Invalid,
     Never,
     Void,
     Bool,
@@ -152,6 +168,11 @@ enum class TypeKind : uint8_t {
     Sum,
     GenericParam,
     Incomplete,
+    String,
+    Alias,
+    Nominal,
+    Trait,
+    Qualified,
 };
 
 template <typename Visitor> decltype(auto) visitType(const TypeData &data, Visitor &&vis) {
