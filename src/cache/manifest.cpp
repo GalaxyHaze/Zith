@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <string>
 
 namespace zith::cache {
@@ -103,22 +104,23 @@ void Manifest::save() const {
     std::error_code ec;
     fs::create_directories(root_, ec);
     const auto path = fs::path(root_) / "manifest";
-    std::FILE *fp   = std::fopen(path.c_str(), "wb");
-    if (!fp)
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output)
         return;
     for (const auto &[key, entry] : by_path_) {
-        std::fprintf(fp, "%s\x1f%s\x1f%08x\x1f%08x\x1f%08x\x1f%08x\x1e",
-                     escapeField(entry.canonical_path).c_str(),
-                     escapeField(entry.artifact_path).c_str(), entry.public_abi_hi,
-                     entry.public_abi_lo, entry.source_fp_hi, entry.source_fp_lo);
+        output << escapeField(entry.canonical_path) << '\x1f'
+               << escapeField(entry.artifact_path) << '\x1f'
+               << std::hex << std::setfill('0') << std::setw(8) << entry.public_abi_hi
+               << '\x1f' << std::setw(8) << entry.public_abi_lo << '\x1f'
+               << std::setw(8) << entry.source_fp_hi << '\x1f' << std::setw(8)
+               << entry.source_fp_lo << '\x1e';
         for (size_t i = 0; i < entry.dependencies.size(); ++i) {
             if (i != 0)
-                std::fputc('\x1d', fp);
-            std::fprintf(fp, "%s", escapeField(entry.dependencies[i]).c_str());
+                output << '\x1d';
+            output << escapeField(entry.dependencies[i]);
         }
-        std::fputc('\n', fp);
+        output << '\n';
     }
-    std::fclose(fp);
 }
 
 void Manifest::load() {

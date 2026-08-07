@@ -971,7 +971,23 @@ bool CompilationSession::link() {
     return performLink(exePath, isWasm);
 }
 
-bool CompilationSession::linkAndExec() {
+namespace {
+// Normalizes a waitpid()/spawn status into a process exit code.
+int normalizeExitStatus(const int status) {
+#ifdef _WIN32
+    return status;
+#else
+    const int waitStatus = status;
+    if (WIFEXITED(waitStatus))
+        return WEXITSTATUS(waitStatus);
+    if (WIFSIGNALED(waitStatus))
+        return 128 + WTERMSIG(waitStatus);
+    return 1;
+#endif
+}
+} // namespace
+
+bool CompilationSession::execAfterLink(const bool capture) {
 #ifndef ZITH_IS_WASM
     std::string exePath;
     bool isWasm = false;
