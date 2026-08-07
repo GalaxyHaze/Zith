@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Macros Actually Expand Now</title></head>
+<body>
+
+<h2>Macros Actually Expand Now</h2>
+<p class="post-date">2026-08-04</p>
+<hr>
+
+<p>
+    For most of Zith's life <code>@</code> in expression position was a parse error, which meant
+    macros were a chapter in the spec and nothing else. That is over. Normal macros, raw macros,
+    and tag macros all expand through the modern pipeline and lower to HIR.
+</p>
+
+<h3>Resolution by node id</h3>
+<p>
+    The first version I wrote matched template names against the call site by comparing source
+    spans. It worked on the test I wrote it for and fell apart on everything else — a template
+    used twice produced two expansions whose spans pointed at the same original text, so the
+    second expansion happily resolved to the first one's bindings.
+</p>
+<p>
+    The fix was to stop thinking about text. Each expansion produces fresh nodes with fresh ids,
+    and resolution is keyed by node id, not by where the characters came from. Once that was
+    true, hygiene became a rename pass rather than a scoping trick: a binding introduced by the
+    template gets a new name, every other identifier is looked up in the call-site scope with the
+    module and globals as fallback.
+</p>
+<pre><code class="language-zith">macro twice(v: expr) {
+    v + v
+}
+
+fn use_macro(v: i32): i32 {
+    @twice(v)
+}</code></pre>
+
+<p>
+    The other thing I had to get right is that a template body is <em>not</em> code. It is not
+    name-resolved, not type-checked, and not lowered until it has been expanded at a call site.
+    Analysing it early is tempting — you would catch typos sooner — but it is wrong: the meaning
+    of <code>v</code> does not exist until somebody passes something.
+</p>
+<p>
+    <code>raw macro</code> is the deliberate escape hatch. It splices literally into the call
+    site, names resolve there first, and it can touch the caller's bindings. That is unhygienic
+    by construction and that is the point; it just has to be spelled differently so nobody gets
+    it by accident.
+</p>
+
+<h3>Tag macros</h3>
+<p>
+    Tag macros are the piece I was least sure about and now like the most. They are an HTML-like
+    statement form with a body and optional named attributes:
+</p>
+<pre><code class="language-zith">tag macro RunTwice(attributes, body: body) {
+    let title = attributes.title;
+    body;
+    body;
+}
+
+fn main(): i32 {
+    var total = 0;
+    &lt;RunTwice title: 1&gt;
+        total = total + 1;
+    &lt;/RunTwice&gt;
+    total
+}</code></pre>
+<p>
+    They are statement-position only, and misuse has its own diagnostics rather than falling
+    through to a generic parse error: <code>E2017</code> when a tag macro is used as a value,
+    <code>E2018</code> for a mismatched closing tag, <code>E2019</code> for an unknown attribute,
+    <code>E2020</code> when a macro that takes no attributes is given some.
+</p>
+
+<h3>The C importer met the real world</h3>
+<p>
+    In parallel the libclang-based header importer stopped being a demo. Variadic functions,
+    array-decayed parameters, <code>va_list</code>, and function-pointer parameters all import
+    now, and — more important than any single feature — a declaration the importer cannot
+    represent is skipped on its own and recorded, instead of failing the header. Real headers
+    contain things I have no plan for; refusing all of <code>stdio.h</code> over one of them was
+    absurd.
+</p>
+<pre><code class="language-zith">import "stdio.h";
+
+fn main(): i32 {
+    printf("v=%d\n", 42);
+    0
+}</code></pre>
+<p>
+    That prints <code>v=42</code>. Getting there took an embarrassing detour: it printed nothing.
+    The compiler was fine and the binary was fine — <code>zithc run</code> was the bug. It
+    captured the child process's output and then tore the capture down before flushing it, so the
+    program's stdout went into a buffer nobody ever read. Now the child's output is forwarded to
+    zithc's own stdout while diagnostics stay on stderr, which is also the behaviour you want if
+    you are piping a program's output anywhere.
+</p>
+
+<h3>What I am not pretending</h3>
+<p>
+    Macros are not comptime. There is still no compile-time evaluation, no <code>const fn</code>,
+    and no reflection — <code>@appendField</code> and friends remain spec text. Preprocessor
+    macros, globals, bitfields, packed records and flexible arrays do not import, and
+    struct-by-value across the C ABI is unverified, so I do not claim it.
+</p>
+
+<hr>
+<p class="post-date"><em>— Haze</em></p>
+
+</body>
+</html>

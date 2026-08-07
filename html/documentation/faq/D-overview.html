@@ -1,7 +1,9 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="faq">FAQ</h1>
 <h2 id="is-zith-stable">Is Zith stable?</h2>
-<p>No. Zith language documentation is draft and experimental. The <a href="./../reference/D-implementation-status.html">Implementation Status</a> page separates working compiler functionality from partial, blocked, warning-only, stub, and specification-only features.</p>
+<p>No. Zith language documentation is draft and experimental. The <a href="./../reference/D-implementation-status.html">Implementation Status</a> page separates working compiler functionality from check-only, parse-skipped, parse-error, stub, and specification-only features.</p>
+<h2 id="what-actually-compiles-today">What actually compiles today?</h2>
+<p>Structs and pointers, the full operator set (including compound assignment and the <code>&amp;.</code> <code>|.</code> <code>^.</code> bitwise family), <code>when</code> / <code>match</code> pattern matching, the conditional and 3-clause <code>for</code> loops, function overloading, macros and tag macros, <code>raw opaque</code>, memory qualifiers as types, modules, and C header imports. Generic declarations type-check but cannot be instantiated, and comptime, <code>const fn</code>, <code>dyn</code>, and the full ownership analysis are not implemented.</p>
 <h2 id="is-this-a-rust-replacement">Is this a Rust replacement?</h2>
 <p>No. Zith is an independent language experiment. Compare concrete compiler behavior and ecosystem maturity rather than assuming equivalent safety or tooling guarantees.</p>
 <h2 id="where-are-game-ecs-and-scene-docs">Where are game, ECS, and scene docs?</h2>

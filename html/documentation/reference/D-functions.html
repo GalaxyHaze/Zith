@@ -1,5 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="5-functions">5. Functions</h1>
+<blockquote><p><strong>Implementation status:</strong> <code>fn</code>, <code>flow fn</code>, <code>raw fn</code>, and <code>extern fn</code> are <strong>working</strong>. Overloading (<a href="#54-overloading">§5.4</a>) is <strong>working</strong>. <code>const fn</code> is a <strong>parse error</strong> — <code>const</code> is a binding keyword; <code>const fn f()</code> is parsed as a <code>const</code> binding named <code>fn</code>. Concurrency is no longer a core function kind; any runtime async/task model is expressed through ordinary library types and calls. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="51-return-types--implicit-returns">5.1 Return Types &amp; Implicit Returns</h3>
 <pre><code class="language-zith">fn add(a: i32, b: i32): i32 { a + b }   // explicit type, implicit return
 fn add(a: i32, b: i32)      { a + b }   // inferred type
@@ -28,10 +29,6 @@ fn first&lt;T&gt;(slice: []T): ?T {
       <td>Resolved entirely at compile time.</td>
     </tr>
     <tr>
-      <td><code>async fn</code></td>
-      <td>Returns <code>Coroutine&lt;T&gt;</code> — a lazy generator with a default base implementation. Must be consumed by a type implementing <code>Generator</code>.</td>
-    </tr>
-    <tr>
       <td><code>flow fn</code></td>
       <td>Enables marker/dock control flow (<a href="./D-control-flow.html#94-flow-functions--markers">§9.4</a>).</td>
     </tr>
@@ -43,13 +40,48 @@ fn first&lt;T&gt;(slice: []T): ?T {
 </table>
 <blockquote><p>Function kinds are orthogonal and cannot be combined on a single declaration.</p></blockquote>
 <p>Macro calls use the <code>@</code> prefix — <code>@println</code>, <code>@log</code>, <code>@serialize</code> — while ordinary function calls use a bare name, such as <code>console.write</code>, <code>process</code>, or <code>save</code>. See <a href="./D-macros.html">§15</a> for the full rule.</p>
-<h3 id="53-async-fn--yield">5.3 <code>async fn</code> &amp; <code>yield</code></h3>
-<pre><code class="language-zith">// An async fn returns Coroutine&lt;T&gt;, not T directly.
-// Coroutine&lt;T&gt; has a default base implementation.
-// Only types implementing Generator can receive it.
-async fn fetch(url: string): Response! {
-    yield;
-    get_response()!
+<h3 id="53-runtime-tasks-coroutines-and-concurrency-apis">5.3 Runtime Tasks, Coroutines, and Concurrency APIs</h3>
+<pre><code class="language-zith">// The compiler treats runtime task types like any other library type.
+// There is no `async fn`, `yield`, `spawn`, or `await` syntax in the core language.
+fn fetch(url: string): Task&lt;Response!&gt; {
+    return runtime.schedule(url);
 }</code></pre>
+<p>Concurrency is modeled by <code>stdlib</code> or runtime APIs, not by dedicated syntax or a special function kind. A library may expose <code>Task&lt;T&gt;</code>, <code>Generator&lt;T&gt;</code>, channels, executors, or thread handles, but the compiler only sees ordinary declarations, calls, traits/capabilities, and the NRA facts needed to validate resource usage around them.</p>
+<h3 id="54-overloading">5.4 Overloading</h3>
+<p>Several functions in one scope may share a name as long as their parameter lists differ, either in count or in parameter types. The call site selects the declaration whose parameters accept the given arguments.</p>
+<pre><code class="language-zith">fn add(a: i32, b: i32): i32 { a + b }
+fn add(a: f64, b: f64): f64 { a + b }
+fn add(a: i32, b: i32, c: i32): i32 { a + b + c }
+
+fn main(): i32 {
+    let i: i32 = add(1, 2);        // add(i32,i32)
+    let f: f64 = add(1.0, 2.0);    // add(f64,f64)
+    return add(i, 3, 4);           // add(i32,i32,i32)
+}</code></pre>
+<p>Methods overload the same way; the implicit <code>self</code> parameter participates in the signature.</p>
+<pre><code class="language-zith">implement Point {
+    fn shifted(self): Point { ... }
+    fn shifted(self, by: i32): Point { ... }
+}</code></pre>
+<p>Rules:</p>
+<ul>
+  <li>Two declarations whose parameter types are identical are a duplicate declaration (<code>E2002</code>), even</li>
+</ul>
+<p>when their return types differ. The return type is never part of overload selection.</p>
+<ul>
+  <li>Memory qualifiers do not discriminate overloads: <code>fn f(p: lend P)</code> and <code>fn f(p: view P)</code> are the</li>
+</ul>
+<p>same signature, and therefore <code>E2002</code>.</p>
+<ul>
+  <li>A function name may not collide with a non-function binding of the same name (<code>E2002</code>).</li>
+  <li><code>extern fn</code> cannot be overloaded: it carries a fixed C linkage name.</li>
+  <li>A call with no candidate that accepts the arguments is <code>E2007</code>; a call accepted by more than one</li>
+</ul>
+<p>candidate is <code>E2008</code>. There is no ranking of conversion quality, so any tie is an error rather than a silent choice.</p>
+<ul>
+  <li>Name resolution does not merge candidates across scopes. The nearest scope declaring the name</li>
+</ul>
+<p>wins and shadows outer declarations entirely.</p>
+<p>Overloading is implemented by qualifying linkage names as <code>&lt;module&gt;.&lt;Owner&gt;.&lt;name&gt;(&lt;params&gt;)</code>, for example <code>std.io.console.println(*char)</code>. <code>extern fn</code> declarations and <code>main</code> keep their plain source name so that C interop and the linker's entry point are unaffected.</p>
 <hr>
 <p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

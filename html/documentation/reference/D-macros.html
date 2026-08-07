@@ -1,6 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="15-macros">15. Macros</h1>
-<blockquote><p><strong>Implementation status:</strong> Macro declarations parse; <code>@macro</code> call sites emit warning W2009 (<code>NotImplemented</code>) and the call is dropped. Tag macros are <strong>spec-only</strong>. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>@macro</code> and <code>raw macro</code> calls are implemented and expand through sema/HIR. Tag macros (<code>&lt;Tag&gt;</code>) are implemented for statement-position expansion with named attributes; they do not produce a value. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <table>
   <thead>
     <tr>
@@ -11,36 +11,41 @@
   <tbody>
     <tr>
       <td>Normal (scoped)</td>
-      <td>Hygienic — symbols do not leak into the call site's scope. Requires the <code>@</code> prefix at the call site.</td>
+      <td>Hygienic for bindings introduced by the macro, but template names are resolved from the call-site scope, so globals and imports remain visible when not shadowed. Requires the <code>@</code> prefix at the call site.</td>
     </tr>
     <tr>
       <td>Raw macro</td>
-      <td>Inserts code literally at the call site; not hygienic. Also requires the <code>@</code> prefix.</td>
+      <td>Inserts code literally at the call site; not hygienic. Names resolve in the call-site scope first and fall back to globals/imports. Also requires the <code>@</code> prefix.</td>
     </tr>
     <tr>
       <td>Tag macro</td>
-      <td>HTML-like syntax. Tag attributes (e.g. <code>id=5</code>) are available as <code>attributes</code> when the macro is the first argument; content between tags forms the remaining arguments. Uses <code>&lt;&gt;</code> syntax — no <code>@</code> prefix.</td>
+      <td>HTML-like syntax. Tag attributes must be <code>name: value</code> pairs and are available as <code>attributes.name</code> in the body. Content between tags is parsed as statements and passed as one <code>body</code> argument. Uses <code>&lt;&gt;</code> syntax — no <code>@</code> prefix.</td>
     </tr>
   </tbody>
 </table>
 <blockquote><p>Best practice: define macros inside a <code>context</code> block (<a href="./D-contexts.html">§17</a>) rather than activating them globally.</p></blockquote>
 <ul>
-  <li>They all have special arguments that can manipulate the AST. Default and raw macros accept attributes via <code>[capture]</code> syntax; tag macros receive attributes as <code>attributes</code>.</li>
+  <li>Macros accept a special first parameter named <code>attributes</code> (with no meta-type) to receive</li>
 </ul>
+<p>call-site attributes. <code>@closure|k: 1|(...)</code> and <code>&lt;Box k: 1&gt; ... &lt;/Box&gt;</code> both expose the values as <code>attributes.k</code> inside the body. A macro without that parameter rejects attribute syntax.</p>
 <pre><code class="language-zith">macro log(msg: expr) { @println(&quot;[LOG] &quot;, msg); }
 
 raw macro swap(a: identifier, b: identifier) {
     let _tmp = a; a = b; b = _tmp;
 }
 
-// Default/raw macro with capture attribute
-@closure[capture](){ ... }
+// Default/raw macro with attribute parameter
+macro closure(attributes, body1: block) { body1; }
+@closure|k: 1|({ ... })
 
 // Tag macro — attributes come from the tag syntax
-&lt;Section title=&quot;Overview&quot;&gt; body &lt;/Section&gt;
-&lt;cool id=5, name=&quot;name&quot;&gt; content &lt;/cool&gt;
+&lt;Section title: &quot;Overview&quot;&gt; body &lt;/Section&gt;
 
-// Macro parameter meta-types: identifier, expr, condition, body</code></pre>
+// Macro parameter meta-types: identifier, expr, condition, block, body</code></pre>
+<h3 id="scope-and-hygiene">Scope and Hygiene</h3>
+<p>Normal macros keep macro-local bindings hygienic: a <code>let</code>/<code>var</code> introduced by the template does not leak into the call site, and a call-site local does not accidentally capture a same-named macro-local. Names that are not macro-locals (e.g. a function or global referenced by the template) still resolve through the call-site scope chain and can reach globals and imports.</p>
+<p>Raw macros are literal: their <code>let</code>/<code>var</code> bindings and name reads use the call-site scope. A raw macro name first resolves against call-site locals, then the enclosing scopes, then the module/global scope. Splice statements remain in the call-site block and can see names declared before or after the call in that block.</p>
+<p>The <code>::</code> scope-resolution operator remains a separate roadmap item; this chapter describes only the default and raw macro resolution behaviour.</p>
 <h3 id="151-the--prefix-rule">15.1 The <code>@</code> Prefix Rule</h3>
 <p>The <code>@</code> prefix is what distinguishes a macro call from an ordinary function call:</p>
 <pre><code class="language-zith">// Macro call -- @ prefix
@@ -53,7 +58,17 @@ console.write(&quot;hello&quot;);
 process(data);
 save(file);</code></pre>
 <p>Tag macros are the one exception — they use <code>&lt;&gt;</code> syntax and never take the <code>@</code> prefix:</p>
-<pre><code class="language-zith">&lt;div class=&quot;container&quot;&gt; content &lt;/div&gt;
-&lt;Section title=&quot;Overview&quot;&gt; body &lt;/Section&gt;</code></pre>
+<pre><code class="language-zith">&lt;Section title: &quot;Overview&quot;&gt; content &lt;/Section&gt;</code></pre>
+<h3 id="152-tag-macro-declarations">15.2 Tag Macro Declarations</h3>
+<p><code>tag macro</code> is a macro declaration that is invoked with HTML-like syntax. The macro body is a template; only the tokens cloned at a call site are compiled:</p>
+<pre><code class="language-zith">tag macro Section(attributes, content: body) {
+    let title = attributes.title;
+    content
+}
+
+&lt;Section title: &quot;Overview&quot;&gt;
+    section body
+&lt;/Section&gt;</code></pre>
+<p>Attributes are optional and must be named <code>attributes</code> as the first parameter. Every attribute is <code>name: value</code> (no <code>=</code> form) and is substituted wherever the body uses <code>attributes.name</code>. Tag macros cannot be used as expressions.</p>
 <hr>
 <p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

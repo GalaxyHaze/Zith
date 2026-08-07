@@ -1,6 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="11-comptime">11. Comptime</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>comptime</code> blocks and reflection intrinsics are <strong>spec-only</strong>. <code>const</code> bindings parse correctly but are not evaluated at compile time yet. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>comptime</code> blocks, compile-time reflection intrinsics, and <code>const fn</code> evaluation are <strong>spec-only</strong>. <code>const</code> bindings are <strong>working</strong> (immutable at runtime) but are not evaluated at compile time. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <p>Comptime covers compile-time computation: reflection, type manipulation, and <code>const</code> blocks.</p>
 <h3 id="111-comptime-bindings">11.1 Comptime Bindings</h3>
 <pre><code class="language-zith">const counter: mut = 0;

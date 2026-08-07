@@ -1,56 +1,31 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
-<h1 id="10-concurrency--threads">10. Concurrency &amp; Threads</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>spawn</code>, <code>await</code>, and <code>#wont_remain</code> are <strong>spec-only</strong>. No compiler support exists yet. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
-<h3 id="101-spawning">10.1 Spawning</h3>
-<pre><code class="language-zith">// Default thread type
-let handle = spawn worker_fn(data);
-
-// Explicit thread type
-let handle = spawn worker_fn(data) with GreenThread;
-
-// Fire-and-forget
-let _ = spawn background_task();
-
-// #wont_remain -- promise the thread dies before the scope ends
-#wont_remain let _ = spawn quickTask(sharedData);</code></pre>
-<h3 id="102-compile-time-safety-enforcement">10.2 Compile-Time Safety Enforcement</h3>
-<p>If a thread accesses shared data, the compiler requires <strong>one of</strong>:</p>
+<h1 id="10-concurrency--runtime-apis">10. Concurrency &amp; Runtime APIs</h1>
+<blockquote><p><strong>Implementation status:</strong> concurrency is not a core syntax feature. The compiler does not model <code>async fn</code>, <code>yield</code>, <code>spawn</code>, or <code>await</code> as language constructs; any future concurrency support is expected to arrive through <code>stdlib</code> and runtime APIs built from ordinary functions, types, and NRA-checked resource rules. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<h3 id="101-core-language-position">10.1 Core-Language Position</h3>
+<p>Zith's core language does not define concurrency-specific statements, operators, or function kinds. There are no dedicated HIR nodes for tasks, threads, <code>await</code>, or coroutine suspension. The compiler understands only:</p>
 <ul>
-  <li><code>await handle</code> before the shared data goes out of scope, or</li>
-  <li>the <code>#wont_remain</code> attribute on the spawn.</li>
+  <li>ordinary declarations and calls;</li>
+  <li>library-defined handle, channel, task, or executor types;</li>
+  <li>traits/capabilities used to describe what those types guarantee;</li>
+  <li>NRA facts about sharing, lending, capture, escape, and ownership across those calls.</li>
 </ul>
-<p>Missing both is a <strong>compile error</strong>. Violating the <code>#wont_remain</code> promise is not caught by the compiler — the shared data may become a dangling reference. An alternative to both is using <code>global: share T</code> or <code>Rc</code>.</p>
-<table>
-  <thead>
-    <tr>
-      <th>Keyword / Method</th>
-      <th>Semantics</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code>await handle</code></td>
-      <td>Waits for the thread to finish.</td>
-    </tr>
-    <tr>
-      <td><code>await globalVar</code></td>
-      <td>Blocks until the global variable has been initialized.</td>
-    </tr>
-    <tr>
-      <td><code>handle.send(msg)</code></td>
-      <td>Sends a message to the running thread.</td>
-    </tr>
-    <tr>
-      <td><code>#wont_remain</code></td>
-      <td>Attribute on <code>spawn</code>. Promises the thread dies before the enclosing scope ends.</td>
-    </tr>
-  </tbody>
-</table>
-<pre><code class="language-zith">let handle = spawn worker(sharedData);
-await handle;
+<h3 id="102-runtime-surface">10.2 Runtime Surface</h3>
+<p>The standard library or an alternate runtime may expose APIs such as thread spawners, executors, message queues, join handles, or resumable tasks. Those APIs are library surface, not syntax:</p>
+<pre><code class="language-zith">let handle = runtime.spawn(workerFn, sharedData);
+runtime.join(handle);
 
-global cfg: Config;
-await cfg;
-@println(cfg.host);</code></pre>
+let task: Task&lt;Response!&gt; = runtime.schedule(fetchRequest);
+let response = runtime.blockOn(task);</code></pre>
+<p>API names above are illustrative. The compiler does not reserve them.</p>
+<h3 id="103-what-the-compiler-proves">10.3 What the Compiler Proves</h3>
+<p>Concurrency-related safety is enforced through the same pre-HIR ownership proof used everywhere else:</p>
+<ul>
+  <li>whether a call duplicates a resource illegally;</li>
+  <li>whether a borrowed or <code>belong</code> value escapes;</li>
+  <li>whether narrowing facts or branch facts justify later lowering decisions;</li>
+  <li>whether shared/runtime-managed resources are passed only through the capabilities and wrapper types</li>
+</ul>
+<p>that define the contract.</p>
+<p>The compiler does not special-case threads or async control flow. If a runtime API needs stronger guarantees, it must express them through normal signatures, types, and traits that NRA can reason about before HIR is finalized.</p>
 <hr>
 <p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

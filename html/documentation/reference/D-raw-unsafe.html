@@ -1,5 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="13-raw--unsafe">13. Raw &amp; Unsafe</h1>
+<blockquote><p><strong>Implementation status:</strong> <code>raw fn</code> is <strong>working</strong>. <code>raw</code> as an unwrap operator is <strong>spec-only</strong>. <code>unsafe</code> blocks, <code>raw union</code>, and safety-hierarchy enforcement are <strong>spec-only</strong>. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="131-safety-hierarchy">13.1 Safety Hierarchy</h3>
 <pre><code>Safe code (default)
     └─ needs raw blocks to call raw fn

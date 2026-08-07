@@ -1,6 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="8-error-handling">8. Error Handling</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>?T</code> / <code>T!</code> types, <code>must</code>, and <code>raw</code> are <strong>working</strong>. <code>?</code> / <code>!</code> propagation operators, <code>fail</code> blocks, <code>with</code> / <code>catch</code>, and <code>throw</code> are <strong>spec-only</strong> (no compiler support yet). See <a href="./D-implementation-status.html">impl-status.md</a> for details.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>?T</code> and <code>T!</code> types are <strong>working</strong>. <code>?</code> postfix propagation is <strong>working</strong> with full operand and return-type validation. <code>null → ?T</code> and <code>T → ?T</code> coercions are <strong>working</strong>. <code>must</code>, <code>raw</code>, <code>fail</code>, <code>with</code>, <code>catch</code>, <code>throw</code>, and prefix <code>?</code>/<code>!</code> fallback are <strong>spec-only</strong>. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <p>Error handling in Zith is fully static and return-based — there are no exceptions, and no semicolon is required after <code>?</code> or <code>!</code>.</p>
 <h3 id="81-failable-types">8.1 Failable Types</h3>
 <table>
@@ -27,6 +27,22 @@
 <p>Failable types may be stacked, and the notation reads linearly:</p>
 <pre><code class="language-zith">?*?(?i32 ! IoError)</code></pre>
 <p>Read left to right, outer to inner: an <em>optional</em> <strong>pointer</strong> to an <em>optional</em> <strong>Result</strong>, where the Result's success type is <code>?i32</code> and its error type is <code>IoError</code>.</p>
+<h3 id="811-c-pointers-are-t">8.1.1 C pointers are <code>?*T</code></h3>
+<p>Every pointer imported from a C header is typed <code>?<em>T</code>, not <code></em>T</code>: a C pointer is nullable, and <code>?*T</code> uses the nullptr niche, so the layout is exactly the bare pointer. <code>is null</code> is the canonical way to check one:</p>
+<pre><code class="language-zith">import &quot;stdio.h&quot;
+
+let f = fopen(&quot;data.bin&quot;, &quot;r&quot;);   // f: ?*FILE
+if (f is null) {
+    return 1;
+}</code></pre>
+<p>Comparing a pointer against an integer is an error, including the C idiom <code>p != 0</code> and its hex spelling <code>p != 0x0</code>: no integer-to-pointer coercion exists.</p>
+<p>Reinterpreting a C pointer keeps its nullability: the target of the cast must itself be nullable, so <code>as ?<em>T</code> is the accepted form and <code>as </em>T</code> reports <code>E3003</code> with a diagnostic that names the <code>?*T</code> spelling.</p>
+<pre><code class="language-zith">import &quot;stdlib.h&quot;
+
+let cell = malloc(64) as ?*i32;   // ok: cell is ?*i32
+let bad  = malloc(64) as *i32;    // E3003: use &#x27;as ?*T&#x27;</code></pre>
+<p>In the other direction no cast is needed at all: any pointer, nullable or not, is accepted where a C <code>void<em></code> (<code>raw opaque</code>) is expected, so <code>free(cell)</code> and <code>free(&amp;local)</code> both compile. That coercion is one-way; going from <code>raw opaque</code> back to a concrete <code>?</em>T</code> still requires <code>as</code>.</p>
+<blockquote><p><strong>Temporary:</strong> flow-sensitive narrowing after <code>is null</code> is not implemented yet, so a <code>?<em>T</code> from C is currently accepted unchecked wherever a <code></em>T</code> is expected. This allowance lives in a single predicate (<code>PerModuleSema::allowsUncheckedNullablePointer</code>) and will be removed once narrowing (and/or <code>must</code>/<code>raw</code>) lands, at which point unchecked use becomes a diagnostic.</p></blockquote>
 <h3 id="82-must-vs-raw">8.2 <code>must</code> vs. <code>raw</code></h3>
 <table>
   <thead>

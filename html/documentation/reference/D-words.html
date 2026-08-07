@@ -1,6 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="16-words-custom-operators">16. Words (Custom Operators)</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>word</code> / <code>context</code> declarations and word calls are <strong>blocked (E2010)</strong>. The parser accepts them; the semantic pass rejects them before HIR. See <a href="./D-implementation-status.html">impl-status.md</a> for details.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>prefix</code>, <code>suffix</code>, <code>infix</code>, and <code>nop</code> declarations are <strong>parse skipped</strong> — the declaration is accepted but the body is dropped via <code>skipDelimited</code>. Word call expressions are a <strong>parse error</strong>. No semantic or HIR support. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <p>Words let you define custom operators from identifiers. Each word has a fixed position — <strong>prefix</strong>, <strong>infix</strong>, or <strong>suffix</strong> — with language-defined precedence.</p>
 <ul>
   <li>You must activate a word with <code>use</code>, even if you already imported its module.</li>

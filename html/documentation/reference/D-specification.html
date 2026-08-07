@@ -65,7 +65,7 @@
     </tr>
     <tr>
       <td><code>when</code>, <code>for</code>, <code>-&gt;</code></td>
-      <td><code>async</code> — for data pipelines</td>
+      <td>runtime/stdlib concurrency APIs — for parallel work without special syntax</td>
     </tr>
   </tbody>
 </table>
@@ -90,7 +90,7 @@ use SQL {
 use SQL;   // pollutes the rest of the file</code></pre>
 <h3 id="15-compilation-pipeline">1.5 Compilation Pipeline</h3>
 <p>The <code>zithc</code> compiler follows a multi-stage pipeline:</p>
-<pre><code>source -&gt; lex -&gt; scan -&gt; resolve(import/symbols) -&gt; sema -&gt; comptime -&gt; NRA -&gt; HIR -&gt; LLVM</code></pre>
+<pre><code>source -&gt; lex -&gt; scan -&gt; resolve(import/symbols) -&gt; sema -&gt; comptime/solve -&gt; NTA/NRA -&gt; HIR -&gt; LLVM</code></pre>
 <blockquote><p>Note: when you compile a library, after LLVM it outputs <code>.zirl</code> (Zith Intermediate Representation Library).</p></blockquote>
 <table>
   <thead>
@@ -121,16 +121,16 @@ use SQL;   // pollutes the rest of the file</code></pre>
       <td>Semantic analysis — name resolution, type checking, visibility</td>
     </tr>
     <tr>
-      <td><code>comptime</code></td>
-      <td>Generic instantiation, macro expansion, <code>comptime</code> evaluation</td>
+      <td><code>comptime/solve</code></td>
+      <td>Generic instantiation, macro expansion, <code>comptime</code> evaluation, and the solved semantic view that still preserves resource identity for ownership proof</td>
     </tr>
     <tr>
-      <td><code>NRA</code></td>
-      <td>Apply NRA to ensure memory safety</td>
+      <td><code>NTA/NRA</code></td>
+      <td>Accumulate semantic/resource facts, prove ownership rules, emit diagnostics, and apply only internal canonicalizations that do not change public ABI</td>
     </tr>
     <tr>
       <td><code>HIR</code></td>
-      <td>Build High-level IR — desugared, typed, NRA-validated</td>
+      <td>Build High-level IR — desugared, typed, NRA-validated, carrying only residual facts needed after the proof boundary</td>
     </tr>
     <tr>
       <td><code>LLVM</code></td>
@@ -173,7 +173,7 @@ use SQL;   // pollutes the rest of the file</code></pre>
       <td>5</td>
       <td><a href="./D-functions.html">Functions</a></td>
       <td><code>05-functions.md</code></td>
-      <td><code>fn</code>, <code>const fn</code>, <code>async fn</code>, <code>flow fn</code>, <code>raw fn</code>, return types</td>
+      <td><code>fn</code>, <code>const fn</code>, <code>flow fn</code>, <code>raw fn</code>, return types</td>
     </tr>
     <tr>
       <td>6</td>
@@ -201,9 +201,9 @@ use SQL;   // pollutes the rest of the file</code></pre>
     </tr>
     <tr>
       <td>10</td>
-      <td><a href="./D-concurrency.html">Concurrency &amp; Threads</a></td>
+      <td><a href="./D-concurrency.html">Concurrency &amp; Runtime APIs</a></td>
       <td><code>10-concurrency.md</code></td>
-      <td><code>spawn</code>, <code>await</code>, <code>#wont_remain</code>, thread safety</td>
+      <td>stdlib/runtime concurrency surface, resource safety, no core syntax</td>
     </tr>
     <tr>
       <td>11</td>
@@ -233,7 +233,7 @@ use SQL;   // pollutes the rest of the file</code></pre>
       <td>15</td>
       <td><a href="./D-macros.html">Macros</a></td>
       <td><code>15-macros.md</code></td>
-      <td>Scoped, raw, tag macros, <code>@</code> prefix</td>
+      <td>Scoped, raw, tag macros, <code>@</code> prefix, call-site scope behaviour</td>
     </tr>
     <tr>
       <td>16</td>
@@ -373,14 +373,9 @@ use SQL;   // pollutes the rest of the file</code></pre>
       <td>NRA memory modifiers — <code>default</code> is implicit when no keyword is written.</td>
     </tr>
     <tr>
-      <td><code>fn</code> / <code>const fn</code> / <code>async fn</code> / <code>flow fn</code> / <code>raw fn</code></td>
+      <td><code>fn</code> / <code>const fn</code> / <code>flow fn</code> / <code>raw fn</code></td>
       <td>Functions</td>
       <td>Function kinds. Orthogonal; cannot be combined.</td>
-    </tr>
-    <tr>
-      <td><code>yield</code></td>
-      <td>Functions</td>
-      <td>Suspend an async fn, optionally producing a value.</td>
     </tr>
     <tr>
       <td><code>trait</code> / <code>interface</code> / <code>extends</code> / <code>requires</code> / <code>dyn</code></td>
@@ -400,7 +395,7 @@ use SQL;   // pollutes the rest of the file</code></pre>
     <tr>
       <td><code>Allocator</code> / <code>Generator</code> / <code>Share</code> / <code>Lent</code> / <code>Trust</code> / <code>Unique</code></td>
       <td>Capabilities</td>
-      <td>Memory, async, threading, and safety capabilities.</td>
+      <td>Memory, runtime protocol, and safety capabilities.</td>
     </tr>
     <tr>
       <td><code>marker</code> / <code>dock</code> / <code>jump</code></td>
@@ -426,16 +421,6 @@ use SQL;   // pollutes the rest of the file</code></pre>
       <td><code>operator</code> / <code>token</code></td>
       <td>Words</td>
       <td>Custom operator definition / token word definition. Must be defined inside a <code>context</code>.</td>
-    </tr>
-    <tr>
-      <td><code>spawn</code> / <code>await</code> / <code>handle.send</code></td>
-      <td>Threads</td>
-      <td>Spawn a thread, wait on it, send it a message.</td>
-    </tr>
-    <tr>
-      <td><code>#wont_remain</code></td>
-      <td>Threads</td>
-      <td>Promise that the thread dies before the enclosing scope ends.</td>
     </tr>
     <tr>
       <td><code>?T</code> / <code>T!</code></td>
@@ -601,10 +586,6 @@ use SQL;   // pollutes the rest of the file</code></pre>
     <tr>
       <td><code>#thread_local</code></td>
       <td>The variable uses thread-local storage.</td>
-    </tr>
-    <tr>
-      <td><code>#wont_remain</code></td>
-      <td>A promise that the thread dies before the enclosing scope ends.</td>
     </tr>
   </tbody>
 </table>

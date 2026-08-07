@@ -1,7 +1,7 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="zith-implementation-status">Zith Implementation Status</h1>
-<blockquote><p>Last updated: 2026-07-15. Track live progress on the <a href="https://github.com/GalaxyHaze/Zith/issues">Issue Tracker</a>.</p></blockquote>
-<p>This document is the authoritative reference for what is currently working, what is parsed but not yet semantically active, and what exists only at the specification level. All spec chapters link here for status information so it does not need to be maintained in multiple places.</p>
+<blockquote><p>Last updated: 2026-08-06 (documentation architecture refresh).</p></blockquote>
+<p>This document is the single source of truth for what the compiler supports today. Status reflects actual compiler behaviour at baseline <code>a5f3716</code>. Each feature was verified by running <code>build/zithc check</code> against a standalone test file, with source inspection where a status depends on internal structure; status reflects actual compiler behaviour, not spec intent.</p>
 <hr>
 <h2 id="status-legend">Status Legend</h2>
 <table>
@@ -14,27 +14,27 @@
   <tbody>
     <tr>
       <td><strong>Working</strong></td>
-      <td>Implemented, tested, and passes CTest. Safe to use.</td>
+      <td>Accepted by parser and sema. Lowers through HIR to LLVM codegen.</td>
     </tr>
     <tr>
-      <td><strong>Partial</strong></td>
-      <td>Parsed and some lowering works; known gaps exist (see Notes).</td>
+      <td><strong>Check only</strong></td>
+      <td>Passes <code>zithc check</code> but semantics are incidental (parsed as Name / Binary). No dedicated AST node, HIR, or codegen.</td>
     </tr>
     <tr>
-      <td><strong>Blocked (E2010)</strong></td>
-      <td>Accepted by the parser; the semantic pass rejects it with error E2010 before it can reach HIR or codegen. Will be unlocked incrementally.</td>
+      <td><strong>Parse skipped</strong></td>
+      <td>Declaration accepted; body entirely skipped by <code>skipDelimited('{', '}')</code>. No semantics.</td>
     </tr>
     <tr>
-      <td><strong>Warn only</strong></td>
-      <td>Runs with a <code>NotImplemented</code> (W2009) warning; HIR lowering silently drops the node.</td>
-    </tr>
-    <tr>
-      <td><strong>Stub</strong></td>
-      <td>CLI command exists but returns "not implemented yet".</td>
+      <td><strong>Parse error</strong></td>
+      <td>The parser itself rejects this construct. Does not reach sema.</td>
     </tr>
     <tr>
       <td><strong>Spec only</strong></td>
-      <td>Specified in the language docs; no compiler implementation exists.</td>
+      <td>No compiler implementation.</td>
+    </tr>
+    <tr>
+      <td><strong>Stub</strong></td>
+      <td>CLI subcommand exists but returns "not implemented yet".</td>
     </tr>
   </tbody>
 </table>
@@ -52,122 +52,70 @@
     <tr>
       <td>Lexer</td>
       <td><strong>Working</strong></td>
-      <td>Full token set including experimental keywords</td>
+      <td>Hand-written, character-at-a-time. Longest-first maximal munch for all multi-char operators. <code>&amp;&amp;</code> and `</td>
+      <td></td>
+      <td><code> are rejected with a dedicated error pointing to </code>and<code> / </code>or`</td>
     </tr>
     <tr>
-      <td>Parser / scanner</td>
+      <td>Parser</td>
       <td><strong>Working</strong></td>
-      <td>Full grammar. All AST nodes constructed correctly</td>
+      <td>Recursive-descent. Function decls, expressions, imports.</td>
     </tr>
     <tr>
       <td>Formatter</td>
       <td><strong>Working</strong></td>
-      <td>Preserves all nodes including <code>SeqNode</code>, <code>WordCallNode</code>, <code>WordDeclNode</code>, <code>ContextDeclNode</code>, <code>UseNode</code></td>
+      <td>Round-trip stable for all 16 <code>ExprKind</code> nodes including <code>Index</code>, <code>OptionalProp</code>, <code>Field</code>, <code>Arrow</code>, and <code>StructLiteral</code></td>
     </tr>
     <tr>
       <td>Import resolution</td>
       <td><strong>Working</strong></td>
-      <td><code>import</code>, <code>from</code>, <code>export</code>, <code>alias</code></td>
+      <td><code>import</code>, <code>from</code>, <code>export</code>, <code>alias</code>, <code>type</code></td>
     </tr>
     <tr>
-      <td>Name resolution (sema)</td>
+      <td>Name resolution</td>
       <td><strong>Working</strong></td>
-      <td>Symbol table, scoping, duplicate detection</td>
+      <td>Scope-chained <code>lookupBinding</code>. Per-scope <code>DuplicateDecl</code>.</td>
     </tr>
     <tr>
       <td>Type checking</td>
       <td><strong>Working</strong></td>
-      <td>Structs, enums, functions, generics, primitives</td>
+      <td>All <code>ExprKind</code> nodes. Optional/null validation. Index bounds.</td>
     </tr>
     <tr>
-      <td>Generic instantiation (Solve)</td>
+      <td>Generic instantiation</td>
       <td>Partial</td>
-      <td>Basic monomorphization works; complex constraint dispatch not yet</td>
+      <td><code>&lt;T, U&gt;</code> parameter lists parse and type-check on declarations; calling a generic function still fails in the comptime solver with "generic parameter T has no concrete type". <code>T: Trait</code> constraints parse but are not enforced</td>
     </tr>
     <tr>
-      <td>NRA pass</td>
-      <td><strong>Spec only</strong></td>
-      <td>Pipeline slot exists; ownership analysis not implemented</td>
+      <td>Comptime / Solve</td>
+      <td>Partial</td>
+      <td>Present in the documented target pipeline before ownership proof; some current frontend lowering still needs to stop erasing resource information before NRA</td>
+    </tr>
+    <tr>
+      <td>NTA / NRA</td>
+      <td><strong>In progress</strong></td>
+      <td>Pre-HIR residual-fact boundary is implemented: semantic facts are accumulated and consumed before final lowering; the alive/dead/lent state machine and full diagnostics remain</td>
     </tr>
     <tr>
       <td>HIR lowering</td>
       <td><strong>Working</strong></td>
-      <td>Covers all working features; unsupported nodes produce <code>kInvalidHirExpr</code></td>
+      <td>Covers all working features; stable boundary is <code>sema -&gt; comptime/solve -&gt; NTA/NRA -&gt; HIR</code>, and residual ownership facts attach to side tables without introducing ownership HIR nodes</td>
     </tr>
     <tr>
       <td>LLVM codegen</td>
       <td><strong>Working</strong></td>
-      <td>x86-64 and WebAssembly targets. Two-pass emission</td>
+      <td>x86-64 and WebAssembly targets</td>
     </tr>
     <tr>
-      <td>Cache / <code>.zirl</code> output</td>
+      <td>Cache</td>
       <td>Partial</td>
-      <td>Object caching works; <code>.zirl</code> library format not yet used</td>
+      <td>Object caching works; <code>.zirl</code> format not yet used</td>
     </tr>
   </tbody>
 </table>
 <hr>
 <h2 id="language-features">Language Features</h2>
-<h3 id="core-working">Core (Working)</h3>
-<table>
-  <thead>
-    <tr>
-      <th>Feature</th>
-      <th>Notes</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code>fn</code>, <code>flow fn</code>, <code>const fn</code>, <code>raw fn</code></td>
-      <td>All function kinds parse and lower</td>
-    </tr>
-    <tr>
-      <td><code>struct</code>, <code>component</code>, <code>enum</code>, <code>union</code></td>
-      <td>Full type definitions</td>
-    </tr>
-    <tr>
-      <td><code>implement T {}</code> / <code>implement T as Trait {}</code></td>
-      <td>Method and trait impl blocks</td>
-    </tr>
-    <tr>
-      <td><code>trait</code>, <code>interface</code></td>
-      <td>Declarations parse and resolve</td>
-    </tr>
-    <tr>
-      <td>Primitive types (<code>i8</code>-<code>i128</code>, <code>u8</code>-<code>u128</code>, <code>f32</code>, <code>f64</code>, <code>bool</code>, <code>char</code>)</td>
-      <td>Arithmetic, comparisons, unsigned ops</td>
-    </tr>
-    <tr>
-      <td><code>let</code>, <code>var</code>, <code>const</code>, <code>global</code></td>
-      <td>All binding forms</td>
-    </tr>
-    <tr>
-      <td><code>if</code> / <code>when</code> (pattern matching) / <code>for</code></td>
-      <td>Full control flow</td>
-    </tr>
-    <tr>
-      <td><code>-&gt;</code> chain operator</td>
-      <td>Left-to-right pipelines</td>
-    </tr>
-    <tr>
-      <td><code>import</code>, <code>from</code>, <code>export</code>, <code>alias</code>, <code>type</code></td>
-      <td>Module system</td>
-    </tr>
-    <tr>
-      <td><code>extern fn</code> / <code>import "header.h"</code></td>
-      <td>C interop</td>
-    </tr>
-    <tr>
-      <td><code>pub</code> / <code>mod</code> / <code>mod(..)</code> / <code>mod(N)</code></td>
-      <td>Visibility modifiers</td>
-    </tr>
-    <tr>
-      <td><code>marker</code> / <code>dock</code> / <code>jump</code></td>
-      <td>Structured goto inside <code>flow fn</code></td>
-    </tr>
-  </tbody>
-</table>
-<h3 id="partial--warnings">Partial / Warnings</h3>
+<h3 id="functions--bindings">Functions &amp; Bindings</h3>
 <table>
   <thead>
     <tr>
@@ -178,120 +126,387 @@
   </thead>
   <tbody>
     <tr>
-      <td>Field access (<code>.field</code>)</td>
+      <td><code>fn</code></td>
       <td><strong>Working</strong></td>
-      <td>Struct field reads/writes lower through HIR and LLVM</td>
+      <td>Parameters, return type, body. The return type is written <code>fn f(x: T): R</code> or <code>fn f(x: T) -&gt; R</code>; both spellings parse. Overloading by parameter count and types (F-33); linkage names are qualified as <code>&lt;module&gt;.&lt;Owner&gt;.&lt;name&gt;(&lt;params&gt;)</code>, except <code>extern fn</code> and <code>main</code></td>
     </tr>
     <tr>
-      <td>Index access (<code>a[i]</code>)</td>
+      <td>generic parameter lists <code>&lt;T, U&gt;</code></td>
+      <td><strong>Working (parse + typing)</strong></td>
+      <td>Accepted on <code>fn</code>, <code>struct</code>, <code>type</code> alias, <code>enum</code>, <code>union</code> and <code>trait</code> declarations. Inside the declaration each parameter resolves as an opaque type. Instantiation is not solved: both <code>identity&lt;i32&gt;(42)</code> and inferred <code>identity(42)</code> report <code>E3001</code> "generic parameter T has no concrete type". <code>T: Trait</code> constraints parse but are not enforced</td>
+    </tr>
+    <tr>
+      <td><code>flow fn</code></td>
       <td><strong>Working</strong></td>
-      <td>Arrays, pointers, and indexed struct access lower through HIR and LLVM</td>
+      <td>Parsed and lowers; <code>marker</code>/<code>dock</code>/<code>jump</code> not exhaustively tested</td>
     </tr>
     <tr>
-      <td>Struct literals</td>
-      <td>Working</td>
-      <td>Positional and named forms work; named literals support explicit <code>_</code> defaults. Methods remain out of scope</td>
+      <td><code>raw fn</code></td>
+      <td><strong>Working</strong></td>
+      <td>Parsed and lowers</td>
     </tr>
     <tr>
-      <td>Layout intrinsics (<code>@sizeOf</code>, <code>@alignOf</code>, <code>@offsetOf</code>)</td>
-      <td>Working</td>
-      <td>Backed by LLVM <code>DataLayout</code>; <code>@offsetOf</code> uses ABI layout offsets.</td>
+      <td><code>const fn</code></td>
+      <td><strong>Parse error</strong></td>
+      <td><code>const</code> is a binding keyword; <code>const fn f()</code> parses as <code>const</code> binding named <code>fn</code>, not a const function</td>
     </tr>
     <tr>
-      <td>Range expressions</td>
-      <td><strong>Warn only</strong></td>
-      <td>W2009</td>
+      <td><code>extern fn</code></td>
+      <td><strong>Working</strong></td>
+      <td>C ABI interop</td>
     </tr>
     <tr>
-      <td>Other <code>@intrinsic</code> calls</td>
-      <td><strong>Warn only</strong></td>
-      <td>W2009</td>
-    </tr>
-    <tr>
-      <td>Macro calls (<code>@macro</code>)</td>
-      <td><strong>Warn only</strong></td>
-      <td>W2009; no expansion</td>
-    </tr>
-    <tr>
-      <td>Generics (complex constraints)</td>
-      <td>Partial</td>
-      <td>Simple <code>&lt;T&gt;</code> works; <code>T: Trait or Other</code> constraints not fully enforced</td>
-    </tr>
-    <tr>
-      <td><code>dyn</code> dispatch</td>
-      <td>Partial</td>
-      <td>Type annotation parsed; vtable lowering not complete</td>
-    </tr>
-    <tr>
-      <td><code>async fn</code> / <code>yield</code></td>
-      <td><strong>Spec only</strong></td>
-      <td>Parsed; sema does not typecheck async bodies</td>
-    </tr>
-    <tr>
-      <td><code>spawn</code> / <code>await</code></td>
-      <td><strong>Spec only</strong></td>
-      <td>Parsed; no thread model in HIR</td>
+      <td><code>let</code>, <code>var</code>, <code>const</code>, <code>global</code></td>
+      <td><strong>Working</strong></td>
+      <td>All binding forms. <code>const</code> means immutable, not comptime</td>
     </tr>
   </tbody>
 </table>
-<h3 id="blocked--e2010-parsed-rejected-at-sema">Blocked — E2010 (Parsed, Rejected at Sema)</h3>
-<p>These are fully specified and parsed. They will be enabled incrementally once their HIR representation and type semantics are finalized.</p>
+<h3 id="types">Types</h3>
 <table>
   <thead>
     <tr>
       <th>Feature</th>
-      <th>Sema error</th>
-      <th>Next step</th>
+      <th>Status</th>
+      <th>Notes</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td><code>is</code> expressions</td>
-      <td>E2010</td>
-      <td>Requires union narrowing in HIR</td>
+      <td><code>bool</code>, <code>char</code></td>
+      <td><strong>Working</strong></td>
+      <td></td>
     </tr>
     <tr>
-      <td><code>as</code> cast expressions</td>
-      <td>E2010</td>
-      <td>Requires coercion rules in type checker</td>
+      <td><code>i8</code>–<code>i128</code>, <code>u8</code>–<code>u128</code></td>
+      <td><strong>Working</strong></td>
+      <td>Arithmetic between matching widths only; no implicit promotion</td>
     </tr>
     <tr>
-      <td><code>?</code> / <code>!</code> postfix propagation</td>
-      <td>E2010</td>
-      <td>Requires <code>?T</code> / <code>T!</code> types in HIR</td>
+      <td><code>f32</code>, <code>f64</code></td>
+      <td><strong>Working</strong></td>
+      <td>Same-width arithmetic only</td>
     </tr>
     <tr>
-      <td><code>?</code> / <code>!</code> prefix fallback</td>
-      <td>E2010</td>
-      <td>Requires <code>?T</code> / <code>T!</code> types in HIR</td>
+      <td><code>?T</code> (optional)</td>
+      <td><strong>Working</strong></td>
+      <td><code>null → ?T</code> and <code>T → ?T</code> coercions; <code>?</code> postfix propagation with operand/return validation. <code>null</code> is rejected for non-optional <code>*T</code></td>
     </tr>
     <tr>
-      <td><code>word</code> / <code>nop</code> / <code>infix</code> declarations</td>
-      <td>E2010</td>
-      <td>Requires word operator HIR nodes</td>
+      <td><code>T!</code> (failable)</td>
+      <td><strong>Working</strong></td>
+      <td>Declared type; lowered through HIR</td>
     </tr>
     <tr>
-      <td><code>context</code> declarations</td>
-      <td>E2010</td>
-      <td>Requires word/context resolution in sema</td>
+      <td><code>*T</code> (pointer)</td>
+      <td><strong>Working</strong></td>
+      <td>Non-nullable: <code>null</code> requires <code>?<em>T</code>. <code></em>p</code> deref, <code>&amp;x</code> addr-of, and <code>-&gt;</code> arrow all work. <code><em>void</code> is rejected (use <code>raw opaque</code>). Pointers imported from C are <code>?</em>T</code>, checked with <code>is null</code>; a <code>?<em>T</code> is still accepted unchecked where <code></em>T</code> is expected</td>
     </tr>
     <tr>
-      <td><code>use</code> statements</td>
-      <td>E2010</td>
-      <td>Depends on context/word activation</td>
+      <td><code>raw opaque</code></td>
+      <td><strong>Working</strong></td>
+      <td>Dedicated <code>TypeExprKind::Opaque</code>, lowered to pointer-to-void. Castable to and from any <code>*T</code> via <code>as</code>. Bare <code>opaque</code> (the tagged reference type) is still unimplemented and reports <code>unknown type</code></td>
     </tr>
     <tr>
-      <td>Word call expressions</td>
-      <td>E2010</td>
-      <td>Depends on word operator HIR nodes</td>
+      <td><code>[N]T</code> (array), <code>[]T</code> (slice)</td>
+      <td><strong>Working</strong></td>
+      <td>Indexing on arrays, slices, and pointers lowers through HIR/LLVM</td>
     </tr>
     <tr>
-      <td>Word sequence expressions (<code>SeqNode</code>)</td>
-      <td>E2010</td>
-      <td>Depends on word operator HIR nodes</td>
+      <td><code>dyn Trait</code></td>
+      <td><strong>Parse error</strong></td>
+      <td>Type parser does not handle <code>dyn</code></td>
+    </tr>
+    <tr>
+      <td><code>struct</code>, <code>component</code>, <code>enum</code>, <code>union</code></td>
+      <td><strong>Working</strong></td>
+      <td>Declarations parse and resolve</td>
+    </tr>
+    <tr>
+      <td><code>trait</code>, <code>interface</code></td>
+      <td><strong>Working</strong></td>
+      <td>Declarations parse and resolve</td>
+    </tr>
+    <tr>
+      <td><code>implement T as Trait {}</code></td>
+      <td><strong>Working</strong></td>
+      <td>Method bodies lowered</td>
+    </tr>
+    <tr>
+      <td><code>type</code> alias</td>
+      <td><strong>Working</strong></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>memory qualifiers (<code>mut</code>, <code>lend</code>, <code>view</code>, <code>unique</code>, <code>share</code>, <code>belong</code>)</td>
+      <td><strong>Working (parse + types)</strong></td>
+      <td>Accepted as type prefixes anywhere a type is written; carried in the type table as <code>TypeKind::Qualified</code>; writing through a <code>view</code> binding reports <code>E4004</code>. HIR/codegen strip the qualifier, and residual ownership facts are produced by the pre-HIR NTA/NRA boundary (F-34, partial F-14)</td>
     </tr>
   </tbody>
 </table>
+<h3 id="expressions">Expressions</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>Status</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>literals (<code>42</code>, <code>0xFF</code>, <code>0c17</code>, <code>0b101</code>, <code>3.14</code>, <code>true</code>, <code>false</code>, <code>null</code>, strings, chars)</td>
+      <td><strong>Working</strong></td>
+      <td>Explicit radix prefixes (<code>0x</code> hex, <code>0c</code> octal, <code>0b</code> binary) are typed and lowered to their value; a literal wider than 64 bits reports E0004. Digit separators (<code>1_000</code>) are unsupported. C-like escapes decoded in string and char literals; unknown escapes report E0001</td>
+    </tr>
+    <tr>
+      <td>unary <code>-</code>, <code>not</code></td>
+      <td><strong>Working</strong></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>unary <code>~</code></td>
+      <td><strong>Working</strong></td>
+      <td>Bitwise NOT; integer operand only, lowers to <code>HirUnaryOp::BitNot</code></td>
+    </tr>
+    <tr>
+      <td>binary <code>+</code> <code>-</code> <code>*</code> <code>/</code> <code>%</code> <code>==</code> <code>!=</code> <code>&lt;</code> <code>&gt;</code> <code>&lt;=</code> <code>&gt;=</code></td>
+      <td><strong>Working</strong></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>bitwise <code>&amp;.</code> `</td>
+      <td>.<code> </code>^.`</td>
+      <td><strong>Working</strong></td>
+      <td>Spec spellings keep the <code>.</code>. Both operands must be integers of the same type; share <code>HirBinaryOp::And</code>/<code>Or</code>/<code>Xor</code> with the <code>and</code>/<code>or</code>/<code>xor</code> keywords</td>
+    </tr>
+    <tr>
+      <td>assignment <code>=</code></td>
+      <td><strong>Working</strong></td>
+      <td>Right-associative, yields a value</td>
+    </tr>
+    <tr>
+      <td>compound assignment <code>+=</code> <code>-=</code> <code>*=</code> <code>/=</code> <code>%=</code> <code>&lt;&lt;=</code> <code>&gt;&gt;=</code> <code>&amp;=</code> `</td>
+      <td>=<code> </code>^=`</td>
+      <td><strong>Working</strong></td>
+      <td>Desugared in the parser to <code>Assign(Binary(base))</code>, so they yield a value like <code>=</code> and inherit its coercion and <code>view</code> checks. The bitwise compounds drop the <code>.</code> of their base spelling. No new HIR node</td>
+    </tr>
+    <tr>
+      <td><code>&amp;&amp;</code>, `</td>
+      <td></td>
+      <td>`</td>
+      <td><strong>Parse error</strong></td>
+      <td>Lexed as single tokens purely to report a dedicated error pointing at <code>and</code> / <code>or</code>; exactly one diagnostic, no cascade</td>
+    </tr>
+    <tr>
+      <td>field access <code>x.field</code></td>
+      <td><strong>Working</strong></td>
+      <td>Dot access on struct values</td>
+    </tr>
+    <tr>
+      <td>dereference <code>*p</code></td>
+      <td><strong>Working</strong></td>
+      <td>Pointer dereference via unary <code>*</code></td>
+    </tr>
+    <tr>
+      <td>address-of <code>&amp;x</code></td>
+      <td><strong>Working</strong></td>
+      <td>Address-of via unary <code>&amp;</code></td>
+    </tr>
+    <tr>
+      <td><code>-&gt;</code> chain operator</td>
+      <td><strong>Working</strong></td>
+      <td>Arrow access on struct pointers (<code>p-&gt;field</code>)</td>
+    </tr>
+    <tr>
+      <td>index <code>a[i]</code></td>
+      <td><strong>Working</strong></td>
+      <td>On arrays, slices, pointers; rejects non-indexable types</td>
+    </tr>
+    <tr>
+      <td><code>?</code> postfix propagation</td>
+      <td><strong>Working</strong></td>
+      <td>Requires optional operand in optional-returning function</td>
+    </tr>
+    <tr>
+      <td><code>as</code> cast</td>
+      <td><strong>Working</strong></td>
+      <td>Dedicated <code>ExprKind::Cast</code> -&gt; <code>HirCast</code> -&gt; LLVM conversion. Numeric pairs plus <code>raw opaque</code> &lt;-&gt; <code>*T</code> (<code>classifyCast</code>); pointer-to-pointer between concrete pointees, integer/pointer mixes and user-defined casts stay rejected. No narrowing overflow check</td>
+    </tr>
+    <tr>
+      <td><code>is null</code></td>
+      <td><strong>Working</strong></td>
+      <td>Dedicated <code>ExprKind::IsNull</code>. Requires an optional operand; <code>?*T</code> uses the nullptr niche, <code>?T</code> reads the discriminant</td>
+    </tr>
+    <tr>
+      <td><code>is &lt;type&gt;</code></td>
+      <td><strong>Parse error</strong></td>
+      <td>Only <code>is null</code> is supported; any other operand reports a dedicated diagnostic</td>
+    </tr>
+    <tr>
+      <td>range <code>1..5</code></td>
+      <td><strong>Check only</strong></td>
+      <td>Parsed as binary <code>..</code>; no dedicated sema</td>
+    </tr>
+    <tr>
+      <td>struct literal <code>Foo { x: 1, y: 2 }</code></td>
+      <td><strong>Working</strong></td>
+      <td>Struct literal with named fields via <code>{}</code> syntax</td>
+    </tr>
+    <tr>
+      <td><code>@sizeOf</code>, <code>@offsetOf</code>, <code>@alignOf</code></td>
+      <td><strong>Working</strong></td>
+      <td><code>@</code> parses in expression position. <code>@sizeOf(T)</code> accepts any complete type and types as <code>u64</code>; <code>@offsetOf(S, field)</code> and <code>@alignOf(S)</code> are struct-only and type as <code>i32</code>. <code>@sizeOf(void)</code> reports <code>E3001</code> ("requires a complete type")</td>
+    </tr>
+  </tbody>
+</table>
+<h3 id="control-flow">Control Flow</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>Status</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>if</code> / <code>else</code> / <code>else if</code></td>
+      <td><strong>Working</strong></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>while</code></td>
+      <td><strong>Deprecated</strong></td>
+      <td>Still lowers correctly, but emits <code>W1008</code> suggesting <code>for (cond) { }</code></td>
+    </tr>
+    <tr>
+      <td><code>break</code>, <code>continue</code></td>
+      <td><strong>Working</strong></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>return</code> (void and typed)</td>
+      <td><strong>Working</strong></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>for (cond) { }</code>, <code>for { }</code></td>
+      <td><strong>Working</strong></td>
+      <td>Conditional and infinite loop forms lower to the same CFG as <code>while</code></td>
+    </tr>
+    <tr>
+      <td><code>for (init; cond; step) { }</code></td>
+      <td><strong>Working</strong></td>
+      <td>Three clauses separated by semicolons. <code>init</code> and <code>step</code> are both optional; <code>continue</code> still runs the step before the next test</td>
+    </tr>
+    <tr>
+      <td><code>for (x in xs)</code></td>
+      <td><strong>Parse error</strong></td>
+      <td>The iterator form is recognised and reported as not implemented yet</td>
+    </tr>
+    <tr>
+      <td><code>when</code> / <code>match</code> pattern match</td>
+      <td><strong>Working</strong></td>
+      <td>Arms are written <code>(pattern) ~&gt; body</code>, comma-separated; <code>match</code> is a parser synonym for <code>when</code>. Equality, boolean and range (<code>1..3</code>) patterns lower through HIR to codegen. <code>(_)</code> is the default arm and must come last; a value-producing <code>when</code> without a default reports non-exhaustive. Covered by the runtime test <code>test_when_expression_runtime</code></td>
+    </tr>
+    <tr>
+      <td><code>marker</code> / <code>jump</code></td>
+      <td><strong>Working</strong></td>
+      <td>Block-style go-to: <code>marker</code> declares a labeled block, <code>jump</code> transfers control to it. <code>dock</code> not implemented</td>
+    </tr>
+    <tr>
+      <td><code>dock</code></td>
+      <td><strong>Parse error</strong></td>
+      <td>Not implemented yet</td>
+    </tr>
+  </tbody>
+</table>
+<h3 id="words-contexts-macros">Words, Contexts, Macros</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>Status</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>prefix</code>, <code>suffix</code>, <code>infix</code>, <code>nop</code> decls</td>
+      <td><strong>Parse skipped</strong></td>
+      <td>Body skipped via <code>skipDelimited</code></td>
+    </tr>
+    <tr>
+      <td><code>context</code> declarations</td>
+      <td><strong>Parse skipped</strong></td>
+      <td>Body skipped</td>
+    </tr>
+    <tr>
+      <td><code>use</code> statements</td>
+      <td><strong>Parse skipped</strong></td>
+      <td>Body skipped</td>
+    </tr>
+    <tr>
+      <td><code>macro</code> / <code>raw macro</code> declarations and <code>@name(...)</code> calls</td>
+      <td><strong>Working</strong></td>
+      <td>Normal macros rename template-local bindings hygienically and resolve other template names through the call-site scope (globals/imports visible when not shadowed). <code>raw macro</code> splices literally into the call-site scope and names resolve there before module/global fallback. Templates are not analysed as code; resolution is keyed by node id</td>
+    </tr>
+    <tr>
+      <td><code>tag macro</code> calls</td>
+      <td><strong>Working</strong></td>
+      <td><code>&lt;Section ...&gt; ... &lt;/Section&gt;</code>; named attributes via <code>attributes.name</code>; statement-position only</td>
+    </tr>
+    <tr>
+      <td>word call expressions</td>
+      <td><strong>Parse error</strong></td>
+      <td>No parser support</td>
+    </tr>
+    <tr>
+      <td>word sequence expressions</td>
+      <td><strong>Parse error</strong></td>
+      <td>No parser support</td>
+    </tr>
+  </tbody>
+</table>
+<h3 id="module-system--visibility">Module System &amp; Visibility</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>Status</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>import</code>, <code>from</code>, <code>export</code></td>
+      <td><strong>Working</strong></td>
+      <td>Import resolution with correct paths</td>
+    </tr>
+    <tr>
+      <td><code>alias</code></td>
+      <td><strong>Working</strong></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>pub</code>, <code>mod</code></td>
+      <td><strong>Working</strong></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>mod(..)</code>, <code>mod(N)</code></td>
+      <td>Not verified</td>
+      <td>Parser accepts; sema behaviour unknown</td>
+    </tr>
+    <tr>
+      <td>C header imports</td>
+      <td><strong>Working (common C)</strong></td>
+      <td>libclang only; variadic functions, array-decayed parameters, <code>va_list</code>, and function-pointer parameters supported. Single unsupported decls are skipped and recorded in <code>skippedFunctions</code>; macros, globals, bitfields, packed/anonymous records and flexible arrays remain unimported. Struct-by-value ABI is not verified</td>
+    </tr>
+  </tbody>
+</table>
+<hr>
 <h3 id="spec-only-no-compiler-support">Spec Only (No Compiler Support)</h3>
 <table>
   <thead>
@@ -302,27 +517,19 @@
   </thead>
   <tbody>
     <tr>
-      <td>NRA ownership analysis</td>
+      <td>NRA ownership analysis (alive/dead/lent state machine; qualifiers themselves are implemented)</td>
       <td><a href="./D-memory-model.html">07-memory-model.md</a></td>
     </tr>
     <tr>
-      <td><code>comptime</code> blocks / <code>const fn</code> evaluation</td>
+      <td><code>comptime</code> evaluation</td>
       <td><a href="./D-comptime.html">11-comptime.md</a></td>
     </tr>
     <tr>
-      <td><code>async fn</code> / <code>yield</code> / <code>spawn</code> / <code>await</code></td>
-      <td><a href="./D-concurrency.html">10-concurrency.md</a></td>
+      <td><code>const fn</code> evaluation</td>
+      <td><a href="./D-comptime.html">11-comptime.md</a></td>
     </tr>
     <tr>
-      <td><code>fail</code> blocks</td>
-      <td><a href="./D-error-handling.html">08-error-handling.md</a></td>
-    </tr>
-    <tr>
-      <td><code>with</code> / <code>catch</code></td>
-      <td><a href="./D-error-handling.html">08-error-handling.md</a></td>
-    </tr>
-    <tr>
-      <td><code>must</code> / <code>throw</code></td>
+      <td><code>fail</code> / <code>with</code> / <code>catch</code> / <code>must</code> / <code>throw</code></td>
       <td><a href="./D-error-handling.html">08-error-handling.md</a></td>
     </tr>
     <tr>
@@ -330,16 +537,44 @@
       <td><a href="./D-assets.html">12-assets.md</a></td>
     </tr>
     <tr>
-      <td>Tag macros (<code>&lt;Tag&gt;</code>)</td>
-      <td><a href="./D-macros.html">15-macros.md</a></td>
-    </tr>
-    <tr>
-      <td><code>.zirl</code> library distribution format</td>
+      <td><code>.zirl</code> binary format</td>
       <td><a href="./D-specification.html">01-overview (§1.5)</a></td>
     </tr>
     <tr>
       <td><code>@appendField</code>, <code>@removeField</code>, <code>@appendMethod</code></td>
       <td><a href="./D-comptime.html">11-comptime.md</a></td>
+    </tr>
+    <tr>
+      <td><code>dyn</code> dispatch</td>
+      <td><a href="./D-polymorphism.html">14-polymorphism.md</a></td>
+    </tr>
+  </tbody>
+</table>
+<hr>
+<h2 id="legacy-reserved-syntax-not-part-of-the-core-language-contract">Legacy Reserved Syntax (Not Part of the Core Language Contract)</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Surface</th>
+      <th>Current behaviour</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>async fn</code></td>
+      <td><strong>Parse skipped</strong></td>
+      <td>Legacy parser affordance only. Concurrency is being documented as <code>stdlib</code>/runtime APIs, not a function kind</td>
+    </tr>
+    <tr>
+      <td><code>yield</code></td>
+      <td>Reserved token</td>
+      <td>Not a core statement</td>
+    </tr>
+    <tr>
+      <td><code>spawn</code>, <code>await</code></td>
+      <td>Reserved tokens</td>
+      <td>Not core operators or statements; no frontend/HIR contract depends on them</td>
     </tr>
   </tbody>
 </table>
@@ -357,102 +592,177 @@
     <tr>
       <td><code>zithc build</code></td>
       <td><strong>Working</strong></td>
-      <td></td>
+      <td>Links an executable into <code>target/</code> by default; <code>--emit obj/ir/asm/hir</code> stop earlier; <code>--cache-stats</code> prints object-cache hit/miss counts</td>
     </tr>
     <tr>
       <td><code>zithc run</code></td>
       <td><strong>Working</strong></td>
-      <td>Compiles + executes in one step</td>
+      <td>Compiles + executes in one step; the program's stdout/stderr is forwarded to zithc's <strong>stdout</strong>, compiler diagnostics stay on stderr</td>
     </tr>
     <tr>
       <td><code>zithc check</code></td>
       <td><strong>Working</strong></td>
-      <td>Type-checks without emitting</td>
+      <td>Type-checks without emitting. Errors forwarded from frontend snapshot</td>
     </tr>
     <tr>
       <td><code>zithc fmt</code></td>
       <td><strong>Working</strong></td>
-      <td>Formats to <code>.clang-format</code>-style Zith conventions</td>
+      <td>Round-trip tested for <code>Index</code> and <code>OptionalProp</code></td>
     </tr>
     <tr>
       <td><code>zithc create &lt;name&gt;</code></td>
       <td><strong>Working</strong></td>
-      <td>Scaffolds <code>ZithProject.toml</code> + <code>main.zith</code></td>
+      <td></td>
     </tr>
     <tr>
       <td><code>zithc clean</code></td>
       <td><strong>Working</strong></td>
-      <td>Removes build dir and <code>.zith-cache</code></td>
+      <td></td>
     </tr>
     <tr>
       <td><code>zithc execute &lt;file&gt;</code></td>
       <td><strong>Working</strong></td>
-      <td>Compiles and executes a single file</td>
+      <td></td>
     </tr>
     <tr>
-      <td><code>zithc test</code></td>
-      <td><strong>Stub</strong></td>
-      <td>Returns "not implemented yet"</td>
+      <td><code>zithc test &lt;path&gt;</code></td>
+      <td><strong>Working</strong></td>
+      <td>Discovers and runs test files under the given path</td>
     </tr>
     <tr>
       <td><code>zithc repl</code></td>
       <td><strong>Stub</strong></td>
-      <td>Returns "not implemented yet"</td>
+      <td></td>
     </tr>
     <tr>
-      <td><code>zithc deps</code></td>
+      <td><code>zithc deps list</code></td>
+      <td><strong>Working</strong></td>
+      <td>Reads <code>ZithProject.toml</code> and lists declared dependencies</td>
+    </tr>
+    <tr>
+      <td><code>zithc deps add</code>, <code>deps remove</code></td>
       <td><strong>Stub</strong></td>
-      <td>Returns "not implemented yet"</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code>zithc docs</code></td>
+      <td><strong>Working</strong></td>
+      <td>Generates documentation from source</td>
     </tr>
   </tbody>
 </table>
 <hr>
 <h2 id="diagnostic-codes">Diagnostic Codes</h2>
+<p>Codes are grouped by pipeline stage. <code>E0000</code> remains the generic user-reported diagnostic.</p>
 <table>
   <thead>
     <tr>
-      <th>Code</th>
-      <th>Severity</th>
-      <th>Meaning</th>
+      <th>Range</th>
+      <th>Stage</th>
+      <th>Codes</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td>E2010</td>
-      <td>Error</td>
-      <td><code>UnsupportedSyntax</code> — feature parsed but not yet implemented in sema/HIR</td>
+      <td>0001-0005</td>
+      <td>Lexical</td>
+      <td><code>E0001</code> UnknownToken, <code>E0002</code> UnclosedString, <code>E0003</code> InvalidEscape, <code>E0004</code> InvalidIntLiteral, <code>E0005</code> UnclosedComment</td>
     </tr>
     <tr>
-      <td>W2009</td>
-      <td>Warning</td>
-      <td><code>NotImplemented</code> — feature parsed; HIR silently drops it</td>
+      <td>1001-1008</td>
+      <td>Parse</td>
+      <td><code>E1001</code> ExpectedExpr, <code>E1002</code> ExpectedSemicolon, <code>E1003</code> UnclosedParen, <code>E1004</code> ExpectedIdent, <code>E1005</code> InvalidImportDepth, <code>E1006</code> ImportError, <code>E1007</code> TopLevelLetNotAllowed, <code>W1008</code> DeprecatedSyntax (<code>while</code> -&gt; <code>for (cond)</code>)</td>
     </tr>
     <tr>
-      <td>E2001</td>
-      <td>Error</td>
-      <td><code>UndefinedIdent</code></td>
+      <td>2001-2010</td>
+      <td>Semantic</td>
+      <td><code>E2001</code> UndefinedIdent, <code>E2002</code> DuplicateDecl, <code>E2003</code> WrongArity, <code>E2004</code> UnusedDecl, <code>E2005</code> NotNamespace, <code>E2006</code> NoMember, <code>E2007</code> NoMatchingFn, <code>E2008</code> AmbiguousCall, <code>E2009</code> NotImplemented, <code>E2010</code> UnsupportedSyntax</td>
     </tr>
     <tr>
-      <td>E2002</td>
-      <td>Error</td>
-      <td><code>DuplicateDecl</code></td>
+      <td>2011-2020</td>
+      <td>Macro</td>
+      <td><code>E2011</code> MacroUnknown, <code>E2012</code> MacroArity, <code>E2013</code> MacroArgKind, <code>E2014</code> MacroRecursion, <code>E2015</code> MacroDuplicate, <code>E2016</code> MacroRawValue, <code>E2017</code> MacroTagValue, <code>E2018</code> MacroTagMismatch, <code>E2019</code> MacroAttrUnknown, <code>E2020</code> MacroAttrNotAllowed</td>
     </tr>
     <tr>
-      <td>E2003</td>
-      <td>Error</td>
-      <td><code>WrongArity</code></td>
+      <td>3001-3008</td>
+      <td>Types</td>
+      <td><code>E3001</code> TypeMismatch, <code>E3002</code> CannotInfer, <code>E3003</code> InvalidCast, <code>E3004</code> CyclicType, <code>E3005</code> NullDerefUnproven, <code>E3006</code> CoercionFailure, <code>E3007</code> WidthMismatch, <code>E3008</code> OptionalViolation</td>
     </tr>
     <tr>
-      <td>E2007</td>
-      <td>Error</td>
-      <td><code>NoMatchingFn</code></td>
+      <td>4001-4004</td>
+      <td>NRA / ownership</td>
+      <td><code>E4001</code> UseAfterMove, <code>E4002</code> BorrowConflict, <code>E4003</code> DoubleBorrow, <code>E4004</code> WriteThroughView — only <code>E4004</code> is emitted today</td>
     </tr>
     <tr>
-      <td>E3001</td>
-      <td>Error</td>
-      <td><code>TypeMismatch</code></td>
+      <td>5001-5002</td>
+      <td>Lowering</td>
+      <td><code>E5001</code> InvalidIR, <code>E5002</code> Unreachable</td>
+    </tr>
+    <tr>
+      <td>10001-10004</td>
+      <td>Runtime</td>
+      <td><code>R10001</code> IndexOutOfBounds, <code>R10002</code> DivisionByZero, <code>R10003</code> NullDeref, <code>R10004</code> Panic</td>
     </tr>
   </tbody>
 </table>
 <hr>
-<p><em>This document is maintained alongside the compiler source. When a feature moves from Blocked to Working, update this table and remove the corresponding E2010 rejection in <code>src/sema/sema-pipeline.cpp</code>.</em></p>
+<h2 id="verification">Verification</h2>
+<p>All statuses above were verified against the binary built from commit <code>a5f3716</code>, by running <code>zithc check</code> on standalone files per feature and by inspecting the source where a status depends on internal structure (pipeline boundaries, linkage naming, diagnostic ranges).</p>
+<hr>
+<h2 id="known-debt">Known Debt</h2>
+<p>Recorded deliberately; each item is a follow-up, not an unknown.</p>
+<table>
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Formatter re-prints <code>for (cond)</code> as <code>while</code></td>
+      <td><code>for</code> reuses <code>ExprKind::While</code>; a distinct node is needed to round-trip the spelling</td>
+    </tr>
+    <tr>
+      <td>No overflow check on narrowing conversions</td>
+      <td>Neither <code>as</code> nor numeric-literal adaptation validates that the value fits the target</td>
+    </tr>
+    <tr>
+      <td>Unchecked <code>?<em>T</code> -&gt; <code></em>T</code> coercion</td>
+      <td>Every C pointer is <code>?<em>T</code>, but without flow-sensitive narrowing it is accepted unchecked where <code></em>T</code> is expected. Isolated in <code>PerModuleSema::allowsUncheckedNullablePointer</code>; delete it when narrowing lands</td>
+    </tr>
+    <tr>
+      <td>No flow-sensitive narrowing after <code>is null</code></td>
+      <td><code>p-&gt;field</code> on a <code>?*T</code> requires NonNull proof from <code>if (p is null) { } else { p-&gt;field }</code> or <code>for (not (p is null))</code>. Error code <code>E3005</code></td>
+    </tr>
+    <tr>
+      <td><code>is</code> limited to <code>is null</code></td>
+      <td>Union/type narrowing is not addressed</td>
+    </tr>
+    <tr>
+      <td><code>for</code> iterator form unimplemented</td>
+      <td><code>for (x in xs)</code> is reported as an error rather than parsed; the 3-clause form works</td>
+    </tr>
+    <tr>
+      <td>User-defined casts</td>
+      <td>To be added as a new branch in <code>classifyCast</code></td>
+    </tr>
+    <tr>
+      <td>No C struct-by-value ABI</td>
+      <td><code>struct</code> parameters/results import as named foreign types, but there is no verified ABI and no Zith-visible layout, so constructing/passing records to C remains unsupported</td>
+    </tr>
+    <tr>
+      <td><code>..</code> lexes per character</td>
+      <td>Its <code>precedence()</code> is -1 and the when-case range pattern depends on the two <code>.</code> tokens. Every other multi-char operator is munched longest-first as one token and wired through the parser, sema and formatter</td>
+    </tr>
+    <tr>
+      <td><code>++</code> / <code>--</code></td>
+      <td>Not implemented; no increment/decrement operators exist</td>
+    </tr>
+    <tr>
+      <td>Ownership proof still happens after premature lowering in places</td>
+      <td>The stable order is <code>sema -&gt; comptime/solve -&gt; NTA/NRA -&gt; HIR</code>; residual facts are now attached before final lowering, while some paths still need the full NRA proof before emitting their final form</td>
+    </tr>
+  </tbody>
+</table>
+<p><em>When a feature moves from one status to another, update this table and re-verify.</em></p>

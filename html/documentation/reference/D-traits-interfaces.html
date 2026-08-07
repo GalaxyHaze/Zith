@@ -1,5 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="4-traits-interfaces--capabilities">4. Traits, Interfaces &amp; Capabilities</h1>
+<blockquote><p><strong>Implementation status:</strong> <code>trait</code>, <code>interface</code>, and <code>implement T as Trait {}</code> declarations are <strong>working</strong> (parsed, resolved, and lowered). Trait dispatch and vtable-based <code>dyn</code> dispatch are <strong>spec-only</strong> — <code>dyn Trait</code> is a parse error in type position. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="41-traits-vs-interfaces">4.1 Traits vs. Interfaces</h3>
 <table>
   <thead>
@@ -104,7 +105,7 @@ struct Enemy { [x, y, z]: f32, health: i32 }</code></pre>
     </tr>
     <tr>
       <td><code>Generator</code></td>
-      <td>Allows creating custom Generators &amp; receive the return of an <code>async fn</code>.</td>
+      <td>Allows creating runtime-defined resumable or streaming protocols without introducing a dedicated core function kind.</td>
     </tr>
     <tr>
       <td><code>Share</code></td>

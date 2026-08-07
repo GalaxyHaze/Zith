@@ -1,4 +1,12 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="memory-model">Memory Model</h1>
-<p>The specification defines Node Resource Analysis (NRA) and modifiers such as <code>lend</code>, <code>view</code>, <code>unique</code>, <code>share</code>, and <code>belong</code>. The compiler's NRA pass is currently <strong>Spec only</strong>.</p>
-<p>Do not present ownership examples as compiler-enforced behavior yet. Read the <a href="./../reference/D-memory-model.html">Memory Model reference</a> for the design and <a href="./../reference/D-implementation-status.html">Implementation Status</a> for the implementation boundary.</p>
+<p>The specification defines Node Resource Analysis (NRA) and the memory qualifiers <code>mut</code>, <code>lend</code>, <code>view</code>, <code>unique</code>, <code>share</code>, and <code>belong</code>. NRA is no longer purely specification-only, but it is not finished either.</p>
+<h2 id="what-exists">What exists</h2>
+<p>The qualifiers parse anywhere a type is written and are carried in the type table as a qualified type. HIR and code generation strip the qualifier, so a qualified value has the same representation as an unqualified one. One rule is enforced today: writing through a <code>view</code> binding reports <code>E4004</code>.</p>
+<pre><code class="language-zith">fn peek(value: view i32): i32 {
+    value
+}</code></pre>
+<p>The pipeline boundary that ownership proof needs is also in place. The stable order is <code>sema -&gt; comptime/solve -&gt; NTA/NRA -&gt; HIR</code>: semantic facts are accumulated and consumed before final lowering, and residual ownership facts attach to side tables rather than introducing ownership nodes into HIR.</p>
+<h2 id="what-is-missing">What is missing</h2>
+<p>The alive/dead/lent state machine and the rest of the ownership diagnostics (<code>E4001</code> use-after-move, <code>E4002</code> borrow conflict, <code>E4003</code> double borrow) are not implemented. Do not present ownership examples as compiler-enforced behaviour beyond the <code>view</code> write rule.</p>
+<p>Read the <a href="./../reference/D-memory-model.html">Memory Model reference</a> for the design and <a href="./../reference/D-implementation-status.html">Implementation Status</a> for the boundary.</p>

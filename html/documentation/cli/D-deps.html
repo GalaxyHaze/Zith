@@ -1,0 +1,6 @@
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="zithc-deps"><code>zithc deps</code></h1>
+<p>Inspect the dependencies declared in <code>ZithProject.toml</code>.</p>
+<pre><code class="language-bash">zithc deps list</code></pre>
+<p><code>list</code> is the implemented subcommand; it reads the project manifest and prints the declared dependencies. Running it outside a project reports that <code>ZithProject.toml</code> was not found.</p>
+<p><code>deps add</code> and <code>deps remove</code> are stubs that print "not implemented yet". Edit <code>ZithProject.toml</code> directly until they land.</p>

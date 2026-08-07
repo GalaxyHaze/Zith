@@ -1,5 +1,17 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="c-interop">C Interop</h1>
-<p>The working core supports external function declarations and C header imports.</p>
-<pre><code class="language-zith">extern fn puts(message: raw opaque): i32;</code></pre>
-<p>C interoperability has safety boundaries. Keep declarations small, use the exact C ABI, and consult <a href="./D-raw-unsafe.html">Raw &amp; Unsafe</a> plus the <a href="./../reference/D-c-interop.html">C Interop reference</a>.</p>
+<p>Declare a single C function by hand with <code>extern fn</code>, or import a whole header.</p>
+<pre><code class="language-zith">extern fn puts(message: *char): i32;</code></pre>
+<h2 id="header-imports">Header imports</h2>
+<p>Header imports are driven by libclang and handle ordinary C headers.</p>
+<pre><code class="language-zith">import &quot;stdio.h&quot;;
+
+fn main(): i32 {
+    printf(&quot;v=%d\n&quot;, 42);
+    0
+}</code></pre>
+<p>That program prints exactly <code>v=42</code>. Variadic functions, array-decayed parameters, <code>va_list</code> parameters, and function-pointer parameters all import. A declaration the importer cannot represent is skipped individually and recorded, so one unsupported function does not fail the whole header.</p>
+<h2 id="what-does-not-import">What does not import</h2>
+<p>Preprocessor macros, global variables, bitfields, packed and anonymous records, and flexible array members are not imported. Struct-by-value parameters and results import as named foreign types, but the ABI is unverified and there is no Zith-visible layout, so passing records to C is not yet supported.</p>
+<p>Every pointer coming from C is <code>?<em>T</code>. Check it with <code>is null</code> before dereferencing; the compiler currently accepts an unchecked <code>?</em>T</code> where <code>*T</code> is expected only because flow-sensitive narrowing has not landed.</p>
+<p>Keep declarations small and match the exact C ABI. See <a href="./D-raw-unsafe.html">Raw &amp; Unsafe</a>, the <a href="./../reference/D-c-interop.html">C Interop reference</a>, and <a href="./../reference/D-implementation-status.html">Implementation Status</a>.</p>

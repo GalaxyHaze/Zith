@@ -1,7 +1,23 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="functions">Functions</h1>
-<p>Declare a function with <code>fn</code>, typed parameters, and an optional return annotation. A final expression can provide the return value.</p>
+<p>Declare a function with <code>fn</code>, typed parameters, and an optional return annotation. A final expression can provide the return value. The return type is written either <code>: R</code> or <code>-&gt; R</code>; both spellings parse.</p>
 <pre><code class="language-zith">fn multiply(a: i32, b: i32): i32 {
     a * b
+}
+
+fn square(a: i32) -&gt; i32 {
+    a * a
 }</code></pre>
-<p><code>fn</code>, <code>flow fn</code>, <code>const fn</code>, and <code>raw fn</code> parse and lower. Compile-time evaluation for <code>const fn</code> remains specification-only, so use ordinary <code>fn</code> for code that must run today. See <a href="./../reference/D-implementation-status.html">Implementation Status</a>.</p>
+<h2 id="overloading">Overloading</h2>
+<p>Functions overload on parameter count and on parameter types. Overload resolution picks the matching declaration at the call site; an unresolvable call reports <code>E2007</code>, and an equally good pair reports <code>E2008</code>.</p>
+<pre><code class="language-zith">fn area(w: i32) -&gt; i32 {
+    w * w
+}
+
+fn area(w: i32, h: i32) -&gt; i32 {
+    w * h
+}</code></pre>
+<p>Because overloads share a source name, linkage names are qualified as <code>&lt;module&gt;.&lt;Owner&gt;.&lt;name&gt;(&lt;params&gt;)</code>. The two exceptions are <code>extern fn</code> and <code>main</code>, which keep their plain C-visible names.</p>
+<h2 id="function-kinds">Function kinds</h2>
+<p><code>fn</code>, <code>flow fn</code>, <code>raw fn</code>, and <code>extern fn</code> parse and lower through HIR to code generation. <code>const fn</code> is still a parse error: <code>const</code> is a binding keyword, so <code>const fn f()</code> is read as a <code>const</code> binding named <code>fn</code> rather than a compile-time function.</p>
+<p>See <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on the other forms, and <a href="./D-concurrency.html">Concurrency</a> for the status of the legacy <code>async fn</code> spelling.</p>

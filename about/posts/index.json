@@ -1,5 +1,20 @@
 [
   {
+    "file": "2026-08-06-operators-and-ownership.html",
+    "title": "Operators, and Where Ownership Belongs",
+    "date": "2026-08-06"
+  },
+  {
+    "file": "2026-08-04-macros-and-c-interop.html",
+    "title": "Macros Actually Expand Now",
+    "date": "2026-08-04"
+  },
+  {
+    "file": "2026-07-29-structs-and-the-modern-pipeline.html",
+    "title": "Structs Finally Work — Rebuilding the Pipeline",
+    "date": "2026-07-29"
+  },
+  {
     "file": "2026-06-24-introducing-zasm.html",
     "title": "Introducing zasm — ZIR Assembler",
     "date": "2026-06-24"

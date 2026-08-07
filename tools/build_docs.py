@@ -328,7 +328,7 @@ def build_tree() -> list[dict]:
     reference = [("Implementation Status", "reference-implementation-status")]
     reference += [(title, "reference-" + filename[:-3]) for filename, title in SPEC_CHAPTERS]
     cli = [(f"zithc {command}", f"cli-{command}") for command in
-           ("build", "run", "check", "fmt", "create", "clean", "execute")]
+           ("build", "run", "check", "fmt", "create", "clean", "execute", "test", "deps", "docs")]
     return [{
         "title": "Home", "link": "../home.html", "children": [
             nav_item("Getting Started", "getting-started-quick-start", [
@@ -376,7 +376,6 @@ def legacy_aliases(pages: list[Page]) -> dict[str, str]:
         "advanced/D-raw-pointers.html": "guide/D-raw-unsafe.html",
         "cli/D-compile.html": "cli/D-build.html",
         "cli/D-new.html": "cli/D-create.html",
-        "cli/D-docs.html": "cli/D-overview.html",
         "cli/D-flags.html": "cli/D-overview.html",
         "cli/D-repl.html": "cli/D-overview.html",
         "faq/D-philosophy.html": "faq/D-overview.html",

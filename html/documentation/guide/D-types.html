@@ -1,10 +1,33 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="types">Types</h1>
-<p>Zith has signed and unsigned integer types, floating-point types, <code>bool</code>, and <code>char</code>. Structs, components, enums, and unions are working core declarations.</p>
+<p>Zith has signed and unsigned integer types (<code>i8</code>-<code>i128</code>, <code>u8</code>-<code>u128</code>), floating-point types (<code>f32</code>, <code>f64</code>), <code>bool</code>, and <code>char</code>. Structs, components, enums, and unions are working core declarations. Arithmetic requires matching widths; there is no implicit promotion.</p>
 <pre><code class="language-zith">struct Point {
     x: i32,
     y: i32,
 }
 
 enum Direction { North, South, East, West }</code></pre>
-<p>Start with explicit annotations when learning. The <a href="./../reference/D-type-system.html">Type System reference</a> defines arrays, slices, generic types, unions, and the experimental narrowing rules.</p>
+<p>Struct fields, struct literals, and field access all work end to end. Build a value with <code>Point { x: 1, y: 2 }</code>, read a field with <code>p.x</code>, take an address with <code>&amp;p</code>, dereference with <code>*ptr</code>, and reach through a pointer with <code>ptr-&gt;x</code>.</p>
+<pre><code class="language-zith">fn shift(origin: Point): i32 {
+    let moved: Point = Point { x: origin.x + 1, y: origin.y };
+    let handle: *Point = &amp;moved;
+    handle-&gt;x
+}</code></pre>
+<p>Arrays (<code>[N]T</code>), slices (<code>[]T</code>), and pointers (<code>*T</code>) are working, and indexing with <code>a[i]</code> lowers through HIR to code generation on all three.</p>
+<h2 id="pointers-and-opaque-handles">Pointers and opaque handles</h2>
+<p><code><em>T</code> is non-nullable: assigning <code>null</code> requires the optional pointer <code>?</em>T</code>. <code><em>void</code> is rejected; use <code>raw opaque</code> for an untyped handle. A <code>raw opaque</code> casts to and from any <code></em>T</code> with <code>as</code>, which is how you hold a pointer whose pointee type you do not want to name.</p>
+<pre><code class="language-zith">fn erase(p: *i32): raw opaque {
+    p as raw opaque
+}
+
+fn restore(handle: raw opaque): *i32 {
+    handle as *i32
+}</code></pre>
+<p>Pointers imported from C headers arrive as <code>?<em>T</code> and are checked with <code>is null</code>. Flow-sensitive narrowing does not exist yet, so a <code>?</em>T</code> is still accepted unchecked where a <code>*T</code> is expected; check it anyway.</p>
+<h2 id="memory-qualifiers">Memory qualifiers</h2>
+<p>The qualifiers <code>mut</code>, <code>lend</code>, <code>view</code>, <code>unique</code>, <code>share</code>, and <code>belong</code> are accepted anywhere a type is written and are carried in the type table. They are enforced at the type level today rather than by a full ownership analysis, but one rule already bites: writing through a <code>view</code> binding reports <code>E4004</code>.</p>
+<pre><code class="language-zith">fn peek(value: view i32): i32 {
+    value
+}</code></pre>
+<p>Layout builtins work in expression position: <code>@sizeOf(T)</code> types as <code>u64</code> for any complete type, and <code>@offsetOf(S, field)</code> and <code>@alignOf(S)</code> are struct-only and type as <code>i32</code>. <code>dyn Trait</code> is still a parse error.</p>
+<p>Start with explicit annotations when learning. The <a href="./../reference/D-type-system.html">Type System reference</a> defines generic types, unions, and the experimental narrowing rules; <a href="./../reference/D-implementation-status.html">Implementation Status</a> records what compiles today.</p>

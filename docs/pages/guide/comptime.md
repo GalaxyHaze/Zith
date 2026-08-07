@@ -8,6 +8,21 @@ kind: editorial
 ---
 # Comptime
 
-Zith specifies `const` blocks, compile-time functions, reflection, and type transformation. The compiler parses relevant syntax but does not yet evaluate comptime blocks or `const fn` calls.
+Zith specifies `const` blocks, compile-time functions, reflection, and type transformation. None of that is evaluated today: comptime evaluation and `const fn` evaluation are both specification-only, and the reflection helpers `@appendField`, `@removeField`, and `@appendMethod` have no implementation.
 
-Layout intrinsics such as `@sizeOf`, `@alignOf`, and `@offsetOf` are working with an LLVM-enabled compiler. Other intrinsic calls currently emit W2009. See the [Comptime reference](doc:reference-11-comptime).
+Layout intrinsics are the exception. `@` parses in expression position and the layout builtins work:
+
+```zith
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn stride(): u64 {
+    @sizeOf(Point)
+}
+```
+
+`@sizeOf(T)` accepts any complete type and types as `u64`; `@sizeOf(void)` reports `E3001`. `@offsetOf(S, field)` and `@alignOf(S)` are struct-only and type as `i32`.
+
+Note that `const` in Zith means immutable, not compile-time evaluated, and `const fn f()` currently parses as a `const` binding named `fn`. Read the [Comptime reference](doc:reference-11-comptime) for the intended model and [Implementation Status](doc:reference-implementation-status) for the boundary.

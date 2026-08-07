@@ -4,4 +4,21 @@
 <pre><code class="language-zith">fn add(a: i32, b: i32): i32 {
     a + b
 }</code></pre>
-<p>Use <code>//</code> for a line comment. Write a declaration before its use, and keep the first programs within the working core. See <a href="./D-functions.html">Functions</a> and the formal <a href="./../reference/D-functions.html">Function reference</a>.</p>
+<p>Use <code>//</code> for a line comment.</p>
+<h2 id="operators">Operators</h2>
+<p>Arithmetic and comparison use the familiar spellings: <code>+ - * / %</code> and <code>== != &lt; &gt; &lt;= &gt;=</code>. Logical operators are the keywords <code>and</code>, <code>or</code>, <code>not</code>, and <code>xor</code>. Writing <code>&amp;&amp;</code> or <code>||</code> is a dedicated error that points you at <code>and</code> / <code>or</code>, reported exactly once with no cascade.</p>
+<p>Bitwise operators keep a trailing dot to stay distinct from the logical keywords: <code>&amp;.</code> for AND, <code>|.</code> for OR, <code>^.</code> for XOR, with unary <code>~</code> for NOT. Both operands must be integers of the same type.</p>
+<pre><code class="language-zith">fn bits(a: i32, b: i32): i32 {
+    let both: i32 = a &amp;. b;
+    let either: i32 = a |. b;
+    let diff: i32 = a ^. b;
+    ~(both + either + diff)
+}</code></pre>
+<p>Compound assignment works for <code>+= -= *= /= %= &lt;&lt;= &gt;&gt;= &amp;= |= ^=</code>. The parser desugars each one into an ordinary assignment, so a compound assignment yields a value and inherits the same coercion and <code>view</code> rules as <code>=</code>. Note that the bitwise compounds drop the dot of their base spelling.</p>
+<p>There are no increment or decrement operators; write <code>i += 1</code>.</p>
+<h2 id="literals">Literals</h2>
+<p>Integer literals accept explicit radix prefixes: <code>0x</code> hexadecimal, <code>0c</code> octal, and <code>0b</code> binary. Digit separators such as <code>1_000</code> are not supported, and a literal wider than 64 bits reports <code>E0004</code>. String and character literals decode the usual C-style escapes; an unknown escape reports <code>E0001</code>.</p>
+<pre><code class="language-zith">fn radix(): i32 {
+    0xFF + 0c17 + 0b101
+}</code></pre>
+<p>Write a declaration before its use, and keep the first programs within the working core. See <a href="./D-functions.html">Functions</a> and the formal <a href="./../reference/D-functions.html">Function reference</a>.</p>

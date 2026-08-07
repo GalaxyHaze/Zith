@@ -1,6 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="control-flow">Control Flow</h1>
-<p><code>if</code>, <code>when</code>, and <code>for</code> are working control-flow constructs. Use <code>if</code> for a boolean branch and <code>for</code> for iteration.</p>
+<p><code>if</code>, <code>else if</code>, and <code>else</code> are working control-flow constructs, together with <code>break</code>, <code>continue</code>, and <code>return</code>.</p>
 <pre><code class="language-zith">fn sign(value: i32): i32 {
     if (value &lt; 0) {
         -1
@@ -8,4 +8,25 @@
         1
     }
 }</code></pre>
-<p>The language also specifies chains, markers, docks, and jumps. The latter are specialized tools; consult the <a href="./../reference/D-control-flow.html">Control Flow reference</a> before using them.</p>
+<h2 id="loops">Loops</h2>
+<p><code>for</code> is the loop keyword. Three forms work today: the infinite loop <code>for { }</code>, the conditional loop <code>for (cond) { }</code>, and the 3-clause loop <code>for (init; cond; step) { }</code> with semicolon separators. <code>init</code> and <code>step</code> are both optional, and <code>continue</code> still runs the step before the next test.</p>
+<pre><code class="language-zith">fn sum(n: i32): i32 {
+    var total: i32 = 0;
+    for (var i: i32 = 0; i &lt; n; i = i + 1) {
+        total += i;
+    }
+    total
+}</code></pre>
+<p><code>while</code> still compiles, but it emits the deprecation warning <code>W1008</code> telling you to write <code>for (cond) { }</code> instead. The iterator form <code>for (x in xs)</code> is not implemented and reports a parse error.</p>
+<h2 id="pattern-matching">Pattern matching</h2>
+<p><code>when</code> matches a value against comma-separated arms written <code>(pattern) ~&gt; body</code>. <code>match</code> is a synonym for the same construct. Equality, boolean, and range patterns lower through HIR to code generation.</p>
+<pre><code class="language-zith">fn classify(x: i32): i32 {
+    when (x) {
+        (0) ~&gt; 100,
+        (1..3) ~&gt; 200,
+        (_) ~&gt; 300,
+    }
+}</code></pre>
+<p><code>(_)</code> is the default arm and must be written last. A <code>when</code> used for its value without a default is rejected as non-exhaustive.</p>
+<h2 id="not-yet-available">Not yet available</h2>
+<p><code>marker</code> and <code>jump</code> work as a block-style go-to inside <code>flow fn</code>; <code>dock</code> is still a parse error. Consult the <a href="./../reference/D-control-flow.html">Control Flow reference</a> for the intended semantics and <a href="./../reference/D-implementation-status.html">Implementation Status</a> for the current boundary.</p>

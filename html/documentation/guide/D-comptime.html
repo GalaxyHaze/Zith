@@ -1,4 +1,14 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="comptime">Comptime</h1>
-<p>Zith specifies <code>const</code> blocks, compile-time functions, reflection, and type transformation. The compiler parses relevant syntax but does not yet evaluate comptime blocks or <code>const fn</code> calls.</p>
-<p>Layout intrinsics such as <code>@sizeOf</code>, <code>@alignOf</code>, and <code>@offsetOf</code> are working with an LLVM-enabled compiler. Other intrinsic calls currently emit W2009. See the <a href="./../reference/D-comptime.html">Comptime reference</a>.</p>
+<p>Zith specifies <code>const</code> blocks, compile-time functions, reflection, and type transformation. None of that is evaluated today: comptime evaluation and <code>const fn</code> evaluation are both specification-only, and the reflection helpers <code>@appendField</code>, <code>@removeField</code>, and <code>@appendMethod</code> have no implementation.</p>
+<p>Layout intrinsics are the exception. <code>@</code> parses in expression position and the layout builtins work:</p>
+<pre><code class="language-zith">struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn stride(): u64 {
+    @sizeOf(Point)
+}</code></pre>
+<p><code>@sizeOf(T)</code> accepts any complete type and types as <code>u64</code>; <code>@sizeOf(void)</code> reports <code>E3001</code>. <code>@offsetOf(S, field)</code> and <code>@alignOf(S)</code> are struct-only and type as <code>i32</code>.</p>
+<p>Note that <code>const</code> in Zith means immutable, not compile-time evaluated, and <code>const fn f()</code> currently parses as a <code>const</code> binding named <code>fn</code>. Read the <a href="./../reference/D-comptime.html">Comptime reference</a> for the intended model and <a href="./../reference/D-implementation-status.html">Implementation Status</a> for the boundary.</p>

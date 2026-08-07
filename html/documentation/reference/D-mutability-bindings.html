@@ -1,5 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="6-mutability--bindings">6. Mutability &amp; Bindings</h1>
+<blockquote><p><strong>Implementation status:</strong> <code>let</code>, <code>var</code>, <code>const</code>, and <code>global</code> bindings are <strong>working</strong>. Binding destructuring with <code>[ ]</code> and pack literals are <strong>spec-only</strong> — no parser or sema support. NRA ownership modifiers (<code>lend</code>, <code>view</code>, <code>unique</code>, <code>share</code>, <code>belong</code>) are <strong>spec-only</strong>. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="61-deep-mutability-model">6.1 Deep Mutability Model</h3>
 <p>Zith uses deep mutability: a modifier on a binding flows into every nested field. Fields inside a struct inherit the mutability of the instance that holds them — no per-field <code>mut</code> annotation needed.</p>
 <h3 id="62-binding-keywords">6.2 Binding Keywords</h3>

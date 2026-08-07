@@ -1,5 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="3-type-system">3. Type System</h1>
+<blockquote><p><strong>Implementation status:</strong> Primitive types, structs, enums, unions, <code>?T</code>, <code>T!</code>, <code>[N]T</code>, <code>[]T</code>, pointers, type aliases, <code>implement</code>, and generics (<code>&lt;T&gt;</code>) are all <strong>working</strong>. <code>as</code> casting is <strong>working</strong> for numeric conversions only, and is required: there are no implicit conversions between numeric types (a numeric <em>literal</em> still adapts to its annotated type). Pointers are non-nullable — <code>null</code> requires <code>?<em>T</code> — and <code></em>void</code> is rejected in favour of <code>raw opaque</code>. <code>is</code> is limited to <code>(val is null)</code> on an optional; union narrowing, <code>when</code> pattern matching, <code>dyn Trait</code>, and NRA ownership modifiers (<code>lend</code>, <code>view</code>, etc.) are <strong>spec-only</strong>. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="31-primitive-types">3.1 Primitive Types</h3>
 <table>
   <thead>

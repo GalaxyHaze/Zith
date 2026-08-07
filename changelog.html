@@ -4,6 +4,180 @@
 <body>
 
 <div class="changelog-entry">
+    <h2>v0.6.0 — Macros, Operators &amp; the Ownership Boundary</h2>
+    <p class="lastUpdated">6 August 2026</p>
+
+    <hr>
+
+    <section>
+        <h3>What</h3>
+        <p>
+            Metaprogramming and the operator surface both landed. Macros expand through the whole
+            pipeline, the missing operators exist, and ownership finally has a place to run:
+            semantic facts are now produced and consumed before final lowering, on the stable
+            <code>sema -&gt; comptime/solve -&gt; NTA/NRA -&gt; HIR</code> boundary.
+        </p>
+    </section>
+
+    <hr>
+
+    <section>
+        <h3>Highlights</h3>
+        <ul>
+            <li>Macros — <code>macro</code> and <code>raw macro</code> declarations with <code>@name(...)</code> calls; normal macros are hygienic and resolve through the call-site scope, raw macros splice literally</li>
+            <li>Tag macros — <code>&lt;Section title: 1&gt; ... &lt;/Section&gt;</code> in statement position, with named attributes read as <code>attributes.name</code></li>
+            <li>Compound assignment — <code>+= -= *= /= %= &lt;&lt;= &gt;&gt;= &amp;= |= ^=</code>, desugared in the parser so they yield a value like <code>=</code></li>
+            <li>Bitwise operators — <code>&amp;.</code> <code>|.</code> <code>^.</code> and unary <code>~</code>, integer operands of matching width</li>
+            <li><code>&amp;&amp;</code> / <code>||</code> miscompilation fixed — they now report a dedicated error pointing at <code>and</code> / <code>or</code> instead of silently compiling to the left operand</li>
+            <li><code>raw opaque</code> — a dedicated opaque type, castable to and from any <code>*T</code> with <code>as</code>; <code>*void</code> is rejected in its favour</li>
+            <li>C interop — variadics, array-decayed parameters, <code>va_list</code> and function-pointer parameters import; unsupported declarations are skipped individually and recorded</li>
+            <li>Function overloading — by parameter count and by parameter types, with qualified linkage names <code>&lt;module&gt;.&lt;Owner&gt;.&lt;name&gt;(&lt;params&gt;)</code></li>
+            <li>Memory qualifiers — <code>mut</code>, <code>lend</code>, <code>view</code>, <code>unique</code>, <code>share</code>, <code>belong</code> parse and type; writing through a <code>view</code> reports <code>E4004</code></li>
+            <li><code>when</code> / <code>match</code> — arms written <code>(pattern) ~&gt; body</code>, with equality, boolean and range patterns and a mandatory-last <code>(_)</code> default</li>
+            <li>3-clause <code>for (init; cond; step)</code> — both clauses optional, <code>continue</code> still runs the step</li>
+            <li>Generic parameter lists — <code>&lt;T, U&gt;</code> on fn, struct, alias, enum, union and trait declarations</li>
+            <li><code>@sizeOf</code>, <code>@offsetOf</code>, <code>@alignOf</code> — <code>@</code> now parses in expression position</li>
+            <li>New CLI commands — <code>zithc test</code>, <code>zithc deps list</code>, <code>zithc docs</code>, plus a <code>--cache-stats</code> flag</li>
+        </ul>
+    </section>
+
+    <hr>
+
+    <section>
+        <h3>Under the hood</h3>
+        <p>
+            Macro expansion resolves names by node id rather than by matching source spans, which
+            is what makes hygiene work: template-local bindings are renamed, every other name is
+            looked up in the call-site scope, and the template body is never analysed as ordinary
+            code. Compound assignment adds no HIR node at all — the parser rewrites
+            <code>a += b</code> into <code>Assign(Binary(a, b))</code>, so it inherits coercion and
+            the <code>view</code> write check for free.
+        </p>
+        <p>
+            The ownership work is structural rather than user-visible. Residual facts attach to
+            side tables instead of introducing ownership nodes into HIR, so the proof has a
+            defined place to run before lowering erases the information it needs.
+        </p>
+        <p>
+            The diagnostic surface is no longer four codes. It is grouped by stage: lexical
+            0001-0005, parse 1001-1008 (including the <code>W1008</code> <code>while</code>
+            deprecation), semantic 2001-2010, macro 2011-2020, type 3001-3008, NRA/ownership
+            4001-4004, lowering 5001-5002, and runtime 10001-10004.
+        </p>
+    </section>
+
+    <hr>
+
+    <section>
+        <h3>Still not there</h3>
+        <p>
+            Generic instantiation fails in the comptime solver — <code>identity&lt;i32&gt;(42)</code>
+            reports "generic parameter T has no concrete type", so generic code does not compile
+            end to end. Comptime evaluation and <code>const fn</code> remain specification-only,
+            <code>const fn f()</code> still parses as a <code>const</code> binding named
+            <code>fn</code>, <code>dyn Trait</code> is unsupported in the type parser, the NRA
+            alive/dead/lent state machine is unwritten, and <code>for (x in xs)</code> is a parse
+            error. Full detail lives in
+            <a href="/html/documentation/reference/D-implementation-status.html">Implementation Status</a>.
+        </p>
+    </section>
+
+    <hr>
+
+    <section>
+        <h3>Verification</h3>
+        <p>
+            Every status in the implementation table was re-verified by running
+            <code>zithc check</code> on a standalone file per feature against the binary built at
+            <code>a5f3716</code>, not against spec intent. <code>when</code> is covered by a
+            runtime codegen test, and <code>import "stdio.h"</code> followed by
+            <code>printf("v=%d\n", 42)</code> prints exactly <code>v=42</code>.
+        </p>
+    </section>
+</div>
+
+<hr style="margin: 48px 0; border-color: #333;">
+
+<div class="changelog-entry">
+    <h2>v0.5.0 — Structs, Pointers &amp; the Modern Pipeline</h2>
+    <p class="lastUpdated">29 July 2026</p>
+
+    <hr>
+
+    <section>
+        <h3>What</h3>
+        <p>
+            Structs are now usable end to end. The modern frontend, sema, and HIR lowering
+            pipeline gained field declarations, struct literals, field access, and pointer
+            operators — so a struct value can be built, read, addressed, and mutated all the
+            way down to LLVM code generation.
+        </p>
+    </section>
+
+    <hr>
+
+    <section>
+        <h3>Highlights</h3>
+        <ul>
+            <li>Struct field declarations — <code>struct Point { x: i32, y: i32 }</code> resolves field names and types</li>
+            <li>Struct literals — <code>Point { x: 1, y: 2 }</code> builds a value with named fields</li>
+            <li>Dot access — <code>p.x</code> reads a field from a struct value</li>
+            <li>Arrow access — <code>p-&gt;x</code> reaches through a struct pointer (desugars to deref + dot)</li>
+            <li>Address-of and dereference — unary <code>&amp;x</code> and <code>*p</code> as prefix operators</li>
+            <li>Assignment to field and arrow lvalues</li>
+            <li>Indexing — <code>a[i]</code> lowers on arrays, slices, and pointers</li>
+            <li>Optional propagation — postfix <code>?</code> with operand and return-type validation</li>
+            <li>Formatter round-trips all 16 expression kinds, including the new nodes</li>
+        </ul>
+    </section>
+
+    <hr>
+
+    <section>
+        <h3>Under the hood</h3>
+        <p>
+            Three new expression kinds (<code>Field</code>, <code>Arrow</code>,
+            <code>StructLiteral</code>) run through the whole stack. The type table now carries
+            parallel field names with a <code>fieldIndex</code> lookup, sema infers the new
+            nodes, and HIR lowering resolves each field to an index before emitting. C interop
+            landed alongside it, driven by libclang.
+        </p>
+        <p>
+            This release also retires the old E2010 <em>UnsupportedSyntax</em> barrier from the
+            active pipeline — the legacy sema lives on under <code>lib/legacy-zith</code>. The
+            diagnostic surface is now E0001, E0000, E2002, and E1006.
+        </p>
+    </section>
+
+    <hr>
+
+    <section>
+        <h3>Still not there</h3>
+        <p>
+            <code>when</code> pattern matching is a parse error past the header, <code>const fn</code>
+            parses as a <code>const</code> binding named <code>fn</code>, <code>dyn Trait</code> is
+            unsupported in the type parser, and <code>@</code> is not handled in expression
+            position. NRA ownership analysis, comptime evaluation, and the async model remain
+            specification-only. Full detail lives in
+            <a href="/html/documentation/reference/D-implementation-status.html">Implementation Status</a>.
+        </p>
+    </section>
+
+    <hr>
+
+    <section>
+        <h3>Verification</h3>
+        <p>
+            <code>zithc check</code> passes on the hello-world example and the test suite is at
+            23/23. Every status in the implementation table was re-verified against the current
+            binary rather than against spec intent.
+        </p>
+    </section>
+</div>
+
+<hr style="margin: 48px 0; border-color: #333;">
+
+<div class="changelog-entry">
     <h2>v0.4.0 — Introducing zasm</h2>
     <p class="lastUpdated">24 June 2026</p>
 

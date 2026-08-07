@@ -256,6 +256,21 @@
               "title": "zithc execute",
               "link": "./cli/D-execute.html",
               "children": []
+            },
+            {
+              "title": "zithc test",
+              "link": "./cli/D-test.html",
+              "children": []
+            },
+            {
+              "title": "zithc deps",
+              "link": "./cli/D-deps.html",
+              "children": []
+            },
+            {
+              "title": "zithc docs",
+              "link": "./cli/D-docs.html",
+              "children": []
             }
           ]
         },
@@ -295,7 +310,6 @@
     "./advanced/D-unsafe.html": "./guide/D-raw-unsafe.html",
     "./cli/D-cli.html": "./cli/D-overview.html",
     "./cli/D-compile.html": "./cli/D-build.html",
-    "./cli/D-docs.html": "./cli/D-overview.html",
     "./cli/D-flags.html": "./cli/D-overview.html",
     "./cli/D-new.html": "./cli/D-create.html",
     "./cli/D-repl.html": "./cli/D-overview.html",

@@ -8,4 +8,5 @@
   <li>Use the <a href="./../reference/D-specification.html">Language Reference</a> for the canonical specification.</li>
   <li>Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before using a feature in production code.</li>
 </ul>
-<p>The compiler currently supports core declarations, bindings, control flow, modules, generics, and C interop. Ownership analysis, async execution, and context-based extensions remain experimental or specification-only.</p>
+<p>The compiler currently supports core declarations, bindings, structs and pointers, the full operator set including compound assignment and bitwise operators, <code>when</code> pattern matching, all three working <code>for</code> forms, function overloading, macros and tag macros, <code>raw opaque</code> handles, memory qualifiers at the type level, modules, and C header imports. All of it lowers through HIR to LLVM code generation for x86-64 and WebAssembly.</p>
+<p>Generic declarations parse and type-check but cannot yet be instantiated. Ownership analysis (NRA) has its pipeline boundary and the <code>view</code> write rule but not the full state machine. Comptime evaluation, <code>const fn</code>, <code>dyn</code> dispatch, async execution, and context-based extensions remain specification-only.</p>

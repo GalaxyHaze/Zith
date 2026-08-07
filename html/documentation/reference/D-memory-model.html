@@ -1,6 +1,16 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="7-memory-model-nra">7. Memory Model (NRA)</h1>
+<blockquote><p><strong>Implementation status:</strong> the ownership modifiers (<code>mut</code>, <code>lend</code>, <code>view</code>, <code>unique</code>, <code>share</code>, <code>belong</code>) are <strong>parsed and typed</strong> (F-34): they are accepted wherever a type is written, compose with <code>?</code>, <code>[]</code>, and <code><em></code>, survive <code>zithc fmt</code>, and are interned in the type table, and a write through a <code>view</code> binding is rejected with <code>E4004</code>. The NRA analysis pass itself — the alive/dead/lent state machine, fact accumulation, and the four rules of <a href="#74-the-four-nra-rules">§7.4</a> — is still <strong>spec-only</strong> (F-14). The target architecture runs <code>NTA/NRA</code> before the final HIR boundary; the current implementation still strips qualifiers too early during lowering, which is the structural gap F-14 must close. Pointer types (<code></em>T</code>), <code>*p</code> dereference, and <code>&amp;x</code> address-of are <strong>working</strong>. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="71-what-nra-tracks">7.1 What NRA Tracks</h3>
+<p>The ownership system is split conceptually into two layers:</p>
+<ul>
+  <li><code>NTA</code> accumulates semantic facts over a representation that still preserves resource identity,</li>
+</ul>
+<p>qualifier distinctions, captures, escapes, branch facts, and return-path structure.</p>
+<ul>
+  <li><code>NRA</code> consumes those facts, applies the four ownership rules, emits diagnostics, and performs</li>
+</ul>
+<p>only the internal canonicalizations that are safe to materialize after the proof boundary.</p>
 <p>NRA watches every value in your program and classifies it into one of three states:</p>
 <table>
   <thead>
@@ -51,7 +61,7 @@
     </tr>
   </tbody>
 </table>
-<p>With these two axes (state + origin), NRA enforces the rules in <a href="#74-the-four-nra-rules">§7.4</a>.</p>
+<p>With these two axes (state + origin), NRA enforces the rules in <a href="#74-the-four-nra-rules">§7.4</a>. NTA also records aliasing, branch-local facts, whether a return value is the same node received as an argument, and whether a <code>belong</code> or borrowed value escapes its legal region.</p>
 <h3 id="72-move-semantics">7.2 Move Semantics</h3>
 <p>Moving <code>a</code> to <code>b</code> redirects the name <code>b</code> to <code>a</code>'s node. The name <code>a</code> is considered <strong>dead</strong> / <strong>invalid</strong> and cannot be read — only reassigned:</p>
 <pre><code class="language-zith">var a = Point { x: 1.0, y: 2.0 };
@@ -158,7 +168,7 @@ a = Point { x: 3.0, y: 4.0 };      // OK: reassignment creates a new node for a<
 <p><strong>Rule 2 — No Dead Node Access.</strong> A symbol cannot be read while its node is <code>dead</code>.</p>
 <p><strong>Rule 3 — No Escaping <code>belong</code>.</strong> A <code>belong</code> node cannot be stored anywhere whose lifetime exceeds any node in its dependency vector. At every use, all of its parents must be <code>alive</code>.</p>
 <p><strong>Rule 4 — <code>lend</code> Behavioral Promise.</strong> A <code>lend</code> value cannot be stored, moved, or captured. It may be passed as a call argument or returned — in the latter case, passing the promise on to the caller.</p>
-<blockquote><p>For details on how NRA resolves nodes and validates these rules, see <a href="#78-how-nra-resolves-nodes">§7.8</a>.</p></blockquote>
+<blockquote><p>For details on how NRA resolves nodes and validates these rules, see <a href="#79-how-nra-resolves-nodes">§7.9</a>.</p></blockquote>
 <h3 id="75-nra-in-practice">7.5 NRA in Practice</h3>
 <pre><code class="language-zith">// lend -- exclusive temporary borrow
 fn scale(p: lend Point, factor: f32) { p.x *= factor; p.y *= factor; }
@@ -183,20 +193,26 @@ struct Tree&lt;T&gt; {
 
 // belong fields can be passed as lend
 fn getParent(self: view Node): lend Node { self.parent }</code></pre>
-<h3 id="76-nra-limitations--escape-hatches">7.6 NRA Limitations &amp; Escape Hatches</h3>
-<p>NRA cannot statically validate every shared or viewed cycle across threads. Three escape hatches cover the remaining cases:</p>
-<pre><code class="language-zith">// await -- safe: the compiler knows the thread is done before the scope ends
-let handle = spawn worker(shared_data);
-await handle;
-
-// #wont_remain -- a promise that the thread dies before the scope ends
-#wont_remain let _ = spawn quick_task(shared_data);
-
-// Rc -- runtime ref-count wrapper, provides thread safety for any type
-let shared = Rc.new(HeavyResource.init());
-let _ = spawn worker(Rc.clone(shared));</code></pre>
-<blockquote><p><code>Rc&lt;T&gt;</code> and <code>Arc&lt;T&gt;</code> are wrappers that provide thread safety for any type <code>T</code> — no <code>Share</code> requirement on <code>T</code> itself. The wrapper handles synchronization internally.</p></blockquote>
-<h3 id="77-self-referential-types">7.7 Self-Referential Types</h3>
+<h3 id="76-boundary-before-hir">7.6 Boundary Before HIR</h3>
+<p>The main NRA proof runs before the final HIR is formed. That boundary exists so the analysis still sees:</p>
+<ul>
+  <li>binding identity and resource graphs;</li>
+  <li>the difference between <code>default</code>, <code>view</code>, <code>lend</code>, <code>unique</code>, <code>share</code>, and <code>belong</code>;</li>
+  <li>branch facts, narrowing facts, and return-path equivalence;</li>
+  <li>call, capture, and escape structure before lowering erases it.</li>
+</ul>
+<p>The final HIR is therefore not the place where ownership is re-proven. It receives a typed, desugared, NRA-validated view of the program plus only the residual facts that still matter for lowering, cache serialization, and backend hints.</p>
+<h3 id="77-residual-facts-and-internal-canonicalization">7.7 Residual Facts and Internal Canonicalization</h3>
+<p>NRA may materialize limited internal canonicalizations after it has proven the ownership contract, but those rewrites do not change a public signature or observable ABI. For example, forwarding a proven move internally or removing a temporary introduced only to preserve ownership is valid; redefining an exported function's calling convention is not.</p>
+<p>Residual facts that may survive into HIR include:</p>
+<ul>
+  <li>consumed vs. non-consumed value state when lowering depends on it;</li>
+  <li>non-null or otherwise narrowed facts that affect control-flow lowering;</li>
+  <li>borrow, capture, or escape decisions that codegen and caching must preserve;</li>
+  <li>internal calling-convention details only when they stay behind a stable boundary.</li>
+</ul>
+<p>LLVM is not the source of truth for ownership. At most it receives hints already decided by NRA, such as <code>nonnull</code>, <code>noalias</code>, <code>readonly</code>, <code>nocapture</code>, or opportunities to remove redundant temporaries and stores.</p>
+<h3 id="78-self-referential-types">7.8 Self-Referential Types</h3>
 <pre><code class="language-zith">struct Node&lt;T&gt; {
     data: T,
     next: ?unique Self,
@@ -213,9 +229,9 @@ implement Node&lt;T&gt; {
   <li>NRA guarantees <code>prev</code> (<code>belong</code>) never outlives its owner.</li>
   <li><code>belong</code> fields may be passed as <code>lend</code> to functions.</li>
 </ul>
-<h3 id="78-how-nra-resolves-nodes">7.8 How NRA Resolves Nodes</h3>
+<h3 id="79-how-nra-resolves-nodes">7.9 How NRA Resolves Nodes</h3>
 <blockquote><p><em>This section is relevant for tooling authors and compiler contributors.</em></p></blockquote>
-<p>Every symbol gets a <strong>resource node</strong>. NRA is <strong>lazy</strong> — it only validates a node when you use, view, or return it.</p>
+<p>Every symbol gets a <strong>resource node</strong> before final HIR lowering. NTA and NRA are lazy in the sense that they validate nodes when use, view, move, return, capture, or escape facts make the proof relevant.</p>
 <h4 id="node-validation">Node Validation</h4>
 <p>When you access a node, NRA checks:</p>
 <ol>
@@ -226,11 +242,14 @@ implement Node&lt;T&gt; {
 <h4 id="function-evaluation">Function Evaluation</h4>
 <p>NRA caches function results. If it has seen a function before, it reuses the cached analysis. Otherwise, it inspects every return path:</p>
 <ul>
-  <li><strong>Every</strong> path returns one of the function's arguments → caller's node is <strong>not consumed</strong> (ownership stays with you).</li>
+  <li><strong>Every</strong> path returns one of the function's arguments → caller's node is <strong>not consumed</strong></li>
+</ul>
+<p>(ownership stays with you).</p>
+<ul>
   <li><strong>Any</strong> path doesn't return an argument → the result is <strong>consumed</strong>.</li>
 </ul>
-<p>Since memory modifiers (<code>lend</code>, <code>view</code>, <code>unique</code>, ...) are in the function signature, NRA knows everything it needs without re-analyzing the body.</p>
+<p>Those return facts are preserved into HIR only in residual form. HIR should not have to rediscover which node a return came from.</p>
 <h4 id="branch-isolation-if--else--when">Branch Isolation (<code>if</code> / <code>else</code> / <code>when</code>)</h4>
-<p>Each branch runs in isolation. A move inside one branch cannot affect the others. After all branches complete, NRA applies the side effects of whichever branch actually ran.</p>
+<p>Each branch runs in isolation. A move inside one branch cannot affect the others. After all branches complete, NRA applies the side effects of whichever branch actually ran and emits only the merged facts that lowering still needs.</p>
 <hr>
 <p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Structs Finally Work — Rebuilding the Pipeline</title></head>
+<body>
+
+<h2>Structs Finally Work — Rebuilding the Pipeline</h2>
+<p class="post-date">2026-07-29</p>
+<hr>
+
+<p>
+    For a long time Zith could declare a <code>struct</code> and then do almost nothing with it.
+    The declaration parsed, the name resolved, and that was the end of the road — no field reads,
+    no literals, no pointers into it. That gap is closed now.
+</p>
+
+<h3>What changed</h3>
+<p>
+    I added three expression kinds to the modern frontend — <code>Field</code>,
+    <code>Arrow</code>, and <code>StructLiteral</code> — and pushed them through every stage:
+    parser, type table, sema, HIR lowering, and the formatter. So this compiles and runs:
+</p>
+<pre><code class="language-zith">struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn shift(origin: Point): i32 {
+    let moved: Point = Point { x: origin.x + 1, y: origin.y };
+    let handle: *Point = &amp;moved;
+    handle-&gt;x
+}</code></pre>
+
+<p>
+    Four things landed together there: a struct literal with named fields, dot access on a value,
+    address-of with unary <code>&amp;</code>, and arrow access through a pointer. Arrow is not a
+    separate mechanism — it desugars to a deref followed by a field read, which kept the HIR
+    surface small.
+</p>
+
+<h3>The boring part that mattered</h3>
+<p>
+    The interesting work was not the syntax, it was the type table. A struct type now carries a
+    parallel array of field names, and <code>TypeTable::fieldIndex</code> resolves a name to an
+    index. Sema uses it during inference; HIR lowering uses it to emit a positional
+    <code>HirField</code>. Names disappear before code generation, which is exactly what you want
+    — the backend should never do string comparisons to find a field.
+</p>
+<p>
+    Assignment needed care too. <code>p.x = 1</code> and <code>p-&gt;x = 1</code> mean writing to
+    an lvalue, not producing a value, so <code>lowerAssign</code> learned to treat
+    <code>Field</code> and <code>Arrow</code> targets as addresses rather than reads.
+</p>
+
+<h3>Killing the barrier</h3>
+<p>
+    Back in July I added a semantic barrier — error E2010, <em>UnsupportedSyntax</em> — that
+    rejected constructs the parser accepted but the compiler could not honour. It was the right
+    call at the time: silently lowering <code>is</code> or <code>?</code> into
+    <code>Add</code> was worse than an honest error.
+</p>
+<p>
+    With the modern pipeline that barrier is gone from the active path. The old sema still lives
+    under <code>lib/legacy-zith</code>, but nothing in the current build emits E2010. The
+    diagnostic surface is now just E0001, E0000, E2002, and E1006. Fewer codes, each of which
+    actually means something.
+</p>
+
+<h3>What I am not pretending</h3>
+<p>
+    <code>when</code> still breaks: the parser reads the header and then chokes on the
+    <code>0 =&gt; { }</code> arm syntax. <code>const fn</code> is worse than unimplemented — it
+    parses as a <code>const</code> binding named <code>fn</code>, which is a genuinely confusing
+    failure I need to fix at the keyword level. <code>dyn Trait</code> is unsupported in the type
+    parser, and <code>@</code> in expression position is still a parse error, which blocks macros
+    and builtins alike.
+</p>
+<p>
+    NRA — the ownership analysis the memory model is built around — is still a pipeline slot with
+    nothing in it. Comptime evaluation likewise. I keep those honest in
+    <code>docs/impl-status.md</code>, verified against <code>zithc check</code> feature by feature
+    rather than against what the spec wishes were true.
+</p>
+
+<h3>What's next</h3>
+<p>
+    <code>when</code> arm parsing is the next piece, because pattern matching unlocks a lot of
+    ordinary code. After that, <code>const fn</code> needs a real keyword fix, and then I want to
+    start on NRA — it is the largest unimplemented idea in the language and the longer it stays a
+    slot, the more the spec drifts from the compiler.
+</p>
+
+<hr>
+<p class="post-date"><em>— Haze</em></p>
+
+</body>
+</html>

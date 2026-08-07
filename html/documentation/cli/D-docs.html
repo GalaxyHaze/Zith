@@ -1,3 +1,5 @@
-<div class="callout callout-info"><p><strong>Moved:</strong> This legacy URL is maintained for compatibility. Continue to <a href="./D-overview.html">the current page</a>.</p></div>
-<h1>Documentation moved</h1>
-<p>This page is now maintained at <a href="./D-overview.html">cli/D-overview.html</a>.</p>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<h1 id="zithc-docs"><code>zithc docs</code></h1>
+<p>Generate documentation from Zith source.</p>
+<pre><code class="language-bash">zithc docs src/main.zith</code></pre>
+<p>The command requires input files; invoking it with nothing to read reports "no input files". Doc comments (<code>///</code> and <code>/** */</code>) attached to declarations are the input, so document declarations at their definition site.</p>
