@@ -11,7 +11,6 @@ namespace zith::cli::commands {
 
 int execute(const Options &opts) {
     auto TERM = term::init(opts);
-    term::UsagePrinter out{stdout, TERM.coutOn};
     term::UsagePrinter err{stderr, TERM.cerrOn};
 
     auto files = collectFiles(opts);
@@ -36,14 +35,12 @@ int execute(const Options &opts) {
             continue;
         }
 
-        bool executed = session.linkAndExec();
-        // Compiler diagnostics emitted during link/exec stay on stderr; the
-        // program's own bytes go to stdout verbatim, even if it then failed.
-        std::fputs(session.flushOutput().c_str(), stderr);
-        const std::string childOutput = session.takeChildOutput();
-        if (!childOutput.empty())
-            std::fwrite(childOutput.data(), 1, childOutput.size(), stdout);
+        // The program inherits this process's stdout/stderr: its output is not
+        // captured, so it stays interactive and unbuffered relative to the
+        // terminal. Compiler logs remain in the session buffer -> stderr.
         std::fflush(stdout);
+        bool executed = session.linkAndExecDirect();
+        std::fputs(session.flushOutput().c_str(), stderr);
 
         if (!executed) {
             allPassed = false;
@@ -53,12 +50,13 @@ int execute(const Options &opts) {
     }
 
     if (opts.flags.verbose()) {
+        // Compiler status stays on stderr so stdout carries only program output.
         if (allPassed)
-            out.green("[ok]");
+            err.green("[ok]");
         else
-            out.red("[error]");
+            err.red("[error]");
         for (const auto &file : files)
-            std::printf(" %s\n", file.c_str());
+            std::fprintf(stderr, " %s\n", file.c_str());
     }
 
     return allPassed ? exitCode : 1;

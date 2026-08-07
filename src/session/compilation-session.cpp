@@ -193,6 +193,24 @@ int captureProgram(const std::vector<std::string> &arguments, std::string &outpu
 #endif
 }
 
+// Runs a FILE*-based dump into an in-memory string so dump text can be routed
+// through the session's own output band instead of the process stdout.
+template <typename Fn> std::string captureStdioDump(Fn &&dump) {
+    std::string result;
+    FILE *tmp = std::tmpfile();
+    if (tmp == nullptr)
+        return result;
+    dump(tmp);
+    std::fflush(tmp);
+    std::rewind(tmp);
+    char buffer[4096];
+    size_t bytes = 0;
+    while ((bytes = std::fread(buffer, 1, sizeof(buffer), tmp)) > 0)
+        result.append(buffer, bytes);
+    std::fclose(tmp);
+    return result;
+}
+
 std::string displayCommand(const std::vector<std::string> &arguments) {
     std::string command;
     for (const auto &argument : arguments) {
@@ -516,16 +534,18 @@ bool CompilationSession::lexStage() {
     }
     mFileId = root_file.value();
 
-    // --emit-tokens: dump tokens from the modern frontend snapshot
+    // --emit-tokens: dump tokens from the modern frontend snapshot. Dumps are
+    // compiler output, so they go through writeOutput() and never touch the
+    // program's stdout during `zithc run`.
     if (mOpts.get().flags.emitTokens()) {
         const auto &tokens = root->frontend->tokens();
-        std::fputs("--- Tokens ---\n", stdout);
+        writeOutput("--- Tokens ---\n");
         const auto &source = root->frontend->source();
         for (size_t i = 0; i < tokens.size(); ++i) {
             const auto &tok = tokens[i];
             auto text =
                 std::string_view(source).substr(tok.span.start, tok.span.end - tok.span.start);
-            std::printf("[%3zu] %-12s '%.*s'\n", i,
+            writeOutput("[%3zu] %-12s '%.*s'\n", i,
                         tok.kind == frontend::TokenKind::Keyword       ? "keyword"
                         : tok.kind == frontend::TokenKind::Identifier  ? "identifier"
                         : tok.kind == frontend::TokenKind::Literal     ? "literal"
@@ -535,20 +555,21 @@ bool CompilationSession::lexStage() {
                                                                        : "unknown",
                         static_cast<int>(text.size()), text.data());
         }
-        std::fputs("---\n", stdout);
+        writeOutput("---\n");
     }
 
     // --emit-ast: dump AST from the modern frontend snapshot
     if (mOpts.get().flags.emitAst()) {
-        std::fputs("--- AST ---\n", stdout);
+        writeOutput("--- AST ---\n");
         for (const auto &decl : root->frontend->declarations()) {
-            std::printf("decl %s (kind=%d, vis=%d, span=%u..%u)\n", decl.name.c_str(),
+            writeOutput("decl %s (kind=%d, vis=%d, span=%u..%u)\n", decl.name.c_str(),
                         static_cast<int>(decl.kind), static_cast<int>(decl.visibility),
                         decl.span.start, decl.span.end);
         }
-        std::fputs("--- Symbols ---\n", stdout);
-        mSyms.dump(stdout, nullptr);
-        std::fputs("---\n", stdout);
+        writeOutput("--- Symbols ---\n");
+        writeOutput("%s",
+                    captureStdioDump([this](FILE *out) { mSyms.dump(out, nullptr); }).c_str());
+        writeOutput("---\n");
     }
 
     auto lexDt =
@@ -676,9 +697,8 @@ bool CompilationSession::lowerStage() {
     // runs after lowering until generic instantiation moves onto sema/HIR.
 
     if (mOpts.get().flags.emitHir()) {
-        std::fputs("--- HIR ---\n", stdout);
-        mHirModule.dump(stdout, *mInterner);
-        std::fputs("---\n", stdout);
+        const std::string hir_text = mHirModule.toString(*mInterner);
+        writeOutput("--- HIR ---\n%s---\n", hir_text.c_str());
     }
 
     comptime::Solver solver(mTypes, nullptr, nullptr, mSyms, mDiags, mHirArena,
@@ -1004,31 +1024,32 @@ bool CompilationSession::execAfterLink(const bool capture) {
         return true;
     }
 
-    const int execResult = captureProgram({exePath}, mChildOutput);
+    // Avoid duplicating any pending parent stdio buffers into the forked child.
+    std::fflush(nullptr);
+    const int execResult =
+        capture ? captureProgram({exePath}, mChildOutput) : runProgram({exePath});
     if (execResult == -1) {
         writeOutput("%s[error]%s failed to launch executable\n", ansicolor("\033[31m"),
                     ansicolor("\033[0m"));
         return false;
     }
 
-#ifdef _WIN32
-    mChildExitCode = execResult;
-#else
-    if (WIFEXITED(execResult)) {
-        mChildExitCode = WEXITSTATUS(execResult);
-    } else if (WIFSIGNALED(execResult)) {
-        mChildExitCode = 128 + WTERMSIG(execResult);
-    } else {
-        mChildExitCode = 1;
-    }
-#endif
-
+    mChildExitCode = normalizeExitStatus(execResult);
     return true;
 #else
+    (void)capture;
     writeOutput("%s[error]%s cannot execute on WASM target\n", ansicolor("\033[31m"),
                 ansicolor("\033[0m"));
     return false;
 #endif
+}
+
+bool CompilationSession::linkAndExec() {
+    return execAfterLink(/*capture=*/true);
+}
+
+bool CompilationSession::linkAndExecDirect() {
+    return execAfterLink(/*capture=*/false);
 }
 
 std::string CompilationSession::fmtStage() {

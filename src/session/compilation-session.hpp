@@ -96,6 +96,9 @@ class CompilationSession {
     // Derives the executable path and invokes the linker. Shared by link() and
     // linkAndExec() so the link logic is not duplicated.
     bool performLink(std::string &exePath, bool &isWasm);
+    // Links, then runs the executable either capturing its output or letting it
+    // inherit the parent's stdout/stderr.
+    bool execAfterLink(bool capture);
     std::array<double, static_cast<size_t>(StageIndex::Count)> mStageDurations{};
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -166,6 +169,9 @@ public:
     // Links the object file into an executable without running it.
     bool link();
     bool linkAndExec();
+    // Same as linkAndExec(), but the child inherits the parent's stdout/stderr so the
+    // program stays interactive; nothing is captured into mChildOutput.
+    bool linkAndExecDirect();
     int childExitCode() const {
         return mChildExitCode;
     }
