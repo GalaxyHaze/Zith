@@ -142,6 +142,19 @@ fn main() {
 
 ---
 
+## WebAssembly Playground
+
+The browser playground is a compiler-in-the-browser tool, not a program runner. It exports the
+stable `zith_compile_source` / `zith_run_source` contract for lexing, type checking, diagnostics,
+and textual emission up to HIR. `zith_run_source` performs check plus HIR output and does not
+execute the submitted program in the browser. Native execution is available through `zithc run` on
+the host.
+
+The ABI, return codes, `mode`, `emit_mask`, and buffer accessors are documented in
+[docs/wasm-playground-abi.md](docs/wasm-playground-abi.md).
+
+---
+
 ## CLI Reference
 
 | Command | Description | Status |

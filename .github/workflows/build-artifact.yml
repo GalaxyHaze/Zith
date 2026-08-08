@@ -551,3 +551,53 @@ jobs:
           draft: ${{ needs.create-release.outputs.draft || inputs.draft }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sync-playground-wasm:
+    needs: [create-release, build-wasm]
+    name: Sync playground WebAssembly
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          TAG="${{ needs.create-release.outputs.tag }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download and extract zithc-wasm
+        run: |
+          mkdir -p wasm-sync
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "zithc-wasm.zip"
+          unzip -o -d wasm-sync zithc-wasm.zip zith-playground.wasm
+          test -s wasm-sync/zith-playground.wasm
+          printf '{"version":"v%s"}\n' "${{ steps.tag.outputs.version }}" > wasm-sync/runtime.json
+          ls -l wasm-sync/
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+
+      - name: Sync site branch
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git clone --depth 1 --branch gh-pages \
+            "https://x-access-token:${RELEASE_PAT}@github.com/${{ github.repository }}.git" site
+
+          cd site
+          mkdir -p playground
+          cp ../wasm-sync/zith-playground.wasm playground/zith-playground.wasm
+          cp ../wasm-sync/runtime.json playground/runtime.json
+
+          if ! git diff --quiet -- playground/zith-playground.wasm playground/runtime.json; then
+            git add playground/zith-playground.wasm playground/runtime.json
+            git commit -m "chore: sync playground wasm v${{ steps.tag.outputs.version }}"
+            git push origin gh-pages
+          else
+            echo "playground wasm unchanged; skipping push"
+          fi
+        env:
+          RELEASE_PAT: ${{ secrets.RELEASE_PAT }}

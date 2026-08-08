@@ -152,6 +152,11 @@ void zithc_session_set_mode(zithc_session *session, uint8_t mode) {
         session->opts.flags.mode(static_cast<zith::Options::Mode>(mode));
 }
 
+void zithc_session_set_emit_tokens(zithc_session *session, bool tokens) {
+    if (session)
+        session->opts.flags.emitTokens(tokens);
+}
+
 void zithc_session_set_emit_flags(zithc_session *session, bool ast, bool hir, bool ir, bool asm_) {
     if (session) {
         session->opts.flags.emitAst(ast);
