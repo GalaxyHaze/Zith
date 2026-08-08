@@ -71,23 +71,8 @@ bool Solver::runPostLower(hir::HirModule &hir) {
 }
 
 bool Solver::collectGenerics() {
-    if (!ast_ || !program_)
-        return true;
-
-    for (auto decl_id : program_->decls) {
-        auto &decl = ast_->getDecl(decl_id);
-
-        if (auto *fn = std::get_if<ast::FnDeclNode>(&decl)) {
-            if (fn->generic_params.empty())
-                continue;
-
-            GenericFnInfo info;
-            info.name        = fn->name;
-            info.is_generic  = true;
-            info.return_type = types::kErrorType;
-            generic_fns_.push(info);
-        }
-    }
+    // AstBuilder removed — Solver not used by modern pipeline.
+    (void)ast_; (void)program_;
     return true;
 }
 

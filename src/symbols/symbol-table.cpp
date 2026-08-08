@@ -243,15 +243,7 @@ void SymbolTable::dump(FILE *out, ast::AstBuilder *bld) const {
                     if (symbols_[mid].kind == SymKind::Fn)
                         methods++;
                 size_t fields = 0;
-                if (bld && sym.decl_id != ast::kInvalidDecl) {
-                    auto &decl = bld->getDecl(sym.decl_id);
-                    if (auto *sn = ast::asStruct(decl))
-                        fields = sn->fields.size();
-                    else if (auto *en = ast::asEnum(decl))
-                        fields = en->variants.size();
-                    else if (auto *un = ast::asUnion(decl))
-                        fields = un->variants.size();
-                }
+                (void)bld; // AstBuilder removed; dump is diagnostic-only
                 std::fprintf(out, " (%zu fields & %zu methods)", fields, methods);
                 break;
             }
