@@ -112,15 +112,11 @@ static void test_control_flow_and_scopes() {
 
 static void test_flow_marker_and_dock_statements() {
     auto snapshot = frontend::parse("flow fn main(): i32 {\n"
-                                    "    dock {\n"
-                                    "        jump check;\n"
+                                    "    dock check();\n"
+                                    "    marker check() {\n"
+                                    "        dock body();\n"
                                     "    }\n"
-                                    "    marker check {\n"
-                                    "        dock {\n"
-                                    "            jump body;\n"
-                                    "        }\n"
-                                    "    }\n"
-                                    "    stackful marker body {\n"
+                                    "    stackful marker body(v: i32) {\n"
                                     "        return 1;\n"
                                     "    }\n"
                                     "}\n");
@@ -144,33 +140,30 @@ static void test_flow_marker_and_dock_statements() {
         else if (statement.kind == frontend::StmtKind::Marker && statement.label == "body")
             saw_body = true;
     }
-    CHECK(saw_dock && saw_jump && saw_check && saw_body,
-          "dock, jump, and marker statements are lowered");
+    CHECK(saw_dock && saw_check && saw_body, "dock and marker statements are lowered");
     CHECK(statements.back().kind == frontend::StmtKind::Marker && statements.back().isStackful,
           "stackful modifier is retained on marker statements");
 }
 
-static void test_dock_requires_block_form() {
+static void test_dock_accepts_target_form() {
     auto snapshot = frontend::parse("flow fn main() {\n"
-                                    "    dock target;\n"
+                                    "    dock target();\n"
                                     "}\n");
 
-    CHECK(!snapshot.diagnostics().empty(), "dock target; does not parse as a shortcut dock form");
+    CHECK(snapshot.diagnostics().empty(), "dock target(); parses as a valid dock statement");
     bool parsed_as_dock = false;
     for (const auto &statement : snapshot.statements()) {
         if (statement.kind == frontend::StmtKind::Dock)
             parsed_as_dock = true;
     }
-    CHECK(!parsed_as_dock, "dock target; is not lowered as a valid dock statement");
+    CHECK(parsed_as_dock, "dock target(); is lowered as a valid dock statement");
 }
 
 static void test_plain_marker_is_stackless_by_default() {
     auto snapshot = frontend::parse("flow fn main(): i32 {\n"
                                     "    var x: i32 = 0;\n"
-                                    "    dock {\n"
-                                    "        jump body;\n"
-                                    "    }\n"
-                                    "    marker body {\n"
+                                    "    dock body();\n"
+                                    "    marker body() {\n"
                                     "        return x;\n"
                                     "    }\n"
                                     "}\n");
@@ -184,6 +177,30 @@ static void test_plain_marker_is_stackless_by_default() {
             CHECK(!statement.isStackful, "plain markers keep isStackful == false");
     }
     CHECK(saw_plain_marker, "plain marker is present in the frontend AST");
+}
+
+static void test_old_marker_and_dock_syntax_is_rejected() {
+    auto old_dock = frontend::parse("flow fn main() {\n"
+                                    "    dock {\n"
+                                    "        marker body() {}\n"
+                                    "    }\n"
+                                    "}\n");
+    CHECK(!old_dock.diagnostics().empty(), "dock block syntax is rejected");
+
+    auto old_local_marker = frontend::parse("flow fn main() {\n"
+                                            "    dock body();\n"
+                                            "    marker body {\n"
+                                            "    }\n"
+                                            "}\n");
+    CHECK(!old_local_marker.diagnostics().empty(), "marker without parentheses is rejected");
+
+    auto jump_without_args = frontend::parse("flow fn main() {\n"
+                                             "    dock body();\n"
+                                             "    marker body() {\n"
+                                             "        jump body;\n"
+                                             "    }\n"
+                                             "}\n");
+    CHECK(!jump_without_args.diagnostics().empty(), "jump without target arguments is rejected");
 }
 
 static void test_while_is_deprecated() {
@@ -692,8 +709,9 @@ static void test_frontend() {
     test_function_body_ast();
     test_control_flow_and_scopes();
     test_flow_marker_and_dock_statements();
-    test_dock_requires_block_form();
+    test_dock_accepts_target_form();
     test_plain_marker_is_stackless_by_default();
+    test_old_marker_and_dock_syntax_is_rejected();
     test_while_is_deprecated();
     test_multi_char_operators_are_single_tokens();
     test_binary_comparison_expression();

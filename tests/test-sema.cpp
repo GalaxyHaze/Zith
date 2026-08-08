@@ -207,23 +207,14 @@ static void test_wrong_arity() {
 static void test_marker_jump_ok() {
     SemaTest t;
     auto r = t.run("flow fn main() {\n"
-                   "    var x: i32 = 0;\n"
-                   "    dock {\n"
-                   "        jump check;\n"
-                   "    }\n"
-                   "    marker check {\n"
-                   "        if (x < 10) {\n"
-                   "            dock {\n"
-                   "                jump body;\n"
-                   "            }\n"
+                   "    var acc: i32 = 0;\n"
+                   "    dock loop(0);\n"
+                   "    marker loop(n: i32) {\n"
+                   "        if (n < 10) {\n"
+                   "            jump loop(n + 1);\n"
                    "        }\n"
                    "    }\n"
-                   "    marker body {\n"
-                   "        x = x + 1;\n"
-                   "        dock {\n"
-                   "            jump check;\n"
-                   "        }\n"
-                   "    }\n"
+                   "    acc;\n"
                    "}\n",
                    session::Stage::HirLowered);
     CHECK(r.ok, "Valid marker and jump setup lowers successfully");
@@ -233,41 +224,38 @@ static void test_nested_dock_and_stackful_markers_are_accepted() {
     ModernSemaTest t;
     auto r = t.run("flow fn main(): i32 {\n"
                    "    var x: i32 = 0;\n"
-                   "    dock {\n"
-                   "        dock {\n"
-                   "            jump check;\n"
+                   "    dock host(1);\n"
+                   "    marker host(v: i32) {\n"
+                   "        jump body(v + 1);\n"
+                   "    }\n"
+                   "    stackful marker body(v: i32) {\n"
+                   "        if (v == 2) {\n"
+                   "            return v;\n"
                    "        }\n"
                    "    }\n"
-                   "    marker check {\n"
-                   "        dock {\n"
-                   "            jump body;\n"
-                   "        }\n"
-                   "    }\n"
-                   "    stackful marker body {\n"
-                   "        return x;\n"
-                   "    }\n"
+                   "    x = 8;\n"
                    "}\n",
                    session::Stage::HirLowered);
-    CHECK(r.ok, "nested docks and stackful markers lower successfully");
+    CHECK(r.ok, "docks and stackful markers lower successfully");
 }
 
 static void test_jump_requires_dock() {
     SemaTest t;
     auto r = t.run("flow fn main() {\n"
-                   "    marker body {\n"
+                   "    marker body() {\n"
                    "    }\n"
-                   "    jump body;\n"
+                   "    jump body();\n"
                    "}\n",
                    session::Stage::HirLowered);
     CHECK(!r.ok, "jump outside a dock is rejected");
-    CHECK(r.hasMessage("jump is only allowed inside a dock"), "Explains the jump dock requirement");
+    CHECK(r.hasMessage("jump is only allowed inside a marker body"),
+          "Explains the jump marker requirement");
 }
 
 static void test_dock_requires_flow_fn() {
     SemaTest t;
     auto r = t.run("fn main() {\n"
-                   "    dock {\n"
-                   "    }\n"
+                   "    dock target();\n"
                    "}\n",
                    session::Stage::HirLowered);
     CHECK(!r.ok, "dock outside a flow fn is rejected");
@@ -278,19 +266,90 @@ static void test_dock_requires_flow_fn() {
 static void test_marker_jump_undefined() {
     SemaTest t;
     auto r = t.run("flow fn main() {\n"
-                   "    dock {\n"
-                   "        jump nonexistent_label;\n"
-                   "    }\n"
+                   "    dock nonexistent_label();\n"
                    "}\n");
     CHECK(!r.ok, "Jump to undefined marker fails");
     CHECK(r.hasErrorCode(diagnostics::err::UndefinedIdent), "Reports UndefinedIdent (2001)");
 }
 
+static void test_marker_argument_arity_and_type_mismatch() {
+    ModernSemaTest t;
+    auto bad_arity = t.run("flow fn main() {\n"
+                           "    dock body();\n"
+                           "    marker body(v: i32) {}\n"
+                           "}\n",
+                           session::Stage::HirLowered);
+    CHECK(!bad_arity.ok, "marker arity mismatch is rejected");
+    CHECK(bad_arity.hasErrorCode(diagnostics::err::NoMatchingFn),
+          "marker arity mismatch reports NoMatchingFn");
+
+    auto bad_type = t.run("flow fn main() {\n"
+                          "    dock body(true);\n"
+                          "    marker body(v: i32) {}\n"
+                          "}\n",
+                          session::Stage::HirLowered);
+    CHECK(!bad_type.ok, "marker argument type mismatch is rejected");
+    CHECK(bad_type.hasErrorCode(diagnostics::err::NoMatchingFn),
+          "marker argument type mismatch reports NoMatchingFn");
+}
+
+static void test_marker_duplicate_and_shadowing() {
+    ModernSemaTest t;
+    auto duplicate = t.run("marker Body(x: i32) {}\n"
+                           "marker Body(y: i32) {}\n"
+                           "flow fn main() {}\n",
+                           session::Stage::HirLowered);
+    CHECK(!duplicate.ok, "duplicate global markers are rejected");
+    CHECK(duplicate.hasErrorCode(diagnostics::err::DuplicateDecl),
+          "duplicate markers report DuplicateDecl");
+
+    auto local_shadows_global = t.run("marker Body() {}\n"
+                                      "flow fn main() {\n"
+                                      "    dock Body();\n"
+                                      "    marker Body() {}\n"
+                                      "}\n",
+                                      session::Stage::HirLowered);
+    CHECK(local_shadows_global.ok, "a local marker shadows a global marker in its flow fn");
+}
+
+static void test_marker_stackless_scope_and_return_rules() {
+    ModernSemaTest t;
+    auto stackless_binding = t.run("flow fn main(): i32 {\n"
+                                   "    dock body();\n"
+                                   "    marker body() {\n"
+                                   "        var slot: i32 = 1;\n"
+                                   "    }\n"
+                                   "    return 0;\n"
+                                   "}\n",
+                                   session::Stage::HirLowered);
+    CHECK(!stackless_binding.ok, "stackless marker bindings are rejected");
+    CHECK(stackless_binding.hasErrorCode(diagnostics::err::UnsupportedSyntax),
+          "stackless marker binding reports UnsupportedSyntax");
+
+    auto global_return = t.run("marker Body() {\n"
+                               "    return 1;\n"
+                               "}\n",
+                               session::Stage::HirLowered);
+    CHECK(!global_return.ok, "global marker return is rejected");
+    CHECK(global_return.hasMessage("return is not allowed in a global marker"),
+          "global marker explains the return restriction");
+
+    auto local_return = t.run("flow fn main(): i32 {\n"
+                              "    dock body();\n"
+                              "    marker body() {\n"
+                              "        return 7;\n"
+                              "    }\n"
+                              "    return 0;\n"
+                              "}\n",
+                              session::Stage::HirLowered);
+    CHECK(local_return.ok, "a local marker return returns from the host flow fn");
+}
+
 static void test_markers_are_flow_fn_only() {
     SemaTest t;
     auto r = t.run("fn main() {\n"
-                   "    marker my_loop {\n"
-                   "        jump my_loop;\n"
+                   "    marker my_loop() {\n"
+                   "        jump my_loop();\n"
                    "    }\n"
                    "}\n");
     CHECK(!r.ok, "marker/jump are rejected outside a flow fn");
@@ -1515,6 +1574,9 @@ static void test_sema() {
     test_jump_requires_dock();
     test_dock_requires_flow_fn();
     test_marker_jump_undefined();
+    test_marker_argument_arity_and_type_mismatch();
+    test_marker_duplicate_and_shadowing();
+    test_marker_stackless_scope_and_return_rules();
     test_markers_are_flow_fn_only();
     test_extern_fn_call_ok();
     test_extern_fn_call_bad_arg();

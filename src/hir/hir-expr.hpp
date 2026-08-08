@@ -41,6 +41,11 @@ enum class HirExprKind : uint8_t {
     SlotAddr,
     Cast,
     LayoutIntrinsic,
+    MarkerStore,
+    MarkerLoad,
+    MarkerDock,
+    MarkerJump,
+    MarkerRet,
 };
 
 enum class HirBinaryOp : uint8_t {
@@ -249,11 +254,49 @@ struct HirLayoutIntrinsic {
     HirExprKind tag      = HirExprKind::LayoutIntrinsic;
 };
 
+struct HirMarkerStore {
+    /// Marker symbol, matching module marker metadata.
+    uint32_t marker = ~0U;
+    /// Parameter index written into the marker blob.
+    uint32_t param_index = 0;
+    HirExprId value      = kInvalidHirExpr;
+    HirExprKind tag      = HirExprKind::MarkerStore;
+};
+
+struct HirMarkerLoad {
+    uint32_t marker      = ~0U;
+    uint32_t param_index = 0;
+    HirTypeId type       = types::kInvalidType;
+    HirExprKind tag      = HirExprKind::MarkerLoad;
+};
+
+struct HirMarkerDock {
+    /// Entry block of the marker sample lowered for the enclosing flow fn.
+    HirDeclId marker_entry = ~HirDeclId{0};
+    HirDeclId continuation = ~HirDeclId{0};
+    HirExprKind tag        = HirExprKind::MarkerDock;
+};
+
+struct HirMarkerJump {
+    HirDeclId marker_entry = ~HirDeclId{0};
+    HirExprKind tag        = HirExprKind::MarkerJump;
+};
+
+struct HirMarkerRet {
+    /// Every continuation recorded by a `dock` reachable from the current flow
+    /// fn body. Codegen switches on the stored continuation id.
+    memory::DynArray<HirDeclId> continuations;
+    HirExprKind tag = HirExprKind::MarkerRet;
+
+    explicit HirMarkerRet(memory::Arena &arena) : continuations(arena) {}
+};
+
 using HirExpr =
     std::variant<HirLiteral, HirBinary, HirUnary, HirLet, HirVar, HirCall, HirRet, HirBranch,
                  HirJump, HirPhi, HirAssign, HirIndex, HirField, HirStructLiteral, HirArrayLiteral,
                  HirEnumValue, HirSlotAlloca, HirSlotStore, HirSlotLoad, HirSlotAddr, HirMakeNone,
-                 HirMakeSome, HirCast, HirLayoutIntrinsic>;
+                 HirMakeSome, HirCast, HirLayoutIntrinsic, HirMarkerStore, HirMarkerLoad,
+                 HirMarkerDock, HirMarkerJump, HirMarkerRet>;
 
 inline HirExprKind exprKind(const HirExpr &expr) {
     return std::visit([](const auto &entry) { return entry.tag; }, expr);

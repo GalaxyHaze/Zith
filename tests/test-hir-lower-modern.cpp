@@ -783,24 +783,13 @@ void test_static_method_call_has_resolved_callee_only() {
 void test_flow_fn_marker_jump_lowers_to_hir() {
     Workspace workspace;
     workspace.writeFile("main.zith", "flow fn main(): i32 {\n"
-                                     "    var x: i32 = 0;\n"
-                                     "    dock {\n"
-                                     "        jump check;\n"
-                                     "    }\n"
-                                     "    marker check {\n"
-                                     "        if (x < 10) {\n"
-                                     "            dock {\n"
-                                     "                jump body;\n"
-                                     "            }\n"
+                                     "    dock loop(0);\n"
+                                     "    marker loop(n: i32) {\n"
+                                     "        if (n < 10) {\n"
+                                     "            jump loop(n + 1);\n"
                                      "        }\n"
                                      "    }\n"
-                                     "    marker body {\n"
-                                     "        x = x + 1;\n"
-                                     "        dock {\n"
-                                     "            jump check;\n"
-                                     "        }\n"
-                                     "    }\n"
-                                     "    x;\n"
+                                     "    0;\n"
                                      "}\n");
 
     memory::Arena arena;
@@ -813,9 +802,15 @@ void test_flow_fn_marker_jump_lowers_to_hir() {
     const auto *main = findFunction(hir, session.interner(), "main");
     CHECK(main != nullptr, "flow main function is present in HIR");
     if (main != nullptr) {
-        CHECK(main->blocks.size() >= 4u, "hoisted markers create marker blocks plus the main body");
-        CHECK(countTerminatorKind(hir, *main, hir::HirExprKind::Jump) >= 3u,
-              "dock jumps target check and body markers");
+        CHECK(main->blocks.size() >= 3u, "marker samples create marker blocks plus the main body");
+        CHECK(countInstKind(hir, *main, hir::HirExprKind::MarkerStore) >= 2u,
+              "dock and jump write marker arguments into the blob");
+        CHECK(countTerminatorKind(hir, *main, hir::HirExprKind::MarkerDock) == 1u,
+              "dock lowers to a MarkerDock terminator");
+        CHECK(countTerminatorKind(hir, *main, hir::HirExprKind::MarkerJump) >= 1u,
+              "jump lowers to a MarkerJump terminator");
+        CHECK(countTerminatorKind(hir, *main, hir::HirExprKind::MarkerRet) >= 1u,
+              "marker samples terminate with MarkerRet");
     }
 }
 
@@ -823,13 +818,14 @@ void test_flow_jump_carries_origin_continuation() {
     Workspace workspace;
     workspace.writeFile("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
                                      "flow fn main(): i32 {\n"
-                                     "    marker Test {\n"
+                                     "    marker Test() {\n"
                                      "        printf(\"Second\\n\");\n"
+                                     "        jump Done();\n"
+                                     "    }\n"
+                                     "    marker Done() {\n"
                                      "    }\n"
                                      "    printf(\"First\\n\");\n"
-                                     "    dock {\n"
-                                     "        jump Test;\n"
-                                     "    }\n"
+                                     "    dock Test();\n"
                                      "    printf(\"Third\\n\");\n"
                                      "    0;\n"
                                      "}\n");
@@ -846,25 +842,64 @@ void test_flow_jump_carries_origin_continuation() {
     if (main == nullptr)
         return;
 
-    bool saw_flow_jump  = false;
+    bool saw_dock       = false;
+    bool saw_jump       = false;
     bool saw_marker_ret = false;
-    size_t flow_return  = ~size_t{0};
     for (const auto &block : main->blocks) {
         if (block.terminator == hir::kInvalidHirExpr)
             continue;
         const auto &expr = hir.getExpr(block.terminator);
-        const auto *jump = std::get_if<hir::HirJump>(&expr);
-        if (jump == nullptr)
-            continue;
-        if (jump->flowReturn) {
-            saw_flow_jump = true;
-            flow_return   = jump->return_block;
-        } else if (flow_return != ~size_t{0} && jump->target == flow_return) {
+        if (std::get_if<hir::HirMarkerDock>(&expr) != nullptr) {
+            saw_dock = true;
+        } else if (std::get_if<hir::HirMarkerJump>(&expr) != nullptr) {
+            saw_jump = true;
+        } else if (std::get_if<hir::HirMarkerRet>(&expr) != nullptr) {
             saw_marker_ret = true;
         }
     }
-    CHECK(saw_flow_jump, "jump Test records its dock continuation");
+    CHECK(saw_dock, "dock Test lowers to a marker dock");
+    CHECK(saw_jump, "jump Test lowers to a marker jump");
     CHECK(saw_marker_ret, "the marker body terminates to the same dock continuation");
+}
+
+void test_global_marker_lowers_into_multiple_flow_fns() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "marker Add(x: i32, y: i32) {\n"
+                                     "    jump Done(x + y);\n"
+                                     "}\n"
+                                     "marker Done(result: i32) {\n"
+                                     "}\n"
+                                     "flow fn first(): i32 {\n"
+                                     "    dock Add(3, 4);\n"
+                                     "    return 0;\n"
+                                     "}\n"
+                                     "flow fn second(): i32 {\n"
+                                     "    dock Add(5, 6);\n"
+                                     "    return 0;\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "global markers lower without being imported by the flow fn");
+
+    const auto &hir = session.hirModule();
+    CHECK(hir.getMarkerCount() >= 1u, "module marker metadata is present in HIR");
+    const auto *first  = findFunction(hir, session.interner(), "first");
+    const auto *second = findFunction(hir, session.interner(), "second");
+    CHECK(first != nullptr && second != nullptr, "both flow functions are present in HIR");
+    if (first == nullptr || second == nullptr)
+        return;
+    CHECK(countTerminatorKind(hir, *first, hir::HirExprKind::MarkerDock) == 1u,
+          "first flow fn docks the global marker");
+    CHECK(countInstKind(hir, *first, hir::HirExprKind::MarkerStore) >= 2u,
+          "first flow fn stores both marker arguments");
+    CHECK(countTerminatorKind(hir, *second, hir::HirExprKind::MarkerDock) == 1u,
+          "second flow fn docks the same global marker");
+    CHECK(countInstKind(hir, *second, hir::HirExprKind::MarkerStore) >= 2u,
+          "second flow fn stores both marker arguments");
 }
 
 } // namespace
@@ -895,6 +930,7 @@ static void test_hir_lower_modern() {
     test_static_method_call_has_resolved_callee_only();
     test_flow_fn_marker_jump_lowers_to_hir();
     test_flow_jump_carries_origin_continuation();
+    test_global_marker_lowers_into_multiple_flow_fns();
 }
 
 TEST_MAIN(hir_lower_modern)

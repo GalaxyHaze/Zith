@@ -921,24 +921,41 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
             }
         }
         for (const auto &statement : module->frontend->statements()) {
-            if (statement.kind != frontend::StmtKind::Binding || statement.binding.name.empty())
-                continue;
             // Bindings inside a macro template are not real declarations.
             if (module->frontend->isMacroTemplateStmt(statement.id))
                 continue;
-            frontend::ScopeId statement_scope;
-            if (const auto found = statement_scopes.find(statement.id.value);
-                found != statement_scopes.end()) {
-                statement_scope = found->second;
+            if (statement.kind == frontend::StmtKind::Binding && !statement.binding.name.empty()) {
+                frontend::ScopeId statement_scope;
+                if (const auto found = statement_scopes.find(statement.id.value);
+                    found != statement_scopes.end()) {
+                    statement_scope = found->second;
+                }
+                add_binding({statement.binding.name,
+                             ResolutionKind::Declaration,
+                             statement.binding.span,
+                             {},
+                             {},
+                             statement.binding.id,
+                             {}},
+                            statement_scope);
+            } else if (statement.kind == frontend::StmtKind::Marker) {
+                frontend::ScopeId marker_scope;
+                if (statement.expression &&
+                    statement.expression.value <= module->frontend->expressions().size()) {
+                    marker_scope =
+                        module->frontend->expressions()[statement.expression.value - 1U].scope;
+                }
+                for (const auto &parameter : statement.parameters) {
+                    add_binding({parameter.name,
+                                 ResolutionKind::Declaration,
+                                 parameter.span,
+                                 {},
+                                 {},
+                                 parameter.id,
+                                 {}},
+                                marker_scope);
+                }
             }
-            add_binding({statement.binding.name,
-                         ResolutionKind::Declaration,
-                         statement.binding.span,
-                         {},
-                         {},
-                         statement.binding.id,
-                         {}},
-                        statement_scope);
         }
 
         for (const auto &edge : import_graph) {

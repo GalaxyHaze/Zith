@@ -12,6 +12,7 @@
 #include "types/type-intern.hpp"
 
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace zith::sema::modern {
@@ -19,7 +20,7 @@ namespace zith::sema::modern {
 class HirLowerModern {
 public:
     HirLowerModern(memory::Arena &arena, diagnostics::DiagnosticEngine &diags,
-                   const session::CompilationSnapshot &snapshot, const SemaPipeline &sema,
+                   const session::CompilationSnapshot &snapshot, SemaPipeline &sema,
                    types::TypeIntern &types, memory::StringInterner &interner,
                    const NraFacts *nra = nullptr);
 
@@ -46,7 +47,7 @@ private:
     memory::Arena &arena_;
     diagnostics::DiagnosticEngine &diags_;
     const session::CompilationSnapshot &snapshot_;
-    const SemaPipeline &sema_;
+    SemaPipeline &sema_;
     types::TypeIntern &types_;
     memory::StringInterner &interner_;
     const NraFacts *nra_;
@@ -70,41 +71,50 @@ private:
     bool lowerFunctionBodies();
     bool lowerFunctionBody(FunctionInfo &info);
 
-    /// Pre-scans a function body, assigning a block index to every `marker` label.
+    /// Pre-scans a function body, assigning a block index to every local `marker` statement.
     void collectMarkers(frontend::ExprId id);
-    /// Marker label -> HIR block index for the current function.
-    memory::FlatMap<memory::InternedId, size_t> marker_blocks_;
-    /// Marker label -> stackful flag for the current function.
-    memory::FlatMap<memory::InternedId, uint8_t> marker_stackful_;
-    /// Marker label -> statement id of its declaration in the current function.
-    memory::FlatMap<memory::InternedId, uint32_t> marker_decl_stmts_;
-    /// Stack of continuation blocks for active `dock { ... }` bodies in the
-    /// ordinary function body. Marker bodies keep their own origin and do not
-    /// push onto this stack.
-    std::vector<size_t> dockContinuations_;
-    /// Nesting depth of `dock` blocks around the current jump statement.
-    uint32_t dockDepth_ = 0;
-    /// True while lowering a hoisted marker clone.
-    bool inMarkerBody_ = false;
-    /// Return block of the dock that started the marker flow being lowered.
-    size_t activeMarkerReturnBlock_ = ~size_t{0};
-    /// One lowered clone per `jump marker` call site. Each clone has its own
-    /// entry block and returns to its originating dock continuation.
-    struct FlowMarkerInvocation {
-        uint32_t marker_stmt;
-        size_t entry_block;
-        size_t return_block;
+    /// Local marker label -> statement id for the current flow fn.
+    memory::FlatMap<std::string, uint32_t> marker_decl_stmts_;
+
+    struct MarkerSample {
+        uint32_t marker_id = ~0U;
+        size_t entry_block = ~size_t{0};
+        bool lowered       = false;
     };
-    std::vector<FlowMarkerInvocation> markerInvocations_;
-    /// Jump statement id -> index into `markerInvocations_`.
-    memory::FlatMap<uint32_t, size_t> markerInvocationIndex_;
-    /// Blocks whose bodies are hoisted markers; emitted after the main body.
-    void lowerHoistedMarkers();
-    void lowerMarkerInvocation(const FlowMarkerInvocation &invocation);
-    /// Returns the entry block for the fixed, per-call-site marker clone.
-    size_t markerInvocationEntry(uint32_t jump_stmt, uint32_t marker_stmt, size_t return_block);
-    /// Returns the block a flow jump should return to when its marker falls through.
-    size_t flowReturnBlock() const noexcept;
+    struct SourceMarker {
+        const frontend::Statement *statement = nullptr;
+        const frontend::Declaration *decl    = nullptr;
+    };
+
+    /// One shared sample per referenced marker within the current flow fn.
+    std::vector<MarkerSample> markerSamples_;
+    std::unordered_map<uint32_t, size_t> markerSampleIndex_;
+    /// Continuation blocks written by `dock`, in declaration/CFG order.
+    std::vector<size_t> markerContinuations_;
+    /// Module-level metadata maps for the HIR marker table.
+    std::string currentMarkerModule_;
+    std::unordered_map<uint32_t, SourceMarker> markerSources_;
+    std::unordered_map<std::string, uint32_t> globalMarkerByName_;
+    std::unordered_map<uint32_t, uint32_t> markerIdByStmt_;
+    std::unordered_map<uint32_t, uint32_t> markerIdByDecl_;
+    uint32_t nextMarkerId_ = 0;
+
+    void ensureModuleMarkers(const session::ModuleArtifact &module);
+    uint32_t addMarkerMetadata(const session::ModuleArtifact &module, std::string_view name,
+                               bool stackful, const frontend::Declaration *decl,
+                               const frontend::Statement *statement);
+    /// Resolve a marker name to its HIR marker id, giving local markers precedence.
+    uint32_t resolveMarker(std::string_view name) const;
+    const SourceMarker *markerSource(uint32_t marker_id) const noexcept;
+    size_t markerSampleEntry(uint32_t marker_id);
+    void lowerMarkerSamples();
+    void lowerMarkerSample(MarkerSample &sample);
+    /// True while lowering a marker sample body.
+    bool inMarkerBody_ = false;
+
+    uint32_t lowerTypeSize(types::TypeId type) noexcept;
+    uint32_t lowerTypeAlign(types::TypeId type) noexcept;
+    static uint32_t alignUp(uint32_t value, uint32_t align) noexcept;
 
     types::TypeId lowerType(sema::modern::TypeId type);
     types::TypeId lowerForeignType(const cinterop::Type &type);
@@ -162,7 +172,6 @@ private:
     void setCurrentBlock(size_t block);
     void setTerminator(hir::HirExprId term);
     void emitJump(size_t target);
-    void emitFlowJump(size_t target, size_t return_block);
 };
 
 } // namespace zith::sema::modern

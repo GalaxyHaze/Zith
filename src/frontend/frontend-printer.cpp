@@ -31,6 +31,8 @@ namespace {
     switch (kind) {
     case DeclKind::Function:
         return "Function";
+    case DeclKind::Marker:
+        return "Marker";
     case DeclKind::TypeAlias:
         return "TypeAlias";
     case DeclKind::Struct:
@@ -183,12 +185,14 @@ void printExpression(ExprId id, const std::vector<Expression> &expressions,
             break;
         case StmtKind::Marker:
             std::printf("Marker '%s'%s", stmt.label.c_str(), stmt.isStackful ? " (stackful)" : "");
+            if (!stmt.parameters.empty())
+                std::printf(" params=%zu", stmt.parameters.size());
             break;
         case StmtKind::Dock:
-            std::printf("Dock");
+            std::printf("Dock '%s' args=%zu", stmt.label.c_str(), stmt.arguments.size());
             break;
         case StmtKind::Jump:
-            std::printf("Jump '%s'", stmt.label.c_str());
+            std::printf("Jump '%s' args=%zu", stmt.label.c_str(), stmt.arguments.size());
             break;
         case StmtKind::Error:
             std::fputs("Error", stdout);

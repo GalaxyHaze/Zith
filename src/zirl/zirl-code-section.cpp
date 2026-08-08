@@ -84,6 +84,24 @@ bool encodeCode(const cache::Artifact &artifact, ByteWriter &w) {
         for (const auto &e : fn.exprs)
             writeCompactExpr(e, w);
     }
+    w.writeU32(static_cast<uint32_t>(artifact.markers.size()));
+    for (const auto &marker : artifact.markers) {
+        w.writeU32(marker.name_id);
+        w.writeU32(marker.marker_id);
+        w.writeU8(marker.stackful ? 1 : 0);
+        w.writeU8(0);
+        w.writeU8(0);
+        w.writeU8(0);
+        w.writeU32(marker.blob_offset);
+        w.writeU32(marker.body_expr);
+        w.writeU32(marker.module_name_id);
+        w.writeU32(static_cast<uint32_t>(marker.params.size()));
+        for (const auto &param : marker.params) {
+            w.writeU32(param.name_id);
+            w.writeU32(param.type_id);
+            w.writeU32(param.offset);
+        }
+    }
     return true;
 }
 
@@ -133,6 +151,26 @@ bool decodeCode(ByteReader &r, cache::Artifact &out) {
         fn.exprs.resize(k);
         for (auto &e : fn.exprs)
             if (!readCompactExpr(r, e))
+                return false;
+    }
+    if (!r.readU32(n))
+        return false;
+    out.markers.resize(n);
+    for (auto &marker : out.markers) {
+        uint8_t f = 0, a = 0, b = 0, d = 0;
+        if (!r.readU32(marker.name_id) || !r.readU32(marker.marker_id) || !r.readU8(f) ||
+            !r.readU8(a) || !r.readU8(b) || !r.readU8(d))
+            return false;
+        marker.stackful = f != 0;
+        if (!r.readU32(marker.blob_offset) || !r.readU32(marker.body_expr) ||
+            !r.readU32(marker.module_name_id))
+            return false;
+        uint32_t m = 0;
+        if (!r.readU32(m))
+            return false;
+        marker.params.resize(m);
+        for (auto &param : marker.params)
+            if (!r.readU32(param.name_id) || !r.readU32(param.type_id) || !r.readU32(param.offset))
                 return false;
     }
     return true;

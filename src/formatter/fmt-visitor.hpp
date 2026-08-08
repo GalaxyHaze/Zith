@@ -57,6 +57,7 @@ private:
 
     void emitImportDecl(const frontend::Declaration &decl);
     void emitFunctionDecl(const frontend::Declaration &decl);
+    void emitMarkerDecl(const frontend::Declaration &decl);
     void emitVariableDecl(const frontend::Declaration &decl);
     void emitNominalDecl(const frontend::Declaration &decl);
 };

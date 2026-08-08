@@ -8,6 +8,8 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Value.h>
 
+#include <optional>
+
 namespace zith::codegen {
 
 CodeGenEmit::CodeGenEmit(llvm::IRBuilderBase &builder, CodeGenType &typeGen,
@@ -179,6 +181,11 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 }
                 return llvm::ConstantInt::get(llvm::Type::getInt32Ty(builder_.getContext()), value);
             },
+            [&](const hir::HirMarkerStore &store) { return emitMarkerStore(store, mod); },
+            [&](const hir::HirMarkerLoad &load) { return emitMarkerLoad(load, mod); },
+            [&](const hir::HirMarkerDock &dock) { return emitMarkerDock(dock, mod); },
+            [&](const hir::HirMarkerJump &jump) { return emitMarkerJump(jump, mod); },
+            [&](const hir::HirMarkerRet &ret) { return emitMarkerRet(ret, mod); },
         });
 }
 
@@ -208,6 +215,156 @@ llvm::Value *CodeGenEmit::emitBody(const hir::HirFunction &fn, const hir::HirMod
         }
     }
     return last;
+}
+
+namespace {
+
+/// Rounds `value` up to a power-of-two alignment (ABI alignment, in bytes).
+uint64_t alignUp(uint64_t value, uint64_t align) {
+    if (align == 0)
+        return value;
+    const uint64_t mask = align - 1;
+    return (value + mask) & ~mask;
+}
+
+} // namespace
+
+void CodeGenEmit::setMarkerRuntime(llvm::Module *module,
+                                   const hir::HirModuleMarkerLayout &markers) {
+    module_  = module;
+    markers_ = &markers;
+}
+
+const hir::HirMarker *CodeGenEmit::markerFor(const uint32_t marker_id) const {
+    if (markers_ == nullptr)
+        return nullptr;
+    for (const auto &marker : markers_->markers)
+        if (marker.marker_id == marker_id)
+            return &marker;
+    return nullptr;
+}
+
+std::optional<uint64_t> CodeGenEmit::markerOffset(const hir::HirMarker &marker,
+                                                  const uint32_t param_index) const {
+    if (param_index >= marker.params.size())
+        return std::nullopt;
+    uint64_t offset = 0;
+    for (uint32_t index = 0; index < param_index; ++index) {
+        const auto size = typeGen_.sizeOf(marker.params[index].type);
+        if (size == 0)
+            return std::nullopt;
+        const auto align = typeGen_.alignOf(marker.params[index].type);
+        offset           = alignUp(offset, align);
+        offset += size;
+    }
+    offset = alignUp(offset, typeGen_.alignOf(marker.params[param_index].type));
+    return offset;
+}
+
+llvm::Value *CodeGenEmit::emitMarkerStore(const hir::HirMarkerStore &store,
+                                          const hir::HirModule &mod) {
+    if (module_ == nullptr || markers_ == nullptr)
+        return nullptr;
+    const auto *marker = markerFor(store.marker);
+    if (marker == nullptr)
+        return nullptr;
+    const auto offset = markerOffset(*marker, store.param_index);
+    if (!offset)
+        return nullptr;
+    auto *value = emitExpr(store.value, mod);
+    if (value == nullptr)
+        return nullptr;
+    auto *blob = module_->getNamedGlobal("__zith_marker_blob");
+    if (blob == nullptr)
+        return nullptr;
+    auto *ptr = builder_.CreateInBoundsGEP(
+        blob->getValueType(), blob,
+        {builder_.getInt64(0), builder_.getInt64(static_cast<uint64_t>(*offset))});
+    builder_.CreateStore(value, ptr, typeGen_.alignOf(marker->params[store.param_index].type));
+    return value;
+}
+
+llvm::Value *CodeGenEmit::emitMarkerLoad(const hir::HirMarkerLoad &load,
+                                         const hir::HirModule &mod) {
+    (void)mod;
+    if (module_ == nullptr || markers_ == nullptr)
+        return nullptr;
+    const auto *marker = markerFor(load.marker);
+    if (marker == nullptr)
+        return nullptr;
+    const auto offset = markerOffset(*marker, load.param_index);
+    if (!offset)
+        return nullptr;
+    auto *blob = module_->getNamedGlobal("__zith_marker_blob");
+    if (blob == nullptr)
+        return nullptr;
+    auto *ptr = builder_.CreateInBoundsGEP(
+        blob->getValueType(), blob,
+        {builder_.getInt64(0), builder_.getInt64(static_cast<uint64_t>(*offset))});
+    return builder_.CreateLoad(typeGen_.lower(load.type), ptr, typeGen_.alignOf(load.type));
+}
+
+llvm::Value *CodeGenEmit::emitMarkerDock(const hir::HirMarkerDock &dock,
+                                         const hir::HirModule &mod) {
+    (void)mod;
+    if (module_ == nullptr || blocks_ == nullptr || dock.marker_entry >= blocks_->size())
+        return nullptr;
+    auto *dockAddress = module_->getNamedGlobal("__zith_dock_address");
+    if (dockAddress == nullptr)
+        return nullptr;
+    builder_.CreateStore(builder_.getInt32(static_cast<uint32_t>(dock.continuation)), dockAddress);
+    auto *entry = (*blocks_)[dock.marker_entry];
+    if (builder_.GetInsertBlock()->getTerminator() == nullptr)
+        builder_.CreateBr(entry);
+    return nullptr;
+}
+
+llvm::Value *CodeGenEmit::emitMarkerJump(const hir::HirMarkerJump &jump,
+                                         const hir::HirModule &mod) {
+    (void)mod;
+    if (blocks_ == nullptr || jump.marker_entry >= blocks_->size())
+        return nullptr;
+    auto *entry = (*blocks_)[jump.marker_entry];
+    if (builder_.GetInsertBlock()->getTerminator() == nullptr)
+        builder_.CreateBr(entry);
+    return nullptr;
+}
+
+llvm::Value *CodeGenEmit::emitMarkerRet(const hir::HirMarkerRet &ret, const hir::HirModule &mod) {
+    (void)mod;
+    if (module_ == nullptr || blocks_ == nullptr)
+        return nullptr;
+    auto *dockAddress = module_->getNamedGlobal("__zith_dock_address");
+    if (dockAddress == nullptr)
+        return nullptr;
+    auto *exitFn = module_->getFunction("__zith_marker_exit");
+    if (exitFn == nullptr)
+        return nullptr;
+
+    auto *cont = builder_.getInt32(0);
+    if (!ret.continuations.empty()) {
+        auto *address =
+            builder_.CreateLoad(llvm::Type::getInt32Ty(builder_.getContext()), dockAddress);
+        llvm::SwitchInst *switchInst  = builder_.CreateSwitch(address, nullptr, 0);
+        llvm::BasicBlock *unreachable = llvm::BasicBlock::Create(
+            builder_.getContext(), "marker_exit", builder_.GetInsertBlock()->getParent());
+        builder_.SetInsertPoint(unreachable);
+        builder_.CreateCall(exitFn, {});
+        builder_.CreateUnreachable();
+        switchInst->setDefaultDest(unreachable);
+        for (size_t i = 0; i < ret.continuations.size(); ++i) {
+            const auto continuation = ret.continuations[i];
+            if (continuation >= blocks_->size())
+                continue;
+            switchInst->addCase(builder_.getInt32(static_cast<uint32_t>(continuation)),
+                                (*blocks_)[continuation]);
+        }
+    } else {
+        builder_.CreateCall(exitFn, {});
+        builder_.CreateUnreachable();
+        cont = nullptr;
+    }
+    return cont;
 }
 
 void CodeGenEmit::registerParams(const hir::HirFunction &fn, llvm::Function *llvmFn) {

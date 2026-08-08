@@ -413,18 +413,18 @@ static void test_byte_stability() {
 // ── Artifact builder from session state ───────────────────────────
 static void test_format_version_bump() {
     // The format version is the forward-compat gate for stale caches.  A
-    // reader that only knows v3 must not accept a v4 artifact.
+    // reader that only knows v3 must not accept a v5 artifact.
     auto art = makeMinimalArtifact("/test/main.zith", "main");
     ByteWriter writer;
     (void)Writer::write(art, writer);
 
     std::string bytes(reinterpret_cast<const char *>(writer.ptr()), writer.size());
-    CHECK_EQ(kFormatVersion, 4u, "zirl format version is bumped to 4");
+    CHECK_EQ(kFormatVersion, 5u, "zirl format version is bumped to 5");
 
-    // Simulate an old reader by treating the v4 version field as v3.
+    // Simulate an old reader by treating the v5 version field as v3.
     bytes[4]        = 3;
     auto old_reader = Reader::read(bytes);
-    CHECK(!old_reader.has_value(), "v4 artifact is rejected by a v3-only reader");
+    CHECK(!old_reader.has_value(), "v5 artifact is rejected by a v3-only reader");
 }
 
 static void test_artifact_builder() {
@@ -627,6 +627,11 @@ static void test_artifact_builder() {
         layout.field_index = 1;
         hir.addExpr(layout);
     }
+    {
+        auto &marker_id = hir.addMarker();
+        marker_id.params.push(hir::HirMarkerParam{interner.intern("n"), i32, 0, 4, 4});
+        marker_id.params.push(hir::HirMarkerParam{interner.intern("m"), f64, 4, 8, 8});
+    }
 
     hir.attrs().slot(0).ownership = hir::HirOwnership::View;
     hir.attrs().slot(0).consumed  = hir::HirConsumedState::NonConsumed;
@@ -689,6 +694,8 @@ static void test_artifact_builder() {
     CHECK_EQ(art.enum_defs[0].variants.size(), 2u, "enum variants are serialized");
     CHECK_EQ(art.enum_defs[0].variants[0].discriminant, -3, "enum discriminants are not reindexed");
     CHECK_EQ(art.union_defs.size(), 1u, "builder serializes private union defs");
+    CHECK_EQ(art.markers.size(), 1u, "builder serializes marker metadata");
+    CHECK_EQ(art.markers[0].params.size(), 2u, "builder serializes marker parameter metadata");
 
     // Full zirl round-trip: the artifact from in-memory state must decode with
     // the same HIR pool, blocks, and residual attrs.
@@ -710,6 +717,14 @@ static void test_artifact_builder() {
     CHECK_EQ(round->enum_defs[0].variants[0].discriminant, -3,
              "round-trip preserves explicit enum discriminants");
     CHECK_EQ(round->union_defs.size(), art.union_defs.size(), "round-trip preserves union defs");
+    CHECK_EQ(round->markers.size(), 1u, "round-trip preserves marker metadata");
+    if (!round->markers.empty()) {
+        const auto &marker = round->markers.front();
+        CHECK_EQ(marker.params.size(), 2u, "round-trip preserves marker parameter count");
+        CHECK_EQ(marker.params[0].type_id, art.markers[0].params[0].type_id,
+                 "round-trip preserves marker parameter types");
+        CHECK_EQ(marker.params[1].offset, 4u, "round-trip preserves marker parameter offsets");
+    }
 }
 
 } // namespace

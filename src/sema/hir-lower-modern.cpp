@@ -10,6 +10,7 @@
 #include "support/int-literal.hpp"
 #include "types/type-kind.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <span>
@@ -125,9 +126,9 @@ std::string moduleNamespace(std::string_view module_key, const session::CacheKey
 } // namespace
 
 HirLowerModern::HirLowerModern(memory::Arena &arena, diagnostics::DiagnosticEngine &diags,
-                               const session::CompilationSnapshot &snapshot,
-                               const SemaPipeline &sema, types::TypeIntern &types,
-                               memory::StringInterner &interner, const NraFacts *nra)
+                               const session::CompilationSnapshot &snapshot, SemaPipeline &sema,
+                               types::TypeIntern &types, memory::StringInterner &interner,
+                               const NraFacts *nra)
     : arena_(arena), diags_(diags), snapshot_(snapshot), sema_(sema), types_(types),
       interner_(interner), nra_(nra), hir_(arena), lowered_types_(), function_index_by_key_() {}
 
@@ -252,12 +253,353 @@ hir::HirCallEscape mapHirEscape(sema::modern::NraArgEscape escape) noexcept {
 
 } // namespace
 
+uint32_t HirLowerModern::alignUp(uint32_t value, uint32_t align) noexcept {
+    if (align == 0)
+        return value;
+    const uint32_t remainder = value % align;
+    return remainder == 0 ? value : value + (align - remainder);
+}
+
+uint32_t HirLowerModern::lowerTypeSize(types::TypeId type) noexcept {
+    switch (types_.kindOf(type)) {
+    case types::TypeKind::Bool:
+    case types::TypeKind::Char:
+        return 1;
+    case types::TypeKind::Int: {
+        const auto *integer = std::get_if<types::TypeInt>(&types_.lookup(type));
+        return integer != nullptr ? (types::intWidthBits(integer->width) + 7U) / 8U : 0U;
+    }
+    case types::TypeKind::Float: {
+        const auto *floating = std::get_if<types::TypeFloat>(&types_.lookup(type));
+        if (floating == nullptr)
+            return 0U;
+        switch (floating->width) {
+        case types::FloatWidth::F32:
+            return 4U;
+        case types::FloatWidth::F64:
+            return 8U;
+        case types::FloatWidth::F128:
+            return 16U;
+        }
+        return 0U;
+    }
+    case types::TypeKind::Ptr:
+        return 8U;
+    case types::TypeKind::Optional: {
+        const auto *optional = std::get_if<types::TypeOptional>(&types_.lookup(type));
+        if (optional == nullptr)
+            return 0U;
+        if (types_.kindOf(optional->inner) == types::TypeKind::Ptr)
+            return 8U;
+        const auto inner_size  = lowerTypeSize(optional->inner);
+        const auto inner_align = lowerTypeAlign(optional->inner);
+        return inner_size == 0U ? 0U : alignUp(alignUp(inner_size, 1U) + 1U, inner_align);
+    }
+    case types::TypeKind::Failable:
+        return 8U;
+    case types::TypeKind::Array: {
+        const auto *array = std::get_if<types::TypeArray>(&types_.lookup(type));
+        return array != nullptr ? lowerTypeSize(array->elem) * array->count : 0U;
+    }
+    case types::TypeKind::Slice:
+        return 16U;
+    case types::TypeKind::Enum: {
+        const auto *enumeration = std::get_if<types::TypeEnum>(&types_.lookup(type));
+        return enumeration != nullptr
+                   ? lowerTypeSize(types_.getEnumDef(enumeration->def_id).underlying)
+                   : 0U;
+    }
+    case types::TypeKind::Union: {
+        const auto *union_type = std::get_if<types::TypeUnion>(&types_.lookup(type));
+        if (union_type == nullptr)
+            return 0U;
+        const auto &def    = types_.getUnionDef(union_type->def_id);
+        uint32_t max_bytes = 1U;
+        uint32_t max_align = 1U;
+        for (const auto member : def.members) {
+            max_align = std::max(max_align, lowerTypeAlign(member));
+            max_bytes = std::max(max_bytes, lowerTypeSize(member));
+        }
+        return alignUp(max_bytes, max_align);
+    }
+    case types::TypeKind::Struct: {
+        const auto *structure = std::get_if<types::TypeStruct>(&types_.lookup(type));
+        if (structure == nullptr)
+            return 0U;
+        const auto &def = types_.getStructDef(structure->def_id);
+        uint32_t offset = 0U;
+        for (const auto &field : def.fields) {
+            const auto align = lowerTypeAlign(field.type);
+            if (align == 0U)
+                continue;
+            offset = alignUp(offset, align);
+            offset += lowerTypeSize(field.type);
+        }
+        return offset;
+    }
+    case types::TypeKind::Qualified: {
+        const auto *qualified = std::get_if<types::TypeQualified>(&types_.lookup(type));
+        return qualified != nullptr ? lowerTypeSize(qualified->inner) : 0U;
+    }
+    case types::TypeKind::Alias: {
+        const auto *alias = std::get_if<types::TypeAlias>(&types_.lookup(type));
+        return alias != nullptr ? lowerTypeSize(alias->target) : 0U;
+    }
+    case types::TypeKind::Nominal: {
+        const auto *nominal = std::get_if<types::TypeNominal>(&types_.lookup(type));
+        return nominal != nullptr ? lowerTypeSize(nominal->target) : 0U;
+    }
+    default:
+        return 0U;
+    }
+}
+
+uint32_t HirLowerModern::lowerTypeAlign(types::TypeId type) noexcept {
+    switch (types_.kindOf(type)) {
+    case types::TypeKind::Bool:
+    case types::TypeKind::Char:
+        return 1U;
+    case types::TypeKind::Int: {
+        const auto *integer = std::get_if<types::TypeInt>(&types_.lookup(type));
+        return integer != nullptr ? ((types::intWidthBits(integer->width) + 7U) / 8U) : 0U;
+    }
+    case types::TypeKind::Float: {
+        const auto *floating = std::get_if<types::TypeFloat>(&types_.lookup(type));
+        if (floating == nullptr)
+            return 0U;
+        switch (floating->width) {
+        case types::FloatWidth::F32:
+            return 4U;
+        case types::FloatWidth::F64:
+            return 8U;
+        case types::FloatWidth::F128:
+            return 16U;
+        }
+        return 0U;
+    }
+    case types::TypeKind::Ptr:
+    case types::TypeKind::Failable:
+        return 8U;
+    case types::TypeKind::Optional: {
+        const auto *optional = std::get_if<types::TypeOptional>(&types_.lookup(type));
+        if (optional == nullptr)
+            return 0U;
+        if (types_.kindOf(optional->inner) == types::TypeKind::Ptr)
+            return 8U;
+        return lowerTypeAlign(optional->inner);
+    }
+    case types::TypeKind::Array: {
+        const auto *array = std::get_if<types::TypeArray>(&types_.lookup(type));
+        return array != nullptr ? lowerTypeAlign(array->elem) : 0U;
+    }
+    case types::TypeKind::Slice:
+        return 8U;
+    case types::TypeKind::Enum: {
+        const auto *enumeration = std::get_if<types::TypeEnum>(&types_.lookup(type));
+        return enumeration != nullptr
+                   ? lowerTypeAlign(types_.getEnumDef(enumeration->def_id).underlying)
+                   : 0U;
+    }
+    case types::TypeKind::Union: {
+        const auto *union_type = std::get_if<types::TypeUnion>(&types_.lookup(type));
+        if (union_type == nullptr)
+            return 0U;
+        uint32_t max_align = 1U;
+        for (const auto member : types_.getUnionDef(union_type->def_id).members)
+            max_align = std::max(max_align, lowerTypeAlign(member));
+        return max_align;
+    }
+    case types::TypeKind::Struct: {
+        const auto *structure = std::get_if<types::TypeStruct>(&types_.lookup(type));
+        if (structure == nullptr)
+            return 0U;
+        uint32_t max_align = 1U;
+        for (const auto &field : types_.getStructDef(structure->def_id).fields)
+            max_align = std::max(max_align, lowerTypeAlign(field.type));
+        return max_align;
+    }
+    case types::TypeKind::Qualified: {
+        const auto *qualified = std::get_if<types::TypeQualified>(&types_.lookup(type));
+        return qualified != nullptr ? lowerTypeAlign(qualified->inner) : 0U;
+    }
+    case types::TypeKind::Alias: {
+        const auto *alias = std::get_if<types::TypeAlias>(&types_.lookup(type));
+        return alias != nullptr ? lowerTypeAlign(alias->target) : 0U;
+    }
+    case types::TypeKind::Nominal: {
+        const auto *nominal = std::get_if<types::TypeNominal>(&types_.lookup(type));
+        return nominal != nullptr ? lowerTypeAlign(nominal->target) : 0U;
+    }
+    default:
+        return 0U;
+    }
+}
+
 bool HirLowerModern::lowerFunctionBodies() {
+    session::ModuleKey last_module_key;
+    for (const auto &module_ptr : snapshot_.modules()) {
+        if (module_ptr == nullptr)
+            continue;
+        if (module_ptr->key != last_module_key) {
+            ensureModuleMarkers(*module_ptr);
+            last_module_key = module_ptr->key;
+        }
+    }
     for (auto &function : functions_) {
         if (function.decl != nullptr && function.decl->body && !lowerFunctionBody(function))
             return false;
     }
+    uint32_t blob_size  = 1;
+    uint32_t blob_align = 1;
+    for (auto &marker : hir_.markers().markers) {
+        uint32_t marker_offset = 0;
+        for (auto &param : marker.params) {
+            const auto size  = lowerTypeSize(param.type);
+            const auto align = lowerTypeAlign(param.type);
+            if (size == 0 || align == 0)
+                continue;
+            marker_offset = alignUp(marker_offset, align);
+            param.offset  = marker_offset;
+            marker_offset += size;
+            if (align > blob_align)
+                blob_align = align;
+        }
+        marker.blob_offset = marker_offset;
+        if (marker_offset > blob_size)
+            blob_size = marker_offset;
+    }
+    hir_.setModuleMarkerLayout(blob_size, blob_align);
     return !diags_.hasErrors();
+}
+
+void HirLowerModern::ensureModuleMarkers(const session::ModuleArtifact &module) {
+    if (module.key == currentMarkerModule_)
+        return;
+    currentMarkerModule_ = module.key;
+    globalMarkerByName_.clear();
+    markerSources_.clear();
+    markerIdByStmt_.clear();
+    markerIdByDecl_.clear();
+    nextMarkerId_ = 0;
+    if (module.frontend == nullptr)
+        return;
+    for (const auto &decl : module.frontend->declarations()) {
+        if (decl.kind != frontend::DeclKind::Marker || decl.name.empty())
+            continue;
+        const auto marker = addMarkerMetadata(module, decl.name, decl.isStackful, &decl, nullptr);
+        globalMarkerByName_[decl.name] = marker;
+    }
+}
+
+uint32_t HirLowerModern::addMarkerMetadata(const session::ModuleArtifact &module,
+                                           const std::string_view name, const bool stackful,
+                                           const frontend::Declaration *decl,
+                                           const frontend::Statement *statement) {
+    auto &marker         = hir_.addMarker();
+    const auto marker_id = nextMarkerId_++;
+    marker.name          = interner_.intern(name);
+    marker.marker_id     = marker_id;
+    marker.stackful      = stackful;
+    marker.body_expr     = statement ? statement->expression.value : (decl ? decl->body.value : 0U);
+    markerSources_[marker_id] = SourceMarker{statement, decl};
+    if (statement != nullptr)
+        markerIdByStmt_[statement->id.value] = marker_id;
+    if (decl != nullptr)
+        markerIdByDecl_[decl->id.value] = marker_id;
+
+    const auto &params = statement ? statement->parameters : decl->parameters;
+    auto *module_sema  = sema_.findModuleSema(module.key);
+    for (const auto &param : params) {
+        hir::HirMarkerParam hir_param;
+        hir_param.name = interner_.intern(param.name);
+        if (module_sema != nullptr) {
+            const auto sema_type = module_sema->markerParamType(param);
+            hir_param.type       = lowerType(sema_type);
+        } else {
+            hir_param.type = types::kErrorType;
+        }
+        marker.params.push(std::move(hir_param));
+    }
+    return marker_id;
+}
+
+uint32_t HirLowerModern::resolveMarker(const std::string_view name) const {
+    if (const auto *local = marker_decl_stmts_.get(std::string(name))) {
+        if (const auto found = markerIdByStmt_.find(*local); found != markerIdByStmt_.end())
+            return found->second;
+    }
+    if (const auto found = globalMarkerByName_.find(std::string(name));
+        found != globalMarkerByName_.end())
+        return found->second;
+    return ~0U;
+}
+
+const HirLowerModern::SourceMarker *
+HirLowerModern::markerSource(const uint32_t marker_id) const noexcept {
+    const auto found = markerSources_.find(marker_id);
+    return found == markerSources_.end() ? nullptr : &found->second;
+}
+
+size_t HirLowerModern::markerSampleEntry(const uint32_t marker_id) {
+    if (const auto found = markerSampleIndex_.find(marker_id); found != markerSampleIndex_.end())
+        return markerSamples_[found->second].entry_block;
+    const size_t index = markerSamples_.size();
+    markerSamples_.push_back(MarkerSample{marker_id, newBlock(), false});
+    markerSampleIndex_.emplace(marker_id, index);
+    return markerSamples_[index].entry_block;
+}
+
+void HirLowerModern::lowerMarkerSamples() {
+    // Nested jumps append samples; iterate until the vector stops growing.
+    for (size_t index = 0; index < markerSamples_.size(); ++index)
+        lowerMarkerSample(markerSamples_[index]);
+}
+
+void HirLowerModern::lowerMarkerSample(MarkerSample &sample) {
+    if (sample.lowered)
+        return;
+    sample.lowered             = true;
+    const SourceMarker *source = markerSource(sample.marker_id);
+    if (source == nullptr)
+        return;
+    const auto *params = source->statement ? &source->statement->parameters
+                                           : (source->decl ? &source->decl->parameters : nullptr);
+    current_fn_->blocks[sample.entry_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    setCurrentBlock(sample.entry_block);
+
+    const auto *marker =
+        hir_.findMarker(source->statement ? interner_.intern(source->statement->label)
+                                          : interner_.intern(source->decl->name));
+    if (marker != nullptr && params != nullptr) {
+        for (size_t index = 0; index < params->size(); ++index) {
+            const auto type =
+                index < marker->params.size() ? marker->params[index].type : types::kErrorType;
+            hir::HirMarkerLoad load;
+            load.marker        = marker->marker_id;
+            load.param_index   = static_cast<uint32_t>(index);
+            load.type          = type;
+            const auto load_id = addExpr(std::move(load));
+            current_fn_->blocks[current_block_].insts.push(load_id);
+            // Bind the parameter as a normal local slot so expressions referring
+            // to the parameter resolve through the existing ResolvedName path.
+            const auto slot = localSlot((*params)[index].id);
+            current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, type));
+            current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, load_id));
+        }
+    }
+
+    const bool saved_marker = inMarkerBody_;
+    inMarkerBody_           = true;
+    if (marker != nullptr && marker->body_expr)
+        (void)lowerExpr(frontend::ExprId{marker->body_expr});
+    inMarkerBody_ = saved_marker;
+
+    if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
+        hir::HirMarkerRet ret(arena_);
+        for (const auto continuation : markerContinuations_)
+            ret.continuations.push(static_cast<hir::HirDeclId>(continuation));
+        setTerminator(addExpr(std::move(ret)));
+    }
 }
 
 bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
@@ -287,15 +629,11 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     current_block_ = 0;
     next_slot_     = 0;
     loop_stack_.clear();
-    marker_blocks_.clear();
-    marker_stackful_.clear();
     marker_decl_stmts_.clear();
-    markerInvocationIndex_.clear();
-    markerInvocations_.clear();
-    dockContinuations_.clear();
-    dockDepth_               = 0;
-    inMarkerBody_            = false;
-    activeMarkerReturnBlock_ = ~size_t{0};
+    markerSamples_.clear();
+    markerSampleIndex_.clear();
+    markerContinuations_.clear();
+    inMarkerBody_ = false;
     local_slots_.clear();
     local_slots_.resize(1U);
 
@@ -303,6 +641,12 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     current_fn_->blocks[0].insts = memory::DynArray<hir::HirExprId>(arena_);
 
     collectMarkers(info.decl->body);
+    for (const auto [marker_name, stmt_id] : marker_decl_stmts_) {
+        (void)marker_name;
+        if (const auto found = markerIdByStmt_.find(stmt_id); found != markerIdByStmt_.end()) {
+            markerSampleEntry(found->second);
+        }
+    }
 
     for (size_t index = 0; index < info.decl->parameters.size(); ++index) {
         const auto &parameter = info.decl->parameters[index];
@@ -334,7 +678,7 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
         current_fn_->blocks[current_block_].terminator = addExpr(std::move(ret));
     }
 
-    lowerHoistedMarkers();
+    lowerMarkerSamples();
 
     current_module_     = nullptr;
     current_resolution_ = nullptr;
@@ -1737,14 +2081,7 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                           "marker is only allowed inside a flow fn", {});
             return false;
         }
-        const auto label_id = interner_.intern(statement.label);
-        const auto *target  = marker_decl_stmts_.get(label_id);
-        if (target == nullptr) {
-            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
-                          "marker has no block: '" + statement.label + "'", {});
-            return false;
-        }
-        (void)target; // Marker bodies are lowered from `lowerMarkerInvocation`.
+        // Local marker declarations are lowered lazily from `jump`/`dock` sites.
         last_value = hir::kInvalidHirExpr;
         return true;
     }
@@ -1754,27 +2091,24 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                           "jump is only allowed inside a flow fn", {});
             return false;
         }
-        const auto label_id = interner_.intern(statement.label);
-        const auto *target  = marker_blocks_.get(label_id);
-        if (target == nullptr) {
+        const auto marker_id = resolveMarker(statement.label);
+        if (marker_id == ~0U) {
             diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
                           "jump to undefined marker: '" + statement.label + "'", {});
             return false;
         }
-        if (dockDepth_ == 0) {
-            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
-                          "jump is only allowed inside a dock", {});
-            return false;
+        for (size_t index = 0; index < statement.arguments.size(); ++index) {
+            hir::HirMarkerStore store;
+            store.marker      = marker_id;
+            store.param_index = static_cast<uint32_t>(index);
+            store.value       = lowerExpr(statement.arguments[index]);
+            if (store.value != hir::kInvalidHirExpr)
+                current_fn_->blocks[current_block_].insts.push(addExpr(std::move(store)));
         }
-        const auto *marker_stmt = marker_decl_stmts_.get(label_id);
-        if (marker_stmt == nullptr) {
-            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
-                          "jump to undefined marker: '" + statement.label + "'", {});
-            return false;
-        }
-        const size_t return_block = flowReturnBlock();
-        const size_t entry = markerInvocationEntry(statement.id.value, *marker_stmt, return_block);
-        emitFlowJump(entry, return_block);
+        const auto entry = markerSampleEntry(marker_id);
+        hir::HirMarkerJump marker_jump;
+        marker_jump.marker_entry = static_cast<hir::HirDeclId>(entry);
+        setTerminator(addExpr(std::move(marker_jump)));
         // Anything after a jump is unreachable; give it a fresh block.
         setCurrentBlock(newBlock());
         current_fn_->blocks[current_block_].insts = memory::DynArray<hir::HirExprId>(arena_);
@@ -1787,17 +2121,26 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                           "dock is only allowed inside a flow fn", {});
             return false;
         }
+        const auto marker_id = resolveMarker(statement.label);
+        if (marker_id == ~0U) {
+            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                          "dock to undefined marker: '" + statement.label + "'", {});
+            return false;
+        }
         const size_t continuation = newBlock();
-        if (!inMarkerBody_)
-            dockContinuations_.push_back(continuation);
-        ++dockDepth_;
-        if (statement.expression)
-            (void)lowerExpr(statement.expression);
-        if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
-            emitJump(continuation);
-        --dockDepth_;
-        if (!inMarkerBody_)
-            dockContinuations_.pop_back();
+        markerContinuations_.push_back(continuation);
+        for (size_t index = 0; index < statement.arguments.size(); ++index) {
+            hir::HirMarkerStore store;
+            store.marker      = marker_id;
+            store.param_index = static_cast<uint32_t>(index);
+            store.value       = lowerExpr(statement.arguments[index]);
+            current_fn_->blocks[current_block_].insts.push(addExpr(std::move(store)));
+        }
+        const auto entry = markerSampleEntry(marker_id);
+        hir::HirMarkerDock dock;
+        dock.marker_entry = static_cast<hir::HirDeclId>(entry);
+        dock.continuation = static_cast<hir::HirDeclId>(continuation);
+        setTerminator(addExpr(std::move(dock)));
         setCurrentBlock(continuation);
         current_fn_->blocks[continuation].insts = memory::DynArray<hir::HirExprId>(arena_);
         last_value                              = hir::kInvalidHirExpr;
@@ -1837,74 +2180,19 @@ void HirLowerModern::collectMarkers(frontend::ExprId id) {
         id.value > current_module_->frontend->expressions().size())
         return;
     const auto &expr = current_module_->frontend->expressions()[id.value - 1U];
-    if (expr.kind == frontend::ExprKind::Block) {
-        for (const auto &stmt_id : expr.statements) {
-            if (!stmt_id || stmt_id.value > current_module_->frontend->statements().size())
-                continue;
-            const auto &stmt = current_module_->frontend->statements()[stmt_id.value - 1U];
-            if (stmt.kind == frontend::StmtKind::Marker && !stmt.label.empty()) {
-                const auto label_id = interner_.intern(stmt.label);
-                if (!marker_blocks_.contains(label_id)) {
-                    marker_blocks_.insert(label_id, newBlock());
-                    marker_stackful_.insert(label_id, stmt.isStackful ? uint8_t{1} : uint8_t{0});
-                }
-                marker_decl_stmts_.insert(label_id, stmt_id.value);
-            }
-            if (stmt.expression)
-                collectMarkers(stmt.expression);
+    if (expr.kind != frontend::ExprKind::Block)
+        return;
+    for (const auto &stmt_id : expr.statements) {
+        if (!stmt_id || stmt_id.value > current_module_->frontend->statements().size())
+            continue;
+        const auto &stmt = current_module_->frontend->statements()[stmt_id.value - 1U];
+        if (stmt.kind == frontend::StmtKind::Marker && !stmt.label.empty()) {
+            marker_decl_stmts_.insert(stmt.label, stmt_id.value);
+            addMarkerMetadata(*current_module_, stmt.label, stmt.isStackful, nullptr, &stmt);
         }
-    } else {
-        for (const auto operand : expr.operands)
-            collectMarkers(operand);
+        if (stmt.expression)
+            collectMarkers(stmt.expression);
     }
-}
-
-void HirLowerModern::lowerHoistedMarkers() {
-    // Lower the clones lazily in call-site order. A nested `jump` inside one
-    // marker appends its own clone, which is then lowered by the same loop.
-    for (size_t i = 0; i < markerInvocations_.size(); ++i)
-        lowerMarkerInvocation(markerInvocations_[i]);
-}
-
-void HirLowerModern::lowerMarkerInvocation(const FlowMarkerInvocation &invocation) {
-    if (current_module_ == nullptr || current_module_->frontend == nullptr ||
-        invocation.marker_stmt == 0 ||
-        invocation.marker_stmt > current_module_->frontend->statements().size())
-        return;
-    const auto &stmt = current_module_->frontend->statements()[invocation.marker_stmt - 1U];
-    if (stmt.kind != frontend::StmtKind::Marker || !stmt.expression)
-        return;
-
-    current_fn_->blocks[invocation.entry_block].insts = memory::DynArray<hir::HirExprId>(arena_);
-    setCurrentBlock(invocation.entry_block);
-    const size_t saved_return  = activeMarkerReturnBlock_;
-    const bool saved_in_marker = inMarkerBody_;
-    activeMarkerReturnBlock_   = invocation.return_block;
-    inMarkerBody_              = true;
-    if (stmt.expression)
-        (void)lowerExpr(stmt.expression);
-    inMarkerBody_            = saved_in_marker;
-    activeMarkerReturnBlock_ = saved_return;
-    if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
-        emitJump(invocation.return_block);
-}
-
-size_t HirLowerModern::markerInvocationEntry(const uint32_t jump_stmt, const uint32_t marker_stmt,
-                                             const size_t return_block) {
-    if (const auto *existing = markerInvocationIndex_.get(jump_stmt))
-        return markerInvocations_[*existing].entry_block;
-    const size_t index = markerInvocations_.size();
-    markerInvocations_.push_back(FlowMarkerInvocation{marker_stmt, newBlock(), return_block});
-    markerInvocationIndex_.insert(jump_stmt, index);
-    return markerInvocations_[index].entry_block;
-}
-
-size_t HirLowerModern::flowReturnBlock() const noexcept {
-    if (inMarkerBody_)
-        return activeMarkerReturnBlock_;
-    if (!dockContinuations_.empty())
-        return dockContinuations_.back();
-    return ~size_t{0};
 }
 
 void HirLowerModern::setCurrentBlock(const size_t block) {
@@ -1918,14 +2206,6 @@ void HirLowerModern::setTerminator(const hir::HirExprId term) {
 void HirLowerModern::emitJump(const size_t target) {
     hir::HirJump jump;
     jump.target = static_cast<hir::HirDeclId>(target);
-    setTerminator(addExpr(std::move(jump)));
-}
-
-void HirLowerModern::emitFlowJump(const size_t target, const size_t return_block) {
-    hir::HirJump jump;
-    jump.target       = static_cast<hir::HirDeclId>(target);
-    jump.flowReturn   = true;
-    jump.return_block = static_cast<hir::HirDeclId>(return_block);
     setTerminator(addExpr(std::move(jump)));
 }
 

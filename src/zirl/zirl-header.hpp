@@ -18,13 +18,15 @@ namespace zith::zirl {
 // reject an artifact before reading any section.
 
 inline constexpr uint32_t kMagic = 0x5A49524Cu; // "ZIRL"
+// Bumped to 5 when module marker metadata and marker IR nodes were added to
+// the cache.
 // Bumped to 4 when HIR expressions and residual HirAttrs were added to the
 // cache.
 // Bumped to 3 when module_name was added to the metadata section.
 // Bumped to 2 when dependency records were folded into header_size: artifacts
 // written before that are unreadable for any module with imports, so the version
 // check turns stale caches into a clean miss rather than a checksum failure.
-inline constexpr uint32_t kFormatVersion = 4;
+inline constexpr uint32_t kFormatVersion = 5;
 inline constexpr uint8_t kEndianLittle   = 1;
 
 enum class SectionId : uint8_t {

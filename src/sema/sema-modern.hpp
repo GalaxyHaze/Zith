@@ -121,12 +121,31 @@ private:
     /// Whether the resolved binding's function accepts a trailing variadic tail.
     [[nodiscard]] static bool bindingIsVariadic(const session::ResolvedName &binding) noexcept;
 
-    /// Collects `marker` statement names within a function body (hoisted labels).
+    struct LocalMarker {
+        const frontend::Statement *statement = nullptr;
+        bool stackful                        = false;
+    };
+
+    /// Collects `marker` statement names within a function body.
     void collectMarkers(frontend::ExprId id);
-    /// Marker names visible to `jump` statements in the current function.
-    memory::FlatMap<std::string, uint8_t> markers_;
-    /// Nesting depth of `dock` blocks around the current jump statement.
-    uint32_t dockDepth_ = 0;
+    /// Module-scoped marker declarations visible to every flow fn in this file.
+    std::unordered_map<std::string, const frontend::Declaration *> global_markers_;
+    /// Marker declarations visible in the current flow fn. A local marker shadows
+    /// a same-named global marker.
+    std::unordered_map<std::string, LocalMarker> local_markers_;
+    /// True while inferring the body of a marker (local or global).
+    bool inMarkerBody_ = false;
+    /// True while inferring a module-scoped marker body; `return` is rejected there.
+    bool inGlobalMarker_ = false;
+    /// True while inferring a marker that cannot allocate host-slot locals.
+    bool currentStacklessMarker_ = false;
+
+    void validateMarkerReference(frontend::TextSpan span, std::string_view name,
+                                 const frontend::Statement &use);
+    [[nodiscard]] TypeId markerParamType(const frontend::Parameter &param);
+
+    friend class SemaPipeline;
+    friend class HirLowerModern;
 
     void checkReturnStatement(const frontend::Statement &stmt);
     TypeId lowerTypeExpr(frontend::TypeExprId id);

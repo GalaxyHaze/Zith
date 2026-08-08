@@ -8,6 +8,7 @@
 #include "memory/string-interner.hpp"
 #include "types/type-intern.hpp"
 
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -17,6 +18,7 @@ class Value;
 class Type;
 class Function;
 class BasicBlock;
+class Module;
 } // namespace llvm
 
 namespace zith::codegen {
@@ -31,6 +33,10 @@ class CodeGenEmit {
 public:
     CodeGenEmit(llvm::IRBuilderBase &builder, CodeGenType &typeGen,
                 const memory::StringInterner &interner, const types::TypeIntern &types);
+
+    /// Installs the module-wide marker runtime used by `HirMarkerStore/Load/Dock/Jump/Ret`.
+    /// Called by CodeGen before a body is emitted, so marker exprs can resolve globals.
+    void setMarkerRuntime(llvm::Module *module, const hir::HirModuleMarkerLayout &markers);
 
     void setBlocks(const std::vector<llvm::BasicBlock *> *blocks) {
         blocks_ = blocks;
@@ -57,6 +63,13 @@ private:
     llvm::Value *emitFieldAddr(const hir::HirField &field, const hir::HirModule &mod);
     llvm::Value *emitLValueAddr(hir::HirExprId target_id, const hir::HirModule &mod);
     llvm::Value *emitBranch(const hir::HirBranch &branch, const hir::HirModule &mod);
+    llvm::Value *emitMarkerStore(const hir::HirMarkerStore &store, const hir::HirModule &mod);
+    llvm::Value *emitMarkerLoad(const hir::HirMarkerLoad &load, const hir::HirModule &mod);
+    llvm::Value *emitMarkerDock(const hir::HirMarkerDock &dock, const hir::HirModule &mod);
+    llvm::Value *emitMarkerJump(const hir::HirMarkerJump &jump, const hir::HirModule &mod);
+    llvm::Value *emitMarkerRet(const hir::HirMarkerRet &ret, const hir::HirModule &mod);
+    const hir::HirMarker *markerFor(uint32_t marker_id) const;
+    std::optional<uint64_t> markerOffset(const hir::HirMarker &marker, uint32_t param_index) const;
     /// True for signed integers; false for unsigned integers and all other types.
     bool isSignedType(types::TypeId id) const;
 
@@ -73,6 +86,8 @@ private:
     memory::FlatMap<std::string_view, NamedValue> namedValues_;
     std::vector<llvm::Value *> slots_;
     const std::vector<llvm::BasicBlock *> *blocks_ = nullptr;
+    llvm::Module *module_                          = nullptr;
+    const hir::HirModuleMarkerLayout *markers_     = nullptr;
 };
 
 } // namespace zith::codegen

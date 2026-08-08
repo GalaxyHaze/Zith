@@ -94,6 +94,8 @@ enum class DeclKind : uint8_t {
     Macro,
     Import,
     Function,
+    /// `marker name(params) { body }` — module-scoped reusable flow block.
+    Marker,
     TypeAlias,
     Struct,
     Enum,
@@ -197,6 +199,8 @@ struct TypeExpression {
     bool hasMutKeyword = false;
 };
 
+struct Parameter;
+
 struct Binding {
     LocalId id;
     std::string name;
@@ -214,6 +218,10 @@ struct Statement {
     Binding binding;
     /// Name of a marker (StmtKind::Marker) or jump target (StmtKind::Jump).
     std::string label;
+    /// Parameters of a local `marker name(params) { ... }`.
+    std::vector<Parameter> parameters;
+    /// Arguments written after `dock target(args);` or `jump target(args);`.
+    std::vector<ExprId> arguments;
     /// True for `stackful marker name { }`.
     bool isStackful = false;
 };
@@ -320,6 +328,8 @@ struct Declaration {
     bool isExtern = false;
     /// True when the declaration ends its parameter list with `...` (`extern fn` only).
     bool isVariadic = false;
+    /// True for `stackful marker Name(...) { ... }`.
+    bool isStackful = false;
     /// True for `type Name = T`; the declaration creates a nominal wrapper.
     /// `alias Name = T` remains a transparent type alias.
     bool isNominalType = false;

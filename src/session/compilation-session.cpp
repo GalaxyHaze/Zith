@@ -51,6 +51,7 @@ namespace {
 symbols::SymKind mapFrontendDeclKind(const frontend::DeclKind kind) {
     switch (kind) {
     case frontend::DeclKind::Function:
+    case frontend::DeclKind::Marker:
         return symbols::SymKind::Fn;
     case frontend::DeclKind::TypeAlias:
         return symbols::SymKind::Alias;
@@ -1554,6 +1555,42 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             expr           = li;
             break;
         }
+        case cache::CompactExprKind::MarkerStore: {
+            hir::HirMarkerStore store;
+            store.marker      = ce.ref_a;
+            store.param_index = ce.ref_b;
+            store.value       = ce.ref_c;
+            expr              = store;
+            break;
+        }
+        case cache::CompactExprKind::MarkerLoad: {
+            hir::HirMarkerLoad load;
+            load.marker      = ce.ref_a;
+            load.param_index = ce.ref_b;
+            load.type        = compactType(ce.type_id);
+            expr             = load;
+            break;
+        }
+        case cache::CompactExprKind::MarkerDock: {
+            hir::HirMarkerDock dock;
+            dock.marker_entry = ce.ref_c;
+            dock.continuation = ce.ref_d;
+            expr              = dock;
+            break;
+        }
+        case cache::CompactExprKind::MarkerJump: {
+            hir::HirMarkerJump jump;
+            jump.marker_entry = ce.ref_c;
+            expr              = jump;
+            break;
+        }
+        case cache::CompactExprKind::MarkerRet: {
+            hir::HirMarkerRet ret(mHirArena);
+            for (auto id : ce.args)
+                ret.continuations.push(id);
+            expr = std::move(ret);
+            break;
+        }
         }
         mHirModule.addExpr(std::move(expr));
     }
@@ -1572,6 +1609,24 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             for (auto id : cblk.insts)
                 blk.insts.push(id);
             blk.terminator = cblk.terminator;
+        }
+    }
+
+    // Marker metadata is restored before any flow-fn block is consumed by the
+    // code generator: it needs the per-parameter blob offsets and types.
+    for (const auto &cm : art.markers) {
+        auto &marker       = mHirModule.addMarker();
+        marker.name        = mInterner->intern(art.strings[cm.name_id]);
+        marker.marker_id   = cm.marker_id;
+        marker.stackful    = cm.stackful;
+        marker.blob_offset = cm.blob_offset;
+        marker.body_expr   = cm.body_expr;
+        for (const auto &cparam : cm.params) {
+            hir::HirMarkerParam param;
+            param.name   = mInterner->intern(art.strings[cparam.name_id]);
+            param.type   = compactType(cparam.type_id);
+            param.offset = cparam.offset;
+            marker.params.push(std::move(param));
         }
     }
 

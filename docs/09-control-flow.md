@@ -6,8 +6,9 @@
 > are recognised but report "not implemented yet". `while` still works but emits a deprecation
 > warning (`W1008`) pointing at `for (cond) { }`. `when` pattern matching is a **parse error** —
 > arm syntax `0 => { }` is not recognised. `flow fn` parses as a function declaration;
-> `marker`, `dock`, and `jump target` lowering is tested, while markers with arguments and the
-> stackful marker execution model remain future work. See [impl-status.md](impl-status.md).
+> `dock`, `jump`, and global/local `marker` lowering with typed arguments is tested, along with
+> stackless marker execution and stackful local bindings. Cycle detection and marker return
+> values remain future work. See [impl-status.md](impl-status.md).
 
 ### 9.1 Syntax Rules
 
@@ -72,15 +73,15 @@ foo(), ( f1(..) -> f2() ) -> f3(..);
 A `flow fn` lets you write control flow using **markers**, **docks**, and **jumps**:
 
 > The code below documents the full language contract. Today `marker`, `dock`, and
-> `jump target` are parsed and lowered. `jump target` is a **restarting transfer**: control
-> exits the originating `dock`, runs the target marker, and resumes immediately after that dock
-> when the marker body falls through. Markers with arguments are not implemented yet, and
-> `stackful marker` currently only carries metadata; its cleaned-up local execution model is
-> still future work.
+> `jump target(...)` are parsed, typed, and lowered. `jump` is a **restarting transfer**: control
+> starts at the target marker, stores its arguments in the module-local marker blob, and resumes
+> immediately after the originating `dock` when the marker body falls through. Stackless markers
+> cannot capture bindings from the host flow function; stackful markers may use their own local
+> bindings.
 
-- **`marker`**: A named block of code, hoisted to the top of the `flow fn`. Acts as a label. Receives values via `jump`. Only valid inside a `flow fn`.
-- **`dock`**: A block that grants permission to use `jump`. The only accepted form is `dock { ... }`; there is no `dock target;` shortcut. The block itself does not carry arguments.
-- **`jump`**: The transfer operator. The simple form transfers control to a target `marker`; it is only valid inside a `flow fn`. When the marker body finishes without an explicit `return`, control resumes at the point after the `dock` that started the current flow. Sending values with the jump is future work.
+- **`marker`**: A named block of code with typed parameters. Global markers are module-scoped and usable from any `flow fn` in the same module; local markers may shadow a global within their `flow fn`. Marker bodies run from a shared sample inside each host flow function. Markers are `void`; there is no marker return value yet.
+- **`dock`**: A statement that grants permission to use `jump` and records the continuation of the enclosing `flow fn`. The accepted form is `dock target(args);`; the old `dock { ... }` block form is rejected. Docks are only valid inside a `flow fn` and cannot appear inside a marker body.
+- **`jump`**: The transfer operator: `jump target(args);` is only valid inside a marker. It stores new argument values into the module-local TLS marker blob and transfers to the target marker without changing the continuation. When the outermost marker body finishes without an explicit `return`, control resumes at the point after the `dock` that started the flow.
 
 ```zith
 flow fn run(data: Stream): void {
@@ -90,10 +91,8 @@ flow fn run(data: Stream): void {
     }
 
     for ( i = 0, item in data ) {
-        dock {                          // dock grants jump permission
-            if (item.isValid()) {
-                jump Process(item, i);  // transfer to marker
-            }
+        if (item.isValid()) {
+            dock Process(item, i);      // start marker flow with arguments
         }
         i += 1;
     }
@@ -113,24 +112,22 @@ flow fn scheduler(): never { ... }
 
 | Rule | Detail |
 |---|---|
-| Hoisting | **Working.** Marker bodies are collected before lowering the main body and emitted into dedicated HIR blocks. |
-| Return point | **Working.** `jump marker` records the continuation of the dock that started the flow. If that marker jumps to another marker, the inner marker still falls through to the original dock, not to the marker that ran it. |
-| Marker values | `marker` blocks do not produce values yet. |
-| Scope | Future work. Marker argument scoping is not implemented yet. |
-| Arguments | Future work. Values passed through `jump` are not implemented yet. |
-| Input from dock | `dock` is parsed, typed, and lowered. It opens a block where `jump target;` is permitted; sending values through a dock is future work. |
-| Function kind | `marker` and `jump` are restricted to `flow fn`; using them in a regular `fn` reports `E2010`. |
-| Global markers | May call regular functions, but not `flow` functions — unless the target is `never`. The `never` exception exists because a `never` flow function never alters the return point — there is no resumption to protect. If it did alter the return point, it would corrupt the state. |
+| Hoisting | **Working.** Markers are registered module-scope and their bodies are lowered as shared samples into each reachable host `flow fn`. |
+| Return point | **Working.** `dock` records the continuation of its enclosing flow. If a marker jumps to another marker, the inner marker still falls through to the original dock, not to the marker that ran it. |
+| Marker values | Markers are `void`; marker return values are not implemented yet. |
+| Scope | **Working.** Global markers are module-scoped; local markers shadow globals within their `flow fn`. Marker bodies do not see host parameters or locals. |
+| Arguments | **Working.** Markers have typed parameters. `dock target(args)` and `jump target(args)` validate arity and argument types. Stackless markers cannot capture host locals. |
+| Input from dock | `dock target(args);` is parsed, typed, lowered, and materialized into the module-local TLS marker blob. |
+| Function kind | `marker`, `dock`, and `jump` are restricted to `flow fn` context; using them elsewhere reports the appropriate semantic error. `dock` outside a `flow fn`, `dock` inside a marker, and `jump` outside a marker are rejected. |
+| Global markers | May call regular functions, but not `flow` functions. Marker bodies root in module scope and are shared across flow functions that dock or jump to them. |
 
 ```zith
 flow fn foo() {
-    marker Test {
+    marker Test() {
         printf("Second\n");
     }
     printf("First\n");
-    dock {
-        jump Test;
-    }
+    dock Test();
     printf("Third\n");
 }
 ```
@@ -140,25 +137,22 @@ falling out of `Test` returns to the continuation of the enclosing `dock`.
 
 > **Future work:** `never` markers are not implemented. The restarting transfer description
 > assumes markers always resume; a `never` marker would need its own rule and is not accepted
-> in this iteration. Per-function flow state, thread-local variables, and marker return values
-> are also not implemented yet.
+> in this iteration. Marker cycle detection and marker return values are also not implemented
+> yet.
 
 #### Stackful vs Stackless
 
-> **Partial:** the `stackful` modifier is parsed and round-trips through formatting, and the
-> lowerer records it, but the cleaned-up local execution model is not implemented yet.
-
-Markers are **stackless** by default — can't create local variables. Opt into **stackful** with the `stackful` modifier. Before the jump, all local variables are cleaned. The following rules apply:
-
-- **Values from outside** (came via `dock`): always valid — the caller owns them.
-- **Local values**: never allowed — they would dangle after cleanup.
+A `stackful marker` may declare and use its own local bindings. A **stackless** marker cannot
+declare local bindings or capture bindings from the host flow function. Stackless markers
+therefore only touch their parameters and module/global state; stackful markers may also use
+ordinary stack allocation inside the marker body.
 
 ```zith
 flow fn run(data: Stream): void {
     stackful marker Process(chunk: Chunk) {
         let buffer = allocate(chunk.size);  // local — dropped before jump
         jump transform(buffer);
-        // only chunk crosses the jump (it came from outside)
+        // chunk and buffer cross the jump only within this marker's own frame
     }
 }
 ```

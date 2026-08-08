@@ -701,7 +701,7 @@ fn first<T>(slice: []T): ?T {
 |---|---|
 | `fn` | Standard runtime function. |
 | `const fn` | Compile-time function; parsing is in progress, evaluation is not implemented yet. |
-| `flow fn` | Structured control flow; parsing and lowering are in progress. `marker`, `dock`, and `jump target` are tested, while advanced marker semantics are future work ([§9.4](09-control-flow.md#94-flow-functions--markers)). |
+| `flow fn` | Structured control flow; parsing and lowering are in progress. `marker`, `dock`, and `jump target(args)` are tested with typed marker arguments and module-scoped markers ([§9.4](09-control-flow.md#94-flow-functions--markers)). |
 | `raw fn` | Always unchecked, bypassing NRA and safety checks for C interop. |
 | `extern fn` | Fixed C ABI linkage; never name-qualified and never overloaded. |
 
@@ -1221,12 +1221,13 @@ foo(), ( f1(..) -> f2() ) -> f3(..);
 A `flow fn` lets you write control flow using **markers**, **docks**, and **jumps**:
 
 > The code below documents the full language contract. Today `marker`, `dock`, and
-> `jump target` are parsed and lowered. Markers with arguments are not implemented yet, and
-> `stackful marker` currently only carries metadata.
+> `jump target(args)` are parsed, typed, and lowered. Marker bodies use a module-local TLS blob
+> for arguments and are stackless by default; cycle detection and marker return values remain
+> future work.
 
-- **`marker`**: A named block of code, hoisted to the top of the `flow fn`. Acts as a label. Receives values via `jump`.
-- **`dock`**: A block that grants permission to use `jump`. The only accepted form is `dock { ... }`; there is no `dock target;` shortcut. The block itself does not carry arguments.
-- **`jump`**: The transfer operator. The simple form transfers control to a target `marker`; only simple `jump target;` is implemented, and sending values is future work.
+- **`marker`**: A named block of code with typed parameters. Global markers are module-scoped and usable from `flow fn`s in the same module; local markers may shadow a global within their `flow fn`. Marker bodies do not see the host function parameters or locals.
+- **`dock`**: A statement that grants permission to use `jump` and records the continuation of the enclosing `flow fn`. The accepted form is `dock target(args);`; the old `dock { ... }` block form is rejected.
+- **`jump`**: The transfer operator: `jump target(args);` is only valid inside a marker. It writes new argument values into the module-local TLS marker blob and transfers to the target marker without changing the continuation.
 
 ```zith
 flow fn run(data: Stream): void {
@@ -1236,10 +1237,8 @@ flow fn run(data: Stream): void {
     }
 
     for ( i = 0, item in data ) {
-        dock {                          // dock grants jump permission
-            if (item.isValid()) {
-                jump Process(item, i);  // transfer to marker
-            }
+        if (item.isValid()) {
+            dock Process(item, i);      // start marker flow with arguments
         }
         i += 1;
     }
@@ -1259,28 +1258,25 @@ flow fn scheduler(): never { ... }
 
 | Rule | Detail |
 |---|---|
-| Hoisting | **Working.** Marker bodies are collected before lowering the main body and emitted into dedicated HIR blocks. |
-| Scope | Future work. Marker argument scoping is not implemented yet. |
-| Arguments | Future work. Values passed through `jump` are not implemented yet. |
-| Input from dock | `dock` is parsed, typed, and lowered. It opens a block where `jump target;` is permitted; sending values through a dock is future work. |
-| Global markers | May call regular functions, but not `flow` functions — unless the target is `never`. The `never` exception exists because a `never` flow function never alters the return point — there is no resumption to protect. If it did alter the return point, it would corrupt the state. |
+| Hoisting | **Working.** Marker bodies are registered module-scope and lowered as shared samples into each reachable host `flow fn`. |
+| Scope | **Working.** Global markers are module-scoped; local markers shadow globals within their `flow fn`. Marker bodies do not see host parameters or locals. |
+| Arguments | **Working.** Markers have typed parameters. `dock target(args)` and `jump target(args)` validate arity and argument types. |
+| Input from dock | `dock target(args);` stores arguments in the module-local TLS marker blob and records the flow continuation. |
+| Global markers | May call regular functions, but not `flow` functions. Marker bodies root in module scope and are shared across flow functions that dock or jump to them. |
 
 #### Stackful vs Stackless
 
-> **Partial:** the `stackful` modifier is parsed and preserved by formatting, and the lowerer
-> records it, but the cleaned-up local execution model is not implemented yet.
-
-Markers are **stackless** by default — can't create local variables. Opt into **stackful** with the `stackful` modifier. Before the jump, all local variables are cleaned. The following rules apply:
-
-- **Values from outside** (came via `dock`): always valid — the caller owns them.
-- **Local values**: never allowed — they would dangle after cleanup.
+A `stackful marker` may declare and use its own local bindings. A **stackless** marker cannot
+declare local bindings or capture bindings from the host flow function. Stackless markers
+therefore only touch their parameters and module/global state; stackful markers may also use
+ordinary stack allocation inside the marker body.
 
 ```zith
 flow fn run(data: Stream): void {
     stackful marker Process(chunk: Chunk) {
         let buffer = allocate(chunk.size);  // local — dropped before jump
         jump transform(buffer);
-        // only chunk crosses the jump (it came from outside)
+        // chunk and buffer cross the jump only within this marker's own frame
     }
 }
 ```

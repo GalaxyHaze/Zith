@@ -50,7 +50,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 |---|---|---|
 | `fn` | **Working** | Parameters, return type, body. The return type is written `fn f(x: T): R` or `fn f(x: T) -> R`; both spellings parse. Overloading by parameter count and types (F-33); linkage names are qualified as `<module>.<Owner>.<name>(<params>)`, except `extern fn` and `main` |
 | generic parameter lists `<T, U>` | **Working (parse + typing)** | Accepted on `fn`, `struct`, `type` alias, `enum`, `union` and `trait` declarations. Inside the declaration each parameter resolves as an opaque type. Instantiation is not solved: both `identity<i32>(42)` and inferred `identity(42)` report `E3001` "generic parameter T has no concrete type". `T: Trait` constraints parse but are not enforced |
-| `flow fn` | **Working (simple flow)** | Parsed and lowers; `marker`, `dock`, and `jump target` CFG is tested. Markers with arguments and the stackful marker execution model are future work |
+| `flow fn` | **Working** | Parsed and lowers; `dock`, `marker`, and `jump target(args)` CFG is tested. Markers have typed parameters, module-scoped globals and per-flow locals are supported, and stackless execution is real. Marker cycle detection and return values remain future work |
 | `raw fn` | **Working** | Parsed and lowers |
 | `const fn` | **Parse-level in progress** | Parsed as a function declaration with `FunctionKind::Const`; compile-time evaluation is not implemented |
 | `extern fn` | **Working** | C ABI interop |
@@ -113,9 +113,9 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `for (init; cond; step) { }` | **Working** | Three clauses separated by semicolons. `init` and `step` are both optional; `continue` still runs the step before the next test |
 | `for (x in xs)` | **Parse error** | The iterator form is recognised and reported as not implemented yet |
 | `when` / `match` pattern match | **Working** | Arms are written `(pattern) ~> body`, comma-separated; `match` is a parser synonym for `when`. Equality, boolean and range (`1..3`) patterns lower through HIR to codegen. `(_)` is the default arm and must come last; a value-producing `when` without a default reports non-exhaustive. Covered by the runtime test `test_when_expression_runtime` |
-| `marker` / `jump` | **Working** | Block-style go-to: `marker` declares a hoisted labeled block, `jump target` transfers control to it from a `dock`. Jump arguments are not implemented |
-| `dock` | **Working** | Opens a block that grants `jump` permission; nested docks are accepted. Values are not passed through a dock yet |
-| `stackful marker` | **Parse-level in progress** | Parsed and preserved by formatting; recorded internally during HIR lowering. Cleaned-up local execution semantics are not implemented yet |
+| `marker` / `jump` | **Working** | `marker name(params)` declares a typed marker; `jump target(args)` transfers control from inside a marker. Global markers are module-scoped and local markers may shadow them |
+| `dock` | **Working** | `dock target(args)` stores marker arguments in the module TLS blob and starts a marker flow; the old `dock { ... }` block form is rejected |
+| `stackful marker` | **Working** | `stackful marker name(params)` may use local bindings inside the marker body; stackless markers reject host capture and local bindings |
 
 ### Words, Contexts, Macros
 

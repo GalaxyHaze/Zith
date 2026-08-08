@@ -185,6 +185,11 @@ enum class CompactExprKind : uint8_t {
     MakeSome,
     Cast,
     LayoutIntrinsic,
+    MarkerStore,
+    MarkerLoad,
+    MarkerDock,
+    MarkerJump,
+    MarkerRet,
 };
 
 enum class CompactBinaryOp : uint8_t {
@@ -242,6 +247,22 @@ struct CompactFunction {
     bool is_variadic = false;
 };
 
+struct CompactMarkerParam {
+    uint32_t name_id = 0;
+    uint32_t type_id = 0;
+    uint32_t offset  = 0;
+};
+
+struct CompactMarker {
+    uint32_t name_id        = 0;
+    uint32_t marker_id      = ~uint32_t{0};
+    bool stackful           = false;
+    uint32_t blob_offset    = 0;
+    uint32_t body_expr      = 0;
+    uint32_t module_name_id = 0;
+    std::vector<CompactMarkerParam> params;
+};
+
 struct HirSlotAttrsRecord {
     uint32_t slot     = 0;
     uint8_t ownership = 0;
@@ -282,6 +303,7 @@ struct Artifact {
     std::vector<DeclRecord> decls;            // sec3
     std::vector<TemplateBlueprint> templates; // sec4
     std::vector<CompactFunction> functions;   // sec5
+    std::vector<CompactMarker> markers;       // sec5 marker metadata
     // Definition tables used to restore composite types regardless of whether
     // they appear among exported DeclRecord entries.
     std::vector<CompactStructDef> struct_defs;

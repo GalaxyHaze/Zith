@@ -568,23 +568,12 @@ static void test_numeric_cast_codegen() {
 static void test_marker_jump_loop_executes() {
     ModernFileCodegenTest t;
     t.write("main.zith", "flow fn main(): i32 {\n"
-                         "    var x: i32 = 0;\n"
-                         "    dock {\n"
-                         "        jump check;\n"
-                         "    }\n"
-                         "    marker check {\n"
-                         "        if (x < 10) {\n"
-                         "            dock {\n"
-                         "                jump body;\n"
-                         "            }\n"
+                         "    dock loop(0);\n"
+                         "    marker loop(n: i32) {\n"
+                         "        if (n < 10) {\n"
+                         "            jump loop(n + 1);\n"
                          "        } else {\n"
-                         "            return x;\n"
-                         "        }\n"
-                         "    }\n"
-                         "    marker body {\n"
-                         "        x = x + 1;\n"
-                         "        dock {\n"
-                         "            jump check;\n"
+                         "            return n;\n"
                          "        }\n"
                          "    }\n"
                          "    return -1;\n"
@@ -600,13 +589,14 @@ static void test_marker_jump_returns_to_origin_dock() {
     t.opts.flags.emitIr(true);
     t.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
                          "flow fn foo(): i32 {\n"
-                         "    marker Test {\n"
+                         "    marker Test() {\n"
                          "        printf(\"Second\\n\");\n"
+                         "        jump Done();\n"
+                         "    }\n"
+                         "    marker Done() {\n"
                          "    }\n"
                          "    printf(\"First\\n\");\n"
-                         "    dock {\n"
-                         "        jump Test;\n"
-                         "    }\n"
+                         "    dock Test();\n"
                          "    printf(\"Third\\n\");\n"
                          "    return 0;\n"
                          "}\n"
@@ -625,19 +615,15 @@ static void test_marker_jump_chain_returns_to_origin_dock() {
     ModernFileCodegenTest t;
     t.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
                          "flow fn foo(): i32 {\n"
-                         "    marker A {\n"
+                         "    marker A() {\n"
                          "        printf(\"A\\n\");\n"
-                         "        dock {\n"
-                         "            jump B;\n"
-                         "        }\n"
+                         "        jump B();\n"
                          "    }\n"
-                         "    marker B {\n"
+                         "    marker B() {\n"
                          "        printf(\"B\\n\");\n"
                          "    }\n"
                          "    printf(\"Start\\n\");\n"
-                         "    dock {\n"
-                         "        jump A;\n"
-                         "    }\n"
+                         "    dock A();\n"
                          "    printf(\"End\\n\");\n"
                          "    return 0;\n"
                          "}\n"
@@ -650,6 +636,80 @@ static void test_marker_jump_chain_returns_to_origin_dock() {
     CHECK(r.output.find("Start\nA\nB\nEnd\n") != std::string::npos,
           "B resumes the outer dock that started A instead of resuming A");
     CHECK_EQ(r.exitCode, 0, "chained marker jumps exit normally");
+}
+
+static void test_marker_arguments_cross_chain_frames() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "flow fn main(): i32 {\n"
+                         "    marker A(v: i32) {\n"
+                         "        jump B(v + 2);\n"
+                         "    }\n"
+                         "    marker B(v: i32) {\n"
+                         "        return v;\n"
+                         "    }\n"
+                         "    dock A(10);\n"
+                         "    return -1;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "marker arguments cross a chain of jumps");
+    CHECK_EQ(r.exitCode, 12, "the last marker sees arguments from the final jump");
+    CHECK(r.output.find("__zith_marker_blob") != std::string::npos,
+          "marker blob is present in LLVM IR");
+}
+
+static void test_stackless_marker_has_no_host_slot_access() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "flow fn main(): i32 {\n"
+                         "    var host: i32 = 5;\n"
+                         "    dock body();\n"
+                         "    marker body() {\n"
+                         "        return host;\n"
+                         "    }\n"
+                         "    return 0;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(!r.ok, "stackless marker cannot capture the host flow fn's local slots");
+}
+
+static void test_stackful_marker_uses_local_binding() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "flow fn main(): i32 {\n"
+                         "    marker body() {\n"
+                         "        stackful marker twice(x: i32) {\n"
+                         "            var result: i32 = x * 2;\n"
+                         "        }\n"
+                         "        jump twice(3);\n"
+                         "        return 0;\n"
+                         "    }\n"
+                         "    dock body();\n"
+                         "    return -1;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "stackful marker with a local binding lowers and emits");
+    CHECK(r.output.find("alloca i32") != std::string::npos,
+          "stackful marker local binding becomes a real slot allocation");
+    CHECK(r.output.find("__zith_marker_exit") != std::string::npos,
+          "stackful sample falls back to marker exit instead of reaching a missing terminator");
+}
+
+static void test_stackless_marker_cannot_allocate_local_binding() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "flow fn main(): i32 {\n"
+                         "    dock body(3);\n"
+                         "    marker body(v: i32) {\n"
+                         "        var twice: i32 = v * 2;\n"
+                         "        return twice;\n"
+                         "    }\n"
+                         "    return 0;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(!r.ok, "stackless marker cannot allocate a local binding");
 }
 
 static void test_linked_list_acceptance_program() {
@@ -1299,6 +1359,14 @@ static void test_codegen() {
     test_marker_jump_returns_to_origin_dock();
     printf("Running test_marker_jump_chain_returns_to_origin_dock\n");
     test_marker_jump_chain_returns_to_origin_dock();
+    printf("Running test_marker_arguments_cross_chain_frames\n");
+    test_marker_arguments_cross_chain_frames();
+    printf("Running test_stackless_marker_has_no_host_slot_access\n");
+    test_stackless_marker_has_no_host_slot_access();
+    printf("Running test_stackful_marker_uses_local_binding\n");
+    test_stackful_marker_uses_local_binding();
+    printf("Running test_stackless_marker_cannot_allocate_local_binding\n");
+    test_stackless_marker_cannot_allocate_local_binding();
     printf("Running test_linked_list_acceptance_program\n");
     test_linked_list_acceptance_program();
     printf("Running test_modern_file_pipeline_executes_program\n");

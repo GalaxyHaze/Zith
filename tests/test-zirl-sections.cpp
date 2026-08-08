@@ -239,6 +239,39 @@ static void test_modern_code_section_round_trip() {
     }
 }
 
+static void test_marker_code_section_round_trip() {
+    Artifact original = makeMinimalArtifact();
+    addModernCode(original);
+
+    CompactMarker marker;
+    marker.name_id        = 0;
+    marker.marker_id      = 7;
+    marker.stackful       = true;
+    marker.blob_offset    = 8;
+    marker.body_expr      = 9;
+    marker.module_name_id = 1;
+    CompactMarkerParam param;
+    param.name_id = 0;
+    param.type_id = 0;
+    param.offset  = 4;
+    marker.params.push_back(param);
+    original.markers.push_back(marker);
+
+    ByteWriter w;
+    CHECK(encodeCode(original, w), "encodeCode succeeds for marker metadata");
+    Artifact decoded;
+    ByteReader r(w.ptr(), w.size());
+    CHECK(decodeCode(r, decoded), "decodeCode succeeds for marker metadata");
+    CHECK_EQ(decoded.markers.size(), 1u, "marker count preserved");
+    if (decoded.markers.size() != 1u)
+        return;
+    CHECK_EQ(decoded.markers[0].marker_id, 7u, "marker id preserved");
+    CHECK(decoded.markers[0].stackful, "stackful flag preserved");
+    CHECK_EQ(decoded.markers[0].params.size(), 1u, "marker param count preserved");
+    if (decoded.markers[0].params.size() == 1u)
+        CHECK_EQ(decoded.markers[0].params[0].offset, 4u, "marker param offset preserved");
+}
+
 static void test_attrs_section_round_trip() {
     Artifact original = makeMinimalArtifact();
     addAttrs(original);
@@ -381,6 +414,7 @@ static void test_zirl_sections() {
     test_decl_section_round_trip();
     test_code_section_round_trip();
     test_modern_code_section_round_trip();
+    test_marker_code_section_round_trip();
     test_attrs_section_round_trip();
     test_debug_section_round_trip();
     test_full_artifact_round_trip();

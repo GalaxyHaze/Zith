@@ -26,7 +26,7 @@ public:
             diagnostics::DiagnosticEngine *diags = nullptr);
     ~CodeGen();
 
-    void emit(const hir::HirModule &hirModule, std::string_view moduleName);
+    void emit(hir::HirModule &hirModule, std::string_view moduleName);
     void optimize();
 
     /// True once any function (or the module as a whole) failed LLVM verification. Every
@@ -44,6 +44,8 @@ public:
 
 private:
     llvm::Function *declareFn(const hir::HirFunction &fn);
+    void emitMarkerRuntime(hir::HirModuleMarkerLayout &markers);
+    void emitMarkerOffsets(hir::HirModuleMarkerLayout &markers);
     void emitFnBody(const hir::HirFunction &fn, const hir::HirModule &mod);
     void llvmError(const std::string &msg);
     bool verifyCurrentFunction(llvm::Function *llvmFn);

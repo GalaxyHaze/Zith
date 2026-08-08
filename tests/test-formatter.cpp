@@ -305,15 +305,11 @@ static void test_formatter_function_kinds_round_trip() {
 
 static void test_formatter_flow_marker_round_trip() {
     const std::string source = "flow fn main(): i32 {\n"
-                               "    dock {\n"
-                               "        jump check;\n"
+                               "    dock check();\n"
+                               "    marker check() {\n"
+                               "        jump body();\n"
                                "    }\n"
-                               "    marker check {\n"
-                               "        dock {\n"
-                               "            jump body;\n"
-                               "        }\n"
-                               "    }\n"
-                               "    stackful marker body {\n"
+                               "    stackful marker body() {\n"
                                "        return 1;\n"
                                "    }\n"
                                "}\n";
@@ -332,10 +328,8 @@ static void test_formatter_flow_marker_round_trip() {
 
 static void test_formatter_plain_marker_is_stackless_by_default() {
     const std::string source = "flow fn main(): i32 {\n"
-                               "    dock {\n"
-                               "        jump body;\n"
-                               "    }\n"
-                               "    marker body {\n"
+                               "    dock body();\n"
+                               "    marker body() {\n"
                                "        return 1;\n"
                                "    }\n"
                                "}\n";
