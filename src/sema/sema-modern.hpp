@@ -104,6 +104,9 @@ private:
     /// True when the callee's signature mentions a generic parameter.
     [[nodiscard]] bool typeContainsGeneric(const FunctionType *fn) const noexcept;
 
+    /// Function kind of the declaration currently being lowered/inferred.
+    frontend::FunctionKind currentFunctionKind_ = frontend::FunctionKind::Standard;
+
     /// Generic parameter bindings per declaration (decl id → param name/type pairs).
     /// Populated while lowering declaration types; consulted by `lowerTypeExpr` so
     /// `T` inside a generic declaration resolves to an opaque GenericParam type.
@@ -122,6 +125,8 @@ private:
     void collectMarkers(frontend::ExprId id);
     /// Marker names visible to `jump` statements in the current function.
     memory::FlatMap<std::string, uint8_t> markers_;
+    /// Nesting depth of `dock` blocks around the current jump statement.
+    uint32_t dockDepth_ = 0;
 
     void checkReturnStatement(const frontend::Statement &stmt);
     TypeId lowerTypeExpr(frontend::TypeExprId id);

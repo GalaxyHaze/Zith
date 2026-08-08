@@ -182,7 +182,10 @@ void printExpression(ExprId id, const std::vector<Expression> &expressions,
             std::fputs("Continue", stdout);
             break;
         case StmtKind::Marker:
-            std::printf("Marker '%s'", stmt.label.c_str());
+            std::printf("Marker '%s'%s", stmt.label.c_str(), stmt.isStackful ? " (stackful)" : "");
+            break;
+        case StmtKind::Dock:
+            std::printf("Dock");
             break;
         case StmtKind::Jump:
             std::printf("Jump '%s'", stmt.label.c_str());

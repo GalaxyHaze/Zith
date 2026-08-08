@@ -5,8 +5,9 @@
 > the same CFG as the old `while`. The iterator (`in`) and 3-clause (`init`, `cond`, `step`) forms
 > are recognised but report "not implemented yet". `while` still works but emits a deprecation
 > warning (`W1008`) pointing at `for (cond) { }`. `when` pattern matching is a **parse error** —
-> arm syntax `0 => { }` is not recognised. `marker`/`dock`/`jump` parse inside `flow fn` but
-> lowering is not verified. See [impl-status.md](impl-status.md).
+> arm syntax `0 => { }` is not recognised. `flow fn` parses as a function declaration;
+> `marker`, `dock`, and `jump target` lowering is tested, while markers with arguments and the
+> stackful marker execution model remain future work. See [impl-status.md](impl-status.md).
 
 ### 9.1 Syntax Rules
 
@@ -70,9 +71,16 @@ foo(), ( f1(..) -> f2() ) -> f3(..);
 
 A `flow fn` lets you write control flow using **markers**, **docks**, and **jumps**:
 
-- **`marker`**: A named block of code, hoisted to the top of the `flow fn`. Acts as a label. Receives values via `jump`.
-- **`dock`**: A block that grants permission to use `jump`. You can use `if`, `when`, loops — anything inside a `dock`.
-- **`jump`**: The transfer operator. Must always be inside a `dock`. Sends values to a target `marker` and transfers control.
+> The code below documents the full language contract. Today `marker`, `dock`, and
+> `jump target` are parsed and lowered. `jump target` is a **restarting transfer**: control
+> exits the originating `dock`, runs the target marker, and resumes immediately after that dock
+> when the marker body falls through. Markers with arguments are not implemented yet, and
+> `stackful marker` currently only carries metadata; its cleaned-up local execution model is
+> still future work.
+
+- **`marker`**: A named block of code, hoisted to the top of the `flow fn`. Acts as a label. Receives values via `jump`. Only valid inside a `flow fn`.
+- **`dock`**: A block that grants permission to use `jump`. The only accepted form is `dock { ... }`; there is no `dock target;` shortcut. The block itself does not carry arguments.
+- **`jump`**: The transfer operator. The simple form transfers control to a target `marker`; it is only valid inside a `flow fn`. When the marker body finishes without an explicit `return`, control resumes at the point after the `dock` that started the current flow. Sending values with the jump is future work.
 
 ```zith
 flow fn run(data: Stream): void {
@@ -105,13 +113,40 @@ flow fn scheduler(): never { ... }
 
 | Rule | Detail |
 |---|---|
-| Hoisting | Markers are lifted to the top of the `flow fn`. Normal execution skips over them. |
-| Scope | Markers cannot see outer variables or declare their own locals. |
-| Arguments | Stored in a `thread_local` blob. Values persist between jumps unless you update them. |
-| Input from dock | Markers receive values via `jump` from any `dock` in the same `flow fn`. |
+| Hoisting | **Working.** Marker bodies are collected before lowering the main body and emitted into dedicated HIR blocks. |
+| Return point | **Working.** `jump marker` records the continuation of the dock that started the flow. If that marker jumps to another marker, the inner marker still falls through to the original dock, not to the marker that ran it. |
+| Marker values | `marker` blocks do not produce values yet. |
+| Scope | Future work. Marker argument scoping is not implemented yet. |
+| Arguments | Future work. Values passed through `jump` are not implemented yet. |
+| Input from dock | `dock` is parsed, typed, and lowered. It opens a block where `jump target;` is permitted; sending values through a dock is future work. |
+| Function kind | `marker` and `jump` are restricted to `flow fn`; using them in a regular `fn` reports `E2010`. |
 | Global markers | May call regular functions, but not `flow` functions — unless the target is `never`. The `never` exception exists because a `never` flow function never alters the return point — there is no resumption to protect. If it did alter the return point, it would corrupt the state. |
 
+```zith
+flow fn foo() {
+    marker Test {
+        printf("Second\n");
+    }
+    printf("First\n");
+    dock {
+        jump Test;
+    }
+    printf("Third\n");
+}
+```
+
+The example prints `First`, `Second`, then `Third`: `jump Test` transfers to the marker, and
+falling out of `Test` returns to the continuation of the enclosing `dock`.
+
+> **Future work:** `never` markers are not implemented. The restarting transfer description
+> assumes markers always resume; a `never` marker would need its own rule and is not accepted
+> in this iteration. Per-function flow state, thread-local variables, and marker return values
+> are also not implemented yet.
+
 #### Stackful vs Stackless
+
+> **Partial:** the `stackful` modifier is parsed and round-trips through formatting, and the
+> lowerer records it, but the cleaned-up local execution model is not implemented yet.
 
 Markers are **stackless** by default — can't create local variables. Opt into **stackful** with the `stackful` modifier. Before the jump, all local variables are cleaned. The following rules apply:
 

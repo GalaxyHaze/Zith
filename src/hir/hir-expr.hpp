@@ -134,7 +134,13 @@ struct HirBranch {
 };
 struct HirJump {
     HirDeclId target;
-    HirExprKind tag = HirExprKind::Jump;
+    /// True for `jump marker` inside a flow function: the marker body returns
+    /// to `return_block` when it falls through.
+    bool flowReturn = false;
+    // Destination used only when `flowReturn` is true. Direct `jump` entries
+    // created by the lowerer leave it unread.
+    HirDeclId return_block = ~HirDeclId{0};
+    HirExprKind tag        = HirExprKind::Jump;
 };
 struct HirPhi {
     memory::DynArray<HirExprId> incoming;

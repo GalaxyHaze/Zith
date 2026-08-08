@@ -66,7 +66,11 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
         buffer += " -> %t";
         buffer += std::to_string(fn.return_type);
         buffer += " {\n";
-        for (auto &block : fn.blocks) {
+        for (size_t bi = 0; bi < fn.blocks.size(); ++bi) {
+            auto &block = fn.blocks[bi];
+            buffer += "bb";
+            buffer += std::to_string(bi);
+            buffer += ":\n";
             for (auto inst_id : block.insts) {
                 buffer += "  %e";
                 buffer += std::to_string(inst_id);
@@ -139,6 +143,10 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                    [&](const HirJump &jump) {
                                        buffer += "jump bb";
                                        buffer += std::to_string(jump.target);
+                                       if (jump.flowReturn) {
+                                           buffer += " ret bb";
+                                           buffer += std::to_string(jump.return_block);
+                                       }
                                    },
                                    [&](const HirBranch &branch) {
                                        buffer += "branch %e";
@@ -248,6 +256,10 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                          [&](const HirJump &jump) {
                                              buffer += "  jump bb";
                                              buffer += std::to_string(jump.target);
+                                             if (jump.flowReturn) {
+                                                 buffer += " ret bb";
+                                                 buffer += std::to_string(jump.return_block);
+                                             }
                                              buffer += "\n";
                                          },
                                          [&](const HirBranch &branch) {

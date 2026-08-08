@@ -1,10 +1,11 @@
 ## 5. Functions
 
-> **Implementation status:** `fn`, `flow fn`, `raw fn`, and `extern fn` are **working**.
-> Overloading ([§5.4](#54-overloading)) is **working**. `const fn` is a **parse error** — `const`
-> is a binding keyword; `const fn f()` is parsed as a `const` binding named `fn`. Concurrency is no
-> longer a core function kind; any runtime async/task model is expressed through ordinary library
-> types and calls. See [impl-status.md](impl-status.md).
+> **Implementation status:** `fn`, `raw fn`, and `extern fn` are **working**. `flow fn` and
+> `const fn` are **parse-level in progress**: they parse as function declarations, but advanced
+> `flow fn` markers and compile-time evaluation are not implemented yet. Overloading
+> ([§5.4](#54-overloading)) is **working**. Concurrency is no longer a core function kind; any
+> runtime async/task model is expressed through ordinary library types and calls. See
+> [impl-status.md](impl-status.md).
 
 ### 5.1 Return Types & Implicit Returns
 
@@ -26,11 +27,14 @@ fn first<T>(slice: []T): ?T {
 | Kind | Description |
 |---|---|
 | `fn` | Standard runtime function. |
-| `const fn` | Resolved entirely at compile time. |
-| `flow fn` | Enables marker/dock control flow ([§9.4](09-control-flow.md#94-flow-functions--markers)). |
-| `raw fn` | Always unchecked, bypassing safety in both debug and release. The compiler warns in release builds if `raw` could be removed. |
+| `const fn` | Compile-time function; parsing is in progress, evaluation is not implemented yet. |
+| `flow fn` | Structured control flow; parsing and lowering are in progress. `marker`, `dock`, and `jump target` are tested, while advanced marker semantics are future work ([§9.4](09-control-flow.md#94-flow-functions--markers)). |
+| `raw fn` | Always unchecked, bypassing NRA and safety checks for C interop. |
+| `extern fn` | Fixed C ABI linkage; never name-qualified and never overloaded. |
 
-> Function kinds are orthogonal and cannot be combined on a single declaration.
+> The five function kinds are exclusive and cannot be combined: there is no `raw const fn`,
+> `extern raw fn`, or similar spelling. `raw fn` and `extern fn` are separate concerns: `raw fn`
+> opts out of NRA, while `extern fn` selects the C ABI.
 
 Macro calls use the `@` prefix — `@println`, `@log`, `@serialize` — while ordinary function calls
 use a bare name, such as `console.write`, `process`, or `save`. See [§15](15-macros.md) for the
@@ -86,6 +90,7 @@ Rules:
   same signature, and therefore `E2002`.
 - A function name may not collide with a non-function binding of the same name (`E2002`).
 - `extern fn` cannot be overloaded: it carries a fixed C linkage name.
+- `extern fn` may declare variadic parameters with `...`; no other function kind may do so.
 - A call with no candidate that accepts the arguments is `E2007`; a call accepted by more than one
   candidate is `E2008`. There is no ranking of conversion quality, so any tie is an error rather
   than a silent choice.

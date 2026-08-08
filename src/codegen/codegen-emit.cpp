@@ -195,9 +195,13 @@ llvm::Value *CodeGenEmit::emitBody(const hir::HirFunction &fn, const hir::HirMod
         // Move builder to this block if it's not already inserted
         // (avoid moving if the block already has a terminator)
         builder_.SetInsertPoint(llvmBB);
+        emitBodyLastId_    = hir::kInvalidHirExpr;
+        emitBodyLastValue_ = nullptr;
 
         for (auto inst_id : block.insts) {
-            last = emitExpr(inst_id, mod);
+            last               = emitExpr(inst_id, mod);
+            emitBodyLastId_    = inst_id;
+            emitBodyLastValue_ = last;
         }
         if (block.terminator != hir::kInvalidHirExpr) {
             emitExpr(block.terminator, mod);
@@ -511,6 +515,11 @@ llvm::Value *CodeGenEmit::emitCall(const hir::HirCall &call, const hir::HirModul
 llvm::Value *CodeGenEmit::emitRet(const hir::HirRet &ret, const hir::HirModule &mod) {
     if (ret.value == hir::kInvalidHirExpr)
         return builder_.CreateRetVoid();
+    // The implicit-return path lowers the trailing expression both as an
+    // instruction and as the Ret value. Re-emitting calls there would execute
+    // them twice; reuse the value produced by the trailing instruction instead.
+    if (ret.value == emitBodyLastId_ && emitBodyLastValue_ != nullptr)
+        return builder_.CreateRet(emitBodyLastValue_);
     auto *val = emitExpr(ret.value, mod);
     if (!val)
         return nullptr;
@@ -557,6 +566,10 @@ llvm::Value *CodeGenEmit::emitJump(const hir::HirJump &jump, const hir::HirModul
     if (!blocks_ || jump.target >= blocks_->size())
         return nullptr;
     auto *target = (*blocks_)[jump.target];
+    // Ordinary `jump` is a terminator-only edge. A flow `jump marker` carries the
+    // continuation used only when the marker body falls through; that edge is
+    // lowered when the marker clone is emitted, so only the transfer itself is
+    // needed here.
     return builder_.CreateBr(target);
 }
 

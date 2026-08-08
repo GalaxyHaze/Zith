@@ -20,8 +20,8 @@ overhead. The syntax stays clean; the compiler does the hard work.
 NRA tracks ownership, lending, and aliasing through five qualifiers — `lend`, `view`, `unique`,
 `share`, and `belong` — without requiring lifetime annotations. Beyond memory safety, Zith ships a
 large toolbox for domain-specific work: custom operators (`word`), scoped DSLs (`context`), structured
-goto (`flow fn` / `marker` / `dock`), first-class compile-time computation, and runtime-driven
-concurrency APIs that do not require special syntax.
+goto (`flow fn` / `marker` / `dock` / `jump`), compile-time function syntax, and
+runtime-driven concurrency APIs that do not require special syntax.
 
 ---
 
@@ -41,10 +41,10 @@ LLVM 18+ is optional — without it, codegen is disabled but `check` and HIR emi
 **Hello, World:** ( is a place holder, until we can formalize macros correctly)
 
 ```zith
-extern fn puts(msg: *char)
+import "stdio.h"
 
 fn main() {
-    puts("Hello, World!");
+    printf("Hello, World!");
 }
 ```
 
@@ -84,9 +84,10 @@ fn main() {
 **Functions**
 
 - `fn` — regular function
-- `const fn` — resolved entirely at compile time
-- `flow fn` — structured goto with `marker` / `dock` / `jump` (no spaghetti, compiler-verified)
 - `raw fn` — opt out of NRA for C-interop
+- `extern fn` — fixed C ABI linkage
+- `const fn` — compile-time function syntax (parse-level; evaluation is future work)
+- `flow fn` — structured goto with `marker` / `dock` / `jump`; advanced marker semantics are future work
 
 **Control Flow**
 
@@ -115,7 +116,8 @@ fn main() {
 | Formatter (`zithc fmt`) | **Working** | Preserves all AST nodes including experimental |
 | Type checking | **Working** | Structs, enums, generics, function calls |
 | LLVM codegen | **Working** | x86-64 and WebAssembly targets |
-| `fn`, `const fn`, `flow fn` | **Working** | |
+| `fn`, `raw fn`, `extern fn` | **Working** | `extern fn` is C-ABI-only |
+| `const fn`, `flow fn` | **Working / Partial** | `const fn` evaluation and advanced flow markers are future work |
 | `struct`, `enum`, `union`, `component` | **Working** | |
 | Primitive arithmetic and comparisons | **Working** | Including unsigned ops |
 | `if` / `when` / `for` | **Working** | |
@@ -172,9 +174,9 @@ Source -> Lex -> Scan -> Import -> Resolve -> TypeCheck -> Comptime/Solve -> NTA
 | `Import` | Resolve module imports |
 | `Resolve` | Bind names to symbols |
 | `TypeCheck` | Infer and check types (sema) |
-| `Comptime/Solve` | Generic instantiation, macro expansion, monomorphization, and the solved semantic view used by ownership proof |
+| `Comptime/Solve` | Reserved for generic instantiation and the solved semantic view (planned for 0.7.0 step-04); macro expansion runs earlier in frontend |
 | `NTA/NRA` | Fact accumulation plus Node Resource Analysis — the target pre-HIR ownership phase (still a stub) |
-| `HIR` | Lower the typed, desugared, NRA-validated program while preserving only residual facts needed after the proof boundary |
+| `HIR` | Lower the typed, desugared program while attaching residual ownership facts |
 | `Codegen` | Emit LLVM IR -> native or WASM binary |
 
 ---

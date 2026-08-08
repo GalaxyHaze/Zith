@@ -257,6 +257,8 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                              [&](const hir::HirJump &jump) {
                                  out.kind  = CompactExprKind::Jump;
                                  out.ref_c = jump.target;
+                                 out.ref_d = jump.return_block;
+                                 out.flags = jump.flowReturn ? 1U : 0U;
                              },
                              [&](const hir::HirPhi &phi) {
                                  out.kind = CompactExprKind::Phi;

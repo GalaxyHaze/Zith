@@ -9,7 +9,7 @@ namespace {
 
 TypeKind kindFromIndex(size_t idx) {
     static constexpr TypeKind map[] = {
-        TypeKind::Error, // TypeError → 0
+        TypeKind::Error,        // TypeError → 0
         TypeKind::Never,        // TypeNever      → 1
         TypeKind::Void,         // TypeVoid       → 2
         TypeKind::Bool,         // TypeBool       → 3
@@ -79,8 +79,7 @@ bool typeDataEqual(const TypeData &a, const TypeData &b) {
             },
             [](const TypeTrait &ta, const TypeTrait &tb) { return ta.name == tb.name; },
             [](const TypeQualified &qa, const TypeQualified &qb) {
-                return qa.inner == qb.inner && qa.ownership == qb.ownership &&
-                       qa.isMut == qb.isMut;
+                return qa.inner == qb.inner && qa.ownership == qb.ownership && qa.isMut == qb.isMut;
             },
             [](const TypeSlice &sa, const TypeSlice &sb) { return sa.elem == sb.elem; },
             [](const TypeEnum &ea, const TypeEnum &eb) { return ea.def_id == eb.def_id; },
@@ -248,6 +247,10 @@ TypeId TypeIntern::internArray(TypeId elem, uint32_t count) {
     return intern(TypeArray{elem, count});
 }
 
+TypeId TypeIntern::internFn(memory::DynArray<TypeId> &params, TypeId ret) {
+    return intern(TypeFn{params.data(), params.size(), ret});
+}
+
 TypeId TypeIntern::internFn(std::span<const TypeId> params, TypeId ret) {
     auto *param_copy =
         static_cast<TypeId *>(arena_.alloc(params.size() * sizeof(TypeId), alignof(TypeId)));
@@ -288,8 +291,8 @@ TypeId TypeIntern::internUnknown() {
 }
 
 TypeId TypeIntern::registerNamedType(std::string_view name, TypeKind kind) {
-    const auto id          = interner_.intern(name);
-    const auto *existing   = named_types_.get(id);
+    const auto id        = interner_.intern(name);
+    const auto *existing = named_types_.get(id);
     if (existing != nullptr)
         return *existing;
 
@@ -317,7 +320,10 @@ TypeId TypeIntern::lookupNamedType(std::string_view name) const {
 }
 
 void TypeIntern::registerTypeAlias(std::string_view name, TypeId target) {
-    named_types_.insert(interner_.intern(name), target);
+    const auto id        = interner_.intern(name);
+    const auto *existing = named_types_.get(id);
+    if (existing == nullptr || *existing != target)
+        named_types_.insert(id, target);
 }
 
 TypeId TypeIntern::internSlice(TypeId elem) {
@@ -330,6 +336,11 @@ TypeId TypeIntern::internEnum(TypeId def_id) {
 
 TypeId TypeIntern::internUnion(TypeId def_id) {
     return intern(TypeUnion{def_id});
+}
+
+TypeId TypeIntern::internPack(memory::DynArray<TypeId> &members,
+                              memory::DynArray<memory::InternedId> &names) {
+    return intern(TypePack{members.data(), names.data(), members.size()});
 }
 
 TypeId TypeIntern::internPack(std::span<const TypeId> members,
@@ -353,8 +364,16 @@ TypeId TypeIntern::internSum(std::span<const TypeId> members) {
     return intern(TypeSum{m, count});
 }
 
+TypeId TypeIntern::internSum(memory::DynArray<TypeId> &members) {
+    return intern(TypeSum{members.data(), members.size()});
+}
+
 TypeId TypeIntern::internGenericParam(uint32_t decl_id, uint32_t param_index) {
     return intern(TypeGenericParam{decl_id, param_index});
+}
+
+TypeId TypeIntern::internIncomplete(TypeId base, memory::DynArray<TypeId> &args) {
+    return intern(TypeIncomplete{base, args.data(), args.size()});
 }
 
 TypeId TypeIntern::internIncomplete(TypeId base, std::span<const TypeId> args) {
@@ -367,10 +386,14 @@ TypeId TypeIntern::internIncomplete(TypeId base, std::span<const TypeId> args) {
 // ── Struct definition helpers ──────────────────────────────────────
 
 TypeId TypeIntern::defineStruct(std::string_view name) {
+    const auto id = interner_.intern(name);
+    if (const auto *existing = named_types_.get(id); existing != nullptr)
+        return *existing;
+
     TypeId def_id = static_cast<TypeId>(struct_defs_.size());
-    struct_defs_.push(StructDef{interner_.intern(name), memory::DynArray<StructField>(arena_)});
+    struct_defs_.push(StructDef{id, memory::DynArray<StructField>(arena_)});
     auto type = intern(TypeStruct{def_id});
-    named_types_.insert(interner_.intern(name), type);
+    named_types_.insert(id, type);
     return type;
 }
 
@@ -429,11 +452,14 @@ size_t TypeIntern::fieldIndex(TypeId struct_type, std::string_view name) const {
 }
 
 TypeId TypeIntern::defineEnum(std::string_view name, TypeId underlying) {
+    const auto id = interner_.intern(name);
+    if (const auto *existing = named_types_.get(id); existing != nullptr)
+        return *existing;
+
     TypeId def_id = static_cast<TypeId>(enum_defs_.size());
-    enum_defs_.push(
-        EnumDef{interner_.intern(name), underlying, memory::DynArray<EnumVariantDef>(arena_)});
+    enum_defs_.push(EnumDef{id, underlying, memory::DynArray<EnumVariantDef>(arena_)});
     auto type = intern(TypeEnum{def_id});
-    named_types_.insert(interner_.intern(name), type);
+    named_types_.insert(id, type);
     return type;
 }
 
@@ -473,10 +499,14 @@ bool TypeIntern::enumValue(TypeId enum_type, std::string_view name, int64_t &val
 }
 
 TypeId TypeIntern::defineUnion(std::string_view name, bool is_raw) {
+    const auto id = interner_.intern(name);
+    if (const auto *existing = named_types_.get(id); existing != nullptr)
+        return *existing;
+
     TypeId def_id = static_cast<TypeId>(union_defs_.size());
-    union_defs_.push(UnionDef{interner_.intern(name), is_raw, memory::DynArray<TypeId>(arena_)});
+    union_defs_.push(UnionDef{id, is_raw, memory::DynArray<TypeId>(arena_)});
     auto type = intern(TypeUnion{def_id});
-    named_types_.insert(interner_.intern(name), type);
+    named_types_.insert(id, type);
     return type;
 }
 

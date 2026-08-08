@@ -567,20 +567,89 @@ static void test_numeric_cast_codegen() {
 
 static void test_marker_jump_loop_executes() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn main(): i32 {\n"
+    t.write("main.zith", "flow fn main(): i32 {\n"
                          "    var x: i32 = 0;\n"
-                         "    marker my_loop {\n"
-                         "        x = x + 1;\n"
+                         "    dock {\n"
+                         "        jump check;\n"
+                         "    }\n"
+                         "    marker check {\n"
                          "        if (x < 10) {\n"
-                         "            jump my_loop;\n"
+                         "            dock {\n"
+                         "                jump body;\n"
+                         "            }\n"
+                         "        } else {\n"
+                         "            return x;\n"
                          "        }\n"
                          "    }\n"
-                         "    return x;\n"
+                         "    marker body {\n"
+                         "        x = x + 1;\n"
+                         "        dock {\n"
+                         "            jump check;\n"
+                         "        }\n"
+                         "    }\n"
+                         "    return -1;\n"
                          "}\n");
 
     auto r = t.run();
     CHECK(r.ok, "marker/jump loop compiles and executes");
-    CHECK_EQ(r.exitCode, 10, "the loop runs until x reaches 10");
+    CHECK_EQ(r.exitCode, 10, "marker loop returns exactly 10");
+}
+
+static void test_marker_jump_returns_to_origin_dock() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+                         "flow fn foo(): i32 {\n"
+                         "    marker Test {\n"
+                         "        printf(\"Second\\n\");\n"
+                         "    }\n"
+                         "    printf(\"First\\n\");\n"
+                         "    dock {\n"
+                         "        jump Test;\n"
+                         "    }\n"
+                         "    printf(\"Third\\n\");\n"
+                         "    return 0;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    foo();\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "the flow marker example compiles and runs");
+    CHECK(r.output.find("First\nSecond\nThird\n") != std::string::npos,
+          "jump marker resumes immediately after the originating dock");
+    CHECK_EQ(r.exitCode, 0, "the flow marker example exits normally");
+}
+
+static void test_marker_jump_chain_returns_to_origin_dock() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+                         "flow fn foo(): i32 {\n"
+                         "    marker A {\n"
+                         "        printf(\"A\\n\");\n"
+                         "        dock {\n"
+                         "            jump B;\n"
+                         "        }\n"
+                         "    }\n"
+                         "    marker B {\n"
+                         "        printf(\"B\\n\");\n"
+                         "    }\n"
+                         "    printf(\"Start\\n\");\n"
+                         "    dock {\n"
+                         "        jump A;\n"
+                         "    }\n"
+                         "    printf(\"End\\n\");\n"
+                         "    return 0;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    foo();\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "chained marker jumps compile and run");
+    CHECK(r.output.find("Start\nA\nB\nEnd\n") != std::string::npos,
+          "B resumes the outer dock that started A instead of resuming A");
+    CHECK_EQ(r.exitCode, 0, "chained marker jumps exit normally");
 }
 
 static void test_linked_list_acceptance_program() {
@@ -1226,6 +1295,10 @@ static void test_codegen() {
     test_numeric_cast_codegen();
     printf("Running test_marker_jump_loop_executes\n");
     test_marker_jump_loop_executes();
+    printf("Running test_marker_jump_returns_to_origin_dock\n");
+    test_marker_jump_returns_to_origin_dock();
+    printf("Running test_marker_jump_chain_returns_to_origin_dock\n");
+    test_marker_jump_chain_returns_to_origin_dock();
     printf("Running test_linked_list_acceptance_program\n");
     test_linked_list_acceptance_program();
     printf("Running test_modern_file_pipeline_executes_program\n");

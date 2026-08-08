@@ -206,12 +206,22 @@ static void test_wrong_arity() {
 
 static void test_marker_jump_ok() {
     SemaTest t;
-    auto r = t.run("fn main() {\n"
+    auto r = t.run("flow fn main() {\n"
                    "    var x: i32 = 0;\n"
-                   "    marker my_loop {\n"
-                   "        x = x + 1;\n"
+                   "    dock {\n"
+                   "        jump check;\n"
+                   "    }\n"
+                   "    marker check {\n"
                    "        if (x < 10) {\n"
-                   "            jump my_loop;\n"
+                   "            dock {\n"
+                   "                jump body;\n"
+                   "            }\n"
+                   "        }\n"
+                   "    }\n"
+                   "    marker body {\n"
+                   "        x = x + 1;\n"
+                   "        dock {\n"
+                   "            jump check;\n"
                    "        }\n"
                    "    }\n"
                    "}\n",
@@ -219,13 +229,75 @@ static void test_marker_jump_ok() {
     CHECK(r.ok, "Valid marker and jump setup lowers successfully");
 }
 
-static void test_marker_jump_undefined() {
+static void test_nested_dock_and_stackful_markers_are_accepted() {
+    ModernSemaTest t;
+    auto r = t.run("flow fn main(): i32 {\n"
+                   "    var x: i32 = 0;\n"
+                   "    dock {\n"
+                   "        dock {\n"
+                   "            jump check;\n"
+                   "        }\n"
+                   "    }\n"
+                   "    marker check {\n"
+                   "        dock {\n"
+                   "            jump body;\n"
+                   "        }\n"
+                   "    }\n"
+                   "    stackful marker body {\n"
+                   "        return x;\n"
+                   "    }\n"
+                   "}\n",
+                   session::Stage::HirLowered);
+    CHECK(r.ok, "nested docks and stackful markers lower successfully");
+}
+
+static void test_jump_requires_dock() {
+    SemaTest t;
+    auto r = t.run("flow fn main() {\n"
+                   "    marker body {\n"
+                   "    }\n"
+                   "    jump body;\n"
+                   "}\n",
+                   session::Stage::HirLowered);
+    CHECK(!r.ok, "jump outside a dock is rejected");
+    CHECK(r.hasMessage("jump is only allowed inside a dock"), "Explains the jump dock requirement");
+}
+
+static void test_dock_requires_flow_fn() {
     SemaTest t;
     auto r = t.run("fn main() {\n"
-                   "    jump nonexistent_label;\n"
+                   "    dock {\n"
+                   "    }\n"
+                   "}\n",
+                   session::Stage::HirLowered);
+    CHECK(!r.ok, "dock outside a flow fn is rejected");
+    CHECK(r.hasMessage("dock is only allowed inside a flow fn"),
+          "Explains the dock flow-fn requirement");
+}
+
+static void test_marker_jump_undefined() {
+    SemaTest t;
+    auto r = t.run("flow fn main() {\n"
+                   "    dock {\n"
+                   "        jump nonexistent_label;\n"
+                   "    }\n"
                    "}\n");
     CHECK(!r.ok, "Jump to undefined marker fails");
     CHECK(r.hasErrorCode(diagnostics::err::UndefinedIdent), "Reports UndefinedIdent (2001)");
+}
+
+static void test_markers_are_flow_fn_only() {
+    SemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    marker my_loop {\n"
+                   "        jump my_loop;\n"
+                   "    }\n"
+                   "}\n");
+    CHECK(!r.ok, "marker/jump are rejected outside a flow fn");
+    CHECK(r.hasErrorCode(diagnostics::err::UnsupportedSyntax), "Reports UnsupportedSyntax (2010)");
+    CHECK(r.hasMessage("marker is only allowed inside a flow fn"),
+          "Explains the marker restriction");
+    CHECK(r.hasMessage("jump is only allowed inside a flow fn"), "Explains the jump restriction");
 }
 
 static void test_extern_fn_call_ok() {
@@ -1439,7 +1511,11 @@ static void test_sema() {
     test_undefined_identifier();
     test_wrong_arity();
     test_marker_jump_ok();
+    test_nested_dock_and_stackful_markers_are_accepted();
+    test_jump_requires_dock();
+    test_dock_requires_flow_fn();
     test_marker_jump_undefined();
+    test_markers_are_flow_fn_only();
     test_extern_fn_call_ok();
     test_extern_fn_call_bad_arg();
     test_type_alias_unification();

@@ -3,6 +3,7 @@
 #include "diagnostics/diagnostic-engine.hpp"
 #include "hir/hir-module.hpp"
 #include "memory/arena.hpp"
+#include "memory/dyn-array.hpp"
 #include "memory/flat-map.hpp"
 #include "memory/string-interner.hpp"
 #include "sema/nra-facts.hpp"
@@ -10,7 +11,6 @@
 #include "session/frontend-context.hpp"
 #include "types/type-intern.hpp"
 
-#include <string>
 #include <string_view>
 #include <vector>
 
@@ -30,7 +30,7 @@ public:
 
 private:
     struct FunctionInfo {
-        uint64_t key = 0;
+        uint64_t key                          = 0;
         const session::ModuleArtifact *module = nullptr;
         const frontend::Declaration *decl     = nullptr;
         const cinterop::Function *foreign     = nullptr;
@@ -60,6 +60,7 @@ private:
     const session::ModuleResolution *current_resolution_ = nullptr;
     const TypedMap *current_types_                       = nullptr;
     hir::HirFunction *current_fn_                        = nullptr;
+    bool current_fn_is_flow_                             = false;
     size_t current_block_                                = 0;
     hir::HirSlotId next_slot_                            = 0;
     std::vector<hir::HirSlotId> local_slots_;
@@ -72,7 +73,38 @@ private:
     /// Pre-scans a function body, assigning a block index to every `marker` label.
     void collectMarkers(frontend::ExprId id);
     /// Marker label -> HIR block index for the current function.
-    memory::FlatMap<std::string, size_t> marker_blocks_;
+    memory::FlatMap<memory::InternedId, size_t> marker_blocks_;
+    /// Marker label -> stackful flag for the current function.
+    memory::FlatMap<memory::InternedId, uint8_t> marker_stackful_;
+    /// Marker label -> statement id of its declaration in the current function.
+    memory::FlatMap<memory::InternedId, uint32_t> marker_decl_stmts_;
+    /// Stack of continuation blocks for active `dock { ... }` bodies in the
+    /// ordinary function body. Marker bodies keep their own origin and do not
+    /// push onto this stack.
+    std::vector<size_t> dockContinuations_;
+    /// Nesting depth of `dock` blocks around the current jump statement.
+    uint32_t dockDepth_ = 0;
+    /// True while lowering a hoisted marker clone.
+    bool inMarkerBody_ = false;
+    /// Return block of the dock that started the marker flow being lowered.
+    size_t activeMarkerReturnBlock_ = ~size_t{0};
+    /// One lowered clone per `jump marker` call site. Each clone has its own
+    /// entry block and returns to its originating dock continuation.
+    struct FlowMarkerInvocation {
+        uint32_t marker_stmt;
+        size_t entry_block;
+        size_t return_block;
+    };
+    std::vector<FlowMarkerInvocation> markerInvocations_;
+    /// Jump statement id -> index into `markerInvocations_`.
+    memory::FlatMap<uint32_t, size_t> markerInvocationIndex_;
+    /// Blocks whose bodies are hoisted markers; emitted after the main body.
+    void lowerHoistedMarkers();
+    void lowerMarkerInvocation(const FlowMarkerInvocation &invocation);
+    /// Returns the entry block for the fixed, per-call-site marker clone.
+    size_t markerInvocationEntry(uint32_t jump_stmt, uint32_t marker_stmt, size_t return_block);
+    /// Returns the block a flow jump should return to when its marker falls through.
+    size_t flowReturnBlock() const noexcept;
 
     types::TypeId lowerType(sema::modern::TypeId type);
     types::TypeId lowerForeignType(const cinterop::Type &type);
@@ -130,6 +162,7 @@ private:
     void setCurrentBlock(size_t block);
     void setTerminator(hir::HirExprId term);
     void emitJump(size_t target);
+    void emitFlowJump(size_t target, size_t return_block);
 };
 
 } // namespace zith::sema::modern

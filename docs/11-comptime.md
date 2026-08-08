@@ -1,8 +1,10 @@
 ## 11. Comptime
 
-> **Implementation status:** `comptime` blocks, compile-time reflection intrinsics, and `const fn`
-> evaluation are **spec-only**. `const` bindings are **working** (immutable at runtime) but are not
-> evaluated at compile time. See [impl-status.md](impl-status.md).
+> **Implementation status:** `const fn` declarations are **parse-level in progress**; parsing them
+> as functions is implemented, but compile-time evaluation is **spec-only**. `comptime` blocks,
+> compile-time reflection intrinsics, and `const fn` evaluation are not implemented. `const`
+> bindings are **working** (immutable at runtime) but are not evaluated at compile time. See
+> [impl-status.md](impl-status.md).
 
 
 Comptime covers compile-time computation: reflection, type manipulation, and `const` blocks.
@@ -20,7 +22,9 @@ counter += 1;   // valid at compile time
 
 A `const { ... }` block executes its contents at compile time. Every value inside must be computable at compile time — if anything depends on runtime input, the compiler reports an error.
 
-`const fn` functions resolve entirely at compile time and **must** be called inside a `const` block or assigned to a `const` binding; they cannot be called at runtime.
+`const fn` declarations are the future syntax for functions that resolve at compile time. Once
+evaluation lands, they would be required to be called only inside a `const` block or assigned to a
+`const` binding. Today the compiler only parses the declaration; evaluation is not implemented.
 
 ```zith
 const result {

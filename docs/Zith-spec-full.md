@@ -112,9 +112,9 @@ source -> lex -> scan -> resolve(import/symbols) -> sema -> comptime/solve -> NT
 | `scan` | Find top-level declarations from the token stream |
 | `resolve` | Resolve imported symbols, report duplicates |
 | `sema` | Semantic analysis — name resolution, type checking, visibility |
-| `comptime/solve` | Generic instantiation, macro expansion, `comptime` evaluation, and the solved semantic view that still preserves resource identity for ownership proof |
+| `comptime/solve` | Reserved for future generic instantiation, `comptime` evaluation, and the solved semantic view. Macro expansion currently happens during frontend parsing and uses the source AST directly |
 | `NTA/NRA` | Accumulate semantic/resource facts, prove ownership rules, emit diagnostics, and apply only internal canonicalizations that do not change public ABI |
-| `HIR` | Build High-level IR — desugared, typed, NRA-validated, carrying only residual facts needed after the proof boundary |
+| `HIR` | Build High-level IR — the typed, desugared program with residual ownership facts attached when available |
 | `LLVM` | Code generation via the LLVM backend |
 
 `.zirl` files serve as cache and distribution format for compiled libraries — no headers needed, OS-agnostic, and you choose static or dynamic linking at the client side. Distribute once, link however the consumer prefers.
@@ -700,11 +700,14 @@ fn first<T>(slice: []T): ?T {
 | Kind | Description |
 |---|---|
 | `fn` | Standard runtime function. |
-| `const fn` | Resolved entirely at compile time. |
-| `flow fn` | Enables marker/dock control flow ([§9.4](09-control-flow.md#94-flow-functions--markers)). |
-| `raw fn` | Always unchecked, bypassing safety in both debug and release. The compiler warns in release builds if `raw` could be removed. |
+| `const fn` | Compile-time function; parsing is in progress, evaluation is not implemented yet. |
+| `flow fn` | Structured control flow; parsing and lowering are in progress. `marker`, `dock`, and `jump target` are tested, while advanced marker semantics are future work ([§9.4](09-control-flow.md#94-flow-functions--markers)). |
+| `raw fn` | Always unchecked, bypassing NRA and safety checks for C interop. |
+| `extern fn` | Fixed C ABI linkage; never name-qualified and never overloaded. |
 
-> Function kinds are orthogonal and cannot be combined on a single declaration.
+> The five function kinds are exclusive and cannot be combined: there is no `raw const fn`,
+> `extern raw fn`, or similar spelling. `raw fn` and `extern fn` are separate concerns: `raw fn`
+> opts out of NRA, while `extern fn` selects the C ABI.
 
 Macro calls use the `@` prefix — `@println`, `@log`, `@serialize` — while ordinary function calls use a bare name, such as `console.write`, `process`, or `save`. See [§15](15-macros.md) for the full rule.
 
@@ -1217,9 +1220,13 @@ foo(), ( f1(..) -> f2() ) -> f3(..);
 
 A `flow fn` lets you write control flow using **markers**, **docks**, and **jumps**:
 
+> The code below documents the full language contract. Today `marker`, `dock`, and
+> `jump target` are parsed and lowered. Markers with arguments are not implemented yet, and
+> `stackful marker` currently only carries metadata.
+
 - **`marker`**: A named block of code, hoisted to the top of the `flow fn`. Acts as a label. Receives values via `jump`.
-- **`dock`**: A block that grants permission to use `jump`. You can use `if`, `when`, loops — anything inside a `dock`.
-- **`jump`**: The transfer operator. Must always be inside a `dock`. Sends values to a target `marker` and transfers control.
+- **`dock`**: A block that grants permission to use `jump`. The only accepted form is `dock { ... }`; there is no `dock target;` shortcut. The block itself does not carry arguments.
+- **`jump`**: The transfer operator. The simple form transfers control to a target `marker`; only simple `jump target;` is implemented, and sending values is future work.
 
 ```zith
 flow fn run(data: Stream): void {
@@ -1252,13 +1259,16 @@ flow fn scheduler(): never { ... }
 
 | Rule | Detail |
 |---|---|
-| Hoisting | Markers are lifted to the top of the `flow fn`. Normal execution skips over them. |
-| Scope | Markers cannot see outer variables or declare their own locals. |
-| Arguments | Stored in a `thread_local` blob. Values persist between jumps unless you update them. |
-| Input from dock | Markers receive values via `jump` from any `dock` in the same `flow fn`. |
+| Hoisting | **Working.** Marker bodies are collected before lowering the main body and emitted into dedicated HIR blocks. |
+| Scope | Future work. Marker argument scoping is not implemented yet. |
+| Arguments | Future work. Values passed through `jump` are not implemented yet. |
+| Input from dock | `dock` is parsed, typed, and lowered. It opens a block where `jump target;` is permitted; sending values through a dock is future work. |
 | Global markers | May call regular functions, but not `flow` functions — unless the target is `never`. The `never` exception exists because a `never` flow function never alters the return point — there is no resumption to protect. If it did alter the return point, it would corrupt the state. |
 
 #### Stackful vs Stackless
+
+> **Partial:** the `stackful` modifier is parsed and preserved by formatting, and the lowerer
+> records it, but the cleaned-up local execution model is not implemented yet.
 
 Markers are **stackless** by default — can't create local variables. Opt into **stackful** with the `stackful` modifier. Before the jump, all local variables are cleaned. The following rules apply:
 
@@ -1339,7 +1349,9 @@ counter += 1;   // valid at compile time
 
 A `const { ... }` block executes its contents at compile time. Every value inside must be computable at compile time — if anything depends on runtime input, the compiler reports an error.
 
-`const fn` functions resolve entirely at compile time and **must** be called inside a `const` block or assigned to a `const` binding; they cannot be called at runtime.
+`const fn` declarations are the future syntax for functions that resolve at compile time. Once
+evaluation lands, they would be required to be called only inside a `const` block or assigned to a
+`const` binding. Today the compiler only parses the declaration; evaluation is not implemented.
 
 ```zith
 const result {
@@ -2031,7 +2043,7 @@ The Rule of Three keeps code readable. Zith gives you many tools — you don't h
 | `pub` / `mod` / `mod(..)` / `mod(N)` | Visibility | Public / module-local, with optional depth. |
 | `let` / `var` / `global` / `const` | Bindings | Immutable / mutable / static storage / compile-time constant. |
 | `default` / `lend` / `view` / `unique` / `share` / `belong` | Memory | NRA memory modifiers — `default` is implicit when no keyword is written ([§7](07-memory-model.md)). |
-| `fn` / `const fn` / `flow fn` / `raw fn` | Functions | Function kinds. Orthogonal; cannot be combined. |
+| `fn` / `const fn` / `flow fn` / `raw fn` / `extern fn` | Functions | Five exclusive function kinds; cannot be combined. |
 | `trait` / `interface` / `extends` / `requires` / `dyn` | OOP | Nominal traits, structural interfaces, extension, constraints, dynamic dispatch. |
 | `Copy` / `Functor` / `Arithmetic` / `Error` | Capabilities | Operator and behavior capabilities. |
 | `Null` / `Fail` | Capabilities | Negative — activate only in proven-invalid states. |

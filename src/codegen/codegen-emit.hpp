@@ -60,6 +60,12 @@ private:
     /// True for signed integers; false for unsigned integers and all other types.
     bool isSignedType(types::TypeId id) const;
 
+    /// Last non-terminal instruction emitted by `emitBody`, along with the HIR
+    /// block it came from. `emitRet` uses this to avoid re-evaluating the same
+    /// expression when it was already emitted as the block's trailing `inst`.
+    hir::HirExprId emitBodyLastId_  = hir::kInvalidHirExpr;
+    llvm::Value *emitBodyLastValue_ = nullptr;
+
     llvm::IRBuilderBase &builder_;
     CodeGenType &typeGen_;
     const memory::StringInterner &interner_;

@@ -83,9 +83,9 @@ source -> lex -> scan -> resolve(import/symbols) -> sema -> comptime/solve -> NT
 | `scan` | Find top-level declarations from the token stream |
 | `resolve` | Resolve imported symbols, report duplicates |
 | `sema` | Semantic analysis — name resolution, type checking, visibility |
-| `comptime/solve` | Generic instantiation, macro expansion, `comptime` evaluation, and the solved semantic view that still preserves resource identity for ownership proof |
+| `comptime/solve` | Reserved for future generic instantiation, `comptime` evaluation, and the solved semantic view. Macro expansion currently happens during frontend parsing and uses the source AST directly |
 | `NTA/NRA` | Accumulate semantic/resource facts, prove ownership rules, emit diagnostics, and apply only internal canonicalizations that do not change public ABI |
-| `HIR` | Build High-level IR — desugared, typed, NRA-validated, carrying only residual facts needed after the proof boundary |
+| `HIR` | Build High-level IR — the typed, desugared program with residual ownership facts attached when available |
 | `LLVM` | Code generation via the LLVM backend |
 
 `.zirl` files serve as cache and distribution format for compiled libraries — no headers needed, OS-agnostic, and you choose static or dynamic linking at the client side. Distribute once, link however the consumer prefers.
@@ -99,7 +99,7 @@ source -> lex -> scan -> resolve(import/symbols) -> sema -> comptime/solve -> NT
 | 2 | [Module System](02-module-system.md) | `02-module-system.md` | `import`, `from`, `export`, `alias`, `use`, visibility |
 | 3 | [Type System](03-type-system.md) | `03-type-system.md` | Primitives, structs, enums, unions, generics, `when` |
 | 4 | [Traits, Interfaces & Capabilities](04-traits-interfaces.md) | `04-traits-interfaces.md` | Nominal traits, structural interfaces, capabilities, operator overloading |
-| 5 | [Functions](05-functions.md) | `05-functions.md` | `fn`, `const fn`, `flow fn`, `raw fn`, return types |
+| 5 | [Functions](05-functions.md) | `05-functions.md` | `fn`, `const fn`, `flow fn`, `raw fn`, `extern fn`, return types |
 | 6 | [Mutability & Bindings](06-mutability-bindings.md) | `06-mutability-bindings.md` | `let`, `var`, `global`, `const`, deep mutability, destructuring |
 | 7 | [Memory Model (NRA)](07-memory-model.md) | `07-memory-model.md` | Ownership, `lend`/`view`/`unique`/`share`/`belong`, the four rules |
 | 8 | [Error Handling](08-error-handling.md) | `08-error-handling.md` | `?T`, `T!`, `with`/`catch`, `fail` blocks, `throw` |
@@ -142,7 +142,7 @@ source -> lex -> scan -> resolve(import/symbols) -> sema -> comptime/solve -> NT
 | `pub` / `mod` / `mod(..)` / `mod(N)` | Visibility | Public / module-local, with optional depth. |
 | `let` / `var` / `global` / `const` | Bindings | Immutable / mutable / static storage / compile-time constant. |
 | `default` / `lend` / `view` / `unique` / `share` / `belong` | Memory | NRA memory modifiers — `default` is implicit when no keyword is written. |
-| `fn` / `const fn` / `flow fn` / `raw fn` | Functions | Function kinds. Orthogonal; cannot be combined. |
+| `fn` / `const fn` / `flow fn` / `raw fn` / `extern fn` | Functions | Five exclusive function kinds; cannot be combined. |
 | `trait` / `interface` / `extends` / `requires` / `dyn` | OOP | Nominal traits, structural interfaces, extension, constraints, dynamic dispatch. |
 | `Copy` / `Functor` / `Arithmetic` / `Error` | Capabilities | Operator and behavior capabilities. |
 | `Null` / `Fail` | Capabilities | Negative — activate only in proven-invalid states. |

@@ -201,9 +201,8 @@ template <typename Fn> std::string captureStdioDump(Fn &&dump) {
     std::string result;
 
     const auto uniqueSuffix = std::chrono::steady_clock::now().time_since_epoch().count();
-    const std::filesystem::path tmpPath =
-        std::filesystem::temp_directory_path() /
-        ("zithc-dump-" + std::to_string(uniqueSuffix) + ".tmp");
+    const std::filesystem::path tmpPath = std::filesystem::temp_directory_path() /
+                                          ("zithc-dump-" + std::to_string(uniqueSuffix) + ".tmp");
 
     FILE *tmp = nullptr;
 #ifdef _WIN32
@@ -719,13 +718,11 @@ bool CompilationSession::lowerStage() {
         writeOutput("--- HIR ---\n%s---\n", hir_text.c_str());
     }
 
-    comptime::Solver solver(mTypes, nullptr, nullptr, mSyms, mDiags, mHirArena,
-                            mModernTypeTable.get());
+    comptime::Solver solver(mTypes, nullptr, nullptr, mSyms, mDiags, mHirArena);
     if (!solver.runPostLower(mHirModule)) {
         mDiags.emit();
         return false;
     }
-    mModernTypeTable.reset();
 
     auto lowerDt =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
@@ -738,17 +735,8 @@ bool CompilationSession::lowerStage() {
 
 bool CompilationSession::solveStage() {
     auto t0 = std::chrono::steady_clock::now();
-    if (mDiags.hasErrors()) {
-        mDiags.emit();
-        return false;
-    }
-    // The semantic solver is intentionally conservative while generic
-    // instantiation still consumes HIR. The documented boundary is
-    // `sema -> comptime/solve -> NTA/NRA -> HIR`; the residual ownership
-    // facts are computed here and the current HIR-based solver remains a
-    // post-lowering compatibility pass below.
-    mModernTypeTable =
-        std::make_unique<sema::modern::TypeTable>(sema::modern::TypeTable(mHirArena));
+    // Reserved for 0.7.0 step-04 generic instantiation; the post-lowering
+    // comptime pass runs from lowerStage().
     auto solveDt =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     mStageDurations[static_cast<size_t>(StageIndex::Solve)] = solveDt;
@@ -774,9 +762,6 @@ bool CompilationSession::nraStage() {
 
     auto nraDt =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-    if (mModernTypeTable && mOpts.get().flags.verbose()) {
-        writeOutput("  [nra] modern types: %zu  (%5.1fms)\n", mModernTypeTable->size(), nraDt);
-    }
     mStageDurations[static_cast<size_t>(StageIndex::Nra)] = nraDt;
     if (mOpts.get().flags.verbose()) {
         writeOutput("  [nra] residual facts: %zu locals, %zu calls  (%5.1fms)\n",
@@ -1444,8 +1429,10 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
         }
         case cache::CompactExprKind::Jump: {
             hir::HirJump jump;
-            jump.target = ce.ref_c;
-            expr        = jump;
+            jump.target       = ce.ref_c;
+            jump.return_block = ce.ref_d;
+            jump.flowReturn   = ce.flags != 0U;
+            expr              = jump;
             break;
         }
         case cache::CompactExprKind::Phi: {

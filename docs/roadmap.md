@@ -10,8 +10,8 @@
 | F-01 | `when` pattern matching | 3, 9 | WIP (not committed) |
 | F-02 | `match` expression | 9 | Parse error |
 | F-03 | `for` iterator (`in`) and 3-clause | 9 | Parse error |
-| F-04 | `dock` flow control | 9 | Parse error |
-| F-05 | `const fn` | 5, 11 | Parse error |
+| F-04 | `dock` flow control | 9 | Working (simple flow; no arguments) |
+| F-05 | `const fn` | 5, 11 | Parse-level in progress |
 | F-06 | `is <type>` type narrowing | 3 | Parse error |
 | F-07 | `dyn Trait` dynamic dispatch | 14 | Parse error |
 | F-08 | `@macro` calls | 15 | Working |

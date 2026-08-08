@@ -105,6 +105,17 @@ enum class DeclKind : uint8_t {
     Word,
 };
 
+/// Parse-level function kind for `fn`, `const fn`, `raw fn`, `extern fn`, and
+/// `flow fn`.  All five share `DeclKind::Function`; this metadata is retained for
+/// frontend tooling and formatter output.
+enum class FunctionKind : uint8_t {
+    Standard,
+    Const,
+    Raw,
+    Extern,
+    Flow,
+};
+
 enum class ExprKind : uint8_t {
     Error,
     Name,
@@ -148,6 +159,7 @@ enum class StmtKind : uint8_t {
     Return,
     Break,
     Continue,
+    Dock,
     Marker,
     Jump,
 };
@@ -202,6 +214,8 @@ struct Statement {
     Binding binding;
     /// Name of a marker (StmtKind::Marker) or jump target (StmtKind::Jump).
     std::string label;
+    /// True for `stackful marker name { }`.
+    bool isStackful = false;
 };
 
 struct Expression {
@@ -290,6 +304,9 @@ struct Declaration {
     DeclKind kind         = DeclKind::Error;
     Visibility visibility = Visibility::Private;
     TextSpan span;
+    /// Parse-level function kind when `kind == DeclKind::Function`; other
+    /// declarations keep `FunctionKind::Standard`.
+    FunctionKind functionKind = FunctionKind::Standard;
     /// True when declared with `tag macro`: invoked as `<Name attr: v> ... </Name>`
     /// instead of `@name(...)`, and never produces a value.
     bool isTagMacro = false;

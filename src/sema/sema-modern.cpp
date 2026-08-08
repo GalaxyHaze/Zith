@@ -267,7 +267,10 @@ void PerModuleSema::registerNamedTypes() {
 
 void PerModuleSema::lowerDeclarationTypes() {
     for (const auto &decl : snapshot.declarations()) {
-        currentDeclId_ = decl.id.value;
+        currentDeclId_       = decl.id.value;
+        currentFunctionKind_ = decl.kind == frontend::DeclKind::Function
+                                   ? decl.functionKind
+                                   : frontend::FunctionKind::Standard;
         if (!decl.genericParams.empty()) {
             std::vector<GenericBinding> bindings;
             bindings.reserve(decl.genericParams.size());
@@ -420,7 +423,10 @@ void PerModuleSema::inferExpressionTypesForDecls() {
         // real code once cloned into a call site.
         if (decl.kind == frontend::DeclKind::Macro)
             continue;
-        currentDeclId_ = decl.id.value;
+        currentDeclId_       = decl.id.value;
+        currentFunctionKind_ = decl.kind == frontend::DeclKind::Function
+                                   ? decl.functionKind
+                                   : frontend::FunctionKind::Standard;
         if (decl.kind == frontend::DeclKind::Function) {
             TypeId fn_type     = typeOfDecl(decl.id);
             const auto *fn     = type_table.function(fn_type);
@@ -430,9 +436,11 @@ void PerModuleSema::inferExpressionTypesForDecls() {
         }
         if (decl.body) {
             markers_.clear();
+            dockDepth_ = 0;
             collectMarkers(decl.body);
             (void)inferExpr(decl.body);
             markers_.clear();
+            dockDepth_ = 0;
         }
         if (decl.initializer) {
             (void)inferExpr(decl.initializer);
@@ -445,7 +453,8 @@ void PerModuleSema::inferExpressionTypesForDecls() {
         if (!typeOfExpr(expr.id))
             (void)inferExpr(expr.id);
     }
-    currentDeclId_ = 0;
+    currentDeclId_       = 0;
+    currentFunctionKind_ = frontend::FunctionKind::Standard;
 }
 
 void PerModuleSema::collectMarkers(frontend::ExprId id) {
@@ -1172,7 +1181,11 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
     bool has_implicit_self   = has_receiver && !fn_params.front().type;
     TypeId self_type         = kInvalidTypeId;
     const auto saved_decl_id = currentDeclId_;
+    const auto saved_kind    = currentFunctionKind_;
     currentDeclId_           = method_decl->id.value;
+    currentFunctionKind_     = method_decl->kind == frontend::DeclKind::Function
+                                   ? method_decl->functionKind
+                                   : frontend::FunctionKind::Standard;
     if (has_implicit_self) {
         // First param is named self with no type: fill in *Owner.
         self_type = is_pointer ? base_type : type_table.internPointer(pointee);
@@ -1188,7 +1201,8 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
     const size_t provided_args = call.operands.size() - 1;
     if (provided_args != expected_args) {
         report(call.span, "method call arity mismatch", diagnostics::err::NoMatchingFn);
-        currentDeclId_ = saved_decl_id;
+        currentDeclId_       = saved_decl_id;
+        currentFunctionKind_ = saved_kind;
         return error_type;
     }
     for (size_t i = 0; i < provided_args; ++i) {
@@ -1204,7 +1218,8 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
     TypeId result = lowerTypeExpr(method_decl->declaredType);
     if (!result)
         result = void_type;
-    currentDeclId_ = saved_decl_id;
+    currentDeclId_       = saved_decl_id;
+    currentFunctionKind_ = saved_kind;
     // Record a type for the Field/Arrow callee: it is a resolved method, not a
     // struct field, and the later standalone-expression sweep would otherwise
     // re-infer it as a field access and report "unknown field".
@@ -1260,11 +1275,35 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
             checkReturnStatement(stmt);
             last = void_type;
         } else if (stmt.kind == frontend::StmtKind::Marker) {
-            // Markers are labels for `jump`; their body is a regular block.
+            if (currentFunctionKind_ != frontend::FunctionKind::Flow) {
+                report(stmt.span, "marker is only allowed inside a flow fn",
+                       diagnostics::err::UnsupportedSyntax);
+            }
+            // Markers are hoisted labels, but their body still type-checks in
+            // the current function scope against the jump/dock rules.
             if (stmt.expression)
                 (void)inferExpr(stmt.expression);
+            (void)stmt.isStackful;
+            last = void_type;
+        } else if (stmt.kind == frontend::StmtKind::Dock) {
+            if (currentFunctionKind_ != frontend::FunctionKind::Flow) {
+                report(stmt.span, "dock is only allowed inside a flow fn",
+                       diagnostics::err::UnsupportedSyntax);
+            }
+            ++dockDepth_;
+            if (stmt.expression)
+                (void)inferExpr(stmt.expression);
+            --dockDepth_;
             last = void_type;
         } else if (stmt.kind == frontend::StmtKind::Jump) {
+            if (currentFunctionKind_ != frontend::FunctionKind::Flow) {
+                report(stmt.span, "jump is only allowed inside a flow fn",
+                       diagnostics::err::UnsupportedSyntax);
+            }
+            if (dockDepth_ == 0) {
+                report(stmt.span, "jump is only allowed inside a dock",
+                       diagnostics::err::UnsupportedSyntax);
+            }
             if (!markers_.contains(stmt.label)) {
                 report(stmt.span, "jump to undefined marker '" + stmt.label + "'",
                        diagnostics::err::UndefinedIdent);

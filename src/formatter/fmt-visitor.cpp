@@ -352,6 +352,22 @@ void FmtVisitor::emitFunctionDecl(const frontend::Declaration &decl) {
     }
 
     emitDeclPrefix(decl.span);
+    switch (decl.functionKind) {
+    case frontend::FunctionKind::Const:
+        emit("const ");
+        break;
+    case frontend::FunctionKind::Raw:
+        emit("raw ");
+        break;
+    case frontend::FunctionKind::Extern:
+        emit("extern ");
+        break;
+    case frontend::FunctionKind::Flow:
+        emit("flow ");
+        break;
+    case frontend::FunctionKind::Standard:
+        break;
+    }
     emit("fn ");
     emit(decl.name);
     if (!decl.genericParams.empty()) {
@@ -522,7 +538,16 @@ void FmtVisitor::visitStmt(const frontend::StmtId id) {
     case frontend::StmtKind::Continue:
         emit("continue;");
         break;
+    case frontend::StmtKind::Dock:
+        emit("dock");
+        if (stmt->expression) {
+            emit(" ");
+            visitExpr(stmt->expression);
+        }
+        break;
     case frontend::StmtKind::Marker:
+        if (stmt->isStackful)
+            emit("stackful ");
         emit("marker ");
         emit(stmt->label);
         if (stmt->expression) {

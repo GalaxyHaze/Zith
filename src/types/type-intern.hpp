@@ -62,6 +62,7 @@ public:
     TypeId internPtr(TypeId pointee, bool is_mut = false,
                      OwnershipKind ownership = OwnershipKind::Default);
     TypeId internArray(TypeId elem, uint32_t count);
+    TypeId internFn(memory::DynArray<TypeId> &params, TypeId ret);
     TypeId internFn(std::span<const TypeId> params, TypeId ret);
     TypeId internOptional(TypeId inner);
     TypeId internFailable(TypeId inner);
@@ -77,9 +78,13 @@ public:
     TypeId internSlice(TypeId elem);
     TypeId internEnum(TypeId def_id);
     TypeId internUnion(TypeId def_id);
+    TypeId internPack(memory::DynArray<TypeId> &members,
+                      memory::DynArray<memory::InternedId> &names);
     TypeId internPack(std::span<const TypeId> members, std::span<const std::string_view> names);
     TypeId internSum(std::span<const TypeId> members);
+    TypeId internSum(memory::DynArray<TypeId> &members);
     TypeId internGenericParam(uint32_t decl_id, uint32_t param_index);
+    TypeId internIncomplete(TypeId base, memory::DynArray<TypeId> &args);
     TypeId internIncomplete(TypeId base, std::span<const TypeId> args);
 
     // ── Struct definition helpers ─────────────────────────────────

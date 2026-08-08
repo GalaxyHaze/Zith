@@ -71,7 +71,6 @@ class CompilationSession {
 
     memory::FileId mFileId = 0;
     std::unique_ptr<sema::modern::SemaPipeline> mModernSemaPipeline;
-    std::unique_ptr<sema::modern::TypeTable> mModernTypeTable;
     std::unique_ptr<sema::modern::NraFacts> mNraFacts;
 
     std::string mOutputBuffer;

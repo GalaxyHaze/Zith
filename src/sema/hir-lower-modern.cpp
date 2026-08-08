@@ -129,8 +129,7 @@ HirLowerModern::HirLowerModern(memory::Arena &arena, diagnostics::DiagnosticEngi
                                const SemaPipeline &sema, types::TypeIntern &types,
                                memory::StringInterner &interner, const NraFacts *nra)
     : arena_(arena), diags_(diags), snapshot_(snapshot), sema_(sema), types_(types),
-      interner_(interner), nra_(nra), hir_(arena), lowered_types_(),
-      function_index_by_key_() {}
+      interner_(interner), nra_(nra), hir_(arena), lowered_types_(), function_index_by_key_() {}
 
 bool HirLowerModern::run() {
     return predeclareFunctions() && lowerFunctionBodies() && !diags_.hasErrors();
@@ -272,6 +271,8 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     }
 
     current_fn_ = &hir_.getFn(info.hir_index);
+    current_fn_is_flow_ =
+        info.decl != nullptr && info.decl->functionKind == frontend::FunctionKind::Flow;
 
     if (nra_ != nullptr && info.module != nullptr && info.decl != nullptr) {
         const auto *fn_fact = nra_->functionFact(info.module->key, info.decl->id);
@@ -287,6 +288,14 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     next_slot_     = 0;
     loop_stack_.clear();
     marker_blocks_.clear();
+    marker_stackful_.clear();
+    marker_decl_stmts_.clear();
+    markerInvocationIndex_.clear();
+    markerInvocations_.clear();
+    dockContinuations_.clear();
+    dockDepth_               = 0;
+    inMarkerBody_            = false;
+    activeMarkerReturnBlock_ = ~size_t{0};
     local_slots_.clear();
     local_slots_.resize(1U);
 
@@ -325,10 +334,13 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
         current_fn_->blocks[current_block_].terminator = addExpr(std::move(ret));
     }
 
+    lowerHoistedMarkers();
+
     current_module_     = nullptr;
     current_resolution_ = nullptr;
     current_types_      = nullptr;
     current_fn_         = nullptr;
+    current_fn_is_flow_ = false;
     return true;
 }
 
@@ -360,16 +372,15 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
         break;
     case TypeKind::Integer: {
         const auto *integer = sema_.typeTable().integer(type);
-        lowered = integer != nullptr
-                      ? types_.internInt(sema::mapIntegerWidth(integer->bits, integer->isSigned))
-                      : types::kErrorType;
+        lowered             = integer != nullptr
+                                  ? types_.internInt(sema::mapIntegerWidth(integer->bits, integer->isSigned))
+                                  : types::kErrorType;
         break;
     }
     case TypeKind::Float: {
         const auto *floating = sema_.typeTable().float_kind(type);
-        lowered =
-            floating != nullptr ? types_.internFloat(sema::mapFloatWidth(floating->bits))
-                                : types::kErrorType;
+        lowered = floating != nullptr ? types_.internFloat(sema::mapFloatWidth(floating->bits))
+                                      : types::kErrorType;
         break;
     }
     case TypeKind::String:
@@ -400,12 +411,11 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
             lowered = types::kErrorType;
             break;
         }
-        std::vector<types::TypeId> params;
+        memory::DynArray<types::TypeId> params(arena_);
         params.reserve(fn->params.size());
         for (const auto param : fn->params)
-            params.push_back(lowerType(param));
-        lowered = types_.internFn(std::span<const types::TypeId>(params.data(), params.size()),
-                                  lowerType(fn->result));
+            params.push(lowerType(param));
+        lowered = types_.internFn(params, lowerType(fn->result));
         break;
     }
     case TypeKind::Struct: {
@@ -469,12 +479,11 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
             lowered = types::kErrorType;
             break;
         }
-        std::vector<types::TypeId> args;
+        memory::DynArray<types::TypeId> args(arena_);
         args.reserve(incomplete->args.size());
         for (const auto arg : incomplete->args)
-            args.push_back(lowerType(arg));
-        lowered = types_.internIncomplete(lowerType(incomplete->base),
-                                          std::span<const types::TypeId>(args.data(), args.size()));
+            args.push(lowerType(arg));
+        lowered = types_.internIncomplete(lowerType(incomplete->base), args);
         break;
     }
     case TypeKind::Sum: {
@@ -483,11 +492,11 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
             lowered = types::kErrorType;
             break;
         }
-        std::vector<types::TypeId> members;
+        memory::DynArray<types::TypeId> members(arena_);
         members.reserve(sum->members.size());
         for (const auto member : sum->members)
-            members.push_back(lowerType(member));
-    lowered = types_.internSum(std::span<const types::TypeId>(members.data(), members.size()));
+            members.push(lowerType(member));
+        lowered = types_.internSum(members);
         break;
     }
     case TypeKind::Slice: {
@@ -508,16 +517,15 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
             lowered = types::kErrorType;
             break;
         }
-        std::vector<types::TypeId> members;
-        std::vector<std::string_view> names;
+        memory::DynArray<types::TypeId> members(arena_);
+        memory::DynArray<memory::InternedId> names(arena_);
         members.reserve(pack->members.size());
         names.reserve(pack->names.size());
         for (const auto member : pack->members)
-            members.push_back(lowerType(member));
+            members.push(lowerType(member));
         for (const auto name : pack->names)
-            names.push_back(name);
-        lowered = types_.internPack(std::span<const types::TypeId>(members.data(), members.size()),
-                                    std::span<const std::string_view>(names.data(), names.size()));
+            names.push(interner_.intern(name));
+        lowered = types_.internPack(members, names);
         break;
     }
     case TypeKind::Alias: {
@@ -1724,41 +1732,75 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
         current_fn_->blocks[current_block_].insts = memory::DynArray<hir::HirExprId>(arena_);
         return true;
     case frontend::StmtKind::Marker: {
-        const auto *target = marker_blocks_.get(statement.label);
+        if (!current_fn_is_flow_) {
+            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                          "marker is only allowed inside a flow fn", {});
+            return false;
+        }
+        const auto label_id = interner_.intern(statement.label);
+        const auto *target  = marker_decl_stmts_.get(label_id);
         if (target == nullptr) {
             diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
                           "marker has no block: '" + statement.label + "'", {});
             return false;
         }
-        const size_t marker_block = *target;
-        // Fall through into the marker block.
-        if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
-            emitJump(marker_block);
-        setCurrentBlock(marker_block);
-        current_fn_->blocks[marker_block].insts = memory::DynArray<hir::HirExprId>(arena_);
-        if (statement.expression)
-            (void)lowerExpr(statement.expression);
-        // Continue after the marker body.
-        const size_t continuation = newBlock();
-        if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
-            emitJump(continuation);
-        setCurrentBlock(continuation);
-        current_fn_->blocks[continuation].insts = memory::DynArray<hir::HirExprId>(arena_);
-        last_value                              = hir::kInvalidHirExpr;
+        (void)target; // Marker bodies are lowered from `lowerMarkerInvocation`.
+        last_value = hir::kInvalidHirExpr;
         return true;
     }
     case frontend::StmtKind::Jump: {
-        const auto *target = marker_blocks_.get(statement.label);
+        if (!current_fn_is_flow_) {
+            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                          "jump is only allowed inside a flow fn", {});
+            return false;
+        }
+        const auto label_id = interner_.intern(statement.label);
+        const auto *target  = marker_blocks_.get(label_id);
         if (target == nullptr) {
             diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
                           "jump to undefined marker: '" + statement.label + "'", {});
             return false;
         }
-        emitJump(*target);
+        if (dockDepth_ == 0) {
+            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                          "jump is only allowed inside a dock", {});
+            return false;
+        }
+        const auto *marker_stmt = marker_decl_stmts_.get(label_id);
+        if (marker_stmt == nullptr) {
+            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                          "jump to undefined marker: '" + statement.label + "'", {});
+            return false;
+        }
+        const size_t return_block = flowReturnBlock();
+        const size_t entry = markerInvocationEntry(statement.id.value, *marker_stmt, return_block);
+        emitFlowJump(entry, return_block);
         // Anything after a jump is unreachable; give it a fresh block.
         setCurrentBlock(newBlock());
         current_fn_->blocks[current_block_].insts = memory::DynArray<hir::HirExprId>(arena_);
         last_value                                = hir::kInvalidHirExpr;
+        return true;
+    }
+    case frontend::StmtKind::Dock: {
+        if (!current_fn_is_flow_) {
+            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                          "dock is only allowed inside a flow fn", {});
+            return false;
+        }
+        const size_t continuation = newBlock();
+        if (!inMarkerBody_)
+            dockContinuations_.push_back(continuation);
+        ++dockDepth_;
+        if (statement.expression)
+            (void)lowerExpr(statement.expression);
+        if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
+            emitJump(continuation);
+        --dockDepth_;
+        if (!inMarkerBody_)
+            dockContinuations_.pop_back();
+        setCurrentBlock(continuation);
+        current_fn_->blocks[continuation].insts = memory::DynArray<hir::HirExprId>(arena_);
+        last_value                              = hir::kInvalidHirExpr;
         return true;
     }
     case frontend::StmtKind::Error:
@@ -1800,9 +1842,14 @@ void HirLowerModern::collectMarkers(frontend::ExprId id) {
             if (!stmt_id || stmt_id.value > current_module_->frontend->statements().size())
                 continue;
             const auto &stmt = current_module_->frontend->statements()[stmt_id.value - 1U];
-            if (stmt.kind == frontend::StmtKind::Marker && !stmt.label.empty() &&
-                !marker_blocks_.contains(stmt.label))
-                marker_blocks_.insert(stmt.label, newBlock());
+            if (stmt.kind == frontend::StmtKind::Marker && !stmt.label.empty()) {
+                const auto label_id = interner_.intern(stmt.label);
+                if (!marker_blocks_.contains(label_id)) {
+                    marker_blocks_.insert(label_id, newBlock());
+                    marker_stackful_.insert(label_id, stmt.isStackful ? uint8_t{1} : uint8_t{0});
+                }
+                marker_decl_stmts_.insert(label_id, stmt_id.value);
+            }
             if (stmt.expression)
                 collectMarkers(stmt.expression);
         }
@@ -1810,6 +1857,54 @@ void HirLowerModern::collectMarkers(frontend::ExprId id) {
         for (const auto operand : expr.operands)
             collectMarkers(operand);
     }
+}
+
+void HirLowerModern::lowerHoistedMarkers() {
+    // Lower the clones lazily in call-site order. A nested `jump` inside one
+    // marker appends its own clone, which is then lowered by the same loop.
+    for (size_t i = 0; i < markerInvocations_.size(); ++i)
+        lowerMarkerInvocation(markerInvocations_[i]);
+}
+
+void HirLowerModern::lowerMarkerInvocation(const FlowMarkerInvocation &invocation) {
+    if (current_module_ == nullptr || current_module_->frontend == nullptr ||
+        invocation.marker_stmt == 0 ||
+        invocation.marker_stmt > current_module_->frontend->statements().size())
+        return;
+    const auto &stmt = current_module_->frontend->statements()[invocation.marker_stmt - 1U];
+    if (stmt.kind != frontend::StmtKind::Marker || !stmt.expression)
+        return;
+
+    current_fn_->blocks[invocation.entry_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    setCurrentBlock(invocation.entry_block);
+    const size_t saved_return  = activeMarkerReturnBlock_;
+    const bool saved_in_marker = inMarkerBody_;
+    activeMarkerReturnBlock_   = invocation.return_block;
+    inMarkerBody_              = true;
+    if (stmt.expression)
+        (void)lowerExpr(stmt.expression);
+    inMarkerBody_            = saved_in_marker;
+    activeMarkerReturnBlock_ = saved_return;
+    if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
+        emitJump(invocation.return_block);
+}
+
+size_t HirLowerModern::markerInvocationEntry(const uint32_t jump_stmt, const uint32_t marker_stmt,
+                                             const size_t return_block) {
+    if (const auto *existing = markerInvocationIndex_.get(jump_stmt))
+        return markerInvocations_[*existing].entry_block;
+    const size_t index = markerInvocations_.size();
+    markerInvocations_.push_back(FlowMarkerInvocation{marker_stmt, newBlock(), return_block});
+    markerInvocationIndex_.insert(jump_stmt, index);
+    return markerInvocations_[index].entry_block;
+}
+
+size_t HirLowerModern::flowReturnBlock() const noexcept {
+    if (inMarkerBody_)
+        return activeMarkerReturnBlock_;
+    if (!dockContinuations_.empty())
+        return dockContinuations_.back();
+    return ~size_t{0};
 }
 
 void HirLowerModern::setCurrentBlock(const size_t block) {
@@ -1823,6 +1918,14 @@ void HirLowerModern::setTerminator(const hir::HirExprId term) {
 void HirLowerModern::emitJump(const size_t target) {
     hir::HirJump jump;
     jump.target = static_cast<hir::HirDeclId>(target);
+    setTerminator(addExpr(std::move(jump)));
+}
+
+void HirLowerModern::emitFlowJump(const size_t target, const size_t return_block) {
+    hir::HirJump jump;
+    jump.target       = static_cast<hir::HirDeclId>(target);
+    jump.flowReturn   = true;
+    jump.return_block = static_cast<hir::HirDeclId>(return_block);
     setTerminator(addExpr(std::move(jump)));
 }
 

@@ -780,6 +780,93 @@ void test_static_method_call_has_resolved_callee_only() {
     }
 }
 
+void test_flow_fn_marker_jump_lowers_to_hir() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "flow fn main(): i32 {\n"
+                                     "    var x: i32 = 0;\n"
+                                     "    dock {\n"
+                                     "        jump check;\n"
+                                     "    }\n"
+                                     "    marker check {\n"
+                                     "        if (x < 10) {\n"
+                                     "            dock {\n"
+                                     "                jump body;\n"
+                                     "            }\n"
+                                     "        }\n"
+                                     "    }\n"
+                                     "    marker body {\n"
+                                     "        x = x + 1;\n"
+                                     "        dock {\n"
+                                     "            jump check;\n"
+                                     "        }\n"
+                                     "    }\n"
+                                     "    x;\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "flow fn marker/jump loop lowers to HIR");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "flow main function is present in HIR");
+    if (main != nullptr) {
+        CHECK(main->blocks.size() >= 4u, "hoisted markers create marker blocks plus the main body");
+        CHECK(countTerminatorKind(hir, *main, hir::HirExprKind::Jump) >= 3u,
+              "dock jumps target check and body markers");
+    }
+}
+
+void test_flow_jump_carries_origin_continuation() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+                                     "flow fn main(): i32 {\n"
+                                     "    marker Test {\n"
+                                     "        printf(\"Second\\n\");\n"
+                                     "    }\n"
+                                     "    printf(\"First\\n\");\n"
+                                     "    dock {\n"
+                                     "        jump Test;\n"
+                                     "    }\n"
+                                     "    printf(\"Third\\n\");\n"
+                                     "    0;\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "flow jump continuation lowers to HIR");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "flow main function is present in HIR");
+    if (main == nullptr)
+        return;
+
+    bool saw_flow_jump  = false;
+    bool saw_marker_ret = false;
+    size_t flow_return  = ~size_t{0};
+    for (const auto &block : main->blocks) {
+        if (block.terminator == hir::kInvalidHirExpr)
+            continue;
+        const auto &expr = hir.getExpr(block.terminator);
+        const auto *jump = std::get_if<hir::HirJump>(&expr);
+        if (jump == nullptr)
+            continue;
+        if (jump->flowReturn) {
+            saw_flow_jump = true;
+            flow_return   = jump->return_block;
+        } else if (flow_return != ~size_t{0} && jump->target == flow_return) {
+            saw_marker_ret = true;
+        }
+    }
+    CHECK(saw_flow_jump, "jump Test records its dock continuation");
+    CHECK(saw_marker_ret, "the marker body terminates to the same dock continuation");
+}
+
 } // namespace
 
 static void test_hir_lower_modern() {
@@ -806,6 +893,8 @@ static void test_hir_lower_modern() {
     test_is_null_on_value_optional_reads_tag();
     test_for_condition_lowers_like_while();
     test_static_method_call_has_resolved_callee_only();
+    test_flow_fn_marker_jump_lowers_to_hir();
+    test_flow_jump_carries_origin_continuation();
 }
 
 TEST_MAIN(hir_lower_modern)

@@ -349,6 +349,33 @@ namespace {
     return std::nullopt;
 }
 
+/// Parses a valid function-kind prefix: `fn`, `const fn`, `raw fn`, `extern fn`,
+/// or `flow fn`.  Returns false without consuming tokens when the current token is
+/// not `fn` or a kind prefix followed by `fn`.
+[[nodiscard]] std::optional<FunctionKind>
+functionKindPrefix(const FrontendSnapshot &snapshot, uint32_t &index, uint32_t token_count) {
+    if (index >= token_count)
+        return std::nullopt;
+    const auto word = tokenText(snapshot, index);
+    if (word == "fn")
+        return FunctionKind::Standard;
+
+    static constexpr std::string_view kFunctionKindPrefixes[] = {"const", "raw", "extern", "flow"};
+    for (const auto prefix : kFunctionKindPrefixes) {
+        if (word != prefix || index + 1U >= token_count || tokenText(snapshot, index + 1U) != "fn")
+            continue;
+        ++index;
+        if (prefix == "const")
+            return FunctionKind::Const;
+        if (prefix == "raw")
+            return FunctionKind::Raw;
+        if (prefix == "extern")
+            return FunctionKind::Extern;
+        return FunctionKind::Flow;
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 class AstLowerer {
@@ -397,6 +424,27 @@ public:
                 continue;
             }
 
+            // Function-kind prefixes must win over `const` (binding), `raw`
+            // (unsafe marker), `extern` (interop prefix), and `flow`/`fn`.
+            if (const auto parsed_kind = functionKindPrefix()) {
+                flushBadRun();
+                declaration_is_nominal_ = false;
+                auto function_kind      = *parsed_kind;
+                if (is_extern && function_kind != FunctionKind::Extern)
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_),
+                         "invalid function-kind prefix: external declarations use 'extern fn'",
+                         false, diagnostics::err::UnsupportedSyntax});
+                if (function_kind == FunctionKind::Standard && is_extern)
+                    function_kind = FunctionKind::Extern;
+                lowerDeclaration(start, DeclKind::Function, visibility, {}, {}, is_extern,
+                                 function_kind);
+                declaration_is_nominal_ = false;
+                visibility              = Visibility::Private;
+                is_extern               = false;
+                continue;
+            }
+
             const auto kind = declarationKind(word);
             if (kind) {
                 flushBadRun();
@@ -437,7 +485,7 @@ public:
 
             if (word == "extern" || word == "use" || word == "unsafe" || word == ";") {
                 flushBadRun();
-                if (word == "extern")
+                if (word == "extern" && !functionKindPrefix())
                     is_extern = true;
                 ++index_;
                 continue;
@@ -1002,6 +1050,13 @@ private:
     [[nodiscard]] bool isKeywordToken(const std::string_view word) const {
         return index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Keyword &&
                text(index_) == word;
+    }
+
+    /// Parses a valid function-kind prefix for this lowerer's current position:
+    /// `fn`, `const fn`, `raw fn`, `extern fn`, or `flow fn`.  Returns false when
+    /// the current token is not `fn` or a kind prefix followed by `fn`.
+    [[nodiscard]] std::optional<FunctionKind> functionKindPrefix() {
+        return ::zith::frontend::functionKindPrefix(snapshot_, index_, token_count_);
     }
 
     /// Parse an attribute value.  Used for `|attributes|` (to stop before `|`
@@ -1823,8 +1878,29 @@ private:
         } else if (word == "continue") {
             statement.kind = StmtKind::Continue;
             ++index_;
-        } else if (word == "marker") {
-            statement.kind = StmtKind::Marker;
+        } else if (word == "dock") {
+            statement.kind = StmtKind::Dock;
+            ++index_;
+            if (punctuation(index_, '{')) {
+                statement.expression = parseBlock();
+            } else {
+                statement.kind = StmtKind::Error;
+                snapshot_.diagnostics_.push_back({range(start, index_),
+                                                  "dock syntax is 'dock { ... }'", false,
+                                                  diagnostics::err::ExpectedExpr});
+                while (index_ < token_count_ && !punctuation(index_, ';') &&
+                       !punctuation(index_, '}'))
+                    ++index_;
+            }
+        } else if (word == "marker" || (word == "stackful" && index_ + 1U < token_count_ &&
+                                        text(index_ + 1U) == "marker")) {
+            bool is_stackful = false;
+            if (word == "stackful") {
+                is_stackful = true;
+                ++index_;
+            }
+            statement.kind       = StmtKind::Marker;
+            statement.isStackful = is_stackful;
             ++index_;
             if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
                 statement.label = std::string(text(index_));
@@ -1983,7 +2059,8 @@ private:
             index_ += 2U;
         } else if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Literal) {
             std::int64_t depth = 1;
-            if (support::parseIntegerLiteral(text(index_), depth) != support::IntLiteralStatus::Ok ||
+            if (support::parseIntegerLiteral(text(index_), depth) !=
+                    support::IntLiteralStatus::Ok ||
                 depth < std::numeric_limits<int32_t>::min() ||
                 depth > std::numeric_limits<int32_t>::max()) {
                 snapshot_.diagnostics_.push_back({tokenSpan(index_), "invalid import depth"});
@@ -2176,10 +2253,10 @@ private:
                 ++index_;
                 continue;
             }
-            if (isKeywordToken("fn")) {
+            if (const auto function_kind = functionKindPrefix()) {
                 const auto method_start = index_;
                 lowerDeclaration(method_start, DeclKind::Function, visibility, owner_name,
-                                 trait_name);
+                                 trait_name, false, *function_kind);
                 continue;
             }
             snapshot_.diagnostics_.push_back(
@@ -2195,15 +2272,19 @@ private:
 
     void lowerDeclaration(const uint32_t start, const DeclKind kind, const Visibility visibility,
                           std::string ownerName = {}, std::string traitName = {},
-                          const bool isExtern = false) {
+                          const bool isExtern             = false,
+                          const FunctionKind functionKind = FunctionKind::Standard) {
         Declaration declaration;
         declaration.id         = DeclId{static_cast<uint32_t>(snapshot_.declarations_.size() + 1U)};
         declaration.kind       = kind;
         declaration.visibility = visibility;
-        declaration.ownerName  = std::move(ownerName);
-        declaration.traitName  = std::move(traitName);
-        declaration.isExtern   = isExtern;
+        declaration.functionKind  = functionKind;
+        declaration.ownerName     = std::move(ownerName);
+        declaration.traitName     = std::move(traitName);
+        declaration.isExtern      = isExtern;
         declaration.isNominalType = declaration_is_nominal_;
+        if (kind == DeclKind::Function && functionKind == FunctionKind::Extern)
+            declaration.isExtern = true;
         ++index_;
         if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
             declaration.name = std::string(text(index_++));
@@ -2244,7 +2325,7 @@ private:
             ++index_;
             while (index_ < token_count_ && !punctuation(index_, ')')) {
                 if (matchesToken(snapshot_, index_, "...")) {
-                    if (!isExtern) {
+                    if (!isExtern && functionKind != FunctionKind::Extern) {
                         snapshot_.diagnostics_.push_back(
                             {tokenSpan(index_), "only 'extern fn' may declare variadic parameters",
                              false, diagnostics::err::ExpectedExpr});
@@ -2299,10 +2380,10 @@ private:
                     ++index_;
                     continue;
                 }
-                if (isKeywordToken("fn")) {
+                if (const auto function_kind = functionKindPrefix()) {
                     const auto method_start = index_;
                     lowerDeclaration(method_start, DeclKind::Function, Visibility::Private,
-                                     declaration.name);
+                                     declaration.name, {}, false, *function_kind);
                     continue;
                 }
                 // Grouped field syntax: `{ [x, y, z]: Type, ... }`. Expanding the

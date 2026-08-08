@@ -278,6 +278,80 @@ static void test_formatter_variadic_declaration_round_trip() {
     CHECK(reparsed.diagnostics().empty(), "formatted variadic declaration re-parses cleanly");
 }
 
+static void test_formatter_function_kinds_round_trip() {
+    const std::string source   = "fn standard() {}\n"
+                                 "raw fn unsafe_op() {}\n"
+                                 "const fn compile_ready() {}\n"
+                                 "extern fn putchar(c: i32): i32;\n"
+                                 "flow fn structured() {}\n";
+    const std::string expected = "fn standard() {}\n"
+                                 "\n"
+                                 "raw fn unsafe_op() {}\n"
+                                 "\n"
+                                 "const fn compile_ready() {}\n"
+                                 "\n"
+                                 "extern fn putchar(c: i32): i32;\n"
+                                 "\n"
+                                 "flow fn structured() {}\n";
+    auto snapshot              = frontend::parse(source);
+    CHECK(snapshot.diagnostics().empty(), "function-kind source parses cleanly");
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+    CHECK_EQ(formatter.result(), expected, "all function kinds round-trip through fmt");
+
+    auto reparsed = frontend::parse(formatter.result());
+    CHECK(reparsed.diagnostics().empty(), "formatted function kinds re-parse cleanly");
+}
+
+static void test_formatter_flow_marker_round_trip() {
+    const std::string source = "flow fn main(): i32 {\n"
+                               "    dock {\n"
+                               "        jump check;\n"
+                               "    }\n"
+                               "    marker check {\n"
+                               "        dock {\n"
+                               "            jump body;\n"
+                               "        }\n"
+                               "    }\n"
+                               "    stackful marker body {\n"
+                               "        return 1;\n"
+                               "    }\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    CHECK(snapshot.diagnostics().empty(), "flow marker source parses cleanly");
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+    CHECK_EQ(formatter.result(), source, "dock, jump, and stackful marker round-trip through fmt");
+
+    auto reparsed = frontend::parse(formatter.result());
+    CHECK(reparsed.diagnostics().empty(), "formatted flow markers re-parse cleanly");
+    formatter::FmtVisitor second(reparsed);
+    second.format();
+    CHECK_EQ(second.result(), formatter.result(), "flow marker formatting is idempotent");
+}
+
+static void test_formatter_plain_marker_is_stackless_by_default() {
+    const std::string source = "flow fn main(): i32 {\n"
+                               "    dock {\n"
+                               "        jump body;\n"
+                               "    }\n"
+                               "    marker body {\n"
+                               "        return 1;\n"
+                               "    }\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    CHECK(snapshot.diagnostics().empty(), "plain marker source parses cleanly");
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+    CHECK_EQ(formatter.result(), source, "plain marker round-trips without a stackful prefix");
+
+    auto reparsed = frontend::parse(formatter.result());
+    CHECK(reparsed.diagnostics().empty(), "formatted plain marker re-parses cleanly");
+    formatter::FmtVisitor second(reparsed);
+    second.format();
+    CHECK_EQ(second.result(), formatter.result(), "plain marker formatting is idempotent");
+}
+
 static void test_formatter_compound_assign_round_trip() {
     // Compound assignment is stored desugared as `x = x op v`; fmt must recover the
     // source spelling rather than printing the expanded form.
@@ -356,6 +430,9 @@ static void test_formatter() {
     test_formatter_index_and_optional_round_trip();
     test_formatter_memory_qualifier_round_trip();
     test_formatter_variadic_declaration_round_trip();
+    test_formatter_function_kinds_round_trip();
+    test_formatter_flow_marker_round_trip();
+    test_formatter_plain_marker_is_stackless_by_default();
     test_formatter_compound_assign_round_trip();
     test_formatter_bitwise_operator_round_trip();
     test_formatter_raw_opaque_round_trip();

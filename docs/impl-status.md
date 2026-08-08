@@ -17,6 +17,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | **Check only**    | Passes `zithc check` but semantics are incidental (parsed as Name / Binary). No dedicated AST node, HIR, or codegen. |
 | **Parse skipped** | Declaration accepted; body entirely skipped by `skipDelimited('{', '}')`. No semantics. |
 | **Parse error**   | The parser itself rejects this construct. Does not reach sema. |
+| **Parse-level in progress** | Parser lowers the construct into a frontend declaration, but the feature's semantics or full lowering are not complete. |
 | **Spec only**     | No compiler implementation. |
 | **Stub**          | CLI subcommand exists but returns "not implemented yet". |
 
@@ -33,9 +34,9 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | Name resolution | **Working** | Scope-chained `lookupBinding`. Per-scope `DuplicateDecl`. |
 | Type checking | **Working** | All `ExprKind` nodes. Optional/null validation. Index bounds. |
 | Generic instantiation | Partial | `<T, U>` parameter lists parse and type-check on declarations; calling a generic function still fails in the comptime solver with "generic parameter T has no concrete type". `T: Trait` constraints parse but are not enforced |
-| Comptime / Solve | Partial | Present in the documented target pipeline before ownership proof; some current frontend lowering still needs to stop erasing resource information before NRA |
+| Comptime / Solve | **Reserved** | Generic instantiation and the solved semantic view are planned for 0.7.0 step-04; macro expansion happens in frontend, and the post-lowering pass is a compatibility stub today |
 | NTA / NRA | **In progress** | Pre-HIR residual-fact boundary is implemented: semantic facts are accumulated and consumed before final lowering; the alive/dead/lent state machine and full diagnostics remain |
-| HIR lowering | **Working** | Covers all working features; stable boundary is `sema -> comptime/solve -> NTA/NRA -> HIR`, and residual ownership facts attach to side tables without introducing ownership HIR nodes |
+| HIR lowering | **Working** | Covers all working features; residual ownership facts attach to side tables without introducing ownership HIR nodes |
 | LLVM codegen | **Working** | x86-64 and WebAssembly targets |
 | Cache | Partial | Object caching works; `.zirl` format not yet used |
 
@@ -49,9 +50,9 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 |---|---|---|
 | `fn` | **Working** | Parameters, return type, body. The return type is written `fn f(x: T): R` or `fn f(x: T) -> R`; both spellings parse. Overloading by parameter count and types (F-33); linkage names are qualified as `<module>.<Owner>.<name>(<params>)`, except `extern fn` and `main` |
 | generic parameter lists `<T, U>` | **Working (parse + typing)** | Accepted on `fn`, `struct`, `type` alias, `enum`, `union` and `trait` declarations. Inside the declaration each parameter resolves as an opaque type. Instantiation is not solved: both `identity<i32>(42)` and inferred `identity(42)` report `E3001` "generic parameter T has no concrete type". `T: Trait` constraints parse but are not enforced |
-| `flow fn` | **Working** | Parsed and lowers; `marker`/`dock`/`jump` not exhaustively tested |
+| `flow fn` | **Working (simple flow)** | Parsed and lowers; `marker`, `dock`, and `jump target` CFG is tested. Markers with arguments and the stackful marker execution model are future work |
 | `raw fn` | **Working** | Parsed and lowers |
-| `const fn` | **Parse error** | `const` is a binding keyword; `const fn f()` parses as `const` binding named `fn`, not a const function |
+| `const fn` | **Parse-level in progress** | Parsed as a function declaration with `FunctionKind::Const`; compile-time evaluation is not implemented |
 | `extern fn` | **Working** | C ABI interop |
 | `let`, `var`, `const`, `global` | **Working** | All binding forms. `const` means immutable, not comptime |
 
@@ -112,8 +113,9 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `for (init; cond; step) { }` | **Working** | Three clauses separated by semicolons. `init` and `step` are both optional; `continue` still runs the step before the next test |
 | `for (x in xs)` | **Parse error** | The iterator form is recognised and reported as not implemented yet |
 | `when` / `match` pattern match | **Working** | Arms are written `(pattern) ~> body`, comma-separated; `match` is a parser synonym for `when`. Equality, boolean and range (`1..3`) patterns lower through HIR to codegen. `(_)` is the default arm and must come last; a value-producing `when` without a default reports non-exhaustive. Covered by the runtime test `test_when_expression_runtime` |
-| `marker` / `jump` | **Working** | Block-style go-to: `marker` declares a labeled block, `jump` transfers control to it. `dock` not implemented |
-| `dock` | **Parse error** | Not implemented yet |
+| `marker` / `jump` | **Working** | Block-style go-to: `marker` declares a hoisted labeled block, `jump target` transfers control to it from a `dock`. Jump arguments are not implemented |
+| `dock` | **Working** | Opens a block that grants `jump` permission; nested docks are accepted. Values are not passed through a dock yet |
+| `stackful marker` | **Parse-level in progress** | Parsed and preserved by formatting; recorded internally during HIR lowering. Cleaned-up local execution semantics are not implemented yet |
 
 ### Words, Contexts, Macros
 
