@@ -374,12 +374,29 @@ jobs:
               -DZITH_ENABLE_FFI=OFF
 
     steps:
+      - name: Verify zith-lsp remote access
+        shell: bash
+        run: |
+          if [ -z "${TOKEN}" ]; then
+            echo "::error::RELEASE_PAT is missing. Configure the secret with access to GalaxyHaze/zith-lsp."
+            exit 1
+          fi
+
+          if git ls-remote --exit-code "https://x-access-token:${TOKEN}@github.com/GalaxyHaze/zith-lsp.git" HEAD >/dev/null 2>&1; then
+            echo "zith-lsp remote access OK"
+          else
+            echo "::error::Unable to access GalaxyHaze/zith-lsp with RELEASE_PAT. Check that the secret exists, has the required scopes, and collaborator access."
+            exit 1
+          fi
+        env:
+          TOKEN: ${{ secrets.RELEASE_PAT }}
+
       - name: Checkout zith-lsp
         uses: actions/checkout@v4
         with:
           repository: GalaxyHaze/zith-lsp
           ref: main
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.RELEASE_PAT }}
           path: lsp
 
       - name: Checkout Zith (local for ZITHC_SOURCE_DIR)
