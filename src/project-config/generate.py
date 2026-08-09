@@ -521,7 +521,7 @@ def make_source(config: Config) -> str:
 
 def make_gitignore() -> str:
     return "\n".join(
-        ["project-config.hpp", "project-config.cpp", "actions.hpp", ".gitignore", ""]
+        ["project-config.hpp", "project-config.cpp", ".gitignore", ""]
     )
 
 
@@ -529,7 +529,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="default.toml to read")
     parser.add_argument(
-        "--out", type=Path, required=True, help="output directory for generated sources"
+        "--out",
+        type=Path,
+        default=Path.cwd(),
+        help="output directory for generated sources (default: current directory)",
     )
     args = parser.parse_args()
 
@@ -540,7 +543,6 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     (out / "project-config.hpp").write_text(make_header(config), encoding="utf-8")
     (out / "project-config.cpp").write_text(make_source(config), encoding="utf-8")
-    (out / "actions.hpp").write_text("#pragma once\n", encoding="utf-8")
     (out / ".gitignore").write_text(make_gitignore(), encoding="utf-8")
     return 0
 

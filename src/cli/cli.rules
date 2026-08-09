@@ -1,4 +1,7 @@
 # Comentários começam com #
+[default]
+-> show_help()
+
 [flags]
 h | help                -> show_help()            # ação especial
 version                 -> show_version()         # --version

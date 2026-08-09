@@ -23,6 +23,7 @@ add_custom_target(cli-generated DEPENDS ${_zith_cli_generated})
 add_library(cli STATIC
     "${CMAKE_CURRENT_BINARY_DIR}/cli.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/handlers.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/terminal.cpp"
 )
 
 target_include_directories(cli PUBLIC

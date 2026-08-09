@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(zith LANGUAGES CXX)
 
+enable_testing()
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -37,3 +39,5 @@ target_include_directories(zithc PRIVATE
 )
 
 add_dependencies(zithc generate-language-sources)
+
+add_subdirectory(tests)
