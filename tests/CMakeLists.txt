@@ -1,3 +1,29 @@
+add_executable(lexer-test
+    lexer-test.cpp
+)
+
+target_link_libraries(lexer-test PRIVATE
+    lexer
+)
+
+add_executable(source-map-test
+    source-map-test.cpp
+)
+
+target_link_libraries(source-map-test PRIVATE
+    common
+)
+
+add_test(
+    NAME lexer-generated-basics
+    COMMAND lexer-test
+)
+
+add_test(
+    NAME source-map-basics
+    COMMAND source-map-test
+)
+
 add_test(
     NAME cli-no-args-help
     COMMAND "${CMAKE_COMMAND}"
@@ -68,6 +94,16 @@ add_test(
             -DPROGRAM=$<TARGET_FILE:zithc>
             -DARGS=deps\;add\;pkg
             -DEXPECTED_EXIT=0
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/run-cli-check.cmake"
+)
+
+add_test(
+    NAME cli-help-dispatch-output
+    COMMAND "${CMAKE_COMMAND}"
+            -DPROGRAM=$<TARGET_FILE:zithc>
+            -DARGS=--help
+            -DEXPECTED_EXIT=0
+            -DEXPECT_STDOUT=zith\ build\ tool
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-cli-check.cmake"
 )
 

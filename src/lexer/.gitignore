@@ -2,3 +2,4 @@ lexer.hpp
 lexer.cpp
 actions.hpp
 keyword-table.hpp
+__pycache__

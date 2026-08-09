@@ -137,6 +137,17 @@ def cpp_char(value: str) -> str:
     return f"'{escaped}'"
 
 
+def dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
 def parse_quoted(raw: str, line_no: int) -> str:
     raw = raw.strip()
     if not (
@@ -211,6 +222,15 @@ def parse_options(raw: str, line_no: int) -> dict[str, str]:
             raise RuleError(line_no, f"nome de opcao invalido: {key!r}")
         result[key] = value
     return result
+
+
+def parse_bool_flag(raw: str, line_no: int, label: str) -> bool:
+    lowered = raw.strip().lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    raise RuleError(line_no, f"{label} invalido: {raw!r}")
 
 
 @dataclass
@@ -692,13 +712,27 @@ def make_lexer_source(config: LexerConfig) -> str:
     op_spec = tokens.get("operators")
     op_chars = op_spec.value if op_spec and op_spec.kind == "string" else ""
     arrow_spec = tokens.get("arrow")
-    arrow = arrow_spec.value if arrow_spec and arrow_spec.kind == "string" else "->"
     compound_spec = tokens.get("compound")
-    compound = compound_spec.strings if compound_spec else []
+    compound = list(compound_spec.strings) if compound_spec else []
+
+    if arrow_spec and arrow_spec.kind == "string":
+        compound.append(arrow_spec.value)
+    elif not arrow_spec:
+        compound.append("->")
+    compound = dedupe_preserve_order(compound)
+    compound.sort(key=lambda item: (-len(item), item))
 
     string_spec = tokens.get("string")
     string_opts = string_spec.options if string_spec else {}
     escape_sequences = string_opts.get("escape-sequence", "true").lower() == "true"
+    decimal_spec = tokens.get("decimal")
+    decimal_underscore = False
+    if decimal_spec and decimal_spec.kind == "options":
+        raw = decimal_spec.options.get("under-score-divisor")
+        if raw is not None:
+            decimal_underscore = parse_bool_flag(
+                raw, decimal_spec.line_no, "under-score-divisor"
+            )
 
     comments_spec = tokens.get("comments")
     single_comment = ""
@@ -716,22 +750,51 @@ def make_lexer_source(config: LexerConfig) -> str:
             multi_open, multi_close = pair
 
     number_prefixes: list[tuple[str, str]] = []
-    for name, digit_line in (
-        ("hexadecimal", "is_hex_digit(text[offset_])"),
-        ("octal", "(text[offset_] >= '0' && text[offset_] <= '7')"),
-        ("binary", "(text[offset_] == '0' || text[offset_] == '1')"),
+    for name, digit_fn in (
+        ("hexadecimal", "is_hex_digit"),
+        ("octal", "is_octal_digit"),
+        ("binary", "is_binary_digit"),
     ):
         spec = tokens.get(name)
-        if spec and spec.enabled:
-            prefix = spec.option_string("prefix", spec.line_no)
-            number_prefixes.append((prefix, digit_line))
+        if spec is None:
+            continue
+        enabled = False
+        prefix = PREFIX_DEFAULTS[name]
+        if spec.kind == "bool":
+            enabled = spec.enabled
+        else:
+            enabled = True
+            option_prefix = spec.option_string("prefix", spec.line_no)
+            if option_prefix:
+                prefix = option_prefix
+        if enabled:
+            number_prefixes.append((prefix, digit_fn))
+
+    def make_char_switch(kind: str, chars: str) -> list[str]:
+        if not chars:
+            return []
+        unique_chars = dedupe_preserve_order(list(chars))
+        lines = [
+            "        switch (c) {",
+        ]
+        for ch in unique_chars:
+            lines.append(f"        case {cpp_char(ch)}:")
+        lines.extend(
+            [
+                "            ++offset_;",
+                f"            emit(TokenKind::{kind}, span(before, offset_), c);",
+                "            continue;",
+                "        default:",
+                "            break;",
+                "        }",
+                "",
+            ]
+        )
+        return lines
 
     lines = [
         '#include "lexer.hpp"',
         '#include "keyword-table.hpp"',
-        '#include "actions.hpp"',
-        "",
-        "#include <utility>",
         "",
         "namespace generated_lexer {",
         "",
@@ -747,36 +810,59 @@ def make_lexer_source(config: LexerConfig) -> str:
         "    return is_ascii_alpha(c) || (c >= '0' && c <= '9');",
         "}",
         "",
+        "static bool is_decimal_digit(char c) noexcept {",
+        "    return c >= '0' && c <= '9';",
+        "}",
+        "",
         "static bool is_hex_digit(char c) noexcept {",
         "    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||",
         "           (c >= 'A' && c <= 'F');",
+        "}",
+        "",
+        "static bool is_octal_digit(char c) noexcept {",
+        "    return c >= '0' && c <= '7';",
+        "}",
+        "",
+        "static bool is_binary_digit(char c) noexcept {",
+        "    return c == '0' || c == '1';",
         "}",
         "",
         "static bool prefix_matches(std::string_view rest, std::string_view prefix) noexcept {",
         "    return rest.size() >= prefix.size() && rest.substr(0, prefix.size()) == prefix;",
         "}",
         "",
+        "template <typename Pred>",
+        "static bool consume_digit_run(",
+        "    const char *text, size_t size, size_t &offset, bool allow_underscore,",
+        "    Pred is_digit) noexcept {",
+        "    bool saw_digit = false;",
+        "    bool prev_underscore = false;",
+        "    bool valid = true;",
+        "    while (offset < size) {",
+        "        const char ch = text[offset];",
+        "        if (is_digit(ch)) {",
+        "            saw_digit = true;",
+        "            prev_underscore = false;",
+        "            ++offset;",
+        "            continue;",
+        "        }",
+        "        if (allow_underscore && ch == '_') {",
+        "            if (!saw_digit || prev_underscore) valid = false;",
+        "            prev_underscore = true;",
+        "            ++offset;",
+        "            continue;",
+        "        }",
+        "        break;",
+        "    }",
+        "    if (!saw_digit || prev_underscore) valid = false;",
+        "    return valid;",
+        "}",
+        "",
     ]
+    if config.on_lex or config.off_lex or config.on_token:
+        lines.insert(2, '#include "actions.hpp"')
+        lines.insert(3, "")
 
-    if punc_chars:
-        lines.extend(
-            [
-                "constexpr std::array<std::string_view, "
-                f"{len(punc_chars)}> punctuation_set = {{",
-                f"    {', '.join(cpp_string(ch) for ch in punc_chars)},",
-                "};",
-                "",
-            ]
-        )
-    if op_chars:
-        lines.extend(
-            [
-                f"constexpr std::array<std::string_view, {len(op_chars)}> operator_set = {{",
-                f"    {', '.join(cpp_string(ch) for ch in op_chars)},",
-                "};",
-                "",
-            ]
-        )
     if compound:
         lines.extend(
             [
@@ -894,7 +980,7 @@ def make_lexer_source(config: LexerConfig) -> str:
                 "            if (close_at == std::string_view::npos)",
                 "                offset_ = size;",
                 "            else",
-                f"                offset_ = close_at + {len(multi_close)};",
+                f"                offset_ = before + close_at + {len(multi_close)};",
                 "            emit(TokenKind::Comments, span(before, offset_));",
                 "            continue;",
                 "        }",
@@ -905,6 +991,8 @@ def make_lexer_source(config: LexerConfig) -> str:
     lines.extend(
         [
             "        if (c == '\"' || c == '\\'') {",
+            "            bool valid = true;",
+            "            bool terminated = false;",
             "            ++offset_;",
         ]
     )
@@ -912,11 +1000,37 @@ def make_lexer_source(config: LexerConfig) -> str:
         lines.extend(
             [
                 "            while (offset_ < size) {",
-                "                if (text[offset_] == '\\\\') {",
-                "                    offset_ += 2;",
-                "                    continue;",
+                "                if (text[offset_] == '\\n' || text[offset_] == '\\r') {",
+                "                    valid = false;",
+                "                    break;",
                 "                }",
-                "                if (text[offset_] == c) { ++offset_; break; }",
+                "                if (text[offset_] == '\\\\') {",
+                "                    if (offset_ + 1 >= size) {",
+                "                        ++offset_;",
+                "                        valid = false;",
+                "                        break;",
+                "                    }",
+                "                    switch (text[offset_ + 1]) {",
+                "                    case '\\\\':",
+                "                    case '\"':",
+                "                    case '\\'':",
+                "                    case 'n':",
+                "                    case 'r':",
+                "                    case 't':",
+                "                    case '0':",
+                "                        offset_ += 2;",
+                "                        continue;",
+                "                    default:",
+                "                        valid = false;",
+                "                        offset_ += 2;",
+                "                        continue;",
+                "                    }",
+                "                }",
+                "                if (text[offset_] == c) {",
+                "                    ++offset_;",
+                "                    terminated = true;",
+                "                    break;",
+                "                }",
                 "                ++offset_;",
                 "            }",
             ]
@@ -924,42 +1038,59 @@ def make_lexer_source(config: LexerConfig) -> str:
     else:
         lines.extend(
             [
-                "            while (offset_ < size && text[offset_] != c) ++offset_;",
-                "            if (offset_ < size) ++offset_;",
+                "            while (offset_ < size) {",
+                "                if (text[offset_] == '\\n' || text[offset_] == '\\r') {",
+                "                    valid = false;",
+                "                    break;",
+                "                }",
+                "                if (text[offset_] == c) {",
+                "                    ++offset_;",
+                "                    terminated = true;",
+                "                    break;",
+                "                }",
+                "                ++offset_;",
+                "            }",
             ]
         )
     lines.extend(
         [
-            "            emit(TokenKind::LitVal, span(before, offset_));",
+            "            if (!terminated) valid = false;",
+            "            emit(valid ? TokenKind::LitVal : TokenKind::Unknown,",
+            "                 span(before, offset_));",
             "            continue;",
             "        }",
             "",
             "        if (c >= '0' && c <= '9') {",
         ]
     )
-    for prefix, digit_condition in number_prefixes:
+    for prefix, digit_fn in number_prefixes:
         lines.extend(
             [
                 f"            if (prefix_matches(rest, {cpp_string(prefix)})) {{",
                 f"                offset_ += {len(prefix)};",
-                f"                while (offset_ < size && {digit_condition}) ++offset_;",
-                "                emit(TokenKind::LitVal, span(before, offset_));",
+                f"                const bool valid = consume_digit_run(text, size, offset_, true, {digit_fn});",
+                "                emit(valid ? TokenKind::LitVal : TokenKind::Unknown,",
+                "                     span(before, offset_));",
                 "                continue;",
                 "            }",
             ]
         )
     lines.extend(
         [
-            "            while (offset_ < size && text[offset_] >= '0' && "
-            "text[offset_] <= '9') ++offset_;",
+            "            const bool integer_valid = consume_digit_run(",
+            f"                text, size, offset_, {'true' if decimal_underscore else 'false'}, is_decimal_digit);",
             "            if (offset_ < size && text[offset_] == '.' &&",
-            "                offset_ + 1 < size && text[offset_ + 1] >= '0' &&",
-            "                text[offset_ + 1] <= '9') {",
+            "                offset_ + 1 < size && is_decimal_digit(text[offset_ + 1])) {",
             "                ++offset_;",
-            "                while (offset_ < size && text[offset_] >= '0' && "
-            "text[offset_] <= '9') ++offset_;",
+            "                const bool fraction_valid = consume_digit_run(",
+            f"                    text, size, offset_, {'true' if decimal_underscore else 'false'}, is_decimal_digit);",
+            "                emit(integer_valid && fraction_valid ? TokenKind::LitVal",
+            "                                                  : TokenKind::Unknown,",
+            "                     span(before, offset_));",
+            "                continue;",
             "            }",
-            "            emit(TokenKind::LitVal, span(before, offset_));",
+            "            emit(integer_valid ? TokenKind::LitVal : TokenKind::Unknown,",
+            "                 span(before, offset_));",
             "            continue;",
             "        }",
             "",
@@ -974,62 +1105,28 @@ def make_lexer_source(config: LexerConfig) -> str:
             "",
         ]
     )
-    if arrow:
-        lines.extend(
-            [
-                f"        if (prefix_matches(rest, {cpp_string(arrow)})) {{",
-                f"            offset_ += {len(arrow)};",
-                "            emit(TokenKind::Operators, span(before, offset_));",
-                "            continue;",
-                "        }",
-                "",
-            ]
-        )
     if compound:
         lines.extend(
             [
+                "        bool matched_compound = false;",
                 "        for (const std::string_view op : compound_set) {",
                 "            if (prefix_matches(rest, op)) {",
                 "                offset_ += op.size();",
                 "                emit(TokenKind::Operators, span(before, offset_));",
-                "                goto next_char;",
+                "                matched_compound = true;",
+                "                break;",
                 "            }",
                 "        }",
+                "        if (matched_compound) continue;",
                 "",
             ]
         )
-    if op_chars:
-        lines.extend(
-            [
-                "        for (const std::string_view op : operator_set) {",
-                "            if (c == op[0]) {",
-                "                ++offset_;",
-                "                emit(TokenKind::Operators, span(before, offset_), c);",
-                "                goto next_char;",
-                "            }",
-                "        }",
-                "",
-            ]
-        )
-    if punc_chars:
-        lines.extend(
-            [
-                "        for (const std::string_view p : punctuation_set) {",
-                "            if (c == p[0]) {",
-                "                ++offset_;",
-                "                emit(TokenKind::Punctuation, span(before, offset_), c);",
-                "                goto next_char;",
-                "            }",
-                "        }",
-                "",
-            ]
-        )
+    lines.extend(make_char_switch("Operators", op_chars))
+    lines.extend(make_char_switch("Punctuation", punc_chars))
     lines.extend(
         [
             "        ++offset_;",
             "        emit(TokenKind::Unknown, span(before, offset_));",
-            "next_char:",
-            "        ;",
             "    }",
             "",
             "    emit(TokenKind::End, span(size, size));",

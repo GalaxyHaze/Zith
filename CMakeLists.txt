@@ -9,6 +9,16 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
+include(FetchContent)
+
+set(MIO_TAG master CACHE STRING "mio header-only library revision")
+FetchContent_Declare(
+    mio
+    GIT_REPOSITORY https://github.com/mandreyel/mio.git
+    GIT_TAG "${MIO_TAG}"
+)
+FetchContent_MakeAvailable(mio)
+
 add_subdirectory(src/cli)
 add_subdirectory(src/common)
 add_subdirectory(src/lexer)
@@ -30,6 +40,7 @@ target_link_libraries(zithc PRIVATE
     lexer
     project-config
     common
+    mio::mio
 )
 
 target_include_directories(zithc PRIVATE
