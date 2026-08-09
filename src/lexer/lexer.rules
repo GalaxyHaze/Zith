@@ -1,0 +1,25 @@
+[tokens]
+    identifier = true
+    skip = " \n\t\r"
+    string  = [escape-sequence = true, back-slash = true]
+    decimal = [under-score-divisor = true]
+    hexadecimal = true
+    binary = true
+    octal = true
+    punc = "{}()[]:;.|!?"
+    operators = "+-*/%<>&^"
+    compound = ["+=", "-=", ">>=", "<<=", "*=", "/="]
+    comments = [single = "//", multi = ["/*", "*/"] ]
+    #if not (x == 5)
+
+[keywords]
+    If = "if"
+    Else = "else"
+    When = "when"
+    Fn = "fn"
+
+[fields] #estes últimos são um pouco opcionais
+    loc: Span = {0,0} #default value
+[methods] 
+[actions] 
+

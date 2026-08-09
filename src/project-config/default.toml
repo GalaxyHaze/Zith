@@ -1,0 +1,38 @@
+# Base project configuration. Generated C++ fields use camelCase names.
+
+[project]
+name = "zith"
+version = "0.1.0"
+description = "A systems language project"
+authors = ["Zith Authors"]
+license = "MIT"
+homepage = ""
+
+[build]
+entry = "src/main.zith"
+output = "out/zith"
+mode = "debug"
+opt_level = 0
+debug_level = 1
+edition = "2026"
+verbose = false
+strict = false
+strip_debug = false
+lto = false
+color = "auto"
+emit_target = "native"
+
+[paths]
+src_dir = "src"
+asset_dir = "assets"
+bin_dir = "bin"
+mod_dir = "modules"
+docs_dir = "docs"
+test_dir = "tests"
+
+[ffi]
+include_dirs = ["include", "src"]
+c_source_dirs = []
+library_dirs = []
+libraries = []
+defines = []

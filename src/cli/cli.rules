@@ -1,0 +1,40 @@
+# Comentários começam com #
+[flags]
+h | help                -> show_help()            # ação especial
+version                 -> show_version()         # --version
+v | verbose             = false                   # bool
+s | strict              = false
+opt-level               = 0..3                   # inteiro com range
+I | include             = []  / ,                # lista de strings, sep=','
+j | jobs                = 1   # inteiro positivo
+
+[commands]
+# opts é um caso especial para o Options gerado
+check   -> cmd::check(opts)
+fmt     -> cmd::fmt(opts)
+run     -> cmd::run(opts)
+build   -> cmd::build(opts)
+deps                        # sem ação, apenas contentor
+
+[args]
+input       : string
+output      : string = "out.txt"
+
+[command-args]
+build.input      : path
+build.output     : path = "a.out"
+run.script       : string
+run.args         : string...
+deps.add.package : string
+
+[sub-flags]
+fmt: color = auto | off | on
+
+[sub-commands]
+deps: add    -> cmd::depsAdd()
+      check  -> cmd::depsCheck()
+      remove -> cmd::depsRemove()
+
+[sub-flags]
+fmt: check = false       # flag --check para o comando fmt
+deps: add: force = false  # sub-flag do subcomando 'add' dentro de 'deps'
