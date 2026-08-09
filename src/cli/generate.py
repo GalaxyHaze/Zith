@@ -1679,7 +1679,7 @@ def write_generated(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("rules", nargs="?", default="src/cli/cli.rules")
-    parser.add_argument("--out", default="src/cli", help="diretorio de saida")
+    parser.add_argument("--out", default="build/src/cli", help="diretorio de saida")
     args = parser.parse_args()
 
     rules_path = Path(args.rules)

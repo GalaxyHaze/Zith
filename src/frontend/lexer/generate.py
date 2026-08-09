@@ -1254,11 +1254,11 @@ def write_generated(out_dir: Path, config: LexerConfig) -> list[Path]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("rules", nargs="?", default="src/lexer/lexer.rules")
-    parser.add_argument("--out", default="src/lexer")
+    parser.add_argument("rules", nargs="?", default="src/frontend/lexer/lexer.rules")
+    parser.add_argument("--out", default="build/src/frontend/lexer")
     parser.add_argument(
         "--types",
-        default="src/lexer/types.hpp",
+        default="src/frontend/lexer/types.hpp",
         help="user-owned C++ header containing required type declarations",
     )
     args = parser.parse_args()

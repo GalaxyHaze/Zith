@@ -1,4 +1,4 @@
-#include "lexer.hpp"
+#include "frontend/lexer/lexer.hpp"
 
 #include <cstdlib>
 #include <initializer_list>

@@ -19,36 +19,5 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(mio)
 
-add_subdirectory(src/cli)
-add_subdirectory(src/common)
-add_subdirectory(src/lexer)
-add_subdirectory(src/project-config)
-
-add_custom_target(generate-language-sources
-    DEPENDS
-        cli-generated
-        lexer-generated
-        project-config-generated
-)
-
-add_executable(zithc
-    main.cpp
-)
-
-target_link_libraries(zithc PRIVATE
-    cli
-    lexer
-    project-config
-    common
-    mio::mio
-)
-
-target_include_directories(zithc PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/lexer"
-    "${CMAKE_CURRENT_BINARY_DIR}/src"
-)
-
-add_dependencies(zithc generate-language-sources)
-
+add_subdirectory(src)
 add_subdirectory(tests)

@@ -15,8 +15,8 @@ of truth for each area.
   code. Generators are not one-off scripts; they are the intended maintenance path.
 - Keep handwritten code focused on behavior, not plumbing. If a change is mostly table wiring or
   option parsing, it probably belongs in the generator and its rules file.
-- Keep the top-level entry point intentionally thin. Do not move parsing, dispatch, project
-  lifetime, or architectural logic into `main.cpp` until there is a concrete need.
+- Keep the app entry point intentionally thin. Do not move parsing, dispatch, project
+  lifetime, or architectural logic into `src/app/zithc-main.cpp` until there is a concrete need.
 - Add complexity incrementally and experimentally. Text or structure that is not yet used should
   stay out of the shipped surface.
 - Prefer one clear mechanism over layering several abstractions for the same problem. The
@@ -39,7 +39,8 @@ of truth for each area.
 
 ## Verification Notes
 
-- `main.cpp`, generated artifacts, and handwritten handlers should compile with the C++23 project
+- `src/app/zithc-main.cpp`, generated artifacts, and handwritten handlers should compile with the
+  C++23 project build.
   build.
 - The test suite is the consent boundary for CLI behavior: help output, version output, valid
   dispatch, and typo suggestions are covered there.

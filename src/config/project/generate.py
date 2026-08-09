@@ -531,8 +531,8 @@ def main() -> int:
     parser.add_argument(
         "--out",
         type=Path,
-        default=Path.cwd(),
-        help="output directory for generated sources (default: current directory)",
+        default=Path("build/src/config/project"),
+        help="output directory for generated sources (default: build/src/config/project)",
     )
     args = parser.parse_args()
 

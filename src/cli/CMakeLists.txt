@@ -1,16 +1,16 @@
 set(_zith_cli_generated
-    "${CMAKE_CURRENT_BINARY_DIR}/cli.cpp"
-    "${CMAKE_CURRENT_BINARY_DIR}/cli.hpp"
-    "${CMAKE_CURRENT_BINARY_DIR}/actions.hpp"
+    "${CMAKE_BINARY_DIR}/src/cli/cli.cpp"
+    "${CMAKE_BINARY_DIR}/src/cli/cli.hpp"
+    "${CMAKE_BINARY_DIR}/src/cli/actions.hpp"
 )
 
 add_custom_command(
     OUTPUT ${_zith_cli_generated}
-    BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/.gitignore"
+    BYPRODUCTS "${CMAKE_BINARY_DIR}/src/cli/.gitignore"
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/generate.py"
             "${CMAKE_CURRENT_SOURCE_DIR}/cli.rules"
-            --out "${CMAKE_CURRENT_BINARY_DIR}"
+            --out "${CMAKE_BINARY_DIR}/src/cli"
     DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/cli.rules"
         "${CMAKE_CURRENT_SOURCE_DIR}/generate.py"
@@ -18,17 +18,17 @@ add_custom_command(
     COMMENT "Generating CLI sources from rules"
 )
 
-add_custom_target(cli-generated DEPENDS ${_zith_cli_generated})
+add_custom_target(zith_cli_generated DEPENDS ${_zith_cli_generated})
 
-add_library(cli STATIC
-    "${CMAKE_CURRENT_BINARY_DIR}/cli.cpp"
+add_library(zith_cli STATIC
+    "${CMAKE_BINARY_DIR}/src/cli/cli.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/handlers.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/terminal.cpp"
 )
 
-target_include_directories(cli PUBLIC
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../src"
-    "${CMAKE_CURRENT_BINARY_DIR}"
+target_include_directories(zith_cli PUBLIC
+    "${PROJECT_SOURCE_DIR}/src"
+    "${PROJECT_BINARY_DIR}/src"
 )
 
-set(cli ${CMAKE_CURRENT_SOURCE_DIR} PARENT_SCOPE)
+add_dependencies(zith_cli zith_cli_generated)

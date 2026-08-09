@@ -30,8 +30,8 @@ Today, the branch already includes three concrete helpers:
 | Helper | Purpose | Source of truth |
 |---|---|---|
 | CLI helper | Generate command parsing, dispatch, help text, and suggestions | `src/cli/cli.rules` |
-| Lexer helper | Generate lexer tables and tokenization support code | `src/lexer/lexer.rules` |
-| Project-config helper | Generate strongly typed defaults and TOML loading code | `src/project-config/default.toml` |
+| Lexer helper | Generate lexer tables and tokenization support code | `src/frontend/lexer/lexer.rules` |
+| Project-config helper | Generate strongly typed defaults and TOML loading code | `src/config/project/default.toml` |
 
 Supporting those helpers is a small common runtime with arena allocation, interned strings,
 results, option-like types, and dynamic arrays under `src/common`.
@@ -114,10 +114,10 @@ suggestions.
 
 **Generated outputs**
 
-- `cli.hpp`
-- `cli.cpp`
-- `actions.hpp`
-- `.gitignore`
+- `build/src/cli/cli.hpp`
+- `build/src/cli/cli.cpp`
+- `build/src/cli/actions.hpp`
+- `build/src/cli/.gitignore`
 
 **How to use**
 
@@ -251,29 +251,29 @@ hooks or generated members.
 
 **Source files**
 
-- `src/lexer/lexer.rules`
-- `src/lexer/generate.py`
-- `src/lexer/types.hpp`
+- `src/frontend/lexer/lexer.rules`
+- `src/frontend/lexer/generate.py`
+- `src/frontend/lexer/types.hpp`
 
 **Generated outputs**
 
-- `lexer.hpp`
-- `lexer.cpp`
-- `actions.hpp`
-- `keyword-table.hpp`
-- `.gitignore`
+- `build/src/frontend/lexer/lexer.hpp`
+- `build/src/frontend/lexer/lexer.cpp`
+- `build/src/frontend/lexer/actions.hpp`
+- `build/src/frontend/lexer/keyword-table.hpp`
+- `build/src/frontend/lexer/.gitignore`
 
 **How to use**
 
-1. Edit `src/lexer/lexer.rules`.
+1. Edit `src/frontend/lexer/lexer.rules`.
 2. Define tokens, keywords, punctuation, operators, comments, and optional lexer/token members or hooks.
 3. Rebuild the project, or run the generator manually.
-4. Consume the generated lexer through the `lexer` library target.
+4. Consume the generated lexer through the `zith_frontend_lexer` library target.
 
 **Manual command**
 
 ```bash
-python3 src/lexer/generate.py src/lexer/lexer.rules --out build/src/lexer --types src/lexer/types.hpp
+python3 src/frontend/lexer/generate.py src/frontend/lexer/lexer.rules --out build/src/frontend/lexer --types src/frontend/lexer/types.hpp
 ```
 
 **Minimal example**
@@ -387,21 +387,19 @@ default values in multiple places.
 
 **Source files**
 
-- `src/project-config/default.toml`
-- `src/project-config/generate.py`
-- `src/project-config/project-config.cpp`
-- `src/project-config/project-config.hpp`
+- `src/config/project/default.toml`
+- `src/config/project/generate.py`
 
 **Generated outputs**
 
-- `project-config.hpp`
-- `project-config.cpp`
-- `actions.hpp`
-- `.gitignore`
+- `build/src/config/project/project-config.hpp`
+- `build/src/config/project/project-config.cpp`
+- `build/src/config/project/actions.hpp`
+- `build/src/config/project/.gitignore`
 
 **How to use**
 
-1. Edit `src/project-config/default.toml`.
+1. Edit `src/config/project/default.toml`.
 2. Add or change fields inside the supported sections: `project`, `build`, `paths`, and `ffi`.
 3. Rebuild the project, or run the generator manually.
 4. Load TOML text into the generated `ProjectConfig` type.
@@ -409,7 +407,7 @@ default values in multiple places.
 **Manual command**
 
 ```bash
-python3 src/project-config/generate.py src/project-config/default.toml --out build/src/project-config
+python3 src/config/project/generate.py src/config/project/default.toml --out build/src/config/project
 ```
 
 **Minimal example**
@@ -503,14 +501,21 @@ In other words, this branch treats generators as maintainability tools, not as o
 
 ```text
 .
-├── main.cpp
+├── readme.md
 ├── src/
+│   ├── CMakeLists.txt
+│   ├── app/             # executable entry point
 │   ├── cli/             # declarative CLI + generator + handlers
-│   ├── lexer/           # declarative lexer + generator + types
-│   ├── project-config/  # declarative config schema + generator
 │   ├── common/          # support runtime used by generated code
+│   ├── config/
+│   │   └── project/     # declarative config schema + generator
+│   ├── frontend/
+│   │   └── lexer/       # declarative lexer + generator + types
 │   └── support/
 ├── tests/
+│   ├── common/
+│   ├── frontend/
+│   └── integration/
 └── CMakeLists.txt
 ```
 
