@@ -7,6 +7,7 @@ target_link_libraries(zithc PRIVATE
     zith_frontend_lexer
     zith_project_config
     zith_common
+    zith_session
 )
 
 add_dependencies(zithc zith_generate_sources)

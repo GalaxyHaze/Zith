@@ -10,7 +10,7 @@
 #include <system_error>
 #include <utility>
 
-namespace zith::memory {
+namespace memory {
 
 SourceMap::SourceMap() : files(file_arena) {}
 
@@ -118,4 +118,4 @@ auto SourceMap::loc(const Span &span) const noexcept -> Loc {
     return files[span.file].loc(span.start);
 }
 
-} // namespace zith::memory
+} // namespace memory

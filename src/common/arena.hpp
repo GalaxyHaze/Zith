@@ -6,7 +6,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace zith::memory {
+namespace memory {
 
 class Arena {
 public:
@@ -298,4 +298,4 @@ public:
     }
 };
 
-} // namespace zith::memory
+} // namespace memory

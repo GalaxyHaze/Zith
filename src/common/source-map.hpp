@@ -11,7 +11,7 @@
 #include <string>
 #include <string_view>
 
-namespace zith::memory {
+namespace memory {
 
 class SourceMap {
     Arena file_arena;
@@ -37,4 +37,4 @@ public:
     [[nodiscard]] auto loc(const Span &span) const noexcept -> Loc;
 };
 
-} // namespace zith::memory
+} // namespace memory

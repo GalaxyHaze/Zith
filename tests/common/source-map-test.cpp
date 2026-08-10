@@ -5,10 +5,10 @@
 #include <cstdlib>
 #include <string_view>
 
-using zith::memory::FileId;
-using zith::memory::Loc;
-using zith::memory::SourceMap;
-using zith::memory::Span;
+using memory::FileId;
+using memory::Loc;
+using memory::SourceMap;
+using memory::Span;
 
 namespace {
 

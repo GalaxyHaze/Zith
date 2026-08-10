@@ -31,4 +31,8 @@ target_include_directories(zith_cli PUBLIC
     "${PROJECT_BINARY_DIR}/src"
 )
 
+target_link_libraries(zith_cli PRIVATE
+    zith_session
+)
+
 add_dependencies(zith_cli zith_cli_generated)

@@ -1,0 +1,86 @@
+# Config Helper
+
+## Purpose
+
+The config subsystem generates strongly typed project configuration from `default.toml`. It
+removes the repetitive C++ required to expose configuration defaults and typed fields.
+
+The source of truth is the TOML file, not the generated C++.
+
+## Files
+
+| File | Responsibility |
+|---|---|
+| `project/default.toml` | Declarative project configuration schema and defaults. |
+| `project/generate.py` | TOML parser and C++ generator. |
+| `project/CMakeLists.txt` | CMake wiring for the generated config target. |
+| `build/src/config/project/project-config.hpp` | Generated public configuration API. |
+| `build/src/config/project/project-config.cpp` | Generated parsing/loading implementation. |
+
+## Rules Syntax
+
+The TOML file uses sections and key/value entries:
+
+```toml
+[project]
+name = "zith"
+version = "0.1.0"
+
+[build]
+entry = "src/main.zith"
+opt_level = 0
+verbose = false
+lto = false
+color = "auto"
+
+[paths]
+src_dir = "src"
+doc_dir = "docs"
+
+[ffi]
+include_dirs = ["include", "src"]
+```
+
+Supported scalar types:
+
+| TOML form | Generated C++ type |
+|---|---|
+| string | `memory::InternedId` |
+| integer | `int` |
+| boolean | `bool` |
+| array of strings | `memory::DynArray<memory::InternedId>` |
+
+Field names are converted to camelCase in generated C++.
+
+## Common Workflow
+
+1. Read the current `default.toml` before changing configuration.
+2. Edit `src/config/project/default.toml`.
+3. Regenerate:
+
+```bash
+python3 src/config/project/generate.py \
+  src/config/project/default.toml \
+  --out build/src/config/project
+```
+
+4. Rebuild and run the test suite:
+
+```bash
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
+The normal project build regenerates the config automatically.
+
+## Validation
+
+The generator rejects:
+
+- unknown TOML sections
+- repeated fields inside a section
+- arrays that contain values other than strings
+- malformed strings, booleans, and integers
+
+Keep generated config code free of hand edits. If a shape changes, change the TOML schema and
+regenerate.

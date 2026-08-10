@@ -521,7 +521,7 @@ def make_source(config: Config) -> str:
 
 def make_gitignore() -> str:
     return "\n".join(
-        ["project-config.hpp", "project-config.cpp", ".gitignore", ""]
+        ["project-config.hpp", "project-config.cpp", ".gitignore", "__pycache__/", ""]
     )
 
 

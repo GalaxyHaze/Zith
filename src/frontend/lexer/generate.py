@@ -264,16 +264,19 @@ class Hook:
     line_no: int
 
     @property
+    def namespace(self) -> str:
+        parts = self.qualified_name.rsplit("::", 1)
+        return parts[0] if len(parts) == 2 else ""
+
+    @property
     def name(self) -> str:
         return self.qualified_name.rsplit("::", 1)[-1]
 
-    @property
-    def declaration(self) -> str:
-        return f"void {self.name}();"
+    def declaration(self, params: str) -> str:
+        return f"void {self.name}({params});"
 
-    @property
-    def call(self) -> str:
-        return f"{self.qualified_name}();"
+    def call(self, args: str) -> str:
+        return f"{self.qualified_name}({args});"
 
 
 @dataclass
@@ -507,6 +510,10 @@ def format_int_array(values: list[int], per_line: int = 16) -> list[str]:
     return lines
 
 
+def make_bool_table(enabled: set[int]) -> list[int]:
+    return [1 if index in enabled else 0 for index in range(256)]
+
+
 def make_keyword_header(keywords: list[tuple[str, str]]) -> str:
     seeds, table = build_perfect_hash(keywords)
     table_entries = ", ".join(
@@ -612,13 +619,19 @@ def make_lexer_header(config: LexerConfig) -> str:
     lines = [
         "#pragma once",
         '#include "types.hpp"',
+        '#include "common/string-interner.hpp"',
         "",
         "#include <cstddef>",
         "#include <cstdint>",
+        "#include <cstdio>",
+        "#include <span>",
         "#include <string_view>",
         "#include <vector>",
         "",
         "namespace generated_lexer {",
+        "",
+        "using InternedId = memory::InternedId;",
+        "using StringInterner = memory::StringInterner;",
         "",
         "enum class TokenKind : uint8_t {",
     ]
@@ -631,6 +644,7 @@ def make_lexer_header(config: LexerConfig) -> str:
             "    Span span = Span(0, 0);",
             "    TokenKind kind = TokenKind::Unknown;",
             "    char punc = 0;",
+            "    InternedId lexemeId = 0;",
         ]
     )
     for member in config.token_members:
@@ -656,24 +670,95 @@ def make_lexer_header(config: LexerConfig) -> str:
             "}",
             "",
             "struct TokenStream {",
+            "    std::vector<Token> tokens;",
+            "    const memory::StringInterner *strings = nullptr;",
             "    const Token *src = nullptr;",
             "    uint32_t len = 0;",
             "    uint32_t offset = 0;",
-            "    const char *fileBase = nullptr;",
+            "",
+            "    TokenStream() = default;",
+            "    TokenStream(std::vector<Token> tokens_, const StringInterner &strings_)",
+            "        : tokens(std::move(tokens_)), strings(&strings_),",
+            "          src(tokens.data()), len(static_cast<uint32_t>(tokens.size())) {}",
+            "    explicit TokenStream(",
+            "        std::span<const Token> tokens_, const StringInterner &strings_)",
+            "        : tokens(tokens_.begin(), tokens_.end()), strings(&strings_),",
+            "          src(tokens.data()), len(static_cast<uint32_t>(tokens.size())) {}",
+            "",
+            "    [[nodiscard]] size_t size() const noexcept { return len; }",
+            "    [[nodiscard]] bool empty() const noexcept { return len == 0; }",
+            "    void reset() noexcept { offset = 0; }",
+            "    [[nodiscard]] bool hasNext() const noexcept { return offset < len; }",
+            "    [[nodiscard]] const Token &current() const noexcept { return peek(); }",
+            "    [[nodiscard]] const Token &at(size_t index) const noexcept {",
+            "        return index < len ? src[index] : terminalToken();",
+            "    }",
+            "    [[nodiscard]] const Token &operator[](size_t index) const noexcept {",
+            "        return at(index);",
+            "    }",
+            "    [[nodiscard]] std::span<const Token> absoluteSlice(",
+            "        size_t start, size_t end",
+            "    ) const noexcept {",
+            "        if (start >= end || start >= len || src == nullptr) return {};",
+            "        end = end > len ? len : end;",
+            "        return {src + start, end - start};",
+            "    }",
+            "    [[nodiscard]] std::span<const Token> slice(",
+            "        size_t start, size_t count",
+            "    ) const noexcept {",
+            "        if (count == 0 || offset + start >= len || src == nullptr) return {};",
+            "        return absoluteSlice(offset + start, offset + start + count);",
+            "    }",
             "",
             "    [[nodiscard]] std::string_view lexeme(const Token &t) const noexcept {",
-            "        if (!fileBase) return {};",
-            "        return {fileBase + t.span.start,",
-            "                static_cast<size_t>(t.span.end - t.span.start)};",
+            "        return lexeme(t.lexemeId);",
+            "    }",
+            "    [[nodiscard]] std::string_view lexeme(InternedId id) const noexcept {",
+            "        if (strings == nullptr)",
+            "            return {};",
+            "        return strings->lookup(id);",
             "    }",
             "    [[nodiscard]] const Token &peek() const noexcept;",
             "    void advance() noexcept;",
+            "    bool match(TokenKind kind) noexcept {",
+            "        if (!hasNext() || !current().is(kind)) return false;",
+            "        advance();",
+            "        return true;",
+            "    }",
+            "    template <typename First, typename... Rest>",
+            "    bool match(First first, Rest... rest) noexcept {",
+            "        if (!match(first)) return false;",
+            "        if (!match(rest...)) return false;",
+            "        return true;",
+            "    }",
+            "    bool matchLexeme(std::string_view lexeme) noexcept {",
+            "        if (!hasNext() || this->lexeme(current()) != lexeme) return false;",
+            "        advance();",
+            "        return true;",
+            "    }",
+            "    template <typename... Args>",
+            "    bool matchAll(Args... args) noexcept {",
+            "        const size_t saved = offset;",
+            "        if ((match(args) && ...)) return true;",
+            "        offset = saved;",
+            "        return false;",
+            "    }",
+            "    template <typename... Args>",
+            "    bool matchAllLexeme(Args... args) noexcept {",
+            "        const size_t saved = offset;",
+            "        if ((matchLexeme(args) && ...)) return true;",
+            "        offset = saved;",
+            "        return false;",
+            "    }",
+            "",
             "};",
             "",
             "class Lexer {",
             "public:",
             "    Lexer();",
-            "    [[nodiscard]] std::vector<Token> run(std::string_view source);",
+            "    [[nodiscard]] TokenStream run(",
+            "        std::string_view source, memory::StringInterner &strings",
+            "    );",
             "    [[nodiscard]] std::string_view span_slice(",
             "        std::string_view source, const Span &span) const noexcept;",
             "    [[nodiscard]] TokenKind lookupKeyword(std::string_view word) const noexcept;",
@@ -690,8 +775,28 @@ def make_lexer_header(config: LexerConfig) -> str:
             "    size_t offset_ = 0;",
             "};",
             "",
-            "[[nodiscard]] std::vector<Token> tokenize(std::string_view source);",
+            "[[nodiscard]] TokenStream tokenize(",
+            "    std::string_view source, memory::StringInterner &strings",
+            ");",
             "const char *tokenKindName(TokenKind kind) noexcept;",
+            "struct FormattedToken {",
+            "    InternedId kindId = 0;",
+            "    InternedId lexemeId = 0;",
+            "    Span span = Span(0, 0);",
+            "};",
+            "FormattedToken formatToken(",
+            "    const Token &token, memory::StringInterner &strings",
+            ");",
+            "FormattedToken formatToken(",
+            "    const TokenStream &stream, size_t index",
+            ");",
+            "void printToken(",
+            "    FILE *out, const FormattedToken &formatted, const StringInterner &strings",
+            ");",
+            "void printToken(FILE *out, const TokenStream &stream);",
+            "void printToken(",
+            "    FILE *out, std::string_view source, memory::StringInterner &strings",
+            ");",
             "",
             "} // namespace generated_lexer",
             "",
@@ -704,21 +809,13 @@ def make_lexer_source(config: LexerConfig) -> str:
     tokens = config.tokens
     skip_spec = tokens.get("skip")
     skip_chars = skip_spec.value if skip_spec and skip_spec.kind == "string" else ""
-    skip_exprs = [f"c == {cpp_char(ch)}" for ch in skip_chars]
-    skip_if = " || ".join(skip_exprs) if skip_exprs else "false"
 
     punc_spec = tokens.get("punc")
     punc_chars = punc_spec.value if punc_spec and punc_spec.kind == "string" else ""
     op_spec = tokens.get("operators")
     op_chars = op_spec.value if op_spec and op_spec.kind == "string" else ""
-    arrow_spec = tokens.get("arrow")
     compound_spec = tokens.get("compound")
     compound = list(compound_spec.strings) if compound_spec else []
-
-    if arrow_spec and arrow_spec.kind == "string":
-        compound.append(arrow_spec.value)
-    elif not arrow_spec:
-        compound.append("->")
     compound = dedupe_preserve_order(compound)
     compound.sort(key=lambda item: (-len(item), item))
 
@@ -750,10 +847,10 @@ def make_lexer_source(config: LexerConfig) -> str:
             multi_open, multi_close = pair
 
     number_prefixes: list[tuple[str, str]] = []
-    for name, digit_fn in (
-        ("hexadecimal", "is_hex_digit"),
-        ("octal", "is_octal_digit"),
-        ("binary", "is_binary_digit"),
+    for name, table_name in (
+        ("hexadecimal", "hex_digit_table"),
+        ("octal", "octal_digit_table"),
+        ("binary", "binary_digit_table"),
     ):
         spec = tokens.get(name)
         if spec is None:
@@ -768,97 +865,307 @@ def make_lexer_source(config: LexerConfig) -> str:
             if option_prefix:
                 prefix = option_prefix
         if enabled:
-            number_prefixes.append((prefix, digit_fn))
+            number_prefixes.append((prefix, table_name))
 
-    def make_char_switch(kind: str, chars: str) -> list[str]:
-        if not chars:
-            return []
-        unique_chars = dedupe_preserve_order(list(chars))
-        lines = [
-            "        switch (c) {",
-        ]
-        for ch in unique_chars:
-            lines.append(f"        case {cpp_char(ch)}:")
-        lines.extend(
-            [
-                "            ++offset_;",
-                f"            emit(TokenKind::{kind}, span(before, offset_), c);",
-                "            continue;",
-                "        default:",
-                "            break;",
-                "        }",
-                "",
-            ]
-        )
-        return lines
+    skip_bytes = {ord(ch) for ch in skip_chars}
+    op_bytes = {ord(ch) for ch in op_chars}
+    punc_bytes = {ord(ch) for ch in punc_chars}
+
+    complex_bytes = {ord('"'), ord("'"), ord("_")}
+    complex_bytes.update(range(ord("0"), ord("9") + 1))
+    complex_bytes.update(range(ord("a"), ord("z") + 1))
+    complex_bytes.update(range(ord("A"), ord("Z") + 1))
+    complex_bytes.update(ord(op[0]) for op in compound if op)
+    if single_comment:
+        complex_bytes.add(ord(single_comment[0]))
+    if multi_open:
+        complex_bytes.add(ord(multi_open[0]))
+
+    simple_tag_table = [0] * 256
+    for index in range(128):
+        if index in complex_bytes:
+            simple_tag_table[index] = 0
+        elif index in skip_bytes:
+            simple_tag_table[index] = 1
+        elif index in op_bytes:
+            simple_tag_table[index] = 2
+        elif index in punc_bytes:
+            simple_tag_table[index] = 3
+        else:
+            simple_tag_table[index] = 4
+
+    identifier_tail = set(range(ord("a"), ord("z") + 1))
+    identifier_tail.update(range(ord("A"), ord("Z") + 1))
+    identifier_tail.update(range(ord("0"), ord("9") + 1))
+    identifier_tail.add(ord("_"))
+    decimal_digits = set(range(ord("0"), ord("9") + 1))
+    hex_digits = set(decimal_digits)
+    hex_digits.update(range(ord("a"), ord("f") + 1))
+    hex_digits.update(range(ord("A"), ord("F") + 1))
+    octal_digits = set(range(ord("0"), ord("7") + 1))
+    binary_digits = {ord("0"), ord("1")}
 
     lines = [
         '#include "lexer.hpp"',
         '#include "keyword-table.hpp"',
         "",
+        "#include <array>",
+        "#include <cstddef>",
+        "#include <cstdint>",
+        "#include <cstdio>",
+        "#include <string>",
+        "#include <utility>",
+        "",
         "namespace generated_lexer {",
         "",
-        "static bool is_ascii_space(char c) noexcept {",
-        f"    return {skip_if};",
-        "}",
+        "namespace detail {",
         "",
-        "static bool is_ascii_alpha(char c) noexcept {",
-        "    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');",
-        "}",
+        "enum class SimpleTag : uint8_t {",
+        "    Complex = 0,",
+        "    Skip = 1,",
+        "    Operator = 2,",
+        "    Punctuation = 3,",
+        "    Unknown = 4,",
+        "};",
         "",
-        "static bool is_ascii_alnum(char c) noexcept {",
-        "    return is_ascii_alpha(c) || (c >= '0' && c <= '9');",
-        "}",
+        "struct PendingToken {",
+        "    uint32_t start = 0;",
+        "    uint32_t end = 0;",
+        "    TokenKind kind = TokenKind::Unknown;",
+        "    char punc = 0;",
+        "};",
         "",
-        "static bool is_decimal_digit(char c) noexcept {",
-        "    return c >= '0' && c <= '9';",
-        "}",
+        "constexpr size_t kFastChunkBytes = 64;",
+        "constexpr size_t kRunChunkBytes = 16;",
         "",
-        "static bool is_hex_digit(char c) noexcept {",
-        "    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||",
-        "           (c >= 'A' && c <= 'F');",
-        "}",
-        "",
-        "static bool is_octal_digit(char c) noexcept {",
-        "    return c >= '0' && c <= '7';",
-        "}",
-        "",
-        "static bool is_binary_digit(char c) noexcept {",
-        "    return c == '0' || c == '1';",
-        "}",
-        "",
-        "static bool prefix_matches(std::string_view rest, std::string_view prefix) noexcept {",
-        "    return rest.size() >= prefix.size() && rest.substr(0, prefix.size()) == prefix;",
-        "}",
-        "",
-        "template <typename Pred>",
-        "static bool consume_digit_run(",
-        "    const char *text, size_t size, size_t &offset, bool allow_underscore,",
-        "    Pred is_digit) noexcept {",
-        "    bool saw_digit = false;",
-        "    bool prev_underscore = false;",
-        "    bool valid = true;",
-        "    while (offset < size) {",
-        "        const char ch = text[offset];",
-        "        if (is_digit(ch)) {",
-        "            saw_digit = true;",
-        "            prev_underscore = false;",
-        "            ++offset;",
-        "            continue;",
-        "        }",
-        "        if (allow_underscore && ch == '_') {",
-        "            if (!saw_digit || prev_underscore) valid = false;",
-        "            prev_underscore = true;",
-        "            ++offset;",
-        "            continue;",
-        "        }",
-        "        break;",
-        "    }",
-        "    if (!saw_digit || prev_underscore) valid = false;",
-        "    return valid;",
-        "}",
-        "",
+        "constexpr std::array<uint8_t, 256> space_table = {",
     ]
+    lines.extend(
+        f"    {line}," for line in format_int_array(make_bool_table(skip_bytes))
+    )
+    lines.extend(
+        [
+            "};",
+            "",
+            "constexpr std::array<uint8_t, 256> identifier_tail_table = {",
+        ]
+    )
+    lines.extend(
+        f"    {line}," for line in format_int_array(make_bool_table(identifier_tail))
+    )
+    lines.extend(
+        [
+            "};",
+            "",
+            "constexpr std::array<uint8_t, 256> decimal_digit_table = {",
+        ]
+    )
+    lines.extend(
+        f"    {line}," for line in format_int_array(make_bool_table(decimal_digits))
+    )
+    lines.extend(
+        [
+            "};",
+            "",
+            "constexpr std::array<uint8_t, 256> hex_digit_table = {",
+        ]
+    )
+    lines.extend(
+        f"    {line}," for line in format_int_array(make_bool_table(hex_digits))
+    )
+    lines.extend(
+        [
+            "};",
+            "",
+            "constexpr std::array<uint8_t, 256> octal_digit_table = {",
+        ]
+    )
+    lines.extend(
+        f"    {line}," for line in format_int_array(make_bool_table(octal_digits))
+    )
+    lines.extend(
+        [
+            "};",
+            "",
+            "constexpr std::array<uint8_t, 256> binary_digit_table = {",
+        ]
+    )
+    lines.extend(
+        f"    {line}," for line in format_int_array(make_bool_table(binary_digits))
+    )
+    lines.extend(
+        [
+            "};",
+            "",
+            "constexpr std::array<uint8_t, 256> simple_tag_table = {",
+        ]
+    )
+    lines.extend(f"    {line}," for line in format_int_array(simple_tag_table))
+    lines.extend(
+        [
+            "};",
+            "",
+            "inline bool table_contains(",
+            "    const std::array<uint8_t, 256> &table, unsigned char ch",
+            ") noexcept {",
+            "    return table[ch] != 0;",
+            "}",
+            "",
+            "inline bool block_matches(",
+            "    const char *text, size_t offset, const std::array<uint8_t, 256> &table",
+            ") noexcept {",
+            "    return table_contains(table, static_cast<unsigned char>(text[offset + 0])) &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset + 1])) &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset + 2])) &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset + 3])) &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset + 4])) &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset + 5])) &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset + 6])) &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset + 7])) &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset + 8])) &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset + 9])) &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset + 10])) &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset + 11])) &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset + 12])) &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset + 13])) &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset + 14])) &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset + 15]));",
+            "}",
+            "",
+            "inline size_t consume_table_run(",
+            "    const char *text, size_t size, size_t offset,",
+            "    const std::array<uint8_t, 256> &table",
+            ") noexcept {",
+            "    while (offset + kRunChunkBytes <= size && block_matches(text, offset, table))",
+            "        offset += kRunChunkBytes;",
+            "    while (offset < size && table_contains(table, static_cast<unsigned char>(text[offset])))",
+            "        ++offset;",
+            "    return offset;",
+            "}",
+            "",
+            "inline size_t consume_ascii_space(",
+            "    const char *text, size_t size, size_t offset",
+            ") noexcept {",
+            "    return consume_table_run(text, size, offset, space_table);",
+            "}",
+            "",
+            "inline size_t consume_identifier_tail(",
+            "    const char *text, size_t size, size_t offset",
+            ") noexcept {",
+            "    return consume_table_run(text, size, offset, identifier_tail_table);",
+            "}",
+            "",
+            "template <typename Emit>",
+            "inline void flush_pending(",
+            "    const PendingToken *pending, size_t count, Emit &&emit",
+            ") {",
+            "    for (size_t index = 0; index < count; ++index) {",
+            "        const PendingToken &item = pending[index];",
+            "        emit(item.kind, Span{item.start, item.end}, item.punc);",
+            "    }",
+            "}",
+            "",
+            "inline size_t scan_simple_chunk(",
+            "    const char *text, size_t size, size_t offset, PendingToken *pending, size_t &count",
+            ") noexcept {",
+            "    const size_t start = offset;",
+            "    const size_t limit = offset + kFastChunkBytes < size ? offset + kFastChunkBytes : size;",
+            "    while (offset < limit) {",
+            "        const unsigned char ch = static_cast<unsigned char>(text[offset]);",
+            "        if (ch >= 128)",
+            "            break;",
+            "        const SimpleTag tag = static_cast<SimpleTag>(simple_tag_table[ch]);",
+            "        switch (tag) {",
+            "        case SimpleTag::Skip:",
+            "            ++offset;",
+            "            continue;",
+            "        case SimpleTag::Operator:",
+            "            pending[count++] = PendingToken{",
+            "                static_cast<uint32_t>(offset),",
+            "                static_cast<uint32_t>(offset + 1),",
+            "                TokenKind::Operators,",
+            "                static_cast<char>(ch),",
+            "            };",
+            "            ++offset;",
+            "            continue;",
+            "        case SimpleTag::Punctuation:",
+            "            pending[count++] = PendingToken{",
+            "                static_cast<uint32_t>(offset),",
+            "                static_cast<uint32_t>(offset + 1),",
+            "                TokenKind::Punctuation,",
+            "                static_cast<char>(ch),",
+            "            };",
+            "            ++offset;",
+            "            continue;",
+            "        case SimpleTag::Unknown:",
+            "            pending[count++] = PendingToken{",
+            "                static_cast<uint32_t>(offset),",
+            "                static_cast<uint32_t>(offset + 1),",
+            "                TokenKind::Unknown,",
+            "                0,",
+            "            };",
+            "            ++offset;",
+            "            continue;",
+            "        case SimpleTag::Complex:",
+            "            break;",
+            "        }",
+            "        break;",
+            "    }",
+            "    return offset == start ? start : offset;",
+            "}",
+            "",
+            "inline bool is_ascii_alpha(unsigned char c) noexcept {",
+            "    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');",
+            "}",
+            "",
+            "inline bool is_identifier_start(unsigned char c) noexcept {",
+            "    return is_ascii_alpha(c) || c == '_';",
+            "}",
+            "",
+            "inline bool prefix_matches(std::string_view rest, std::string_view prefix) noexcept {",
+            "    return rest.size() >= prefix.size() && rest.substr(0, prefix.size()) == prefix;",
+            "}",
+            "",
+            "template <typename Table>",
+            "inline bool consume_digit_run(",
+            "    const char *text, size_t size, size_t &offset, bool allow_underscore,",
+            "    const Table &digits",
+            ") noexcept {",
+            "    bool saw_digit = false;",
+            "    bool prev_underscore = false;",
+            "    bool valid = true;",
+            "    while (offset < size) {",
+            "        if (!prev_underscore && offset + kRunChunkBytes <= size &&",
+            "            block_matches(text, offset, digits)) {",
+            "            saw_digit = true;",
+            "            offset += kRunChunkBytes;",
+            "            continue;",
+            "        }",
+            "        const unsigned char ch = static_cast<unsigned char>(text[offset]);",
+            "        if (table_contains(digits, ch)) {",
+            "            saw_digit = true;",
+            "            prev_underscore = false;",
+            "            ++offset;",
+            "            continue;",
+            "        }",
+            "        if (allow_underscore && ch == '_') {",
+            "            if (!saw_digit || prev_underscore)",
+            "                valid = false;",
+            "            prev_underscore = true;",
+            "            ++offset;",
+            "            continue;",
+            "        }",
+            "        break;",
+            "    }",
+            "    if (!saw_digit || prev_underscore)",
+            "        valid = false;",
+            "    return valid;",
+            "}",
+            "",
+            "} // namespace detail",
+            "",
+        ]
+    )
     if config.on_lex or config.off_lex or config.on_token:
         lines.insert(2, '#include "actions.hpp"')
         lines.insert(3, "")
@@ -906,18 +1213,14 @@ def make_lexer_source(config: LexerConfig) -> str:
             "    return generated_lexer::lookupKeyword(word);",
             "}",
             "",
-            "std::vector<Token> Lexer::run(std::string_view source) {",
+            "TokenStream Lexer::run(",
+            "    std::string_view source, memory::StringInterner &strings",
+            ") {",
             "    source_ = source;",
             "    offset_ = 0;",
             "    std::vector<Token> tokens;",
+            "    tokens.reserve(source.size() / 4 + 8);",
             "",
-        ]
-    )
-    if config.on_lex:
-        lines.append(f"    {config.on_lex.call}")
-        lines.append("")
-    lines.extend(
-        [
             "    const char *text = source.data();",
             "    const size_t size = source.size();",
             "",
@@ -930,8 +1233,11 @@ def make_lexer_source(config: LexerConfig) -> str:
         lines.extend(
             [
                 "    const auto emit = [&](TokenKind kind, Span s, char punc = 0) {",
-                f"        {config.on_token.call}",
-                "        tokens.emplace_back(s, kind, punc);",
+                "        Token token(s, kind, punc);",
+                "        const std::string_view lexeme = span_slice(source, s);",
+                "        token.lexemeId = strings.intern(lexeme);",
+                f"        {config.on_token.call('*this, std::as_const(token), lexeme')}",
+                "        tokens.push_back(token);",
                 "    };",
             ]
         )
@@ -939,32 +1245,47 @@ def make_lexer_source(config: LexerConfig) -> str:
         lines.extend(
             [
                 "    const auto emit = [&](TokenKind kind, Span s, char punc = 0) {",
-                "        tokens.emplace_back(s, kind, punc);",
+                "        Token token(s, kind, punc);",
+                "        token.lexemeId = strings.intern(span_slice(source, s));",
+                "        tokens.push_back(token);",
                 "    };",
             ]
         )
+    if config.on_lex:
+        lines.extend(["", f"    {config.on_lex.call('*this, source')}"])
     lines.extend(
         [
             "",
             "    while (offset_ < size) {",
-            "        const size_t before = offset_;",
-            "        const char c = text[offset_];",
+            "        offset_ = detail::consume_ascii_space(text, size, offset_);",
+            "        if (offset_ >= size)",
+            "            break;",
             "",
-            "        if (is_ascii_space(c)) {",
-            "            ++offset_;",
+            "        detail::PendingToken pending[detail::kFastChunkBytes];",
+            "        size_t pending_count = 0;",
+            "        const size_t fast_end = detail::scan_simple_chunk(",
+            "            text, size, offset_, pending, pending_count",
+            "        );",
+            "        if (fast_end != offset_) {",
+            "            detail::flush_pending(pending, pending_count, emit);",
+            "            offset_ = fast_end;",
             "            continue;",
             "        }",
             "",
+            "        const size_t before = offset_;",
+            "        const char c = text[offset_];",
             "        const std::string_view rest(text + offset_, size - offset_);",
+            "",
         ]
     )
 
     if single_comment:
         lines.extend(
             [
-                f"        if (prefix_matches(rest, {cpp_string(single_comment)})) {{",
+                f"        if (detail::prefix_matches(rest, {cpp_string(single_comment)})) {{",
                 f"            offset_ += {len(single_comment)};",
-                "            while (offset_ < size && text[offset_] != '\\n') ++offset_;",
+                "            while (offset_ < size && text[offset_] != '\\n')",
+                "                ++offset_;",
                 "            emit(TokenKind::Comments, span(before, offset_));",
                 "            continue;",
                 "        }",
@@ -974,7 +1295,7 @@ def make_lexer_source(config: LexerConfig) -> str:
     if multi_open and multi_close:
         lines.extend(
             [
-                f"        if (prefix_matches(rest, {cpp_string(multi_open)})) {{",
+                f"        if (detail::prefix_matches(rest, {cpp_string(multi_open)})) {{",
                 f"            offset_ += {len(multi_open)};",
                 f"            const size_t close_at = rest.find({cpp_string(multi_close)}, {len(multi_open)});",
                 "            if (close_at == std::string_view::npos)",
@@ -1054,7 +1375,8 @@ def make_lexer_source(config: LexerConfig) -> str:
         )
     lines.extend(
         [
-            "            if (!terminated) valid = false;",
+            "            if (!terminated)",
+            "                valid = false;",
             "            emit(valid ? TokenKind::LitVal : TokenKind::Unknown,",
             "                 span(before, offset_));",
             "            continue;",
@@ -1063,12 +1385,14 @@ def make_lexer_source(config: LexerConfig) -> str:
             "        if (c >= '0' && c <= '9') {",
         ]
     )
-    for prefix, digit_fn in number_prefixes:
+    for prefix, table_name in number_prefixes:
         lines.extend(
             [
-                f"            if (prefix_matches(rest, {cpp_string(prefix)})) {{",
+                f"            if (detail::prefix_matches(rest, {cpp_string(prefix)})) {{",
                 f"                offset_ += {len(prefix)};",
-                f"                const bool valid = consume_digit_run(text, size, offset_, true, {digit_fn});",
+                f"                const bool valid = detail::consume_digit_run(",
+                f"                    text, size, offset_, true, detail::{table_name}",
+                "                );",
                 "                emit(valid ? TokenKind::LitVal : TokenKind::Unknown,",
                 "                     span(before, offset_));",
                 "                continue;",
@@ -1077,13 +1401,19 @@ def make_lexer_source(config: LexerConfig) -> str:
         )
     lines.extend(
         [
-            "            const bool integer_valid = consume_digit_run(",
-            f"                text, size, offset_, {'true' if decimal_underscore else 'false'}, is_decimal_digit);",
+            "            const bool integer_valid = detail::consume_digit_run(",
+            f"                text, size, offset_, {'true' if decimal_underscore else 'false'}, detail::decimal_digit_table",
+            "            );",
             "            if (offset_ < size && text[offset_] == '.' &&",
-            "                offset_ + 1 < size && is_decimal_digit(text[offset_ + 1])) {",
+            "                offset_ + 1 < size &&",
+            "                detail::table_contains(",
+            "                    detail::decimal_digit_table,",
+            "                    static_cast<unsigned char>(text[offset_ + 1])",
+            "                )) {",
             "                ++offset_;",
-            "                const bool fraction_valid = consume_digit_run(",
-            f"                    text, size, offset_, {'true' if decimal_underscore else 'false'}, is_decimal_digit);",
+            "                const bool fraction_valid = detail::consume_digit_run(",
+            f"                    text, size, offset_, {'true' if decimal_underscore else 'false'}, detail::decimal_digit_table",
+            "                );",
             "                emit(integer_valid && fraction_valid ? TokenKind::LitVal",
             "                                                  : TokenKind::Unknown,",
             "                     span(before, offset_));",
@@ -1094,10 +1424,9 @@ def make_lexer_source(config: LexerConfig) -> str:
             "            continue;",
             "        }",
             "",
-            "        if (is_ascii_alpha(c) || c == '_') {",
-            "            while (offset_ < size &&",
-            "                   (is_ascii_alnum(text[offset_]) || text[offset_] == '_'))",
-            "                ++offset_;",
+            "        if (detail::is_identifier_start(static_cast<unsigned char>(c))) {",
+            "            ++offset_;",
+            "            offset_ = detail::consume_identifier_tail(text, size, offset_);",
             "            const std::string_view word(text + before, offset_ - before);",
             "            emit(lookupKeyword(word), span(before, offset_));",
             "            continue;",
@@ -1110,19 +1439,51 @@ def make_lexer_source(config: LexerConfig) -> str:
             [
                 "        bool matched_compound = false;",
                 "        for (const std::string_view op : compound_set) {",
-                "            if (prefix_matches(rest, op)) {",
+                "            if (detail::prefix_matches(rest, op)) {",
                 "                offset_ += op.size();",
                 "                emit(TokenKind::Operators, span(before, offset_));",
                 "                matched_compound = true;",
                 "                break;",
                 "            }",
                 "        }",
-                "        if (matched_compound) continue;",
+                "        if (matched_compound)",
+                "            continue;",
                 "",
             ]
         )
-    lines.extend(make_char_switch("Operators", op_chars))
-    lines.extend(make_char_switch("Punctuation", punc_chars))
+
+    if op_chars:
+        lines.extend(["        switch (c) {"])
+        for ch in dedupe_preserve_order(list(op_chars)):
+            lines.append(f"        case {cpp_char(ch)}:")
+        lines.extend(
+            [
+                "            ++offset_;",
+                "            emit(TokenKind::Operators, span(before, offset_), c);",
+                "            continue;",
+                "        default:",
+                "            break;",
+                "        }",
+                "",
+            ]
+        )
+
+    if punc_chars:
+        lines.extend(["        switch (c) {"])
+        for ch in dedupe_preserve_order(list(punc_chars)):
+            lines.append(f"        case {cpp_char(ch)}:")
+        lines.extend(
+            [
+                "            ++offset_;",
+                "            emit(TokenKind::Punctuation, span(before, offset_), c);",
+                "            continue;",
+                "        default:",
+                "            break;",
+                "        }",
+                "",
+            ]
+        )
+
     lines.extend(
         [
             "        ++offset_;",
@@ -1133,15 +1494,17 @@ def make_lexer_source(config: LexerConfig) -> str:
         ]
     )
     if config.off_lex:
-        lines.append(f"    {config.off_lex.call}")
+        lines.append(f"    {config.off_lex.call('*this, source, tokens')}")
     lines.extend(
         [
-            "    return tokens;",
+            "    return TokenStream(std::move(tokens), strings);",
             "}",
             "",
-            "std::vector<Token> tokenize(std::string_view source) {",
+            "TokenStream tokenize(",
+            "    std::string_view source, memory::StringInterner &strings",
+            ") {",
             "    Lexer lexer;",
-            "    return lexer.run(source);",
+            "    return lexer.run(source, strings);",
             "}",
             "",
             "const char *tokenKindName(TokenKind kind) noexcept {",
@@ -1158,6 +1521,63 @@ def make_lexer_source(config: LexerConfig) -> str:
             "    return index < std::size(names) ? names[index] : \"???\";",
             "}",
             "",
+            "FormattedToken formatToken(",
+            "    const Token &token, memory::StringInterner &strings",
+            ") {",
+            "    return FormattedToken{",
+            "        strings.intern(tokenKindName(token.kind)), token.lexemeId, token.span,",
+            "    };",
+            "}",
+            "",
+            "FormattedToken formatToken(",
+            "    const TokenStream &stream, size_t index",
+            ") {",
+            "    const Token &token = stream.at(index);",
+            "    if (stream.strings != nullptr) {",
+            "        memory::StringInterner *strings =",
+            "            const_cast<memory::StringInterner *>(stream.strings);",
+            "        return formatToken(token, *strings);",
+            "    }",
+            "    return FormattedToken{0, 0, {0, 0}};",
+            "}",
+            "",
+            "void printToken(",
+            "    FILE *out, const FormattedToken &formatted, const StringInterner &strings",
+            ") {",
+            "    const std::string_view kind = strings.lookup(formatted.kindId);",
+            "    const std::string_view lexeme = strings.lookup(formatted.lexemeId);",
+            "    std::fwrite(kind.data(), 1, kind.size(), out);",
+            "    std::fputc('(', out);",
+            "    std::fwrite(lexeme.data(), 1, lexeme.size(), out);",
+            "    std::fprintf(out, \"): [%u,%u]\\n\",",
+            "                 formatted.span.start, formatted.span.end);",
+            "}",
+            "",
+            "void printToken(FILE *out, const TokenStream &stream) {",
+            "    if (stream.strings != nullptr) {",
+            "        memory::StringInterner *strings =",
+            "            const_cast<memory::StringInterner *>(stream.strings);",
+            "        for (size_t i = 0; i < stream.size(); ++i)",
+            "            printToken(out, formatToken(stream, i), *strings);",
+            "        return;",
+            "    }",
+            "    for (const Token &token : stream.absoluteSlice(0, stream.size())) {",
+            "        const std::string_view lexeme = stream.lexeme(token);",
+            "        std::fputs(tokenKindName(token.kind), out);",
+            "        std::fputc('(', out);",
+            "        std::fwrite(lexeme.data(), 1, lexeme.size(), out);",
+            "        std::fprintf(out, \"): [%u,%u)\\n\",",
+            "                     token.span.start, token.span.end);",
+            "    }",
+            "}",
+            "",
+            "void printToken(",
+            "    FILE *out, std::string_view source, memory::StringInterner &strings",
+            ") {",
+            "    TokenStream stream = tokenize(source, strings);",
+            "    printToken(out, stream);",
+            "}",
+            "",
             "} // namespace generated_lexer",
             "",
         ]
@@ -1169,15 +1589,50 @@ def make_actions_header(config: LexerConfig) -> str:
     hooks = [hook for hook in (config.on_lex, config.off_lex, config.on_token) if hook]
     if not hooks:
         return "#pragma once\n"
-    lines = ["#pragma once", "", "namespace generated_lexer {"]
-    for hook in hooks:
-        lines.append(f"{hook.declaration}")
-    lines.append("} // namespace generated_lexer")
+    declarations: list[tuple[Hook, str]] = []
+    if config.on_lex:
+        declarations.append(
+            (
+                config.on_lex,
+                config.on_lex.declaration(
+                    "generated_lexer::Lexer &lexer, std::string_view source"
+                ),
+            )
+        )
+    if config.on_token:
+        declarations.append(
+            (
+                config.on_token,
+                config.on_token.declaration(
+                    "generated_lexer::Lexer &lexer, const generated_lexer::Token &token, "
+                    "std::string_view lexeme"
+                ),
+            )
+        )
+    if config.off_lex:
+        declarations.append(
+            (
+                config.off_lex,
+                config.off_lex.declaration(
+                    "generated_lexer::Lexer &lexer, std::string_view source, "
+                    "const generated_lexer::TokenStream &tokens"
+                ),
+            )
+        )
+
+    lines = ['#pragma once', '', '#include "lexer.hpp"', ""]
+    for index, (hook, declaration) in enumerate(declarations):
+        if hook.namespace:
+            lines.append(f"namespace {hook.namespace} {{ {declaration} }}")
+        else:
+            lines.append(declaration)
+        if index + 1 != len(declarations):
+            lines.append("")
     return "\n".join(lines) + "\n"
 
 
 def make_gitignore() -> str:
-    return "lexer.hpp\nlexer.cpp\nactions.hpp\nkeyword-table.hpp\n"
+    return "lexer.hpp\nlexer.cpp\nactions.hpp\nkeyword-table.hpp\n__pycache__/\n"
 
 
 def generated_files(config: LexerConfig) -> list[tuple[str, str]]:

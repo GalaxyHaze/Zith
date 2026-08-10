@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <string>
 
-namespace zith::memory {
+namespace memory {
 
 using ByteOffset = uint32_t;
 using FileId     = uint32_t;
@@ -49,4 +49,4 @@ struct Span {
     }
 };
 
-} // namespace zith::memory
+} // namespace memory

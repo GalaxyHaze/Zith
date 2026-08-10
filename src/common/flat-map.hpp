@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-namespace zith::memory {
+namespace memory {
 
 struct TransparentStringHash {
     using is_transparent = void;
@@ -329,4 +329,4 @@ public:
     }
 };
 
-} // namespace zith::memory
+} // namespace memory

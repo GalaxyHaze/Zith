@@ -5,7 +5,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace zith::memory {
+namespace memory {
 
 template <class T> class Optional {
     alignas(T) char data[sizeof(T)] = {};
@@ -206,4 +206,4 @@ public:
     }
 };
 
-} // namespace zith::memory
+} // namespace memory

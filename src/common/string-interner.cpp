@@ -14,7 +14,7 @@
 #include <shared_mutex>
 #endif
 
-namespace zith::memory {
+namespace memory {
 
 StringInterner::StringInterner(Arena &arena) : allocator_(&arena) {
     init();
@@ -58,4 +58,4 @@ void StringInterner::init() {
     }
 }
 
-} // namespace zith::memory
+} // namespace memory

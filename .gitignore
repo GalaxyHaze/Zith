@@ -1,2 +1,4 @@
 .cache
 build
+__pycache__/
+.opencode

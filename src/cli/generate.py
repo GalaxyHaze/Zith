@@ -586,7 +586,7 @@ def option_field_lines(
             enum_name = flag_enum_type_name(prefix, flag)
             lines.append(f"    {enum_name} {member} = {enum_name}::{to_pascal(str(flag.default))};")
         elif flag.kind == "list":
-            lines.append(f"    zith::memory::DynArray<InternId> {member};")
+            lines.append(f"    memory::DynArray<InternId> {member};")
         elif flag.kind == "action":
             continue
         else:
@@ -595,7 +595,7 @@ def option_field_lines(
     for arg in args:
         member = arg.member_name
         if arg.variadic:
-            lines.append(f"    zith::memory::DynArray<{arg_cpp_type(arg, prefix)}> {member};")
+            lines.append(f"    memory::DynArray<{arg_cpp_type(arg, prefix)}> {member};")
         elif arg.kind == "int":
             default = arg.default if arg.has_default else 0
             lines.append(f"    int {member} = {default};")
@@ -687,7 +687,7 @@ def option_struct_lines(
     for _, member in nested:
         init.append(f"{member}(arena, strings)")
 
-    lines.append(f"    {type_name}(zith::memory::Arena &arena, zith::memory::StringInterner &strings)")
+    lines.append(f"    {type_name}(memory::Arena &arena, memory::StringInterner &strings)")
     if init:
         lines.append("        : " + ",\n          ".join(init))
     lines.extend(
@@ -718,7 +718,7 @@ def make_cli_header(
         "",
         "namespace generated_cli {",
         "",
-        "using InternId = zith::memory::InternedId;",
+        "using InternId = memory::InternedId;",
         "",
     ]
 
@@ -799,8 +799,8 @@ def make_cli_header(
         if command.flags or command.args or any(sub.flags or sub.args for sub in command.subcommands.values()):
             options_lines.append(f"    {command.options_type_name} {command.member_name};")
             nested_inits.append(f"{command.member_name}(arena, strings)")
-    options_lines.append("    zith::memory::StringInterner *stringPool = nullptr;")
-    options_lines.append("    Options(zith::memory::Arena &arena, zith::memory::StringInterner &strings)")
+    options_lines.append("    memory::StringInterner *stringPool = nullptr;")
+    options_lines.append("    Options(memory::Arena &arena, memory::StringInterner &strings)")
     init = option_init_lines(flags, args)
     init.extend(nested_inits)
     init.append("stringPool(&strings)")
@@ -811,8 +811,8 @@ def make_cli_header(
     lines.append("")
 
     lines.append("struct Cli {")
-    lines.append("    zith::memory::Arena arena;")
-    lines.append("    zith::memory::StringInterner strings;")
+    lines.append("    memory::Arena arena;")
+    lines.append("    memory::StringInterner strings;")
     lines.append("    Options options;")
     lines.append("    Cli()")
     lines.append("        : strings(arena),")
@@ -1435,7 +1435,7 @@ def make_cli_source(
     if uses_append_split:
         lines.extend(
             [
-                "static void appendSplit(zith::memory::DynArray<InternId> &out, zith::memory::StringInterner &strings,",
+                "static void appendSplit(memory::DynArray<InternId> &out, memory::StringInterner &strings,",
                 "                        std::string_view value, char separator) {",
                 "    std::size_t start = 0;",
                 "    while (start <= value.size()) {",
@@ -1485,7 +1485,7 @@ def make_cli_source(
             )
             lines.append("")
 
-    lines.append("static void resetToDefaults(Options &options, zith::memory::StringInterner &strings) {")
+    lines.append("static void resetToDefaults(Options &options, memory::StringInterner &strings) {")
     lines.extend(reset_statements(flags, args, commands))
     lines.append("    (void)strings;")
     lines.append("}")
@@ -1659,7 +1659,7 @@ def make_cli_source(
 
 
 def make_gitignore() -> str:
-    return "cli.hpp\ncli.cpp\nactions.hpp\n"
+    return "cli.hpp\ncli.cpp\nactions.hpp\n__pycache__/\n"
 
 
 def write_generated(

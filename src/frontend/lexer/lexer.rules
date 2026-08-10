@@ -10,16 +10,13 @@
     operators = "+-*/%<>&^"
     compound = ["+=", "-=", ">>=", "<<=", "*=", "/="]
     comments = [single = "//", multi = ["/*", "*/"] ]
-    #if not (x == 5)
 
 [keywords]
     If = "if"
     Else = "else"
     When = "when"
     Fn = "fn"
-
-[fields] #estes últimos são um pouco opcionais
-    loc: Span = {0,0} #default value
-[methods] 
-[actions] 
-
+#lexer -> add methods & fields
+[lexer]
+[hooks] #onLexer offLexer, onToken
+#if add fields to token-type is mandatory to add an onToken

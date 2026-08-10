@@ -1,0 +1,19 @@
+# Zith CompilationSession declarative structure.
+#
+# Fases aparecem pela ordem pretendida do pipeline. Cada fase pode ter um hook,
+# executado quando runTo() atravessa essa fase.
+[context]
+type: zith::session::ZithSessionContext
+
+[stages]
+Source: void
+Lexed: generated_lexer::TokenStream
+Scanned: void
+Imported: void
+Resolved: void
+TypeChecked: void
+Solved: void
+NraResolved: void
+HirLowered: void
+CodegenReady: void
+Cached: void

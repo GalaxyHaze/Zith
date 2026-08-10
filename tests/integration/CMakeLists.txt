@@ -90,3 +90,12 @@ add_test(
             -DEXPECT_STDOUT=0.1.0
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-cli-check.cmake"
 )
+
+add_test(
+    NAME cli-check-missing-file
+    COMMAND "${CMAKE_COMMAND}"
+            -DPROGRAM=$<TARGET_FILE:zithc>
+            -DARGS=check\;errors.zith
+            -DEXPECTED_EXIT=1
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/run-cli-check.cmake"
+)

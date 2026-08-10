@@ -9,7 +9,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace zith::memory {
+namespace memory {
 
 template <typename T> class DynArray {
     Arena *arena_    = nullptr;
@@ -278,4 +278,4 @@ template <class T> auto makeDynArray(Arena &allocator) {
     return DynArray<T>(allocator);
 }
 
-} // namespace zith::memory
+} // namespace memory

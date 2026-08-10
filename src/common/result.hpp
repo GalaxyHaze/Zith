@@ -8,7 +8,7 @@
 #include <utility>
 #include <variant>
 
-namespace zith::memory {
+namespace memory {
 
 struct Error {
     std::string msg;
@@ -286,4 +286,4 @@ private:
     }
 };
 
-} // namespace zith::memory
+} // namespace memory

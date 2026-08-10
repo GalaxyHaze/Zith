@@ -25,6 +25,7 @@ add_custom_target(zith_frontend_lexer_generated DEPENDS ${_zith_lexer_generated}
 
 add_library(zith_frontend_lexer STATIC
     "${CMAKE_BINARY_DIR}/src/frontend/lexer/lexer.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/actions.cpp"
 )
 
 target_include_directories(zith_frontend_lexer PUBLIC

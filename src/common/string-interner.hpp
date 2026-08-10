@@ -9,7 +9,7 @@
 #endif
 #include <string_view>
 
-namespace zith::memory {
+namespace memory {
 
 using InternedId = uint32_t;
 
@@ -19,7 +19,6 @@ template <class T> class DynArray;
 struct StringInterner {
     aSelf(StringInterner);
 
-    StringInterner() = default;
     explicit StringInterner(memory::Arena &arena);
     StringInterner(const Self &)          = delete;
     auto operator=(const Self &) -> Self & = delete;
@@ -38,4 +37,4 @@ private:
     void init();
 };
 
-} // namespace zith::memory
+} // namespace memory

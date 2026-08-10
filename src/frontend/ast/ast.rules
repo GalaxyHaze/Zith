@@ -1,0 +1,25 @@
+# Zith AST node schema.
+#
+# Each section is one node type. Field syntax:
+#   Name: Type
+# or, for optional validation or clarity, `Name: Type = string|value`.
+#
+# `child` and `children` fields must reference declared node names or
+# `memory::DynArray<NodeName>` respectively. Untagged string and value fields
+# are leaf data and are never traversed by `walk`.
+
+[Program]
+body: memory::DynArray<Expr> = children
+
+[Expr]
+span: Span
+
+[LiteralExpr]
+span: Span
+valueText: std::string_view
+
+[CallExpr]
+span: Span
+callee: Expr = child
+name: std::string_view
+arguments: memory::DynArray<Expr> = children

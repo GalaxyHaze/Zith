@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <string_view>
 
-namespace zith::memory {
+namespace memory {
 
 auto SourceLoc::slice() const noexcept -> std::string_view {
     return std::visit([](const auto &stored) -> std::string_view {
@@ -54,4 +54,4 @@ auto SourceLoc::filename() const noexcept -> std::string_view {
     return std::string_view(path).substr(last_slash + 1);
 }
 
-} // namespace zith::memory
+} // namespace memory

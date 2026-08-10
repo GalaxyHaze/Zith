@@ -29,9 +29,11 @@ Today, the branch already includes three concrete helpers:
 
 | Helper | Purpose | Source of truth |
 |---|---|---|
-| CLI helper | Generate command parsing, dispatch, help text, and suggestions | `src/cli/cli.rules` |
-| Lexer helper | Generate lexer tables and tokenization support code | `src/frontend/lexer/lexer.rules` |
-| Project-config helper | Generate strongly typed defaults and TOML loading code | `src/config/project/default.toml` |
+| CLI helper | Generate command parsing, dispatch, help text, and suggestions | `src/cli/README.md` |
+| Lexer helper | Generate lexer tables and tokenization support code | `src/frontend/lexer/README.md` |
+| AST helper | Generate AST node structs, allocation, walking, and printing | `src/frontend/ast/README.md` |
+| Project-config helper | Generate strongly typed defaults and TOML loading code | `src/config/project/README.md` |
+| Session helper | Generate the compilation pipeline and action hook surface | `src/session/README.md` |
 
 Supporting those helpers is a small common runtime with arena allocation, interned strings,
 results, option-like types, and dynamic arrays under `src/common`.
@@ -84,6 +86,9 @@ The current executable is `zithc`, with a generated CLI surface that already exp
 - subcommands such as `deps add`, `deps check`, and `deps remove`
 - typo suggestions for commands, subcommands, and flags
 
+`zithc check`, `zithc run`, and `zithc build` now create a `zith::session::CompilationSession`,
+load the selected source file, and run the pipeline through the `Lexed` stage.
+
 Example:
 
 ```bash
@@ -111,6 +116,8 @@ suggestions.
 - `src/cli/cli.rules`
 - `src/cli/generate.py`
 - `src/cli/handlers.cpp`
+
+Full usage details are in `src/cli/README.md`.
 
 **Generated outputs**
 
@@ -254,6 +261,9 @@ hooks or generated members.
 - `src/frontend/lexer/lexer.rules`
 - `src/frontend/lexer/generate.py`
 - `src/frontend/lexer/types.hpp`
+- `src/frontend/lexer/actions.cpp`
+
+Full usage details are in `src/frontend/lexer/README.md`.
 
 **Generated outputs**
 
@@ -268,7 +278,8 @@ hooks or generated members.
 1. Edit `src/frontend/lexer/lexer.rules`.
 2. Define tokens, keywords, punctuation, operators, comments, and optional lexer/token members or hooks.
 3. Rebuild the project, or run the generator manually.
-4. Consume the generated lexer through the `zith_frontend_lexer` library target.
+4. Implement any declared hooks in `src/frontend/lexer/actions.cpp`.
+5. Consume the generated lexer through the `zith_frontend_lexer` library target.
 
 **Manual command**
 
@@ -358,6 +369,7 @@ Notes:
 - If `[token-type]` is used, `[actions] onToken` is required.
 - `[lexer]` defines generated members on the lexer object.
 - `[token-type]` defines extra members on the generated `Token` structure.
+- `[actions]` emits declarations into `build/src/frontend/lexer/actions.hpp`; the supported handwritten implementation point is `src/frontend/lexer/actions.cpp`.
 - Keywords map a token kind name such as `If`, `Else`, or `Fn` to one string or a list of strings.
 
 **What the rules file can describe**
@@ -483,6 +495,57 @@ Notes:
 Use this helper whenever project defaults or configuration schema evolve. Prefer changing the TOML
 schema once instead of duplicating config definitions in handwritten C++.
 
+### 4. Session Helper
+
+**Purpose**
+
+Generate the `CompilationSession` pipeline from a declarative stage list, stage output types, and a
+single injected context object. The generated session owns the pipeline mechanics and optional
+session-local state, while compiler-owned services live in the user-defined context type declared in
+`types.hpp`.
+
+**Source files**
+
+- `src/session/session.rules`
+- `src/session/generate.py`
+- `src/session/dispatch.cpp`
+
+Full usage details are in `src/session/README.md`.
+
+**Generated outputs**
+
+- `build/src/session/session.hpp`
+- `build/src/session/session.cpp`
+- `build/src/session/dispatch.hpp`
+- `build/src/session/.gitignore`
+
+**How to use**
+
+1. Edit `src/session/session.rules`.
+2. Define the injected context type, stages, their output types, and any optional session-local
+   state fields.
+3. Rebuild the project, or run the generator manually.
+4. Implement `dispatch<Stage>()` specializations in `src/session/dispatch.cpp`.
+
+**Manual command**
+
+```bash
+python3 src/session/generate.py src/session/session.rules --out build/src/session
+```
+
+**What it generates**
+
+- `Stage` and `PipelinePlan` types
+- a `CompilationSession` with the configured context type and any session-local state
+- `StageResult` with `run()`, `runTo()`, and `resume()`
+- `dispatch<Stage>()` declarations for every configured stage
+
+**When to use it**
+
+Use this helper when the compiler pipeline stages, injected compiler context, session-local state,
+or stage outputs change. Keep new pipeline plumbing declarative instead of hand-editing
+`CompilationSession`.
+
 ---
 
 ## Development Model
@@ -510,7 +573,9 @@ In other words, this branch treats generators as maintainability tools, not as o
 │   ├── config/
 │   │   └── project/     # declarative config schema + generator
 │   ├── frontend/
-│   │   └── lexer/       # declarative lexer + generator + types
+│   │   ├── lexer/       # declarative lexer + generator + types
+│   │   └── ast/         # declarative AST nodes + generator + types
+│   ├── session/         # declarative compilation session + actions
 │   └── support/
 ├── tests/
 │   ├── common/

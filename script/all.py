@@ -8,31 +8,37 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def run(args: list[str]) -> None:
+def run(*args: str) -> None:
     subprocess.run([sys.executable, *args], cwd=ROOT, check=True)
 
 
 def main() -> int:
-    run([
-        "src/cli/generate.py",
-        "src/cli/cli.rules",
+    run(
+        str(ROOT / "src/cli/generate.py"),
+        str(ROOT / "src/cli/cli.rules"),
         "--out",
-        "build/src/cli",
-    ])
-    run([
-        "src/frontend/lexer/generate.py",
-        "src/frontend/lexer/lexer.rules",
+        str(ROOT / "build/src/cli"),
+    )
+    run(
+        str(ROOT / "src/frontend/lexer/generate.py"),
+        str(ROOT / "src/frontend/lexer/lexer.rules"),
         "--out",
-        "build/src/frontend/lexer",
+        str(ROOT / "build/src/frontend/lexer"),
         "--types",
-        "src/frontend/lexer/types.hpp",
-    ])
-    run([
-        "src/config/project/generate.py",
-        "src/config/project/default.toml",
+        str(ROOT / "src/frontend/lexer/types.hpp"),
+    )
+    run(
+        str(ROOT / "src/config/project/generate.py"),
+        str(ROOT / "src/config/project/default.toml"),
         "--out",
-        "build/src/config/project",
-    ])
+        str(ROOT / "build/src/config/project"),
+    )
+    run(
+        str(ROOT / "src/session/generate.py"),
+        str(ROOT / "src/session/session.rules"),
+        "--out",
+        str(ROOT / "build/src/session"),
+    )
     return 0
 
 

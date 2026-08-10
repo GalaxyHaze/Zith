@@ -37,6 +37,22 @@ of truth for each area.
 4. Run the full test suite with `ctest --test-dir build --output-on-failure`.
 5. Keep changes small enough that behavior and rollout can be reviewed incrementally.
 
+## Project Search
+
+Use both configured MCP servers when investigating or changing this project:
+
+- `opencode-rag` exposes semantic source-code search over the workspace, with tools such as
+  `search_semantic`, `get_file_skeleton`, and `find_usages`. Use it first for C++, headers, and
+  other source-level questions.
+- `memsearch` exposes `memsearch_search` and `memsearch_expand` over project memory and Markdown
+  knowledge bases. Use it for architecture decisions, docs, specs, notes, and decisions recorded
+  outside the source tree.
+
+Prefer checking both before writing or changing code: `opencode-rag` gives the concrete code
+context, while `memsearch` can surface the surrounding intent, constraints, or prior decisions
+that the code alone does not make obvious. If one returns nothing useful, use the other and
+proceed with the available context.
+
 ## Verification Notes
 
 - `src/app/zithc-main.cpp`, generated artifacts, and handwritten handlers should compile with the

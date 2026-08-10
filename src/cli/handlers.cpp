@@ -1,9 +1,10 @@
-#include "cli/actions.hpp"
-
 #include "cli/cli.hpp"
 #include "cli/terminal.hpp"
+#include "session/dispatch.hpp"
+#include "session/session.hpp"
 
 #include <cstdio>
+#include <string_view>
 
 int show_help() {
     const generated_cli::term::Terminal terminal = generated_cli::term::init();
@@ -56,22 +57,68 @@ int show_version() {
     return 0;
 }
 
+namespace {
+
+std::string_view internedPath(const generated_cli::Options &opts, generated_cli::InternId id) {
+    return opts.stringPool != nullptr ? opts.stringPool->lookup(id) : std::string_view{};
+}
+
+std::string_view firstNonEmpty(std::string_view first, std::string_view second) {
+    return !first.empty() ? first : second;
+}
+
+std::string_view chooseInput(const generated_cli::Options &opts) {
+    return firstNonEmpty(
+        firstNonEmpty(firstNonEmpty(internedPath(opts, opts.check.input),
+                                    internedPath(opts, opts.run.script)),
+                      internedPath(opts, opts.build.input)),
+        internedPath(opts, opts.input));
+}
+
+std::string_view chooseOutput(const generated_cli::Options &opts) {
+    return firstNonEmpty(internedPath(opts, opts.build.output),
+                         internedPath(opts, opts.output));
+}
+
+int apply(const generated_cli::Options &opts, std::string_view inputPath,
+          std::string_view outputPath) {
+    (void)outputPath;
+
+    if (inputPath.empty())
+        return 1;
+
+    zith::session::ZithSessionContext context;
+    context.filePath = inputPath;
+    context.projectRoot = ".";
+    context.options = const_cast<generated_cli::Options *>(&opts);
+
+    zith::session::CompilationSession session(context);
+    const auto result = session.runTo(zith::session::Stage::Lexed);
+    if (!result) {
+        std::fprintf(stderr, "erro no estágio %s\n", result.error().msg.c_str());
+        return 1;
+    }
+    return 0;
+}
+
+} // namespace
+
 namespace cmd {
 
-int check(const generated_cli::Options &) {
-    return 0;
+int check(const generated_cli::Options &opts) {
+    return apply(opts, chooseInput(opts), chooseOutput(opts));
 }
 
 int fmt(const generated_cli::Options &) {
     return 0;
 }
 
-int run(const generated_cli::Options &) {
-    return 0;
+int run(const generated_cli::Options &opts) {
+    return apply(opts, chooseInput(opts), chooseOutput(opts));
 }
 
-int build(const generated_cli::Options &) {
-    return 0;
+int build(const generated_cli::Options &opts) {
+    return apply(opts, chooseInput(opts), chooseOutput(opts));
 }
 
 int depsAdd() {

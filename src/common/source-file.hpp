@@ -10,7 +10,7 @@
 #include <string_view>
 #include <variant>
 
-namespace zith::memory {
+namespace memory {
 
 struct SourceLoc {
     using FileVar = std::variant<mio::mmap_source, mio::mmap_sink, std::string>;
@@ -32,4 +32,4 @@ struct SourceLoc {
     [[nodiscard]] auto filename() const noexcept -> std::string_view;
 };
 
-} // namespace zith::memory
+} // namespace memory

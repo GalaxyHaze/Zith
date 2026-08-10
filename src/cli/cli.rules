@@ -28,6 +28,7 @@ build.input      : path
 build.output     : path = "a.out"
 run.script       : string
 run.args         : string...
+check.input      : path
 deps.add.package : string
 
 [sub-flags]
