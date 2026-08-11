@@ -2,3 +2,11 @@
 build
 __pycache__/
 .opencode
+.memsearch.toml
+opencode-rag.json
+mcp/index-opencode-rag.sh
+mcp/local-embed-server.py
+mcp/memsearch-mcp.py
+mcp/opencode-rag-mcp.mjs
+mcp/test-memsearch-mcp.py
+docs/plans/
