@@ -1,12 +1,12 @@
 #pragma once
-#include "common/result.hpp"
+#include "common/memory/result.hpp"
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 
-namespace memory {
+namespace common::memory {
 
 using ByteOffset = uint32_t;
 using FileId     = uint32_t;
@@ -21,9 +21,11 @@ struct Loc {
 };
 
 struct Span {
-    FileId file;
     ByteOffset start;
     ByteOffset end;
+
+    Span() : start(0), end(0) {}
+    Span(ByteOffset s, ByteOffset e) : start(s), end(e) {}
 
     auto len() const noexcept -> size_t {
         return end >= start ? static_cast<size_t>(end - start) : 0;
@@ -37,16 +39,13 @@ struct Span {
         return end >= start;
     }
 
-    auto merge(const Span &other) const noexcept -> Result<Span> {
-        if (file != other.file)
-            return Result<Span>(Error{"Cannot merge spans from different files"});
-
+  auto merge(const Span &other) const noexcept -> Result<Span> {
         const bool overlaps = (start < other.end) && (other.start < end);
         if (!overlaps)
             return Result<Span>(Error{"Spans do not overlap and cannot be merged"});
 
-        return Span{file, std::min(start, other.start), std::max(end, other.end)};
+        return Span{std::min(start, other.start), std::max(end, other.end)};
     }
 };
 
-} // namespace memory
+} // namespace common::memory

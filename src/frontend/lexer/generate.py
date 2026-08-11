@@ -5,11 +5,24 @@ from lexer.rules."""
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve()
+while not (_REPO_ROOT / "tools").is_dir():
+    _REPO_ROOT = _REPO_ROOT.parent
+sys.path.insert(0, str(_REPO_ROOT))
+
+from tools.rules_kit import (
+    RuleError,
+    cpp_char,
+    cpp_string,
+    join_logical_lines,
+    parse_quoted,
+    split_top_level,
+)
 
 
 BUCKET_COUNT = 128
@@ -90,53 +103,6 @@ def mix64(x: int) -> int:
     return x & mask
 
 
-class RuleError(ValueError):
-    def __init__(self, line_no: int, message: str) -> None:
-        super().__init__(message)
-        self.line_no = line_no
-        self.message = message
-
-    def render(self, path: Path) -> str:
-        return f"{path}:{self.line_no}: {self.message}"
-
-
-def strip_comment(line: str) -> str:
-    quote: str | None = None
-    escaped = False
-    out: list[str] = []
-    for ch in line:
-        if quote:
-            out.append(ch)
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == quote:
-                quote = None
-            continue
-        if ch in {"'", '"'}:
-            quote = ch
-            out.append(ch)
-            continue
-        if ch == "#":
-            break
-        out.append(ch)
-    return "".join(out).strip()
-
-
-def cpp_string(value: str) -> str:
-        return json.dumps(value, ensure_ascii=True)
-
-
-def cpp_char(value: str) -> str:
-    if len(value) != 1:
-        raise ValueError(f"expected one char, got {value!r}")
-    escaped = json.dumps(value, ensure_ascii=True)[1:-1]
-    if escaped == "\\":
-        return "'\\\\'"
-    return f"'{escaped}'"
-
-
 def dedupe_preserve_order(values: list[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -146,50 +112,6 @@ def dedupe_preserve_order(values: list[str]) -> list[str]:
         seen.add(value)
         out.append(value)
     return out
-
-
-def parse_quoted(raw: str, line_no: int) -> str:
-    raw = raw.strip()
-    if not (
-        (raw.startswith('"') and raw.endswith('"'))
-        or (raw.startswith("'") and raw.endswith("'"))
-    ):
-        raise RuleError(line_no, f"string esperada: {raw!r}")
-    body = raw[1:-1]
-    try:
-        return json.loads(f'"{body}"' if raw.startswith('"') else f'"{body}"')
-    except (ValueError, SyntaxError) as exc:
-        raise RuleError(line_no, f"string invalida: {raw!r}") from exc
-
-
-def split_top_level(body: str, line_no: int) -> list[str]:
-    parts: list[str] = []
-    start = 0
-    depth = 0
-    quote: str | None = None
-    escaped = False
-    for index, ch in enumerate(body):
-        if quote:
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == quote:
-                quote = None
-            continue
-        if ch in {"'", '"'}:
-            quote = ch
-        elif ch in "[{(":
-            depth += 1
-        elif ch in "]})":
-            depth -= 1
-        elif ch == "," and depth == 0:
-            parts.append(body[start:index].strip())
-            start = index + 1
-    if quote or depth != 0:
-        raise RuleError(line_no, "lista/string nao terminada")
-    parts.append(body[start:].strip())
-    return parts
 
 
 def parse_strings(raw: str, line_no: int) -> list[str]:
@@ -349,43 +271,7 @@ def parse_rules(text: str, path: Path) -> LexerConfig:
     hooks: dict[str, Hook] = {}
     token_type_line = 0
 
-    logical: list[tuple[int, str]] = []
-    pending: str | None = None
-    pending_line = 0
-
-    def flush_pending() -> None:
-        nonlocal pending
-        if pending is not None:
-            logical.append((pending_line, pending))
-            pending = None
-
-    for line_no, raw in enumerate(text.splitlines(), start=1):
-        line = strip_comment(raw)
-        if not line:
-            continue
-        if re.fullmatch(r"\[([^\]]+)\]", line):
-            flush_pending()
-            logical.append((line_no, line))
-            continue
-        if pending is None:
-            pending = line
-            pending_line = line_no
-
-            if (
-                pending.count("[") == pending.count("]")
-                and pending.count('"') % 2 == 0
-                and pending.count("'") % 2 == 0
-            ):
-                flush_pending()
-        else:
-            pending += " " + line
-            if (
-                pending.count("[") == pending.count("]")
-                and pending.count('"') % 2 == 0
-                and pending.count("'") % 2 == 0
-            ):
-                flush_pending()
-    flush_pending()
+    logical = join_logical_lines(text)
 
     for line_no, line in logical:
         line = line.strip()
@@ -619,7 +505,7 @@ def make_lexer_header(config: LexerConfig) -> str:
     lines = [
         "#pragma once",
         '#include "types.hpp"',
-        '#include "common/string-interner.hpp"',
+        '#include "common/memory/string-interner.hpp"',
         "",
         "#include <cstddef>",
         "#include <cstdint>",
@@ -630,8 +516,8 @@ def make_lexer_header(config: LexerConfig) -> str:
         "",
         "namespace generated_lexer {",
         "",
-        "using InternedId = memory::InternedId;",
-        "using StringInterner = memory::StringInterner;",
+        "using InternedId = common::memory::InternedId;",
+        "using StringInterner = common::memory::StringInterner;",
         "",
         "enum class TokenKind : uint8_t {",
     ]
@@ -671,7 +557,7 @@ def make_lexer_header(config: LexerConfig) -> str:
             "",
             "struct TokenStream {",
             "    std::vector<Token> tokens;",
-            "    const memory::StringInterner *strings = nullptr;",
+            "    const common::memory::StringInterner *strings = nullptr;",
             "    const Token *src = nullptr;",
             "    uint32_t len = 0;",
             "    uint32_t offset = 0;",
@@ -757,7 +643,7 @@ def make_lexer_header(config: LexerConfig) -> str:
             "public:",
             "    Lexer();",
             "    [[nodiscard]] TokenStream run(",
-            "        std::string_view source, memory::StringInterner &strings",
+            "        std::string_view source, common::memory::StringInterner &strings",
             "    );",
             "    [[nodiscard]] std::string_view span_slice(",
             "        std::string_view source, const Span &span) const noexcept;",
@@ -776,7 +662,7 @@ def make_lexer_header(config: LexerConfig) -> str:
             "};",
             "",
             "[[nodiscard]] TokenStream tokenize(",
-            "    std::string_view source, memory::StringInterner &strings",
+            "    std::string_view source, common::memory::StringInterner &strings",
             ");",
             "const char *tokenKindName(TokenKind kind) noexcept;",
             "struct FormattedToken {",
@@ -785,7 +671,7 @@ def make_lexer_header(config: LexerConfig) -> str:
             "    Span span = Span(0, 0);",
             "};",
             "FormattedToken formatToken(",
-            "    const Token &token, memory::StringInterner &strings",
+            "    const Token &token, common::memory::StringInterner &strings",
             ");",
             "FormattedToken formatToken(",
             "    const TokenStream &stream, size_t index",
@@ -795,7 +681,7 @@ def make_lexer_header(config: LexerConfig) -> str:
             ");",
             "void printToken(FILE *out, const TokenStream &stream);",
             "void printToken(",
-            "    FILE *out, std::string_view source, memory::StringInterner &strings",
+            "    FILE *out, std::string_view source, common::memory::StringInterner &strings",
             ");",
             "",
             "} // namespace generated_lexer",
@@ -1214,7 +1100,7 @@ def make_lexer_source(config: LexerConfig) -> str:
             "}",
             "",
             "TokenStream Lexer::run(",
-            "    std::string_view source, memory::StringInterner &strings",
+            "    std::string_view source, common::memory::StringInterner &strings",
             ") {",
             "    source_ = source;",
             "    offset_ = 0;",
@@ -1501,7 +1387,7 @@ def make_lexer_source(config: LexerConfig) -> str:
             "}",
             "",
             "TokenStream tokenize(",
-            "    std::string_view source, memory::StringInterner &strings",
+            "    std::string_view source, common::memory::StringInterner &strings",
             ") {",
             "    Lexer lexer;",
             "    return lexer.run(source, strings);",
@@ -1522,7 +1408,7 @@ def make_lexer_source(config: LexerConfig) -> str:
             "}",
             "",
             "FormattedToken formatToken(",
-            "    const Token &token, memory::StringInterner &strings",
+            "    const Token &token, common::memory::StringInterner &strings",
             ") {",
             "    return FormattedToken{",
             "        strings.intern(tokenKindName(token.kind)), token.lexemeId, token.span,",
@@ -1534,8 +1420,8 @@ def make_lexer_source(config: LexerConfig) -> str:
             ") {",
             "    const Token &token = stream.at(index);",
             "    if (stream.strings != nullptr) {",
-            "        memory::StringInterner *strings =",
-            "            const_cast<memory::StringInterner *>(stream.strings);",
+            "        common::memory::StringInterner *strings =",
+            "            const_cast<common::memory::StringInterner *>(stream.strings);",
             "        return formatToken(token, *strings);",
             "    }",
             "    return FormattedToken{0, 0, {0, 0}};",
@@ -1555,8 +1441,8 @@ def make_lexer_source(config: LexerConfig) -> str:
             "",
             "void printToken(FILE *out, const TokenStream &stream) {",
             "    if (stream.strings != nullptr) {",
-            "        memory::StringInterner *strings =",
-            "            const_cast<memory::StringInterner *>(stream.strings);",
+            "        common::memory::StringInterner *strings =",
+            "            const_cast<common::memory::StringInterner *>(stream.strings);",
             "        for (size_t i = 0; i < stream.size(); ++i)",
             "            printToken(out, formatToken(stream, i), *strings);",
             "        return;",
@@ -1572,7 +1458,7 @@ def make_lexer_source(config: LexerConfig) -> str:
             "}",
             "",
             "void printToken(",
-            "    FILE *out, std::string_view source, memory::StringInterner &strings",
+            "    FILE *out, std::string_view source, common::memory::StringInterner &strings",
             ") {",
             "    TokenStream stream = tokenize(source, strings);",
             "    printToken(out, stream);",

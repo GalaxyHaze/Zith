@@ -26,7 +26,7 @@ tag; `child`, `children`, `string`, and `value` remain supported for clarity.
 
 ```text
 [Program]
-body: memory::DynArray<Expr> = children
+body: common::memory::DynArray<Expr> = children
 
 [Expr]
 span: Span
@@ -39,13 +39,13 @@ valueText: std::string_view
 span: Span
 callee: Expr = child
 name: std::string_view
-arguments: memory::DynArray<Expr> = children
+arguments: common::memory::DynArray<Expr> = children
 ```
 
 Supported tags:
 
 - `child`: one generated node pointer.
-- `children`: a `memory::DynArray<DeclaredNode>` list of generated node pointers.
+- `children`: a `common::memory::DynArray<DeclaredNode>` list of generated node pointers.
 - `string`: optional marker for `std::string_view` leaf data.
 - `value`: optional marker for scalar or `Span` leaf data.
 

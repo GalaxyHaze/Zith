@@ -45,10 +45,10 @@ Supported scalar types:
 
 | TOML form | Generated C++ type |
 |---|---|
-| string | `memory::InternedId` |
+| string | `common::memory::InternedId` |
 | integer | `int` |
 | boolean | `bool` |
-| array of strings | `memory::DynArray<memory::InternedId>` |
+| array of strings | `common::memory::DynArray<common::memory::InternedId>` |
 
 Field names are converted to camelCase in generated C++.
 

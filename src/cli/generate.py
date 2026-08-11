@@ -5,21 +5,17 @@ from __future__ import annotations
 
 import argparse
 import ast
-import json
 import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+_REPO_ROOT = Path(__file__).resolve()
+while not (_REPO_ROOT / "tools").is_dir():
+    _REPO_ROOT = _REPO_ROOT.parent
+sys.path.insert(0, str(_REPO_ROOT))
 
-class RuleError(ValueError):
-    def __init__(self, line_no: int, message: str) -> None:
-        super().__init__(message)
-        self.line_no = line_no
-        self.message = message
-
-    def render(self, path: Path) -> str:
-        return f"{path}:{self.line_no}: {self.message}"
+from tools.rules_kit import RuleError, cpp_string, strip_comment, to_camel
 
 
 @dataclass(frozen=True)
@@ -148,43 +144,8 @@ class Command:
         return f"{self.member_name}Subcommand"
 
 
-def strip_comment(line: str) -> str:
-    quote: str | None = None
-    escaped = False
-    out: list[str] = []
-    for ch in line:
-        if quote:
-            out.append(ch)
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == quote:
-                quote = None
-            continue
-        if ch in {"'", '"'}:
-            quote = ch
-            out.append(ch)
-            continue
-        if ch == "#":
-            break
-        out.append(ch)
-    return "".join(out).strip()
-
-
-def to_camel(name: str) -> str:
-    parts = [part for part in re.split(r"[-_]", name) if part]
-    if not parts:
-        return name
-    return parts[0] + "".join(part.capitalize() for part in parts[1:])
-
-
 def to_pascal(name: str) -> str:
     return "".join(part.capitalize() for part in re.split(r"[-_]", name) if part)
-
-
-def cpp_string(value: str) -> str:
-    return json.dumps(value)
 
 
 def split_names(raw: str, line_no: int) -> list[str]:
@@ -586,7 +547,7 @@ def option_field_lines(
             enum_name = flag_enum_type_name(prefix, flag)
             lines.append(f"    {enum_name} {member} = {enum_name}::{to_pascal(str(flag.default))};")
         elif flag.kind == "list":
-            lines.append(f"    memory::DynArray<InternId> {member};")
+            lines.append(f"    common::memory::DynArray<InternId> {member};")
         elif flag.kind == "action":
             continue
         else:
@@ -595,7 +556,7 @@ def option_field_lines(
     for arg in args:
         member = arg.member_name
         if arg.variadic:
-            lines.append(f"    memory::DynArray<{arg_cpp_type(arg, prefix)}> {member};")
+            lines.append(f"    common::memory::DynArray<{arg_cpp_type(arg, prefix)}> {member};")
         elif arg.kind == "int":
             default = arg.default if arg.has_default else 0
             lines.append(f"    int {member} = {default};")
@@ -687,7 +648,7 @@ def option_struct_lines(
     for _, member in nested:
         init.append(f"{member}(arena, strings)")
 
-    lines.append(f"    {type_name}(memory::Arena &arena, memory::StringInterner &strings)")
+    lines.append(f"    {type_name}(common::memory::Arena &arena, common::memory::StringInterner &strings)")
     if init:
         lines.append("        : " + ",\n          ".join(init))
     lines.extend(
@@ -712,13 +673,13 @@ def make_cli_header(
     lines = [
         "#pragma once",
         "",
-        '#include "common/arena.hpp"',
-        '#include "common/dyn-array.hpp"',
-        '#include "common/string-interner.hpp"',
+        '#include "common/memory/arena.hpp"',
+        '#include "common/memory/dyn-array.hpp"',
+        '#include "common/memory/string-interner.hpp"',
         "",
         "namespace generated_cli {",
         "",
-        "using InternId = memory::InternedId;",
+        "using InternId = common::memory::InternedId;",
         "",
     ]
 
@@ -799,8 +760,8 @@ def make_cli_header(
         if command.flags or command.args or any(sub.flags or sub.args for sub in command.subcommands.values()):
             options_lines.append(f"    {command.options_type_name} {command.member_name};")
             nested_inits.append(f"{command.member_name}(arena, strings)")
-    options_lines.append("    memory::StringInterner *stringPool = nullptr;")
-    options_lines.append("    Options(memory::Arena &arena, memory::StringInterner &strings)")
+    options_lines.append("    common::memory::StringInterner *stringPool = nullptr;")
+    options_lines.append("    Options(common::memory::Arena &arena, common::memory::StringInterner &strings)")
     init = option_init_lines(flags, args)
     init.extend(nested_inits)
     init.append("stringPool(&strings)")
@@ -811,8 +772,8 @@ def make_cli_header(
     lines.append("")
 
     lines.append("struct Cli {")
-    lines.append("    memory::Arena arena;")
-    lines.append("    memory::StringInterner strings;")
+    lines.append("    common::memory::Arena arena;")
+    lines.append("    common::memory::StringInterner strings;")
     lines.append("    Options options;")
     lines.append("    Cli()")
     lines.append("        : strings(arena),")
@@ -911,7 +872,7 @@ def emit_flag_handler(flag: Flag, target_expr: str, indent: str) -> list[str]:
                 f"{indent}    }}",
                 f"{indent}    const char *valueText = argv[++i];",
                 f"{indent}    long value = 0;",
-                f"{indent}    if (!parseLong(valueText, value) || value <= 0) {{",
+                f"{indent}    if (!common::text::parseLong(valueText, value) || value <= 0) {{",
                 f"{indent}        printInvalidValueForFlag({cpp_string(display)}, valueText);",
                 f"{indent}        return 2;",
                 f"{indent}    }}",
@@ -932,7 +893,7 @@ def emit_flag_handler(flag: Flag, target_expr: str, indent: str) -> list[str]:
                 f"{indent}    }}",
                 f"{indent}    const char *valueText = argv[++i];",
                 f"{indent}    long value = 0;",
-                f"{indent}    if (!parseLong(valueText, value) || value < {flag.min_value} || value > {flag.max_value}) {{",
+                f"{indent}    if (!common::text::parseLong(valueText, value) || value < {flag.min_value} || value > {flag.max_value}) {{",
                 f"{indent}        printInvalidValueForFlag({cpp_string(display)}, valueText);",
                 f"{indent}        return 2;",
                 f"{indent}    }}",
@@ -1044,7 +1005,7 @@ def emit_arg_assignment(arg: Arg, target_expr: str, indent: str, context_label: 
 
     if arg.kind == "int":
         lines.append(f"{indent}long value = 0;")
-        lines.append(f"{indent}if (!parseLong(arg, value)) {{")
+        lines.append(f"{indent}if (!common::text::parseLong(arg, value)) {{")
         lines.append(f"{indent}    printInvalidArgumentValue({cpp_string(context_label)}, {cpp_string(arg.name)}, arg);")
         lines.append(f"{indent}    return 2;")
         lines.append(f"{indent}}}")
@@ -1273,6 +1234,8 @@ def make_cli_source(
         "#include <string_view>",
         "#include <utility>",
         "#include <vector>",
+        "#include \"common/diagnostic/diagnostic.hpp\"",
+        "#include \"common/text/parse.hpp\"",
         "",
         "namespace generated_cli {",
         "",
@@ -1282,71 +1245,6 @@ def make_cli_source(
         "",
         "template <class... Args> static bool compare(const char *a, Args &&...args) {",
         "    return (compare(a, std::forward<Args>(args)) || ...);",
-        "}",
-        "",
-        "static bool parseLong(const char *text, long &value) {",
-        "    char *end = nullptr;",
-        "    value = std::strtol(text, &end, 10);",
-        "    return end != nullptr && *end == '\\0';",
-        "}",
-        "",
-        "static std::size_t levenshteinDistance(std::string_view a, std::string_view b) {",
-        "    const std::size_t n = a.size();",
-        "    const std::size_t m = b.size();",
-        "    if (n == 0) return m;",
-        "    if (m == 0) return n;",
-        "    std::vector<std::size_t> prev(m + 1);",
-        "    std::vector<std::size_t> curr(m + 1);",
-        "    for (std::size_t j = 0; j <= m; ++j)",
-        "        prev[j] = j;",
-        "    for (std::size_t i = 1; i <= n; ++i) {",
-        "        curr[0] = i;",
-        "        for (std::size_t j = 1; j <= m; ++j) {",
-        "            const std::size_t cost = (a[i - 1] == b[j - 1]) ? 0 : 1;",
-        "            const std::size_t aValue = prev[j] + 1;",
-        "            const std::size_t bValue = curr[j - 1] + 1;",
-        "            const std::size_t cValue = prev[j - 1] + cost;",
-        "            curr[j] = std::min({aValue, bValue, cValue});",
-        "        }",
-        "        std::swap(prev, curr);",
-        "    }",
-        "    return prev[m];",
-        "}",
-        "",
-        "static const char *skipOptionPrefix(const char *text) {",
-        "    while (*text == '-')",
-        "        ++text;",
-        "    return text;",
-        "}",
-        "",
-        "static bool hasPlausiblePrefix(const char *arg, const char *candidate) {",
-        "    const char *lhs = skipOptionPrefix(arg);",
-        "    const char *rhs = skipOptionPrefix(candidate);",
-        "    if (*lhs == '\\0' || *rhs == '\\0')",
-        "        return false;",
-        "    if (lhs[0] != rhs[0])",
-        "        return false;",
-        "    return true;",
-        "}",
-        "",
-        "static const char *bestSuggestion(const char *arg, const char *const *candidates) {",
-        "    const char *best = nullptr;",
-        "    std::size_t bestDistance = static_cast<std::size_t>(-1);",
-        "    for (std::size_t i = 0; candidates[i] != nullptr; ++i) {",
-        "        if (!hasPlausiblePrefix(arg, candidates[i]))",
-        "            continue;",
-        "        const std::size_t distance = levenshteinDistance(arg, candidates[i]);",
-        "        if (distance < bestDistance) {",
-        "            bestDistance = distance;",
-        "            best = candidates[i];",
-        "        }",
-        "    }",
-        "    if (best == nullptr)",
-        "        return nullptr;",
-        "    const std::size_t threshold = (std::max(std::strlen(arg), std::strlen(best)) + 1U) / 2U;",
-        "    if (bestDistance < threshold)",
-        "        return best;",
-        "    return nullptr;",
         "}",
         "",
         "static term::UsagePrinter makeErrorPrinter() {",
@@ -1435,7 +1333,7 @@ def make_cli_source(
     if uses_append_split:
         lines.extend(
             [
-                "static void appendSplit(memory::DynArray<InternId> &out, memory::StringInterner &strings,",
+                "static void appendSplit(common::memory::DynArray<InternId> &out, common::memory::StringInterner &strings,",
                 "                        std::string_view value, char separator) {",
                 "    std::size_t start = 0;",
                 "    while (start <= value.size()) {",
@@ -1485,7 +1383,7 @@ def make_cli_source(
             )
             lines.append("")
 
-    lines.append("static void resetToDefaults(Options &options, memory::StringInterner &strings) {")
+    lines.append("static void resetToDefaults(Options &options, common::memory::StringInterner &strings) {")
     lines.extend(reset_statements(flags, args, commands))
     lines.append("    (void)strings;")
     lines.append("}")
@@ -1528,17 +1426,17 @@ def make_cli_source(
         lines.append("")
         lines.append("            if (globalArgCount == 0) {")
         if not args:
-            lines.append("                printUnknownCommand(arg, bestSuggestion(arg, kCommandNames));")
+            lines.append("                printUnknownCommand(arg, common::diagnostic::bestSuggestion(arg, kCommandNames));")
             lines.append("                return 2;")
         else:
-            lines.append("                if (const char *suggestion = bestSuggestion(arg, kCommandNames)) {")
+            lines.append("                if (const char *suggestion = common::diagnostic::bestSuggestion(arg, kCommandNames)) {")
             lines.append("                    printUnknownCommand(arg, suggestion);")
             lines.append("                    return 2;")
             lines.append("                }")
         lines.append("            }")
         lines.append("")
     lines.append("            if (arg[0] == '-' && !(compare(arg, \"-\") && canAcceptDashForGlobal(globalArgCount))) {")
-    lines.append("                printUnknownFlag(arg, bestSuggestion(arg, kGlobalFlagCandidates));")
+    lines.append("                printUnknownFlag(arg, common::diagnostic::bestSuggestion(arg, kGlobalFlagCandidates));")
     lines.append("                return 2;")
     lines.append("            }")
     lines.extend(emit_arg_consume(args, "options", "globalArgCount", "global", "            "))
@@ -1555,14 +1453,14 @@ def make_cli_source(
                 lines.extend(emit_flag_handler(flag, f"options.{command.member_name}", "            "))
             lines.append("")
             lines.append("            if (arg[0] == '-') {")
-            lines.append(f"                printUnknownFlag(arg, bestSuggestion(arg, {command_flag_array_name(command)}));")
+            lines.append(f"                printUnknownFlag(arg, common::diagnostic::bestSuggestion(arg, {command_flag_array_name(command)}));")
             lines.append("                return 2;")
             lines.append("            }")
             for subcommand in command.subcommands.values():
                 lines.append(
                     f"            if (compare(arg, {cpp_string(subcommand.name)})) {{ {command.subcommand_member_name} = {command.subcommand_enum_name}::{subcommand.enum_name}; continue; }}"
                 )
-            lines.append(f"            printUnknownSubcommand({cpp_string(command.name)}, arg, bestSuggestion(arg, {subcommand_name_array_name(command)}));")
+            lines.append(f"            printUnknownSubcommand({cpp_string(command.name)}, arg, common::diagnostic::bestSuggestion(arg, {subcommand_name_array_name(command)}));")
             lines.append("            return 2;")
             lines.append("        }")
             lines.append("")
@@ -1574,7 +1472,7 @@ def make_cli_source(
             lines.append(
                 f"            if (arg[0] == '-' && !(compare(arg, \"-\") && {dash_accept_function_name(command.enum_name)}({count_var}))) {{"
             )
-            lines.append(f"                printUnknownFlag(arg, bestSuggestion(arg, {command_flag_array_name(command)}));")
+            lines.append(f"                printUnknownFlag(arg, common::diagnostic::bestSuggestion(arg, {command_flag_array_name(command)}));")
             lines.append("                return 2;")
             lines.append("            }")
             lines.extend(emit_arg_consume(command.args, f"options.{command.member_name}", count_var, command.name, "            "))
@@ -1600,7 +1498,7 @@ def make_cli_source(
                 f"            if (arg[0] == '-' && !(compare(arg, \"-\") && {dash_accept_function_name(f'{command.enum_name}{subcommand.enum_name}')}({count_var}))) {{"
             )
             lines.append(
-                f"                printUnknownFlag(arg, bestSuggestion(arg, {subcommand_flag_array_name(command, subcommand)}));"
+                f"                printUnknownFlag(arg, common::diagnostic::bestSuggestion(arg, {subcommand_flag_array_name(command, subcommand)}));"
             )
             lines.append("                return 2;")
             lines.append("            }")

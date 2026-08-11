@@ -1,6 +1,6 @@
 #include "frontend/lexer/lexer.hpp"
-#include "common/arena.hpp"
-#include "common/string-interner.hpp"
+#include "common/memory/arena.hpp"
+#include "common/memory/string-interner.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -25,8 +25,8 @@ std::string make_input() {
 int main() {
     const std::string source = make_input();
     Lexer lexer;
-    memory::Arena arena;
-    memory::StringInterner strings(arena);
+    common::memory::Arena arena;
+    common::memory::StringInterner strings(arena);
     size_t checksum = 0;
     for (int i = 0; i < 50; ++i) {
         const auto tokens = lexer.run(source, strings);

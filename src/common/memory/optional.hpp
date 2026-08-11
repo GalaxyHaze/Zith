@@ -5,7 +5,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace memory {
+namespace common::memory {
 
 template <class T> class Optional {
     alignas(T) char data[sizeof(T)] = {};
@@ -206,4 +206,4 @@ public:
     }
 };
 
-} // namespace memory
+} // namespace common::memory

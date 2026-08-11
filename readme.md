@@ -32,6 +32,7 @@ Today, the branch already includes three concrete helpers:
 | CLI helper | Generate command parsing, dispatch, help text, and suggestions | `src/cli/README.md` |
 | Lexer helper | Generate lexer tables and tokenization support code | `src/frontend/lexer/README.md` |
 | AST helper | Generate AST node structs, allocation, walking, and printing | `src/frontend/ast/README.md` |
+| Parser helper | Generate a token-driven parser surface with context rules and hooks | `src/frontend/parser/README.md` |
 | Project-config helper | Generate strongly typed defaults and TOML loading code | `src/config/project/README.md` |
 | Session helper | Generate the compilation pipeline and action hook surface | `src/session/README.md` |
 
@@ -575,6 +576,7 @@ In other words, this branch treats generators as maintainability tools, not as o
 │   ├── frontend/
 │   │   ├── lexer/       # declarative lexer + generator + types
 │   │   └── ast/         # declarative AST nodes + generator + types
+│   │   └── parser/      # declarative parser + generator + hooks
 │   ├── session/         # declarative compilation session + actions
 │   └── support/
 ├── tests/

@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-namespace memory {
+namespace common::memory {
 
 struct TransparentStringHash {
     using is_transparent = void;
@@ -329,4 +329,4 @@ public:
     }
 };
 
-} // namespace memory
+} // namespace common::memory

@@ -1,9 +1,9 @@
-#include "common/source-file.hpp"
+#include "common/memory/source-file.hpp"
 
 #include <algorithm>
 #include <string_view>
 
-namespace memory {
+namespace common::memory {
 
 auto SourceLoc::slice() const noexcept -> std::string_view {
     return std::visit([](const auto &stored) -> std::string_view {
@@ -54,4 +54,4 @@ auto SourceLoc::filename() const noexcept -> std::string_view {
     return std::string_view(path).substr(last_slash + 1);
 }
 
-} // namespace memory
+} // namespace common::memory

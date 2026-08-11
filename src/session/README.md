@@ -98,11 +98,11 @@ Use `session.context()` for domain state:
 
 ```cpp
 template <>
-memory::Result<LexedResult>
+common::memory::Result<LexedResult>
 dispatch<Stage::Lexed>(CompilationSession &session) {
     auto &context = session.context();
     if (context.sourceFile.empty())
-        return memory::Error{"missing source"};
+        return common::memory::Error{"missing source"};
     return lex(context.sourceFile, context.interner);
 }
 ```

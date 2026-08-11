@@ -2,10 +2,43 @@
 
 from __future__ import annotations
 
-import subprocess
 import sys
 import tempfile
+import subprocess
 from pathlib import Path
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from tools.test_kit import (
+    assert_contains,
+    assert_not_contains,
+    run_generator,
+    write_rules,
+)
+
+
+def compile_session_smoke(repo_root: Path, compiler: str, include_root: Path) -> None:
+    source = include_root / "smoke.cpp"
+    source.write_text(SMOKE_CPP, encoding="utf-8")
+    subprocess.run(
+        [
+            compiler,
+            "-std=c++23",
+            "-fsyntax-only",
+            "-I",
+            str(include_root),
+            "-I",
+            str(repo_root / "src"),
+            "-I",
+            str(repo_root / "build/_deps/mio-src/include"),
+            "-I",
+            str(repo_root / "build"),
+            str(source),
+        ],
+        check=True,
+        cwd=repo_root,
+    )
 
 
 VALID_RULES = """\
@@ -53,13 +86,13 @@ SMOKE_CPP = """\
 #include "session/dispatch.hpp"
 
 template <>
-memory::Result<zith::session::ParseResult>
+common::memory::Result<zith::session::ParseResult>
 zith::session::dispatch<zith::session::Stage::Parse>(CompilationSession &) {
     return {};
 }
 
 template <>
-memory::Result<zith::session::EmitResult>
+common::memory::Result<zith::session::EmitResult>
 zith::session::dispatch<zith::session::Stage::Emit>(CompilationSession &session) {
     return session.context().value;
 }
@@ -76,56 +109,6 @@ int main() {
 """
 
 
-def assert_contains(text: str, needle: str, label: str) -> None:
-    if needle not in text:
-        raise AssertionError(f"missing {label}: {needle!r}")
-
-
-def assert_not_contains(text: str, needle: str, label: str) -> None:
-    if needle in text:
-        raise AssertionError(f"unexpected {label}: {needle!r}")
-
-
-def write_rules(base: Path, text: str) -> Path:
-    rules_path = base / "session.rules"
-    rules_path.write_text(text, encoding="utf-8")
-    return rules_path
-
-
-def run_generator(repo_root: Path, rules_path: Path, out_dir: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [
-            sys.executable,
-            str(repo_root / "src/session/generate.py"),
-            str(rules_path),
-            "--out",
-            str(out_dir),
-        ],
-        text=True,
-        capture_output=True,
-        cwd=repo_root,
-    )
-
-
-def compile_smoke(repo_root: Path, compiler: str, include_root: Path) -> None:
-    source = include_root / "smoke.cpp"
-    source.write_text(SMOKE_CPP, encoding="utf-8")
-    subprocess.run(
-        [
-            compiler,
-            "-std=c++23",
-            "-fsyntax-only",
-            "-I",
-            str(include_root),
-            "-I",
-            str(repo_root / "src"),
-            str(source),
-        ],
-        check=True,
-        cwd=repo_root,
-    )
-
-
 def main() -> int:
     repo_root = Path(sys.argv[1]).resolve()
     compiler = sys.argv[2]
@@ -137,7 +120,7 @@ def main() -> int:
         out_dir.mkdir(parents=True)
         (out_dir / "types.hpp").write_text(TYPES_HPP, encoding="utf-8")
 
-        rules_path = write_rules(tmpdir, VALID_RULES)
+        rules_path = write_rules(tmpdir, VALID_RULES, "session")
         generated = run_generator(repo_root, rules_path, out_dir)
         if generated.returncode != 0:
             raise AssertionError(generated.stderr)
@@ -162,9 +145,13 @@ def main() -> int:
         assert_not_contains(session_hpp, "setFilePath(", "legacy file setter")
         assert_not_contains(session_hpp, "sourceMap()", "legacy source map accessor")
 
-        compile_smoke(repo_root, compiler, include_root)
+        compile_session_smoke(repo_root, compiler, include_root)
 
-        missing = run_generator(repo_root, write_rules(tmpdir, MISSING_CONTEXT_RULES), out_dir)
+        missing = run_generator(
+            repo_root,
+            write_rules(tmpdir, MISSING_CONTEXT_RULES, "session"),
+            out_dir,
+        )
         if missing.returncode == 0:
             raise AssertionError("generator accepted rules without [context]")
         assert_contains(
@@ -173,7 +160,11 @@ def main() -> int:
             "missing context error",
         )
 
-        multiple = run_generator(repo_root, write_rules(tmpdir, MULTIPLE_CONTEXT_RULES), out_dir)
+        multiple = run_generator(
+            repo_root,
+            write_rules(tmpdir, MULTIPLE_CONTEXT_RULES, "session"),
+            out_dir,
+        )
         if multiple.returncode == 0:
             raise AssertionError("generator accepted multiple context declarations")
         assert_contains(
@@ -182,7 +173,11 @@ def main() -> int:
             "multiple context error",
         )
 
-        invalid = run_generator(repo_root, write_rules(tmpdir, INVALID_CONTEXT_RULES), out_dir)
+        invalid = run_generator(
+            repo_root,
+            write_rules(tmpdir, INVALID_CONTEXT_RULES, "session"),
+            out_dir,
+        )
         if invalid.returncode == 0:
             raise AssertionError("generator accepted an invalid context type")
         assert_contains(invalid.stderr, "tipo de context invalido", "invalid context type error")

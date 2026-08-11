@@ -17,6 +17,9 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/lexer.rules"
         "${CMAKE_CURRENT_SOURCE_DIR}/generate.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/types.hpp"
+        "${PROJECT_SOURCE_DIR}/tools/rules_kit/__init__.py"
+        "${PROJECT_SOURCE_DIR}/tools/rules_kit/errors.py"
+        "${PROJECT_SOURCE_DIR}/tools/rules_kit/text.py"
     VERBATIM
     COMMENT "Generating lexer sources from rules"
 )

@@ -5,11 +5,11 @@
 # or, for optional validation or clarity, `Name: Type = string|value`.
 #
 # `child` and `children` fields must reference declared node names or
-# `memory::DynArray<NodeName>` respectively. Untagged string and value fields
+# `common::memory::DynArray<NodeName>` respectively. Untagged string and value fields
 # are leaf data and are never traversed by `walk`.
 
 [Program]
-body: memory::DynArray<Expr> = children
+body: common::memory::DynArray<Expr> = children
 
 [Expr]
 span: Span
@@ -22,4 +22,4 @@ valueText: std::string_view
 span: Span
 callee: Expr = child
 name: std::string_view
-arguments: memory::DynArray<Expr> = children
+arguments: common::memory::DynArray<Expr> = children

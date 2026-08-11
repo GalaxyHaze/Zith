@@ -1,8 +1,8 @@
-#include "common/string-interner.hpp"
+#include "common/memory/string-interner.hpp"
 
-#include "common/arena.hpp"
-#include "common/dyn-array.hpp"
-#include "common/flat-map.hpp"
+#include "common/memory/arena.hpp"
+#include "common/memory/dyn-array.hpp"
+#include "common/memory/flat-map.hpp"
 #include "support/macros.hpp"
 
 #include <cstdio>
@@ -14,7 +14,7 @@
 #include <shared_mutex>
 #endif
 
-namespace memory {
+namespace common::memory {
 
 StringInterner::StringInterner(Arena &arena) : allocator_(&arena) {
     init();
@@ -58,4 +58,4 @@ void StringInterner::init() {
     }
 }
 
-} // namespace memory
+} // namespace common::memory

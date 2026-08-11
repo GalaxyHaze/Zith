@@ -1,8 +1,8 @@
 #pragma once
 
-#include "common/arena.hpp"
-#include "common/source-map.hpp"
-#include "common/string-interner.hpp"
+#include "common/memory/arena.hpp"
+#include "common/memory/source-map.hpp"
+#include "common/memory/string-interner.hpp"
 #include "frontend/lexer/lexer.hpp"
 
 #include <string_view>
@@ -14,13 +14,13 @@ struct Options;
 namespace zith::session {
 
 struct ZithSessionContext {
-    memory::Arena arena{};
-    memory::SourceMap sourceMap{};
-    memory::StringInterner interner;
+    common::memory::Arena arena{};
+    common::memory::SourceMap sourceMap{};
+    common::memory::StringInterner interner;
     generated_cli::Options *options = nullptr;
     std::string_view filePath{};
     std::string_view projectRoot{};
-    memory::FileId fileId = 0;
+    common::memory::FileId fileId = 0;
 
     ZithSessionContext() : arena(), sourceMap(), interner(arena) {}
 };

@@ -9,6 +9,7 @@ add_custom_target(zith_generate_sources
         zith_cli_generated
         zith_frontend_lexer_generated
         zith_frontend_ast_generated
+        zith_frontend_parser_generated
         zith_project_config_generated
         zith_session_generated
 )

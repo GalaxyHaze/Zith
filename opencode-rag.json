@@ -1,0 +1,102 @@
+{
+  "embedding": {
+    "provider": "ollama",
+    "baseUrl": "http://127.0.0.1:11434/api",
+    "model": "qwen3-embedding:0.6b",
+    "timeoutMs": 600000,
+    "vectorDimension": 1024
+  },
+  "indexing": {
+    "includeExtensions": [
+      ".c",
+      ".h",
+      ".cpp",
+      ".cc",
+      ".cxx",
+      ".hpp",
+      ".hxx",
+      ".py"
+    ],
+    "excludeDirs": [
+      "node_modules",
+      ".git",
+      ".opencode",
+      "dist",
+      "build",
+      "__pycache__",
+      ".venv",
+      ".claude",
+      ".github",
+      "memory:",
+      "wasm",
+      ".commandcode",
+      ".agents",
+      "graphify-out",
+      ".vscode",
+      ".vs",
+      ".idea",
+      ".next",
+      ".nuxt",
+      ".turbo",
+      ".angular",
+      ".svelte-kit",
+      ".gradle",
+      ".dart_tool",
+      ".cache"
+    ],
+    "chunkOverlap": 0,
+    "minFileSizeBytes": 0,
+    "concurrency": 2,
+    "embedBatchSize": 32,
+    "embedConcurrency": 2
+  },
+  "vectorStore": {
+    "path": "./.opencode/rag_db"
+  },
+  "retrieval": {
+    "topK": 20,
+    "minScore": 0.35,
+    "hybridSearch": {
+      "enabled": true,
+      "keywordWeight": 0.4
+    }
+  },
+  "openCode": {
+    "enabled": true,
+    "maxContextChunks": 10,
+    "readOverride": true,
+    "autoIndex": {
+      "enabled": false,
+      "debounceMs": 2000,
+      "intervalMs": 300000,
+      "watcher": "chokidar"
+    }
+  },
+  "imageDescription": {
+    "enabled": false
+  },
+  "description": {
+    "enabled": false
+  },
+  "wikiMode": {
+    "enabled": true
+  },
+  "mcp": {
+    "enabled": true
+  },
+  "localEmbedding": {
+    "enabled": true,
+    "provider": "openai",
+    "model": "gpahal/bge-m3-onnx-int8",
+    "python": "/home/diogo/.local/share/uv/tools/memsearch/bin/python",
+    "script": "/home/diogo/Zith-Lang/mcp/local-embed-server.py",
+    "vectorDimension": 1024
+  },
+  "logging": {
+    "level": "info",
+    "logFilePath": "./.opencode/opencode-rag.log"
+  },
+  "chunking": {
+    "nodeTypes": {}
+  }
+}

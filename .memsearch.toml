@@ -1,0 +1,22 @@
+[milvus]
+uri = "~/.memsearch/milvus.db"
+token = ""
+collection = "zith_lang_chunks"
+
+[embedding]
+provider = "onnx"
+model = "gpahal/bge-m3-onnx-int8"
+batch_size = 0
+base_url = ""
+api_key = ""
+
+[chunking]
+max_chunk_size = 1500
+overlap_lines = 2
+
+[indexing]
+ignore_files = []
+exclude = ["build", ".git", ".opencode", "__pycache__", ".venv", "mcp"]
+
+[watch]
+debounce_ms = 1500

@@ -2,15 +2,44 @@
 
 from __future__ import annotations
 
-import subprocess
 import sys
 import tempfile
+import subprocess
 from pathlib import Path
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from tools.test_kit import (
+    assert_contains,
+    expect_error,
+    run_generator,
+    write_rules,
+)
+
+
+def compile_ast_smoke(repo_root: Path, compiler: str, include_root: Path) -> None:
+    source = include_root / "smoke.cpp"
+    source.write_text(SMOKE_CPP, encoding="utf-8")
+    subprocess.run(
+        [
+            compiler,
+            "-std=c++23",
+            "-fsyntax-only",
+            "-I",
+            str(include_root),
+            "-I",
+            str(repo_root / "src"),
+            str(source),
+        ],
+        check=True,
+        cwd=repo_root,
+    )
 
 
 VALID_RULES = """\
 [Program]
-body: memory::DynArray<Expr> = children
+body: common::memory::DynArray<Expr> = children
 
 [Expr]
 span: Span
@@ -23,7 +52,7 @@ valueText: std::string_view
 span: Span
 callee: Expr = child
 name: std::string_view
-arguments: memory::DynArray<Expr> = children
+arguments: common::memory::DynArray<Expr> = children
 """
 
 UNKNOWN_SECTION = """\
@@ -33,7 +62,7 @@ value: int = value
 
 NODE_FIELD_NO_TAG = """\
 [Program]
-body: memory::DynArray<Expr>
+body: common::memory::DynArray<Expr>
 
 [Expr]
 callee: Expr
@@ -87,7 +116,7 @@ SMOKE_CPP = """\
 #include <cstring>
 
 int main() {
-    memory::Arena arena;
+    common::memory::Arena arena;
     generated_ast::AstRoot ast(arena);
     generated_ast::Expr *callee =
         generated_ast::make<generated_ast::Expr>(ast, Span{0, 0});
@@ -124,65 +153,9 @@ int main() {
 """
 
 
-def assert_contains(text: str, needle: str, label: str) -> None:
-    if needle not in text:
-        raise AssertionError(f"missing {label}: {needle!r}")
-
-
-def write_rules(base: Path, text: str) -> Path:
-    path = base / "ast.rules"
-    path.write_text(text, encoding="utf-8")
-    return path
-
-
-def run_generator(repo_root: Path, rules_path: Path, out_dir: Path):
-    return subprocess.run(
-        [
-            sys.executable,
-            str(repo_root / "src/frontend/ast/generate.py"),
-            str(rules_path),
-            "--out",
-            str(out_dir),
-        ],
-        text=True,
-        capture_output=True,
-        cwd=repo_root,
-    )
-
-
-def compile_smoke(repo_root: Path, compiler: str, include_root: Path) -> None:
-    source = include_root / "smoke.cpp"
-    source.write_text(SMOKE_CPP, encoding="utf-8")
-    subprocess.run(
-        [
-            compiler,
-            "-std=c++23",
-            "-fsyntax-only",
-            "-I",
-            str(include_root),
-            "-I",
-            str(repo_root / "src"),
-            str(source),
-        ],
-        check=True,
-        cwd=repo_root,
-    )
-
-
-def expect_error(generator, tmpdir: Path, text: str, needle: str, label: str) -> None:
-    result = generator(tmpdir, text)
-    if result.returncode == 0:
-        raise AssertionError(f"generator accepted {label}")
-    if needle not in result.stderr:
-        raise AssertionError(f"{label}: missing {needle!r} in stderr: {result.stderr}")
-
-
 def main() -> int:
     repo_root = Path(sys.argv[1]).resolve()
     compiler = sys.argv[2]
-
-    def generate(tmpdir: Path, text: str):
-        return run_generator(repo_root, write_rules(tmpdir, text), tmpdir)
 
     with tempfile.TemporaryDirectory(prefix="ast-generator-", dir="/tmp") as tmp:
         tmpdir = Path(tmp)
@@ -190,11 +163,8 @@ def main() -> int:
         out_dir = include_root / "frontend" / "ast"
         out_dir.mkdir(parents=True)
 
-        valid = run_generator(
-            repo_root,
-            write_rules(tmpdir, VALID_RULES),
-            out_dir,
-        )
+        rules_path = write_rules(tmpdir, VALID_RULES, "ast")
+        valid = run_generator(repo_root, rules_path, out_dir)
         if valid.returncode != 0:
             raise AssertionError(valid.stderr)
 
@@ -207,31 +177,31 @@ def main() -> int:
         assert_contains(ast_cpp, "void free(AstRoot &ast)", "free definition")
         assert_contains(walk_hpp, "void walk(AstRoot &ast", "walk helper")
 
-        compile_smoke(repo_root, compiler, include_root)
+        compile_ast_smoke(repo_root, compiler, include_root)
 
         expect_error(
-            generate,
+            repo_root,
             tmpdir,
             UNKNOWN_SECTION,
             "secao desconhecida",
             "unknown section",
         )
         expect_error(
-            generate,
+            repo_root,
             tmpdir,
             NODE_FIELD_NO_TAG,
             "use child ou children",
             "declared node field without tag",
         )
         expect_error(
-            generate,
+            repo_root,
             tmpdir,
             MISSING_TYPE,
             "campo sem tipo",
             "field without type",
         )
         expect_error(
-            generate,
+            repo_root,
             tmpdir,
             EMPTY_TAG,
             "tag vazia",
@@ -239,34 +209,34 @@ def main() -> int:
         )
         optional_tags = run_generator(
             repo_root,
-            write_rules(tmpdir, OPTIONAL_LEAF_TAGS),
+            write_rules(tmpdir, OPTIONAL_LEAF_TAGS, "ast"),
             out_dir,
         )
         if optional_tags.returncode != 0:
             raise AssertionError(optional_tags.stderr)
         expect_error(
-            generate,
+            repo_root,
             tmpdir,
             UNDECLARED_CHILD,
             "child para tipo nao declarado",
             "undeclared child type",
         )
         expect_error(
-            generate,
+            repo_root,
             tmpdir,
             BAD_VALUE_TYPE,
             "tipo de campo nao suportado",
             "unsupported value type",
         )
         expect_error(
-            generate,
+            repo_root,
             tmpdir,
             DUPLICATE_NODE,
             "no repetido",
             "duplicate node",
         )
         expect_error(
-            generate,
+            repo_root,
             tmpdir,
             DUPLICATE_FIELD,
             "campo repetido",

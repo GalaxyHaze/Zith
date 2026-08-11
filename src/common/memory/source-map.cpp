@@ -1,7 +1,7 @@
-#include "common/source-map.hpp"
+#include "common/memory/source-map.hpp"
 
-#include "common/source-file.hpp"
-#include "common/span.hpp"
+#include "common/memory/source-file.hpp"
+#include "common/memory/span.hpp"
 
 #include <mio/mmap.hpp>
 
@@ -10,7 +10,7 @@
 #include <system_error>
 #include <utility>
 
-namespace memory {
+namespace common::memory {
 
 SourceMap::SourceMap() : files(file_arena) {}
 
@@ -97,25 +97,32 @@ auto SourceMap::exists(FileId id) const noexcept -> bool {
     return id < files.size();
 }
 
-auto SourceMap::snippet(const Span &span) noexcept -> Result<std::string_view> {
+auto SourceMap::snippet(const SourceSpan &ss) const noexcept -> Result<std::string_view> {
     std::shared_lock lock(rw_mutex);
-    if (span.file >= files.size())
+    if (ss.file >= files.size())
         return Error{"Invalid File ID in Span"};
-    return files[span.file].snippet(span);
+    return files[ss.file].snippet(ss.span);
 }
 
-auto SourceMap::get(FileId id) noexcept -> Optional<std::reference_wrapper<SourceLoc>> {
+auto SourceMap::get(FileId id) const noexcept -> Optional<std::reference_wrapper<const SourceLoc>> {
     std::shared_lock lock(rw_mutex);
     if (id < files.size())
         return std::ref(files[id]);
     return nullptr;
 }
 
-auto SourceMap::loc(const Span &span) const noexcept -> Loc {
+auto SourceMap::view(FileId id) const noexcept -> Optional<std::string_view> {
     std::shared_lock lock(rw_mutex);
-    if (span.file >= files.size())
-        return Loc{0, 0};
-    return files[span.file].loc(span.start);
+    if (id < files.size())
+        return std::string_view{files[id].path};
+    return nullptr;
 }
 
-} // namespace memory
+auto SourceMap::loc(const SourceSpan &ss) const noexcept -> Loc {
+    std::shared_lock lock(rw_mutex);
+    if (ss.file >= files.size())
+        return Loc{0, 0};
+    return files[ss.file].loc(ss.span.start);
+}
+
+} // namespace common::memory

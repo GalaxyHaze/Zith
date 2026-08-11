@@ -1,6 +1,6 @@
 #include "frontend/lexer/lexer.hpp"
-#include "common/arena.hpp"
-#include "common/string-interner.hpp"
+#include "common/memory/arena.hpp"
+#include "common/memory/string-interner.hpp"
 
 #include <array>
 #include <cstdio>
@@ -21,8 +21,8 @@ using generated_lexer::TokenStream;
 using generated_lexer::TokenKind;
 using generated_lexer::tokenKindName;
 using generated_lexer::terminalToken;
-using memory::Arena;
-using memory::StringInterner;
+using common::memory::Arena;
+using common::memory::StringInterner;
 
 namespace {
 

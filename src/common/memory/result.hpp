@@ -8,7 +8,7 @@
 #include <utility>
 #include <variant>
 
-namespace memory {
+namespace common::memory {
 
 struct Error {
     std::string msg;
@@ -286,4 +286,4 @@ private:
     }
 };
 
-} // namespace memory
+} // namespace common::memory

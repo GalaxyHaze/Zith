@@ -1,6 +1,6 @@
 #pragma once
-#include "common/arena.hpp"
-#include "common/flat-map.hpp"
+#include "common/memory/arena.hpp"
+#include "common/memory/flat-map.hpp"
 #include "support/macros.hpp"
 
 #include <cstdint>
@@ -9,7 +9,7 @@
 #endif
 #include <string_view>
 
-namespace memory {
+namespace common::memory {
 
 using InternedId = uint32_t;
 
@@ -19,7 +19,7 @@ template <class T> class DynArray;
 struct StringInterner {
     aSelf(StringInterner);
 
-    explicit StringInterner(memory::Arena &arena);
+    explicit StringInterner(Arena &arena);
     StringInterner(const Self &)          = delete;
     auto operator=(const Self &) -> Self & = delete;
 
@@ -29,7 +29,7 @@ struct StringInterner {
 private:
     Arena *allocator_                        = nullptr;
     FlatMap<std::string_view, InternedId> *map = nullptr;
-    memory::DynArray<std::string_view> *pool   = nullptr;
+    DynArray<std::string_view> *pool   = nullptr;
 #if !defined(ZITH_IS_WASM)
     mutable std::shared_mutex rwMutex_;
 #endif
@@ -37,4 +37,4 @@ private:
     void init();
 };
 
-} // namespace memory
+} // namespace common::memory

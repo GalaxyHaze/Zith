@@ -4,58 +4,22 @@
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+_REPO_ROOT = Path(__file__).resolve()
+while not (_REPO_ROOT / "tools").is_dir():
+    _REPO_ROOT = _REPO_ROOT.parent
+sys.path.insert(0, str(_REPO_ROOT))
 
-class RuleError(ValueError):
-    def __init__(self, line_no: int, message: str) -> None:
-        super().__init__(message)
-        self.line_no = line_no
-        self.message = message
-
-    def render(self, path: Path) -> str:
-        return f"{path}:{self.line_no}: {self.message}"
-
-
-def strip_comment(line: str) -> str:
-    quote: str | None = None
-    escaped = False
-    out: list[str] = []
-    for ch in line:
-        if quote:
-            out.append(ch)
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == quote:
-                quote = None
-            continue
-        if ch in {"'", '"'}:
-            quote = ch
-            out.append(ch)
-            continue
-        if ch == "#":
-            break
-        out.append(ch)
-    return "".join(out).strip()
-
-
-def cpp_string(value: str) -> str:
-    return json.dumps(value, ensure_ascii=True)
-
-
-CPP_TYPE_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_:<>,. *&\[\]]*")
-
-
-def validate_cpp_type(cpp_type: str, line_no: int, label: str) -> None:
-    if not CPP_TYPE_PATTERN.fullmatch(cpp_type):
-        raise RuleError(line_no, f"tipo de {label} invalido: {cpp_type!r}")
-
+from tools.rules_kit import (
+    RuleError,
+    cpp_string,
+    join_logical_lines,
+    validate_cpp_type,
+)
 
 def parse_state_member(raw: str, line_no: int) -> tuple[str, str, str]:
     if "=" not in raw:
@@ -100,42 +64,7 @@ def parse_rules(text: str, path: Path) -> SessionRules:
     stage_types: dict[str, tuple[str, int]] = {}
     state_fields: list[StateField] = []
     state_names: set[str] = set()
-    logical: list[tuple[int, str]] = []
-    pending: str | None = None
-    pending_line = 0
-
-    def flush_pending() -> None:
-        nonlocal pending
-        if pending is not None:
-            logical.append((pending_line, pending))
-            pending = None
-
-    def balanced(body: str) -> bool:
-        return (
-            body.count("[") == body.count("]")
-            and body.count("{") == body.count("}")
-            and body.count('"') % 2 == 0
-            and body.count("'") % 2 == 0
-        )
-
-    for line_no, raw in enumerate(text.splitlines(), start=1):
-        line = strip_comment(raw)
-        if not line:
-            continue
-        if re.fullmatch(r"\[([^\]]+)\]", line):
-            flush_pending()
-            logical.append((line_no, line))
-            continue
-        if pending is None:
-            pending = line
-            pending_line = line_no
-            if balanced(pending):
-                flush_pending()
-        else:
-            pending += " " + line
-            if balanced(pending):
-                flush_pending()
-    flush_pending()
+    logical = join_logical_lines(text)
 
     for line_no, line in logical:
         header = re.fullmatch(r"\[([^\]]+)\]", line)
@@ -212,10 +141,11 @@ def make_session_header(rules: SessionRules) -> str:
     lines = [
         "#pragma once",
         "",
-        '#include "common/arena.hpp"',
-        '#include "common/dyn-array.hpp"',
-        '#include "common/result.hpp"',
-        '#include "common/span.hpp"',
+        '#include "common/memory/arena.hpp"',
+        '#include "common/diagnostic/diagnostic.hpp"',
+        '#include "common/memory/dyn-array.hpp"',
+        '#include "common/memory/result.hpp"',
+        '#include "common/memory/span.hpp"',
         '#include "session/types.hpp"',
         "",
         "#include <string>",
@@ -245,18 +175,15 @@ def make_session_header(rules: SessionRules) -> str:
             "    }",
             "};",
             "",
-            "struct Diagnostic {",
-            "    memory::Span span{};",
-            "    std::string message;",
-            "};",
+            "using Diagnostic = common::diagnostic::Diagnostic;",
             "",
-            "struct StageError : memory::Error {",
+            "struct StageError : common::memory::Error {",
             "    Stage stage;",
             "",
             "    explicit StageError(Stage stage);",
             "};",
             "",
-            "using StageResult = memory::Result<Stage, StageError>;",
+            "using StageResult = common::memory::Result<Stage, StageError>;",
             "",
             "const char *stageLabel(Stage stage) noexcept;",
             "",
@@ -273,8 +200,8 @@ def make_session_header(rules: SessionRules) -> str:
             "    [[nodiscard]] bool hasErrors() const noexcept;",
             "    [[nodiscard]] Context &context() noexcept { return *context_; }",
             "    [[nodiscard]] const Context &context() const noexcept { return *context_; }",
-            "    memory::DynArray<Diagnostic> &diags() noexcept { return diagsStorage_; }",
-            "    const memory::DynArray<Diagnostic> &diags() const noexcept { return diagsStorage_; }",
+            "    common::memory::DynArray<Diagnostic> &diags() noexcept { return diagsStorage_; }",
+            "    const common::memory::DynArray<Diagnostic> &diags() const noexcept { return diagsStorage_; }",
             "",
             "    StageResult run();",
             "    StageResult runTo(Stage target);",
@@ -282,8 +209,8 @@ def make_session_header(rules: SessionRules) -> str:
             "",
             "private:",
             "    Context *context_ = nullptr;",
-            "    memory::Arena storageArena_;",
-            "    memory::DynArray<Diagnostic> diagsStorage_;",
+            "    common::memory::Arena storageArena_;",
+            "    common::memory::DynArray<Diagnostic> diagsStorage_;",
             "    bool errors_{false};",
         ]
     )
@@ -360,7 +287,7 @@ def make_session_source(rules: SessionRules) -> str:
         "    }",
         "    return StageResult{plan.current};",
         "}",
-        "StageError::StageError(Stage stage_) : stage(stage_), memory::Error{stageLabel(stage_)} {}",
+        "StageError::StageError(Stage stage_) : stage(stage_), common::memory::Error{stageLabel(stage_)} {}",
         "",
         "bool dispatch(Stage stage, CompilationSession &session) {",
         "    switch (stage) {",
@@ -398,7 +325,7 @@ def make_dispatch_header(rules: SessionRules) -> str:
     lines = [
         "#pragma once",
         "",
-        '#include "common/result.hpp"',
+        '#include "common/memory/result.hpp"',
         '#include "session/session.hpp"',
         '#include "session/types.hpp"',
         "",
@@ -418,7 +345,7 @@ def make_dispatch_header(rules: SessionRules) -> str:
         lines.append(f"using {stage}Result = dispatch_result<Stage::{stage}>::type;")
         lines.append("")
     lines.append("template <Stage S>")
-    lines.append("[[nodiscard]] memory::Result<typename dispatch_result<S>::type> dispatch(")
+    lines.append("[[nodiscard]] common::memory::Result<typename dispatch_result<S>::type> dispatch(")
     lines.append("    CompilationSession &session);")
     lines.append("")
     lines.append("} // namespace zith::session")

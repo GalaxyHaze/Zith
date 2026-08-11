@@ -1,5 +1,5 @@
 #pragma once
-#include "common/arena.hpp"
+#include "common/memory/arena.hpp"
 
 #include <cstddef>
 #include <cstdio>
@@ -9,7 +9,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace memory {
+namespace common::memory {
 
 template <typename T> class DynArray {
     Arena *arena_    = nullptr;
@@ -278,4 +278,4 @@ template <class T> auto makeDynArray(Arena &allocator) {
     return DynArray<T>(allocator);
 }
 
-} // namespace memory
+} // namespace common::memory

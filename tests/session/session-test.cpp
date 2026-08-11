@@ -28,79 +28,79 @@ void record(Stage stage) {
 } // namespace
 
 template <>
-memory::Result<zith::session::SourceResult>
+common::memory::Result<zith::session::SourceResult>
 zith::session::dispatch<Stage::Source>(CompilationSession &) {
     record(Stage::Source);
     return {};
 }
 
 template <>
-memory::Result<zith::session::LexedResult>
+common::memory::Result<zith::session::LexedResult>
 zith::session::dispatch<Stage::Lexed>(CompilationSession &session) {
     if (session.context().filePath.empty())
-        return memory::Error{"missing file"};
+        return common::memory::Error{"missing file"};
     record(Stage::Lexed);
     return generated_lexer::TokenStream{};
 }
 
 template <>
-memory::Result<zith::session::ScannedResult>
+common::memory::Result<zith::session::ScannedResult>
 zith::session::dispatch<Stage::Scanned>(CompilationSession &) {
     record(Stage::Scanned);
     return {};
 }
 
 template <>
-memory::Result<zith::session::ImportedResult>
+common::memory::Result<zith::session::ImportedResult>
 zith::session::dispatch<Stage::Imported>(CompilationSession &) {
     record(Stage::Imported);
     return {};
 }
 
 template <>
-memory::Result<zith::session::ResolvedResult>
+common::memory::Result<zith::session::ResolvedResult>
 zith::session::dispatch<Stage::Resolved>(CompilationSession &) {
     record(Stage::Resolved);
     return {};
 }
 
 template <>
-memory::Result<zith::session::TypeCheckedResult>
+common::memory::Result<zith::session::TypeCheckedResult>
 zith::session::dispatch<Stage::TypeChecked>(CompilationSession &) {
     record(Stage::TypeChecked);
     return {};
 }
 
 template <>
-memory::Result<zith::session::SolvedResult>
+common::memory::Result<zith::session::SolvedResult>
 zith::session::dispatch<Stage::Solved>(CompilationSession &) {
     record(Stage::Solved);
     return {};
 }
 
 template <>
-memory::Result<zith::session::NraResolvedResult>
+common::memory::Result<zith::session::NraResolvedResult>
 zith::session::dispatch<Stage::NraResolved>(CompilationSession &) {
     record(Stage::NraResolved);
     return {};
 }
 
 template <>
-memory::Result<zith::session::HirLoweredResult>
+common::memory::Result<zith::session::HirLoweredResult>
 zith::session::dispatch<Stage::HirLowered>(CompilationSession &) {
     record(Stage::HirLowered);
     return {};
 }
 
 template <>
-memory::Result<zith::session::CodegenReadyResult>
+common::memory::Result<zith::session::CodegenReadyResult>
 zith::session::dispatch<Stage::CodegenReady>(CompilationSession &) {
     record(Stage::CodegenReady);
     return {};
 }
 
 template <>
-memory::Result<zith::session::CachedResult>
+common::memory::Result<zith::session::CachedResult>
 zith::session::dispatch<Stage::Cached>(CompilationSession &) {
     record(Stage::Cached);
     return {};

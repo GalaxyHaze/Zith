@@ -10,27 +10,26 @@ Prefer these types for new compiler-internal state:
 
 | Type | Purpose |
 |---|---|
-| `memory::Arena` | Arena allocation and lifetime scope. |
-| `memory::DynArray<T>` | Dynamic array backed by an arena. |
-| `memory::FlatMap` | Small map implementation. |
-| `memory::StringInterner` | Interned string storage and lookup. |
-| `memory::SourceMap` | Source file identity and content lookup. |
-| `memory::Optional<T>` | Optional value without `std::optional`. |
-| `memory::Result<T, E>` | Value/error return. |
+| `common::memory::Arena` | Arena allocation and lifetime scope. |
+| `common::memory::DynArray<T>` | Dynamic array backed by an arena. |
+| `common::memory::FlatMap` | Small map implementation. |
+| `common::memory::StringInterner` | Interned string storage and lookup. |
+| `common::memory::SourceMap` | Source file identity and content lookup. |
+| `common::memory::Optional<T>` | Optional value without `std::optional`. |
+| `common::memory::Result<T, E>` | Value/error return. |
+| `common::diagnostic` | Diagnostics, Levenshtein distance, and suggestions. |
+| `common::parser` | Output builder template used by generated parsers. |
+| `common::text` | Parsing primitives emitted by generators. |
 
 ## Files
 
-| File | Responsibility |
+| Directory | Responsibility |
 |---|---|
-| `arena.hpp` / `arena.cpp` | Arena allocation and mark-point rollback support. |
-| `dyn-array.hpp` | Arena-backed dynamic array. |
-| `flat-map.hpp` | Small associative container. |
-| `optional.hpp` | Optional wrapper. |
-| `result.hpp` | Value/error result type. |
-| `source-file.hpp` / `source-file.cpp` | Source file loading and mmap lifetime. |
-| `source-map.hpp` / `source-map.cpp` | Source locations and file identity. |
-| `span.hpp` | Offsets, spans, and file locations. |
-| `string-interner.hpp` / `string-interner.cpp` | Interned string pool. |
+| `memory/` | Arena, arrays, maps, source files, spans, and result/optional types. |
+| `ast/` | Template helpers for node-tree visits, clones, replacements, prunes, and transforms. |
+| `diagnostic/` | Diagnostic type and suggestion helpers. |
+| `parser/` | `OutputBuilder` used to assemble user-defined parse output. |
+| `text/` | Parse helpers for booleans, integers, strings, and string lists. |
 | `CMakeLists.txt` | Library target `zith_common`. |
 
 ## Usage
@@ -38,18 +37,18 @@ Prefer these types for new compiler-internal state:
 ### Arena Allocation
 
 ```cpp
-memory::Arena arena;
+common::memory::Arena arena;
 auto *value = arena.make<MyType>(constructorArg);
 auto *bytes = arena.alloc(bytesToAllocate, alignof(MyType));
 ```
 
-The arena owns all allocations until it is reset or destroyed. Use `memory::MarkPoint` when a
+The arena owns all allocations until it is reset or destroyed. Use `common::memory::MarkPoint` when a
 rollback scope is needed.
 
 ### Dynamic Arrays
 
 ```cpp
-memory::DynArray<int> values{arena};
+common::memory::DynArray<int> values{arena};
 values.push(1);
 values.push(2);
 ```
@@ -59,7 +58,7 @@ values.push(2);
 ### Strings
 
 ```cpp
-memory::StringInterner interner{arena};
+common::memory::StringInterner interner{arena};
 const auto id = interner.intern("source");
 const auto view = interner.lookup(id);
 ```
@@ -69,8 +68,8 @@ The interner stores lifetime and lookup state in the arena.
 ### Results
 
 ```cpp
-memory::Result<int> ok{42};
-memory::Result<int> failed{memory::Error{"boom"}};
+common::memory::Result<int> ok{42};
+common::memory::Result<int> failed{common::memory::Error{"boom"}};
 
 if (!ok)
     std::abort();
@@ -83,7 +82,7 @@ if (failed)
 ### Source Files And Maps
 
 ```cpp
-memory::SourceMap sourceMap;
+common::memory::SourceMap sourceMap;
 const auto id = sourceMap.loadFile("src/main.zith");
 if (!id)
     return id.error();
@@ -94,6 +93,31 @@ if (loc)
 ```
 
 `SourceMap` owns loaded source content and provides stable file ids for spans.
+
+### AST Helpers
+
+An AST type can use `common/ast/` helpers when its namespace declares
+`for_each_child(T *, Fn &&)`. The helper walks children with that function and never
+depends on a generated AST shape. `for_each_child` must invoke `fn` with each
+child pointer by reference so mutation helpers can replace or prune a child.
+
+```cpp
+template <typename Fn>
+void for_each_child(BinExpr *node, Fn &&fn) {
+    fn(node->left);   // passes Expr *& so helpers can update the field
+    fn(node->right);
+}
+
+common::ast::visit(root, [](auto *node, auto *parent) {
+    // Pre-order, parent is nullptr for the root.
+});
+
+AstRoot target{arena};
+auto *copyRoot = common::ast::cloneTree(target, sourceRoot);
+```
+
+`replaceChild` and `pruneChild` return whether a direct child was updated. `transform`
+does a post-order walk and replaces the returned node when `fn` returns non-null.
 
 ## Linking
 

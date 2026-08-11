@@ -6,7 +6,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace memory {
+namespace common::memory {
 
 class Arena {
 public:
@@ -298,4 +298,4 @@ public:
     }
 };
 
-} // namespace memory
+} // namespace common::memory

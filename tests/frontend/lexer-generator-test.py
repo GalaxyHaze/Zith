@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-import subprocess
 import sys
 import tempfile
+import subprocess
 from pathlib import Path
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from tools.test_kit import assert_contains, run_generator
 
 
 RULES_WITH_HOOKS = """\
@@ -37,27 +42,12 @@ compound = ["->"]
 """
 
 
-def assert_contains(text: str, needle: str, label: str) -> None:
-    if needle not in text:
-        raise AssertionError(f"missing {label}: {needle!r}")
-
-
-def run_generator(repo_root: Path, rules_text: str, out_dir: Path) -> None:
+def run_lexer_generator(repo_root: Path, rules_text: str, out_dir: Path) -> None:
     rules_path = out_dir / "lexer.rules"
     rules_path.write_text(rules_text, encoding="utf-8")
-    subprocess.run(
-        [
-            sys.executable,
-            str(repo_root / "src/frontend/lexer/generate.py"),
-            str(rules_path),
-            "--out",
-            str(out_dir),
-            "--types",
-            str(repo_root / "src/frontend/lexer/types.hpp"),
-        ],
-        check=True,
-        cwd=repo_root,
-    )
+    result = run_generator(repo_root, rules_path, out_dir)
+    if result.returncode != 0:
+        raise AssertionError(result.stderr)
 
 
 def compile_actions_smoke(repo_root: Path, compiler: str, out_dir: Path) -> None:
@@ -104,7 +94,7 @@ def main() -> int:
         tmpdir = Path(tmp)
         hooks_out = tmpdir / "hooks"
         hooks_out.mkdir()
-        run_generator(repo_root, RULES_WITH_HOOKS, hooks_out)
+        run_lexer_generator(repo_root, RULES_WITH_HOOKS, hooks_out)
 
         actions_hpp = (hooks_out / "actions.hpp").read_text(encoding="utf-8")
         lexer_cpp = (hooks_out / "lexer.cpp").read_text(encoding="utf-8")
@@ -139,7 +129,7 @@ def main() -> int:
         )
         assert_contains(
             lexer_hpp,
-            "memory::StringInterner &strings",
+            "common::memory::StringInterner &strings",
             "StringInterner run declaration",
         )
         assert_contains(
@@ -190,7 +180,7 @@ def main() -> int:
         assert_contains(lexer_cpp, "TokenStream Lexer::run(", "TokenStream run definition")
         assert_contains(
             lexer_cpp,
-            "memory::StringInterner &strings",
+            "common::memory::StringInterner &strings",
             "StringInterner run definition",
         )
         assert_contains(
@@ -210,7 +200,7 @@ def main() -> int:
 
         arrow_out = tmpdir / "arrow"
         arrow_out.mkdir()
-        run_generator(repo_root, RULES_WITH_ARROW, arrow_out)
+        run_lexer_generator(repo_root, RULES_WITH_ARROW, arrow_out)
         arrow_cpp = (arrow_out / "lexer.cpp").read_text(encoding="utf-8")
         assert_contains(arrow_cpp, '"->"', "explicit arrow compound")
 

@@ -11,6 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+_REPO_ROOT = Path(__file__).resolve()
+while not (_REPO_ROOT / "tools").is_dir():
+    _REPO_ROOT = _REPO_ROOT.parent
+sys.path.insert(0, str(_REPO_ROOT))
+
+from tools.rules_kit import cpp_string, split_top_level, strip_comment, to_camel
+
 
 class ConfigError(ValueError):
     def __init__(self, path: Path, line_no: int, message: str) -> None:
@@ -21,41 +28,6 @@ class ConfigError(ValueError):
 
     def render(self) -> str:
         return f"{self.path}:{self.line_no}: {self.message}"
-
-
-def cpp_string(value: str) -> str:
-    return json.dumps(value, ensure_ascii=True)
-
-
-def to_camel(name: str) -> str:
-    parts = [part for part in re.split(r"[_-]", name) if part]
-    if not parts:
-        return name
-    return parts[0] + "".join(part.capitalize() for part in parts[1:])
-
-
-def strip_comment(line: str) -> str:
-    quote: str | None = None
-    escaped = False
-    out: list[str] = []
-    for ch in line:
-        if quote:
-            out.append(ch)
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == quote:
-                quote = None
-            continue
-        if ch in {'"', "'"}:
-            quote = ch
-            out.append(ch)
-            continue
-        if ch == "#":
-            break
-        out.append(ch)
-    return "".join(out).strip()
 
 
 def parse_string_quoted(raw: str, line_no: int) -> str:
@@ -70,36 +42,6 @@ def parse_string_quoted(raw: str, line_no: int) -> str:
         return json.loads(f'"{body}"' if raw.startswith('"') else f'"{body}"')
     except (ValueError, SyntaxError) as exc:
         raise ConfigError(Path("<toml>"), line_no, f"string invalida: {raw!r}") from exc
-
-
-def split_top_level(body: str, line_no: int) -> list[str]:
-    parts: list[str] = []
-    start = 0
-    depth = 0
-    quote: str | None = None
-    escaped = False
-    for index, ch in enumerate(body):
-        if quote:
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == quote:
-                quote = None
-            continue
-        if ch in {'"', "'"}:
-            quote = ch
-        elif ch in "[{(":
-            depth += 1
-        elif ch in "]})":
-            depth -= 1
-        elif ch == "," and depth == 0:
-            parts.append(body[start:index].strip())
-            start = index + 1
-    if quote or depth != 0:
-        raise ConfigError(Path("<toml>"), line_no, "lista/string nao terminada")
-    parts.append(body[start:].strip())
-    return parts
 
 
 def parse_strings(raw: str, line_no: int) -> list[str]:
@@ -164,9 +106,9 @@ class Field:
         if isinstance(self.value, int):
             return "int"
         if isinstance(self.value, str):
-            return "memory::InternedId"
+            return "common::memory::InternedId"
         if isinstance(self.value, list):
-            return "memory::DynArray<memory::InternedId>"
+            return "common::memory::DynArray<common::memory::InternedId>"
         raise ConfigError(Path("<toml>"), self.line_no,
                           f"tipo suportado apenas string/bool/int/array de strings: "
                           f"{self.qualified}")
@@ -259,9 +201,9 @@ def make_header(config: Config) -> str:
     lines = [
         "#pragma once",
         "",
-        '#include "common/dyn-array.hpp"',
-        '#include "common/string-interner.hpp"',
-        '#include "common/result.hpp"',
+        '#include "common/memory/dyn-array.hpp"',
+        '#include "common/memory/string-interner.hpp"',
+        '#include "common/memory/result.hpp"',
         "",
         "#include <string_view>",
         "",
@@ -278,7 +220,7 @@ def make_header(config: Config) -> str:
         lines.append("")
     lines.extend(
         [
-            "    ProjectConfig(memory::Arena &arena, memory::StringInterner &strings)",
+            "    ProjectConfig(common::memory::Arena &arena, common::memory::StringInterner &strings)",
         ]
     )
     init_lines: list[str] = []
@@ -298,9 +240,9 @@ def make_header(config: Config) -> str:
             "    }",
             "};",
             "",
-            "memory::Result<void, memory::Error> loadFromToml(",
-            "    std::string_view tomlText, memory::Arena &arena,",
-            "    memory::StringInterner &strings, ProjectConfig &config);",
+            "common::memory::Result<void, common::memory::Error> loadFromToml(",
+            "    std::string_view tomlText, common::memory::Arena &arena,",
+            "    common::memory::StringInterner &strings, ProjectConfig &config);",
             "",
             "} // namespace zith",
         ]
@@ -311,6 +253,7 @@ def make_header(config: Config) -> str:
 def make_source(config: Config) -> str:
     lines = [
         '#include "project-config.hpp"',
+        "#include \"common/text/parse.hpp\"",
         "",
         "#include <charconv>",
         "#include <string>",
@@ -319,78 +262,6 @@ def make_source(config: Config) -> str:
         "#include <vector>",
         "",
         "namespace zith {",
-        "",
-        "namespace {",
-        "",
-        "bool parseBool(std::string_view value, bool &out) noexcept {",
-        "    if (value == \"true\") { out = true; return true; }",
-        "    if (value == \"false\") { out = false; return true; }",
-        "    return false;",
-        "}",
-        "",
-        "bool parseString(std::string_view value, std::string &out) noexcept {",
-        "    if (value.size() < 2 || value.front() != '\"' || value.back() != '\"')",
-        "        return false;",
-        "    out.clear();",
-        "    const std::string_view body = value.substr(1, value.size() - 2);",
-        "    for (std::size_t i = 0; i < body.size(); ++i) {",
-        "        if (body[i] == '\\\\') {",
-        "            if (i + 1 >= body.size()) return false;",
-        "            const char escaped = body[++i];",
-        "            switch (escaped) {",
-        "            case 'n': out.push_back('\\n'); break;",
-        "            case 'r': out.push_back('\\r'); break;",
-        "            case 't': out.push_back('\\t'); break;",
-        "            case '\\\\': out.push_back('\\\\'); break;",
-        "            case '\"': out.push_back('\"'); break;",
-        "            default: return false;",
-        "            }",
-        "        } else {",
-        "            out.push_back(body[i]);",
-        "        }",
-        "    }",
-        "    return true;",
-        "}",
-        "",
-        "bool parseInt(std::string_view value, int &out) noexcept {",
-        "    const char *first = value.data();",
-        "    const char *last = value.data() + value.size();",
-        "    const auto result = std::from_chars(first, last, out, 10);",
-        "    return result.ec == std::errc{} && result.ptr == last;",
-        "}",
-        "",
-        "bool parseStringList(std::string_view value, std::vector<std::string> &out) noexcept {",
-        "    if (value.size() < 2 || value.front() != '[' || value.back() != ']')",
-        "        return false;",
-        "    out.clear();",
-        "    std::string_view inner = value.substr(1, value.size() - 2);",
-        "    std::size_t cursor = 0;",
-        "    while (cursor < inner.size()) {",
-        "        while (cursor < inner.size() && (inner[cursor] == ' ' || inner[cursor] == '\\t'))",
-        "            ++cursor;",
-        "        if (cursor == inner.size()) break;",
-        "        std::size_t at = cursor;",
-        "        bool inString = false;",
-        "        for (; at < inner.size(); ++at) {",
-        "            const char c = inner[at];",
-        "            if (c == '\"' && (at == cursor || inner[at - 1] != '\\\\'))",
-        "                inString = !inString;",
-        "            if (!inString && c == ',') break;",
-        "        }",
-        "        if (inString) return false;",
-        "        std::size_t end = at;",
-        "        while (end > cursor && (inner[end - 1] == ' ' || inner[end - 1] == '\\t'))",
-        "            --end;",
-        "        std::string itemText(inner.substr(cursor, end - cursor));",
-        "        std::string item;",
-        "        if (!parseString(itemText, item)) return false;",
-        "        out.push_back(item);",
-        "        if (at == inner.size()) return true;",
-        "        cursor = at + 1;",
-        "    }",
-        "    return true;",
-        "}",
-        "",
         "std::string_view stripComment(std::string_view line) noexcept {",
         "    std::size_t start = 0;",
         "    while (start < line.size() && (line[start] == ' ' || line[start] == '\\t'))",
@@ -411,10 +282,8 @@ def make_source(config: Config) -> str:
         "    return line.substr(start, end - start);",
         "}",
         "",
-        "} // namespace",
-        "",
-        "memory::Result<void, memory::Error> loadFromToml(",
-        "    std::string_view tomlText, memory::Arena &arena, memory::StringInterner &strings,",
+        "common::memory::Result<void, common::memory::Error> loadFromToml(",
+        "    std::string_view tomlText, common::memory::Arena &arena, common::memory::StringInterner &strings,",
         "    ProjectConfig &config) {",
         "    (void)arena;",
         "    std::size_t lineNo = 1;",
@@ -429,13 +298,13 @@ def make_source(config: Config) -> str:
         "                section = line.substr(1, line.size() - 2);",
         "                if (section != \"project\" && section != \"build\" &&",
         "                    section != \"paths\" && section != \"ffi\") {",
-        "                    return memory::Error{std::string(\"unknown section \") +",
+        "                    return common::memory::Error{std::string(\"unknown section \") +",
         "                                         std::string(section)};",
         "                }",
         "            } else {",
         "                const std::size_t eq = line.find('=');",
         "                if (eq == std::string_view::npos) {",
-        "                    return memory::Error{std::string(\"expected '=' on line \") +",
+        "                    return common::memory::Error{std::string(\"expected '=' on line \") +",
         "                                         std::to_string(lineNo)};",
         "                }",
         "                std::string_view name = line.substr(0, eq);",
@@ -449,7 +318,7 @@ def make_source(config: Config) -> str:
         "                while (!value.empty() && (value.back() == ' ' || value.back() == '\\t'))",
         "                    value = value.substr(0, value.size() - 1);",
         "                if (section.empty() || name.empty() || value.empty()) {",
-        "                    return memory::Error{std::string(\"invalid line \") +",
+        "                    return common::memory::Error{std::string(\"invalid line \") +",
         "                                         std::to_string(lineNo)};",
         "                }",
         "                bool handled = false;",
@@ -464,8 +333,8 @@ def make_source(config: Config) -> str:
             lines.extend(
                 [
                     "                    bool parsed = false;",
-                    "                    if (!parseBool(value, parsed))",
-                    "                        return memory::Error{\"invalid bool for \" + std::string(name)};",
+                    "                    if (!common::text::parseBool(value, parsed))",
+                    "                        return common::memory::Error{\"invalid bool for \" + std::string(name)};",
                     f"                    config.{field.member} = parsed;",
                 ]
             )
@@ -473,8 +342,8 @@ def make_source(config: Config) -> str:
             lines.extend(
                 [
                     "                    int parsed = 0;",
-                    "                    if (!parseInt(value, parsed))",
-                    "                        return memory::Error{\"invalid int for \" + std::string(name)};",
+                    "                    if (!common::text::parseInt(value, parsed))",
+                    "                        return common::memory::Error{\"invalid int for \" + std::string(name)};",
                     f"                    config.{field.member} = parsed;",
                 ]
             )
@@ -482,8 +351,8 @@ def make_source(config: Config) -> str:
             lines.extend(
                 [
                     "                    std::string parsed;",
-                    "                    if (!parseString(value, parsed))",
-                    "                        return memory::Error{\"invalid string for \" + std::string(name)};",
+                    "                    if (!common::text::parseString(value, parsed))",
+                    "                        return common::memory::Error{\"invalid string for \" + std::string(name)};",
                     f"                    config.{field.member} = strings.intern(parsed);",
                 ]
             )
@@ -491,8 +360,8 @@ def make_source(config: Config) -> str:
             lines.extend(
                 [
                     "                    std::vector<std::string> parsed;",
-                    "                    if (!parseStringList(value, parsed))",
-                    "                        return memory::Error{\"invalid list for \" + std::string(name)};",
+                    "                    if (!common::text::parseStringList(value, parsed))",
+                    "                        return common::memory::Error{\"invalid list for \" + std::string(name)};",
                     f"                    config.{field.member}.clear();",
                     "                    for (const std::string &item : parsed)",
                     f"                        config.{field.member}.push(strings.intern(item));",

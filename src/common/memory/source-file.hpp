@@ -1,8 +1,8 @@
 #pragma once
-#include "common/arena.hpp"
-#include "common/dyn-array.hpp"
-#include "common/result.hpp"
-#include "common/span.hpp"
+#include "common/memory/arena.hpp"
+#include "common/memory/dyn-array.hpp"
+#include "common/memory/result.hpp"
+#include "common/memory/span.hpp"
 
 #include <mio/mmap.hpp>
 
@@ -10,7 +10,7 @@
 #include <string_view>
 #include <variant>
 
-namespace memory {
+namespace common::memory {
 
 struct SourceLoc {
     using FileVar = std::variant<mio::mmap_source, mio::mmap_sink, std::string>;
@@ -32,4 +32,4 @@ struct SourceLoc {
     [[nodiscard]] auto filename() const noexcept -> std::string_view;
 };
 
-} // namespace memory
+} // namespace common::memory

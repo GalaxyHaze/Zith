@@ -33,7 +33,7 @@ std::string capture_print(const AstRoot &ast) {
 } // namespace
 
 int main() {
-    memory::Arena arena;
+    common::memory::Arena arena;
     AstRoot ast(arena);
 
     Expr *callee = generated_ast::make<Expr>(ast, Span{6, 7});

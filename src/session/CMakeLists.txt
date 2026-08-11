@@ -14,6 +14,9 @@ add_custom_command(
     DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/session.rules"
         "${CMAKE_CURRENT_SOURCE_DIR}/generate.py"
+        "${PROJECT_SOURCE_DIR}/tools/rules_kit/__init__.py"
+        "${PROJECT_SOURCE_DIR}/tools/rules_kit/errors.py"
+        "${PROJECT_SOURCE_DIR}/tools/rules_kit/text.py"
     VERBATIM
     COMMENT "Generating session sources from rules"
 )

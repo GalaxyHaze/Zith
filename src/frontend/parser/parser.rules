@@ -1,0 +1,58 @@
+# Zith declarative parser structure.
+#
+# [parser] declares the user-owned input/output/diagnostic/token types used by
+# the generated `Parser<Output>` template. `tokenStream` must name the
+# generated lexer `TokenStream` type. `end` names the token that terminates the
+# stream in every context; `onError` optionally installs a recovery hook.
+# `builder:` optionally selects a custom builder type when a `[context]`
+# declares `builder=true`.
+# [contexts] lists every valid parser context; `TopLevel` is required and is
+# the initial stack value.
+# A `[context Name parent=Other,...]` section lists rules matched in
+# declaration order:
+#   kind[, kind...] [lexeme="..."] [punc="..."]
+#       [push=Context] [pop=Context] [action=hooks::parser::foo()]
+
+[parser]
+input: std::string_view
+output: sample::ParseOutput
+diagnostic: sample::ParserDiagnostic
+tokenStream: generated_lexer::TokenStream
+end: Token::End
+onError: hooks::parser::recover()
+
+[contexts]
+TopLevel
+Module
+Expr
+Type
+
+[context TopLevel]
+Fn lexeme="fn" push=Module action=hooks::parser::beginModule()
+Identifier action=hooks::parser::sawTopIdentifier()
+Punctuation punc=";" action=hooks::parser::sawSemi()
+Punctuation punc="(" push=Type action=hooks::parser::enterType()
+
+[context Module parent=TopLevel]
+Identifier lexeme="module" action=hooks::parser::moduleName()
+Fn, Identifier lexeme="def"
+Identifier action=hooks::parser::globalName()
+Punctuation punc=":"
+Punctuation punc="[" push=Expr
+Punctuation punc=";" pop=Module
+
+[context Expr parent=TopLevel]
+Identifier action=hooks::parser::leafExpr()
+LitVal action=hooks::parser::leafExpr()
+Operators punc="+" action=hooks::parser::binaryExpr()
+Operators punc="-" action=hooks::parser::unaryExpr()
+Punctuation punc=")" pop=Expr
+
+[context Expr parent=Module,TopLevel]
+Operators punc="*"
+Punctuation punc="]" pop=Expr
+
+[context Type parent=TopLevel]
+Identifier action=hooks::parser::typeName()
+Punctuation punc="["
+Punctuation punc="]" pop=Type

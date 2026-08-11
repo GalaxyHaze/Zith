@@ -4,49 +4,17 @@
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+_REPO_ROOT = Path(__file__).resolve()
+while not (_REPO_ROOT / "tools").is_dir():
+    _REPO_ROOT = _REPO_ROOT.parent
+sys.path.insert(0, str(_REPO_ROOT))
 
-class RuleError(ValueError):
-    def __init__(self, line_no: int, message: str) -> None:
-        super().__init__(message)
-        self.line_no = line_no
-        self.message = message
-
-    def render(self, path: Path) -> str:
-        return f"{path}:{self.line_no}: {self.message}"
-
-
-def strip_comment(line: str) -> str:
-    quote: str | None = None
-    escaped = False
-    out: list[str] = []
-    for ch in line:
-        if quote:
-            out.append(ch)
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == quote:
-                quote = None
-            continue
-        if ch in {"'", '"'}:
-            quote = ch
-            out.append(ch)
-            continue
-        if ch == "#":
-            break
-        out.append(ch)
-    return "".join(out).strip()
-
-
-def cpp_string(value: str) -> str:
-    return json.dumps(value, ensure_ascii=True)
+from tools.rules_kit import RuleError, cpp_string, join_logical_lines, strip_comment
 
 
 SUPPORTED_TAGS = {"child", "children", "string", "value"}
@@ -144,7 +112,7 @@ def declared_names(nodes: list[Node]) -> set[str]:
 
 
 def array_element(cpp_type: str) -> str | None:
-    match = re.fullmatch(r"memory::DynArray<([A-Za-z_][A-Za-z0-9_]*)>", cpp_type.strip())
+    match = re.fullmatch(r"common::memory::DynArray<([A-Za-z_][A-Za-z0-9_]*)>", cpp_type.strip())
     return match.group(1) if match else None
 
 
@@ -163,7 +131,7 @@ def validate_rules(nodes: list[Node]) -> None:
                 if element is None or element not in names:
                     raise RuleError(
                         field.line_no,
-                        "children tem de ser memory::DynArray<TipoDeclarado>, "
+                        "children tem de ser common::memory::DynArray<TipoDeclarado>, "
                         f"mas o tipo foi {field.cpp_type!r}",
                     )
             elif field.tag == "string":
@@ -204,12 +172,12 @@ def node_field_type(field: Field) -> str:
     if field.tag == "child":
         return "AstNode *"
     if field.tag == "children":
-        return "memory::DynArray<AstNode *>"
+        return "common::memory::DynArray<AstNode *>"
     return field.cpp_type
 
 
 def node_constructor_params(node: Node) -> list[str]:
-    params = ["memory::Arena &arena"]
+    params = ["common::memory::Arena &arena"]
     for field in node.fields:
         if field.tag != "children":
             param_type = (
@@ -281,8 +249,8 @@ def make_ast_header(nodes: list[Node]) -> str:
     lines = [
         "#pragma once",
         "",
-        '#include "common/arena.hpp"',
-        '#include "common/dyn-array.hpp"',
+        '#include "common/memory/arena.hpp"',
+        '#include "common/memory/dyn-array.hpp"',
         '#include "frontend/ast/types.hpp"',
         "",
         "#include <cstddef>",
@@ -298,11 +266,11 @@ def make_ast_header(nodes: list[Node]) -> str:
     lines.extend(
         [
             "struct AstRoot {",
-            "    memory::Arena *arena = nullptr;",
+            "    common::memory::Arena *arena = nullptr;",
             f"    {root} *root = nullptr;",
-            "    memory::DynArray<const void *> nodes;",
+            "    common::memory::DynArray<const void *> nodes;",
             "",
-            "    explicit AstRoot(memory::Arena &a);",
+            "    explicit AstRoot(common::memory::Arena &a);",
             "    ~AstRoot();",
             "    AstRoot(AstRoot &&) noexcept;",
             "    AstRoot &operator=(AstRoot &&) noexcept;",
@@ -327,7 +295,7 @@ def make_ast_header(nodes: list[Node]) -> str:
             "template <typename T, typename... Args>",
             "[[nodiscard]] T *alloc(AstRoot &ast, Args &&...args) {",
             "    static_assert(std::is_base_of_v<AstNode, T>);",
-            "    static_assert(std::is_constructible_v<T, memory::Arena &, Args...>);",
+            "    static_assert(std::is_constructible_v<T, common::memory::Arena &, Args...>);",
             "    if (ast.arena == nullptr)",
             "        return nullptr;",
             "    T *node = ast.arena->make<T>(*ast.arena, std::forward<Args>(args)...);",
@@ -439,7 +407,7 @@ def make_ast_source(nodes: list[Node]) -> str:
         [
             "} // anonymous namespace",
             "",
-            "AstRoot::AstRoot(memory::Arena &a)",
+            "AstRoot::AstRoot(common::memory::Arena &a)",
             "    : arena(&a), root(nullptr), nodes(a) {}",
             "",
             "AstRoot::~AstRoot() { free(*this); }",

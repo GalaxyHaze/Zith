@@ -1,14 +1,14 @@
-#include "common/source-map.hpp"
+#include "common/memory/source-map.hpp"
 
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <string_view>
 
-using memory::FileId;
-using memory::Loc;
-using memory::SourceMap;
-using memory::Span;
+using common::memory::FileId;
+using common::memory::Loc;
+using common::memory::SourceMap;
+using common::memory::SourceSpan;
 
 namespace {
 
@@ -42,19 +42,19 @@ int main() {
     ok &= check(map.exists(id), "added file is valid");
     ok &= check(!map.exists(UINT32_MAX), "invalid id is not valid");
 
-    const auto first = map.snippet(Span{id, 0, 5});
+    const auto first = map.snippet(SourceSpan{id, {0, 5}});
     ok &= check(first.isOk() && first.value() == "hello", "snippet keeps first five bytes");
 
-    const auto second = map.snippet(Span{id, 6, 11});
+    const auto second = map.snippet(SourceSpan{id, {6, 11}});
     ok &= check(second.isOk() && second.value() == "world", "snippet keeps second line");
 
-    ok &= check_loc(map.loc(Span{id, 0, 0}), 1, 1, "offset 0 is line 1 col 1");
-    ok &= check_loc(map.loc(Span{id, 6, 6}), 2, 1, "offset 6 is line 2 col 1");
-    ok &= check_loc(map.loc(Span{id, 7, 7}), 2, 2, "offset 7 is line 2 col 2");
+    ok &= check_loc(map.loc(SourceSpan{id, {0, 0}}), 1, 1, "offset 0 is line 1 col 1");
+    ok &= check_loc(map.loc(SourceSpan{id, {6, 6}}), 2, 1, "offset 6 is line 2 col 1");
+    ok &= check_loc(map.loc(SourceSpan{id, {7, 7}}), 2, 2, "offset 7 is line 2 col 2");
 
     const auto same = map.addFile("other.zith", "aaa");
     ok &= check(same.isOk() && same.value() != id, "distinct path yields distinct id");
-    ok &= check_loc(map.loc(Span{UINT32_MAX, 0, 0}), 0, 0, "invalid file yields zero loc");
+    ok &= check_loc(map.loc(SourceSpan{UINT32_MAX, {0, 0}}), 0, 0, "invalid file yields zero loc");
 
     const auto missing = map.loadFile("/nonexistent/zith/source.zith");
     ok &= check(missing.isError(), "missing file returns error");

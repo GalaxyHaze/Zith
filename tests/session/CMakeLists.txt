@@ -21,4 +21,8 @@ add_test(
             "${CMAKE_CURRENT_SOURCE_DIR}/session-generator-test.py"
             "${PROJECT_SOURCE_DIR}"
             "${CMAKE_CXX_COMPILER}"
+    DEPENDS
+        "${PROJECT_SOURCE_DIR}/tools/test_kit/__init__.py"
+        "${PROJECT_SOURCE_DIR}/tools/test_kit/asserts.py"
+        "${PROJECT_SOURCE_DIR}/tools/test_kit/smoke.py"
 )
