@@ -1,0 +1,4 @@
+[submodule "common/cache"]
+	path = common/cache
+	url = https://github.com/GalaxyHaze/zith-cache.git
+	branch = main

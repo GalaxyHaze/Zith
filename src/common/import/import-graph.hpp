@@ -16,28 +16,32 @@ namespace zith::import {
 using ModuleId = uint32_t;
 
 class Module;
+class ImportGraph;
 
 struct ResolveGuard {
+    ImportGraph &graph;
     Module &module;
+    ModuleId moduleId;
     bool active = false;
 
-    ResolveGuard() = default;
-    explicit ResolveGuard(Module &m) : module(m), active(true) {}
+    ResolveGuard() = delete;
+    explicit ResolveGuard(ImportGraph &graph_, Module &module_, ModuleId moduleId_)
+        : graph(graph_), module(module_), moduleId(moduleId_), active(true) {}
+    ~ResolveGuard();
 
     ResolveGuard(const ResolveGuard &)            = delete;
     ResolveGuard &operator=(const ResolveGuard &) = delete;
     ResolveGuard &operator=(ResolveGuard &&)      = delete;
 
     ResolveGuard(ResolveGuard &&other) noexcept
-        : module(other.module), active(other.active) {
+        : graph(other.graph), module(other.module), moduleId(other.moduleId),
+          active(other.active) {
         other.active = false;
     }
 
     bool valid() const noexcept { return active; }
     explicit operator bool() const noexcept { return valid(); }
 };
-
-class ImportGraph;
 
 class Module {
 public:
@@ -76,7 +80,7 @@ private:
     friend class ImportGraph;
 
     ImportGraph &graph_;
-    ModuleId id_;
+    ModuleId id_ = symbols::kInvalidModule;
 
     Module(ImportGraph &graph, ModuleId id) : graph_(graph), id_(id) {}
 
@@ -142,8 +146,10 @@ private:
         ModuleId id, int32_t &timer,
         common::memory::DynArray<uint8_t> &color);
     [[nodiscard]] ModuleId idOf_(const Module &module) const noexcept;
+    void finishResolve(ModuleId id) noexcept;
 
     friend class Module;
+    friend class ResolveGuard;
 };
 
 // --- Module template implementations ---

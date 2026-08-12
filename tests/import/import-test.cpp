@@ -153,13 +153,18 @@ int main() {
         auto &mod = *graph.addModule("loader");
         ok &= check(!graph.isLoaded(mod), "module not loaded initially");
 
-        auto guard = graph.beginResolve(mod);
-        ok &= check(guard.isOk(), "beginResolve succeeds");
-        ok &= check(guard.value().valid(), "guard is valid");
-        ok &= check(&guard.value().module == &mod, "guard exposes module reference");
+        {
+            auto guard = graph.beginResolve(mod);
+            ok &= check(guard.isOk(), "beginResolve succeeds");
+            ok &= check(guard.value().valid(), "guard is valid");
+            ok &= check(&guard.value().module == &mod, "guard exposes module reference");
 
-        auto guard2 = graph.beginResolve(mod);
-        ok &= check(guard2.isError(), "beginResolve again fails (already resolving)");
+            auto guard2 = graph.beginResolve(mod);
+            ok &= check(guard2.isError(), "beginResolve again fails (already resolving)");
+        }
+
+        auto guard3 = graph.beginResolve(mod);
+        ok &= check(guard3.isOk(), "beginResolve succeeds after guard destructor");
     }
 
     // --- nodeCount tracks created modules ---

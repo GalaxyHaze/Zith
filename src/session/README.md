@@ -8,8 +8,8 @@ pipeline mechanics and any truly session-local state, while domain services live
 user-owned context object.
 
 The session is a concrete generated type. It still emits `CompilationSession`, `Stage`,
-`PipelinePlan`, `StageError`, `StageResult`, `dispatch<Stage>()`, `run()`, `runTo()`, and
-`resume()`.
+`PipelinePlan`, `StageError`, `StageResult`, `dispatch<Stage>()`, `run()`, `runTo()`,
+`resume()`, and per-stage result storage.
 
 ## Files
 
@@ -77,6 +77,45 @@ if (!result) {
 }
 ```
 
+Pipeline execution stores each successful stage output in the session. Query or read a stored
+result by stage:
+
+```cpp
+if (session.hasStageResult<zith::session::Stage::Lexed>()) {
+    auto &tokens = session.stageResult<zith::session::Stage::Lexed>().value();
+    // tokens is generated_lexer::TokenStream for this stage's rule output.
+}
+```
+
+A later stage reads an earlier stage's stored output directly from the session. There is no
+automatic result parameter passed between phases:
+
+```cpp
+template <>
+common::memory::Result<ScannedResult>
+dispatch<Stage::Scanned>(CompilationSession &session) {
+    if (!session.hasStageResult<Stage::Lexed>()) {
+        return common::memory::Error{"scanner requires a successful Lexed stage"};
+    }
+    const auto &tokens = session.stageResult<Stage::Lexed>().value();
+    return tokens.empty()
+        ? common::memory::Error{"cannot scan an empty token stream"}
+        : common::memory::Result<ScannedResult>{};
+}
+```
+
+This keeps the generated dispatch signature unchanged: each `dispatch<Stage>()` receives only
+`CompilationSession &`, and the session is the indexed storage for every prior successful result.
+`void` stages also store a successful result, so `runTo()` exposes ordered stage progress even
+before a real AST/IR helper exists. Direct `dispatch<Stage>()` calls do not write these slots; only
+`run()`, `runTo()`, and `resume()` do.
+
+The storage invariants are:
+
+- A stage result exists only after the pipeline stored that stage's successful dispatch output.
+- Calling `dispatch<Stage>()` directly never populates stage result slots.
+- `run()`, `runTo()`, and `resume()` are the paths that dispatch stages and store their results.
+
 Important generated members:
 
 | Member | Behavior |
@@ -87,6 +126,8 @@ Important generated members:
 | `run()` | Runs to the final declared stage. |
 | `runTo(Stage)` | Runs from the first stage through the requested target. |
 | `resume()` | Continues from `plan.current` toward `plan.target`. |
+| `hasStageResult<Stage>()` | True when the pipeline stored a successful result for a stage. |
+| `stageResult<Stage>()` | Returns the stored `Result<Output>` for a stage. |
 | `hasErrors()` | True if the session has recorded errors. |
 
 ## Handwritten Dispatch

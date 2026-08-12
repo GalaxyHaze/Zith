@@ -14,7 +14,13 @@ while not (_REPO_ROOT / "tools").is_dir():
     _REPO_ROOT = _REPO_ROOT.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from tools.rules_kit import RuleError, cpp_string, strip_comment
+from tools.rules_kit import (
+    RuleError,
+    cpp_string,
+    gitignore_lines,
+    strip_comment,
+    write_generated as write_generated_files,
+)
 
 
 @dataclass
@@ -28,6 +34,10 @@ class DataField:
 class SymbolsRules:
     kinds: list[str] = field(default_factory=list)
     data_fields: list[DataField] = field(default_factory=list)
+
+
+def _short_cpp_type(cpp_type: str) -> str:
+    return cpp_type.rsplit("::", 1)[-1]
 
 
 def parse_rules(text: str, path: Path) -> SymbolsRules:
@@ -112,8 +122,12 @@ def _emit_header(rules: SymbolsRules) -> str:
     out.append("static constexpr ModuleId kInvalidModule = ~0u;")
     out.append("")
     out.append("struct SymId {")
-    out.append("    ModuleId module = 0;")
-    out.append("    uint32_t local  = 0;")
+    out.append("    ModuleId module;")
+    out.append("    uint32_t local;")
+    out.append("")
+    out.append("    constexpr SymId() = delete;")
+    out.append("    constexpr SymId(ModuleId module_, uint32_t local_)")
+    out.append("        : module(module_), local(local_) {}")
     out.append("")
     out.append("    bool operator==(const SymId &other) const noexcept {")
     out.append("        return module == other.module && local == other.local;")
@@ -153,8 +167,32 @@ def _emit_header(rules: SymbolsRules) -> str:
     out.append("};")
     out.append("")
     out.append("struct SymbolData {")
+    scalar_types = {
+        "InternedId",
+        "ScopeId",
+        "ModuleId",
+        "uint8_t",
+        "uint16_t",
+        "uint32_t",
+        "uint64_t",
+        "int8_t",
+        "int16_t",
+        "int32_t",
+        "int64_t",
+        "size_t",
+        "char",
+        "bool",
+    }
     for field in rules.data_fields:
-        out.append(f"    {field.cpp_type} {field.name};")
+        if "DynArray" in field.cpp_type:
+            initializer = ""
+        elif field.name == "target" and _short_cpp_type(field.cpp_type) == "SymId":
+            initializer = " = kInvalidSymId"
+        elif _short_cpp_type(field.cpp_type) in scalar_types:
+            initializer = " = 0"
+        else:
+            initializer = " = {}"
+        out.append(f"    {field.cpp_type} {field.name}{initializer};")
     out.append("};")
     out.append("")
 
@@ -201,13 +239,17 @@ def _emit_source(rules: SymbolsRules) -> str:
     return "// symbols: header-only (no .cpp needed)\n"
 
 def _emit_gitignore() -> str:
-    return "symbols.hpp\n__pycache__/\n"
+    return gitignore_lines(["symbols.hpp"])
 
 
-def write_generated(out_dir: Path, rules: SymbolsRules) -> None:
-    (out_dir / "symbols.hpp").write_text(_emit_header(rules), encoding="utf-8")
-# symbols.cpp no longer generated
-    (out_dir / ".gitignore").write_text(_emit_gitignore(), encoding="utf-8")
+def write_generated(out_dir: Path, rules: SymbolsRules) -> list[Path]:
+    return write_generated_files(
+        out_dir,
+        [
+            ("symbols.hpp", _emit_header(rules)),
+            (".gitignore", _emit_gitignore()),
+        ],
+    )
 
 
 def main() -> int:

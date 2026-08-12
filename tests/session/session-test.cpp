@@ -40,12 +40,25 @@ zith::session::dispatch<Stage::Lexed>(CompilationSession &session) {
     if (session.context().filePath.empty())
         return common::memory::Error{"missing file"};
     record(Stage::Lexed);
-    return generated_lexer::TokenStream{};
+    std::vector<generated_lexer::Token> tokens{
+        generated_lexer::Token{
+            common::memory::Span{0, 0},
+            generated_lexer::TokenKind::End,
+        },
+    };
+    return generated_lexer::TokenStream{std::move(tokens), session.context().interner};
 }
 
 template <>
 common::memory::Result<zith::session::ScannedResult>
-zith::session::dispatch<Stage::Scanned>(CompilationSession &) {
+zith::session::dispatch<Stage::Scanned>(CompilationSession &session) {
+    if (!session.hasStageResult<Stage::Lexed>()) {
+        return common::memory::Error{"scanner ran without a Lexed result"};
+    }
+    const auto &tokens = session.stageResult<Stage::Lexed>().value();
+    if (tokens.empty()) {
+        return common::memory::Error{"scanner rejected empty token stream"};
+    }
     record(Stage::Scanned);
     return {};
 }
@@ -167,6 +180,20 @@ int main() {
     ok &= check(ordered, "runTo Cached invokes stages in rule order");
     ok &= check(!session.hasErrors(), "stub pipeline has no errors");
     ok &= check(session.plan.current == Stage::Cached, "runTo leaves current at target");
+    ok &= check(session.hasStageResult<Stage::Source>(), "void stage result is stored");
+    ok &= check(session.hasStageResult<Stage::Lexed>(), "non-void stage result is stored");
+    ok &= check(
+        session.stageResult<Stage::Source>().isOk(),
+        "void stage result accessor returns success"
+    );
+    ok &= check(
+        session.stageResult<Stage::Lexed>().isOk(),
+        "Lexed stage result accessor returns success"
+    );
+    ok &= check(
+        session.stageResult<Stage::Lexed>().value().empty() == false,
+        "Scanned stage sees the token stream produced by Lexed"
+    );
 
     zith::session::ZithSessionContext failedContext;
     CompilationSession failed(failedContext);
@@ -176,6 +203,14 @@ int main() {
     ok &= check(
         failedResult.error().stage == Stage::Lexed,
         "runTo error identifies failing stage"
+    );
+    ok &= check(
+        failed.hasStageResult<Stage::Source>(),
+        "results before the failing stage are stored"
+    );
+    ok &= check(
+        !failed.hasStageResult<Stage::Lexed>(),
+        "failing stage result is absent"
     );
 
     g_calls.clear();

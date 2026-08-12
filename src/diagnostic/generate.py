@@ -17,9 +17,11 @@ sys.path.insert(0, str(_REPO_ROOT))
 from tools.rules_kit import (
     RuleError,
     cpp_string,
+    gitignore_lines,
     join_logical_lines,
     strip_comment,
     validate_identifier,
+    write_generated as write_generated_files,
 )
 
 SEVERITIES = {"note", "warning", "error"}
@@ -278,6 +280,21 @@ def make_source(entries: list[ErrorEntry]) -> str:
     return "\n".join(lines)
 
 
+def make_gitignore() -> str:
+    return gitignore_lines(["error-info.hpp", "error-info.cpp"])
+
+
+def write_generated(out_dir: Path, entries: list[ErrorEntry]) -> list[Path]:
+    return write_generated_files(
+        out_dir,
+        [
+            ("error-info.hpp", make_header(entries)),
+            ("error-info.cpp", make_source(entries)),
+            (".gitignore", make_gitignore()),
+        ],
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("rules", nargs="?", default="src/diagnostic/error.rules")
@@ -294,11 +311,9 @@ def main() -> int:
         print(exc.render(rules_path), file=sys.stderr)
         return 2
 
-    out = Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "error-info.hpp").write_text(make_header(entries), encoding="utf-8")
-    (out / "error-info.cpp").write_text(make_source(entries), encoding="utf-8")
-    (out / ".gitignore").write_text("error-info.hpp\nerror-info.cpp\n__pycache__/\n", encoding="utf-8")
+    written = write_generated(Path(args.out), entries)
+    for target in written:
+        print(f"generated {target}")
     return 0
 
 

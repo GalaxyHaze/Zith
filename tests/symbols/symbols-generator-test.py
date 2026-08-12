@@ -45,14 +45,19 @@ def test_valid_rules() -> None:
         assert_contains(hpp, "    Fn,", "Fn kind")
         assert_contains(hpp, "    Struct,", "Struct kind")
         assert_contains(hpp, "struct SymbolData {", "SymbolData struct")
-        assert_contains(hpp, "    uint32_t name;", "name field")
-        assert_contains(hpp, "    uint8_t kind;", "kind field")
+        assert_contains(hpp, "    uint32_t name = 0;", "name field")
+        assert_contains(hpp, "    uint8_t kind = 0;", "kind field")
         assert_contains(hpp, "inline const char *symKindName", "symKindName inline")
         assert_contains(hpp, "case SymKind::Fn:", "Fn case in header")
         assert_contains(hpp, "case SymKind::Struct:", "Struct case in header")
         assert_not_contains(hpp, "makeSymbol", "minimal rules have no makeSymbol")
         assert_not_contains(hpp, "visibilityKindName",
                             "minimal rules have no visibility helpers")
+        assert_not_contains(
+            hpp,
+            "SymId() = default",
+            "SymId must not retain a default constructor",
+        )
         # symbols.cpp is no longer generated (header-only)
         cpp_path = out / "symbols.cpp"
         assert not cpp_path.exists(), "symbols.cpp should not be generated"
@@ -105,13 +110,18 @@ def test_smoke_compile() -> None:
         _gen(rules, base)
         smoke = base / "smoke.cpp"
         smoke.write_text(textwrap.dedent("""\
-            #include "common/import/import-graph.hpp"
+            #include "symbols/symbols.hpp"
+
+            #include <type_traits>
+
+            static_assert(!std::is_default_constructible_v<zith::symbols::SymId>);
+
             int main() {
-                common::memory::Arena arena;
-                common::memory::StringInterner interner{arena};
-                zith::import::ImportGraph graph{arena, interner};
-                auto mod = graph.addModule();
-                return 0;
+                const auto invalid = zith::symbols::kInvalidSymId;
+                return invalid.module == zith::symbols::kInvalidModule &&
+                               invalid.local == 0
+                           ? 0
+                           : 1;
             }
         """))
         compile_smoke(REPO_ROOT, COMPILER, base, source=smoke, include_dirs=[_BUILD_SRC])

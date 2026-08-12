@@ -7,6 +7,11 @@ namespace zith::import {
 
 // --- Module ---
 
+ResolveGuard::~ResolveGuard() {
+    if (active)
+        graph.finishResolve(moduleId);
+}
+
 symbols::SymId Module::declare(std::string_view name, symbols::SymKind kind,
                                symbols::SymbolVisibility visibility) {
     const InternedId interned = graph_.interner_.intern(name);
@@ -270,11 +275,16 @@ common::memory::Result<ResolveGuard> ImportGraph::beginResolve(const Module &key
     if (nodes_[id].inResolve)
         return common::memory::Error{"module already being resolved"};
     nodes_[id].inResolve = true;
-    return ResolveGuard(*nodes_[id].module);
+    return ResolveGuard{*this, *nodes_[id].module, id};
 }
 
 size_t ImportGraph::nodeCount() const noexcept {
     return nodes_.size();
+}
+
+void ImportGraph::finishResolve(ModuleId id) noexcept {
+    if (id < nodes_.size())
+        nodes_[id].inResolve = false;
 }
 
 ModuleId ImportGraph::idOf_(const Module &module) const noexcept {

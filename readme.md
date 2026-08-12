@@ -625,6 +625,11 @@ python3 src/session/generate.py src/session/session.rules --out build/src/sessio
 - `StageResult` with `run()`, `runTo()`, and `resume()`
 - `dispatch<Stage>()` declarations for every configured stage
 
+Stages share earlier results through the session's typed storage, not through
+`dispatch<Stage>()` parameters. A handler reads a completed stage with
+`hasStageResult<Stage>()` and `stageResult<Stage>()`; `run()`, `runTo()`, and `resume()`
+are the only paths that populate those slots.
+
 **When to use it**
 
 Use this helper when the compiler pipeline stages, injected compiler context, session-local state,

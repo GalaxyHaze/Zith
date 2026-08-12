@@ -127,6 +127,40 @@ def stage_enum_lines(rules: SessionRules) -> list[str]:
     return lines
 
 
+def dispatch_result_lines(rules: SessionRules) -> list[str]:
+    lines = [
+        "template <Stage S>",
+        "struct dispatch_result {",
+        "    using type = void;",
+        "};",
+        "",
+    ]
+    for stage in rules.stages:
+        output_type = rules.stage_types()[stage]
+        lines.append(f"template <> struct dispatch_result<Stage::{stage}> {{")
+        lines.append(f"    using type = {output_type};")
+        lines.append("};")
+        lines.append("")
+    return lines
+
+
+def stage_result_slot_lines(rules: SessionRules) -> list[str]:
+    lines = [
+        "template <Stage S>",
+        "struct StageResultSlot;",
+        "",
+    ]
+    for stage in rules.stages:
+        lines.append(f"template <> struct StageResultSlot<Stage::{stage}> {{")
+        lines.append(
+            f"    common::memory::Optional<common::memory::Result<"
+            f"typename dispatch_result<Stage::{stage}>::type>> value;"
+        )
+        lines.append("};")
+        lines.append("")
+    return lines
+
+
 def make_session_header(rules: SessionRules) -> str:
     lines = [
         "#pragma once",
@@ -134,11 +168,14 @@ def make_session_header(rules: SessionRules) -> str:
         '#include "common/memory/arena.hpp"',
         '#include "common/diagnostic/diagnostic.hpp"',
         '#include "common/memory/dyn-array.hpp"',
+        '#include "common/memory/optional.hpp"',
         '#include "common/memory/result.hpp"',
         '#include "common/memory/span.hpp"',
         '#include "session/types.hpp"',
         "",
+        "#include <tuple>",
         "#include <string>",
+        "#include <utility>",
         "",
         "namespace zith::session {",
         "",
@@ -146,6 +183,8 @@ def make_session_header(rules: SessionRules) -> str:
     first_stage = rules.stages[0]
     last_stage = rules.stages[-1]
     lines.extend(stage_enum_lines(rules))
+    lines.extend(dispatch_result_lines(rules))
+    lines.extend(stage_result_slot_lines(rules))
     lines.extend(
         [
             "",
@@ -197,10 +236,36 @@ def make_session_header(rules: SessionRules) -> str:
             "    StageResult runTo(Stage target);",
             "    StageResult resume();",
             "",
+            "    template <Stage S>",
+            "    [[nodiscard]] bool hasStageResult() const noexcept {",
+            "        return std::get<StageResultSlot<S>>(stageResults_).value.isValid();",
+            "    }",
+            "",
+            "    template <Stage S>",
+            "    [[nodiscard]] common::memory::Result<typename dispatch_result<S>::type> &"
+            "stageResult() noexcept {",
+            "        return std::get<StageResultSlot<S>>(stageResults_).value.value();",
+            "    }",
+            "",
+            "    template <Stage S>",
+            "    [[nodiscard]] const common::memory::Result<"
+            "typename dispatch_result<S>::type> &stageResult() const noexcept {",
+            "        return std::get<StageResultSlot<S>>(stageResults_).value.value();",
+            "    }",
+            "",
+            "    template <Stage S>",
+            "    void storeStageResult(",
+            "        common::memory::Result<typename dispatch_result<S>::type> value) {",
+            "        std::get<StageResultSlot<S>>(stageResults_).value = std::move(value);",
+            "    }",
+            "",
             "private:",
             "    Context *context_ = nullptr;",
             "    common::memory::Arena storageArena_;",
             "    common::memory::DynArray<Diagnostic> diagsStorage_;",
+            "    std::tuple<"
+            + ", ".join(f"StageResultSlot<Stage::{stage}>" for stage in rules.stages)
+            + "> stageResults_;",
             "    bool errors_{false};",
         ]
     )
@@ -215,6 +280,7 @@ def make_session_header(rules: SessionRules) -> str:
             "};",
             "",
             "bool dispatch(Stage stage, CompilationSession &session);",
+            "bool storeStage(Stage stage, CompilationSession &session);",
             "",
             "} // namespace zith::session",
             "",
@@ -267,7 +333,7 @@ def make_session_source(rules: SessionRules) -> str:
         "        if (hasErrors())",
         "            return StageError{plan.current};",
         "",
-        "        if (!dispatch(plan.current, *this))",
+        "        if (!storeStage(plan.current, *this))",
         "            return StageError{plan.current};",
         "",
         "        if (static_cast<int>(plan.current) == static_cast<int>(plan.target))",
@@ -286,6 +352,33 @@ def make_session_source(rules: SessionRules) -> str:
         lines.append(
             f"    case Stage::{stage}: return static_cast<bool>(dispatch<Stage::{stage}>(session));"
         )
+    lines.extend(
+        [
+            "    default: return false;",
+            "    }",
+            "}",
+            "",
+            "bool storeStage(Stage stage, CompilationSession &session) {",
+            "    switch (stage) {",
+        ]
+    )
+    for stage in rules.stages:
+        lines.append(f"    case Stage::{stage}: {{")
+        lines.append(
+            f"        auto result = dispatch<Stage::{stage}>(session);"
+        )
+        lines.append("        if (!result)")
+        lines.append("            return false;")
+        if rules.stage_types()[stage] == "void":
+            lines.append(
+                f"        session.storeStageResult<Stage::{stage}>({{}});"
+            )
+        else:
+            lines.append(
+                f"        session.storeStageResult<Stage::{stage}>(std::move(result));"
+            )
+        lines.append("        return true;")
+        lines.append("    }")
     lines.extend(
         [
             "    default: return false;",
@@ -321,17 +414,8 @@ def make_dispatch_header(rules: SessionRules) -> str:
         "",
         "namespace zith::session {",
         "",
-        "template <Stage S>",
-        "struct dispatch_result {",
-        "    using type = void;",
-        "};",
-        "",
     ]
     for stage in rules.stages:
-        output_type = rules.stage_types()[stage]
-        lines.append(f"template <> struct dispatch_result<Stage::{stage}> {{")
-        lines.append(f"    using type = {output_type};")
-        lines.append("};")
         lines.append(f"using {stage}Result = dispatch_result<Stage::{stage}>::type;")
         lines.append("")
     lines.append("template <Stage S>")

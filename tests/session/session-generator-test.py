@@ -94,6 +94,8 @@ zith::session::dispatch<zith::session::Stage::Parse>(CompilationSession &) {
 template <>
 common::memory::Result<zith::session::EmitResult>
 zith::session::dispatch<zith::session::Stage::Emit>(CompilationSession &session) {
+    if (session.context().value < 0)
+        return common::memory::Error{"invalid emit value"};
     return session.context().value;
 }
 
@@ -103,8 +105,26 @@ int main() {
 
     const auto parse = zith::session::dispatch<zith::session::Stage::Parse>(session);
     const auto emit = zith::session::dispatch<zith::session::Stage::Emit>(session);
+    if (parse && emit && emit.value() == 7 && &session.context() == &context &&
+        !session.hasStageResult<zith::session::Stage::Parse>() &&
+        !session.hasStageResult<zith::session::Stage::Emit>()) {
+        const auto output = session.runTo(zith::session::Stage::Emit);
+        if (!output || !session.hasStageResult<zith::session::Stage::Parse>() ||
+            !session.hasStageResult<zith::session::Stage::Emit>() ||
+            session.stageResult<zith::session::Stage::Emit>().value() != 7) {
+            return 1;
+        }
 
-    return (parse && emit && emit.value() == 7 && &session.context() == &context) ? 0 : 1;
+        sample::TestContext failing{};
+        failing.value = -1;
+        zith::session::CompilationSession failed(failing);
+        const auto failedRun = failed.runTo(zith::session::Stage::Emit);
+        return (!failedRun && failed.hasStageResult<zith::session::Stage::Parse>() &&
+                !failed.hasStageResult<zith::session::Stage::Emit>())
+                   ? 0
+                   : 1;
+    }
+    return 1;
 }
 """
 
@@ -130,6 +150,16 @@ def main() -> int:
         dispatch_hpp = (out_dir / "dispatch.hpp").read_text(encoding="utf-8")
 
         assert_contains(session_hpp, "using Context = sample::TestContext;", "context alias")
+        assert_contains(
+            session_hpp,
+            "hasStageResult()",
+            "stage result presence query",
+        )
+        assert_contains(
+            session_hpp,
+            "stageResult()",
+            "stage result accessor",
+        )
         assert_contains(
             session_hpp,
             "explicit CompilationSession(Context &context);",
