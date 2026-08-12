@@ -25,7 +25,7 @@ The result is a branch that aims to be:
 Inspired by the structure and readability of the `main` branch README, `autonom` reframes the
 project as a set of code-generation helpers for building maintainable compiler infrastructure.
 
-Today, the branch already includes three concrete helpers:
+Today, the branch already includes several concrete helpers:
 
 | Helper | Purpose | Source of truth |
 |---|---|---|
@@ -35,9 +35,93 @@ Today, the branch already includes three concrete helpers:
 | Parser helper | Generate a token-driven parser surface with context rules and hooks | `src/frontend/parser/README.md` |
 | Project-config helper | Generate strongly typed defaults and TOML loading code | `src/config/project/README.md` |
 | Session helper | Generate the compilation pipeline and action hook surface | `src/session/README.md` |
+| Diagnostic helper | Generate the error catalogue consumed by the common renderer | `src/diagnostic/README.md` |
+| Symbol helper | Generate symbol kinds, symbol data layout, and basic helpers | `src/symbols/symbols.rules` |
 
 Supporting those helpers is a small common runtime with arena allocation, interned strings,
 results, option-like types, and dynamic arrays under `src/common`.
+
+The Python side stays deliberately thin. `tools/rules_kit/` provides the shared parser, output,
+and entry-point primitives used by all generators; subsystem generators remain small
+declarative-to-C++ translators. `tools/test_kit/` owns the shared generator-regression harness.
+Generated files in `build/` are not source and must never be edited by hand.
+
+### Agent Contract
+
+Agents and contributors should treat this branch as **declarative-first**:
+
+- Normal changes edit a `.rules`/TOML file and, when behavior is needed, the documented
+  handwritten `actions.cpp`, `handlers.cpp`, `dispatch.cpp`, or types header.
+- Generated files under `build/` (`*generated*`, `cli.*`, `lexer.*`, `ast.*`, `parser.*`,
+  `session.*`, `symbols.*`, `project-config.*`, `error-info.*`) are build output. Do not edit them.
+- Do not change `src/*/generate.py`, `src/*/*/generate.py`,
+  `src/config/project/scaffold.py`, `tools/rules_kit/`, or `tools/test_kit/` without explicit
+  user approval. Running `scaffold.py` to create or refresh a project tree is allowed; editing
+  the scaffold script itself is not. If a requested change needs a generator or shared-tooling
+  edit, stop and ask before modifying it.
+- If a constant/rule/table shape is missing, first look for a `.rules` or TOML declaration.
+  Add ad-hoc logic to a generator only if the user explicitly approves a new generator
+  capability; otherwise keep behavior in handwritten C++.
+- Never modify `src/symbols/` or `src/common/import/` without explicit user approval.
+  The symbol generator and the handwritten import graph are a protected area of the codebase.
+- Edit a `.rules`/TOML file rather than extending a generator to make an existing declarative
+  surface fit. Unknown sections and malformed declarations are rejected by generator validation;
+  read the subsystem README before changing the grammar of the rules file.
+
+Every rule remains supported by its own README, which documents the exact sections, hooks, and
+regeneration command. When editing a rules file, keep the generated/source boundary unchanged:
+structure and table wiring belong in rules, behavior belongs in C++.
+
+### Managing `.rules` Files
+
+Normal diagnostics should be able to start from this table when the source of a change is a
+declarative file:
+
+| Declarative source | Subsystem README | Generated output |
+|---|---|---|
+| `src/cli/cli.rules` | `src/cli/README.md` | `build/src/cli/*` |
+| `src/frontend/lexer/lexer.rules` | `src/frontend/lexer/README.md` | `build/src/frontend/lexer/*` |
+| `src/frontend/ast/ast.rules` | `src/frontend/ast/README.md` | `build/src/frontend/ast/*` |
+| `src/frontend/parser/parser.rules` | `src/frontend/parser/README.md` | `build/src/frontend/parser/*` |
+| `src/session/session.rules` | `src/session/README.md` | `build/src/session/*` |
+| `src/config/flags/default.toml` | `src/config/README.md` | `build/src/config/project/*` |
+| `src/diagnostic/error.rules` | `src/diagnostic/README.md` | `build/src/diagnostic/*` |
+| `src/symbols/symbols.rules` | protected: ask before changing | `build/src/symbols/*` |
+
+The normal rules-edit workflow is:
+
+1. Read the subsystem README and the current rules file before editing.
+2. Edit only the declarative `.rules` or TOML file; do not edit generated files in `build/`.
+3. Add behavior to the documented handwritten C++ surface when the structure already exists.
+4. Regenerate with the manual command from the README or rebuild the project.
+5. Run the generator regression tests and the full test suite:
+
+```bash
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
+Generators are intentionally strict: they reject unknown sections, repeated entries, missing
+required fields, invalid identifiers/types, and unknown hooks. If a rules change needs a new
+declaration shape, do not silently extend `generate.py`; stop and request explicit permission to
+change generator or shared-tooling behavior.
+
+### Shared Tooling
+
+`tools/rules_kit/` is the intended home for Python logic shared across subsystem generators:
+
+| File | Owns |
+|---|---|
+| `tools/rules_kit/errors.py` | `RuleError` and rule-file error rendering. |
+| `tools/rules_kit/text.py` | comments, logical lines, quoted/list parsing, typed members, hooks, identifiers, C++ quoting, naming. |
+| `tools/rules_kit/runtime.py` | generated-file writing and `.gitignore` output. |
+
+`tools/test_kit/` owns generator invocation, temporary rules creation, error assertions, and
+smoke compilation used by the generator regression tests.
+
+Keep shared Python logic in `tools/rules_kit/` instead of duplicating it inside subsystem
+generators. Like the generators, `tools/rules_kit/` and `tools/test_kit/` are protected and
+require explicit user approval before code changes.
 
 ---
 
@@ -390,7 +474,7 @@ spreading it across multiple handwritten lexer tables and conditionals.
 
 ---
 
-### 3. Project-Config Helper
+### 3. Flags Helper
 
 **Purpose**
 
@@ -400,7 +484,7 @@ default values in multiple places.
 
 **Source files**
 
-- `src/config/project/default.toml`
+- `src/config/flags/default.toml`
 - `src/config/project/generate.py`
 
 **Generated outputs**
@@ -412,7 +496,7 @@ default values in multiple places.
 
 **How to use**
 
-1. Edit `src/config/project/default.toml`.
+1. Edit `src/config/flags/default.toml`.
 2. Add or change fields inside the supported sections: `project`, `build`, `paths`, and `ffi`.
 3. Rebuild the project, or run the generator manually.
 4. Load TOML text into the generated `ProjectConfig` type.
@@ -420,7 +504,7 @@ default values in multiple places.
 **Manual command**
 
 ```bash
-python3 src/config/project/generate.py src/config/project/default.toml --out build/src/config/project
+python3 src/config/project/generate.py src/config/flags/default.toml --out build/src/config/project
 ```
 
 **Minimal example**
@@ -547,6 +631,79 @@ Use this helper when the compiler pipeline stages, injected compiler context, se
 or stage outputs change. Keep new pipeline plumbing declarative instead of hand-editing
 `CompilationSession`.
 
+### 5. Diagnostic Helper
+
+**Purpose**
+
+Generate `ErrorInfo`, `lookupError`, and `ErrorTemplate` from a small declarative error catalogue.
+The common diagnostic runtime keeps the diagnostic type, renderer, and levenshtein helpers in
+`src/common/diagnostic/`.
+
+**Source files**
+
+- `src/diagnostic/error.rules`
+- `src/diagnostic/generate.py`
+
+Full usage details are in `src/diagnostic/README.md`.
+
+**Generated outputs**
+
+- `build/src/diagnostic/error-info.hpp`
+- `build/src/diagnostic/error-info.cpp`
+- `build/src/diagnostic/.gitignore`
+
+**How to use**
+
+1. Edit `src/diagnostic/error.rules`.
+2. Add or change error codes, severities, categories, titles, templates, and notes.
+3. Rebuild the project, or run the generator manually.
+4. Use `lookupError` and `ErrorTemplate` from the generated header through the common renderer.
+
+**Manual command**
+
+```bash
+python3 src/diagnostic/generate.py src/diagnostic/error.rules --out build/src/diagnostic
+```
+
+**What it generates**
+
+- constexpr `ErrorInfo` entries with stable numeric codes
+- `lookupError` and `errorInfo` lookup helpers
+- `ErrorTemplate::render` with `{message}` and `{lexeme}` substitution
+
+**Template placeholders: `message` vs `lexeme`**
+
+`renderDiagnostic` provides both placeholders for catalogue templates:
+
+- `{message}` is the `Diagnostic::message` text supplied by the call site. It is the right
+  placeholder when the rule only wraps a message that is already fully formed, as in `E4001`.
+- `{lexeme}` is the raw source/token text extracted from the diagnostic `span` by
+  `renderDiagnostic`. It is useful when the rule wants to keep fixed prose in the catalogue and
+  only insert the offending token spelling, as in `E4002`.
+
+When the diagnostic span is missing or outside the loaded source, `renderDiagnostic` substitutes
+the literal `<invalid span>` for `{lexeme}`.
+
+Examples:
+
+| Placeholder | Rule template | `renderDiagnostic` output |
+|---|---|---|
+| `{message}` | `template = "{message}"` | `path:line:col: error: E4001: broken` |
+| `{lexeme}` | `template = "unknown {lexeme}"` | `path:line:col: error: E4002: unknown +` |
+
+Coded diagnostics use a compact first line followed by a rich block:
+
+```text
+path:line:col: error: E4001: <rendered template>
+  --> path:line:col
+  1 | let y = 0 ;
+    |       ^ broken
+  = note: <catalogue note or Diagnostic note>
+```
+
+The `-->` header, source context and `= note:` lines are emitted whenever a diagnostic has a
+nonzero code. Diagnostics without a code keep the existing compact format with `note:` lines.
+
 ---
 
 ## Development Model
@@ -571,6 +728,7 @@ In other words, this branch treats generators as maintainability tools, not as o
 │   ├── app/             # executable entry point
 │   ├── cli/             # declarative CLI + generator + handlers
 │   ├── common/          # support runtime used by generated code
+│   ├── diagnostic/      # declarative error catalogue + generator
 │   ├── config/
 │   │   └── project/     # declarative config schema + generator
 │   ├── frontend/

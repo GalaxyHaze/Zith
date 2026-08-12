@@ -93,6 +93,29 @@ Identifier push=Expr action=hooks::parser::enterExpr()
 Punctuation punc=";" action=hooks::parser::leaf()
 """
 
+RULES_WITH_STATE_FRAMES = """\
+[parser]
+input: std::string_view
+output: sample::ParseOutput
+diagnostic: sample::ParserDiagnostic
+tokenStream: generated_lexer::TokenStream
+end: Token::End
+
+[contexts]
+TopLevel
+Module
+
+[state Module]
+name: std::string_view
+nested: int
+
+[context TopLevel]
+Identifier push=Module action=hooks::parser::enterBlock()
+
+[context Module parent=TopLevel]
+Punctuation punc=";" pop=Module action=hooks::parser::semi()
+"""
+
 
 def compile_parser_smoke(repo_root: Path, compiler: str, include_root: Path) -> None:
     source = include_root / "smoke.cpp"
@@ -361,6 +384,24 @@ Punctuation
         "void advance() noexcept",
         "TokenStream wrapper removed from builder variant",
     )
+
+    state_frames = write_rules(tmpdir, RULES_WITH_STATE_FRAMES, generator="parser")
+    state_result = run_generator(
+        repo_root,
+        state_frames,
+        out_dir,
+        generator=repo_root / "src/frontend/parser/generate.py",
+        types_path=types_path,
+    )
+    if state_result.returncode != 0:
+        raise AssertionError(state_result.stderr)
+    state_hpp = (out_dir / "parser.hpp").read_text(encoding="utf-8")
+    assert_contains(state_hpp, "struct StateFrame_Module {", "state frame payload")
+    assert_contains(state_hpp, "std::string_view name{}", "state member name")
+    assert_contains(state_hpp, "hasFrame", "frame presence accessor")
+    assert_contains(state_hpp, "DynArray<StateFrame>", "frame stack type")
+    assert_contains(state_hpp, ".state", "frame state access in parent chain")
+    assert_not_contains(state_hpp, "DynArray<ParserState> stack_", "plain stack replaced")
 
 
 def main() -> int:

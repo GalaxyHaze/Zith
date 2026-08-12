@@ -126,3 +126,9 @@ python3 src/frontend/parser/generate.py \
 - `parser-generated-basics` runs the compiled parser smoke test.
 - `parser-generator-regression` validates the generator against temporary rules and compiles the
   generated surface.
+
+## Agent Boundary
+
+Edit `parser.rules` for parser/context/rule declarations, `types.hpp` for user-owned type
+surface, and `actions.cpp` for syntax behavior. Do not edit `build/src/frontend/parser/*`. Do not
+modify `generate.py` or shared generator rules without explicit user approval.

@@ -120,6 +120,12 @@ Hook declarations are generated from `[actions]`. The supported implementation p
 `src/frontend/lexer/actions.cpp`. Keep hook implementations focused on behavior, not on generated
 table structure.
 
+## Agent Boundary
+
+Edit `lexer.rules` for token/keyword/member/action declarations, `types.hpp` for user-owned type
+surface, and `actions.cpp` for hook behavior. Do not edit `build/src/frontend/lexer/*`. Do not
+modify `generate.py` or shared generator rules without explicit user approval.
+
 ## Tests
 
 - `lexer-generated-basics` runs the compiled lexer smoke test.

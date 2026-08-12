@@ -11,7 +11,7 @@ The source of truth is the TOML file, not the generated C++.
 
 | File | Responsibility |
 |---|---|
-| `project/default.toml` | Declarative project configuration schema and defaults. |
+| `flags/default.toml` | Declarative project configuration schema and defaults. |
 | `project/generate.py` | TOML parser and C++ generator. |
 | `project/CMakeLists.txt` | CMake wiring for the generated config target. |
 | `build/src/config/project/project-config.hpp` | Generated public configuration API. |
@@ -55,12 +55,12 @@ Field names are converted to camelCase in generated C++.
 ## Common Workflow
 
 1. Read the current `default.toml` before changing configuration.
-2. Edit `src/config/project/default.toml`.
+2. Edit `src/config/flags/default.toml`.
 3. Regenerate:
 
 ```bash
 python3 src/config/project/generate.py \
-  src/config/project/default.toml \
+  src/config/flags/default.toml \
   --out build/src/config/project
 ```
 
@@ -84,3 +84,9 @@ The generator rejects:
 
 Keep generated config code free of hand edits. If a shape changes, change the TOML schema and
 regenerate.
+
+## Agent Boundary
+
+Normal config changes belong in `src/config/flags/default.toml`. Do not edit
+`build/src/config/project/*`; those files are rebuilt from the TOML. Do not modify
+`project/generate.py` or shared generator rules without explicit user approval.

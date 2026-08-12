@@ -1,0 +1,18 @@
+# Project blueprint metadata consumed by scaffold.py.
+#
+# This file is intentionally separate from flags/default.toml: that file is
+# the schema/defaults for ProjectConfig while scaffold.toml describes files
+# to create in a new project. It is not generated or used by the build target.
+
+[blueprints]
+zith = "basic"
+
+[blueprints.basic]
+name = "basic"
+description = "Minimal Zith project layout"
+
+[blueprints.basic.files]
+.gitignore = "out/\ntarget/\n"
+README.md = "# {project}\n\nA new Zith project.\n"
+src/main.zith = "fn main() {}\n"
+zith.toml = "[project]\nname = \"{project}\"\nversion = \"0.1.0\"\n"

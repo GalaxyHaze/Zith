@@ -1,6 +1,7 @@
 #pragma once
 #include "common/memory/arena.hpp"
 #include "common/memory/flat-map.hpp"
+#include "common/memory/optional.hpp"
 #include "support/macros.hpp"
 
 #include <cstdint>
@@ -8,6 +9,8 @@
 #include <shared_mutex>
 #endif
 #include <string_view>
+
+#include "common/memory/optional.hpp"
 
 namespace common::memory {
 
@@ -25,6 +28,7 @@ struct StringInterner {
 
     InternedId intern(std::string_view str);
     std::string_view lookup(InternedId id) const;
+    Optional<InternedId> findId(std::string_view str) const;
 
 private:
     Arena *allocator_                        = nullptr;

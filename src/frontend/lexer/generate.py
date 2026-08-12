@@ -19,9 +19,16 @@ from tools.rules_kit import (
     RuleError,
     cpp_char,
     cpp_string,
+    dedupe_preserve_order,
+    gitignore_lines,
     join_logical_lines,
+    parse_bool_flag,
+    parse_hook as parse_hook_name,
     parse_quoted,
+    parse_string_list,
     split_top_level,
+    parse_typed_member,
+    write_generated as write_generated_files,
 )
 
 
@@ -103,29 +110,6 @@ def mix64(x: int) -> int:
     return x & mask
 
 
-def dedupe_preserve_order(values: list[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for value in values:
-        if value in seen:
-            continue
-        seen.add(value)
-        out.append(value)
-    return out
-
-
-def parse_strings(raw: str, line_no: int) -> list[str]:
-    raw = raw.strip()
-    if raw.startswith("[") and raw.endswith("]"):
-        raw = raw[1:-1]
-    values: list[str] = []
-    for item in split_top_level(raw.strip(), line_no):
-        if not item:
-            continue
-        values.append(parse_quoted(item, line_no))
-    return values
-
-
 def parse_options(raw: str, line_no: int) -> dict[str, str]:
     body = raw.strip()
     if not (body.startswith("[") and body.endswith("]")):
@@ -144,15 +128,6 @@ def parse_options(raw: str, line_no: int) -> dict[str, str]:
             raise RuleError(line_no, f"nome de opcao invalido: {key!r}")
         result[key] = value
     return result
-
-
-def parse_bool_flag(raw: str, line_no: int, label: str) -> bool:
-    lowered = raw.strip().lower()
-    if lowered == "true":
-        return True
-    if lowered == "false":
-        return False
-    raise RuleError(line_no, f"{label} invalido: {raw!r}")
 
 
 @dataclass
@@ -213,28 +188,17 @@ class LexerConfig:
 
 
 def parse_hook(raw: str, line_no: int) -> Hook:
-    match = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_:]*)\s*\(\)", raw.strip())
-    if not match:
-        raise RuleError(line_no, f"forma de hook invalida: {raw!r}")
-    return Hook(qualified_name=match.group(1), line_no=line_no)
+    return Hook(qualified_name=parse_hook_name(raw, line_no), line_no=line_no)
 
 
 def parse_member(raw: str, line_no: int) -> Member:
-    if "=" not in raw:
-        raise RuleError(line_no, f"member invalido (falta '='): {raw!r}")
-    lhs, rhs = raw.split("=", 1)
-    lhs = lhs.strip()
-    rhs = rhs.strip()
-    if lhs.endswith(":"):
-        lhs = lhs[:-1].strip()
-    if ":" not in lhs:
-        raise RuleError(line_no, f"member sem tipo: {raw!r}")
-    name, cpp_type = (part.strip() for part in lhs.split(":", 1))
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
-        raise RuleError(line_no, f"nome de member invalido: {name!r}")
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_:<>,. *&\[\]]*", cpp_type):
-        raise RuleError(line_no, f"tipo de member invalido: {cpp_type!r}")
-    return Member(name=name, cpp_type=cpp_type, initializer=rhs, line_no=line_no)
+    name, cpp_type, default = parse_typed_member(
+        raw,
+        line_no,
+        "member",
+        requires_default=True,
+    )
+    return Member(name=name, cpp_type=cpp_type, initializer=default, line_no=line_no)
 
 
 def parse_token_data(name: str, rhs: str, line_no: int) -> TokenSpec:
@@ -252,7 +216,7 @@ def parse_token_data(name: str, rhs: str, line_no: int) -> TokenSpec:
             return spec
         if name == "comments":
             return TokenSpec(name, line_no, "options", options=parse_options(rhs, line_no))
-        return TokenSpec(name, line_no, "list", strings=parse_strings(inner, line_no))
+        return TokenSpec(name, line_no, "list", strings=parse_string_list(inner, line_no))
 
     if (rhs.startswith('"') and rhs.endswith('"')) or (
         rhs.startswith("'") and rhs.endswith("'")
@@ -303,7 +267,7 @@ def parse_rules(text: str, path: Path) -> LexerConfig:
             if kind not in TOKEN_KINDS:
                 raise RuleError(line_no, f"TokenKind desconhecido: {kind!r}")
             if rhs.startswith("[") and rhs.endswith("]"):
-                values = parse_strings(rhs[1:-1], line_no)
+                values = parse_string_list(rhs[1:-1], line_no)
             else:
                 values = [parse_quoted(rhs, line_no)]
             keywords.extend((kind, value) for value in values)
@@ -725,7 +689,7 @@ def make_lexer_source(config: LexerConfig) -> str:
         single_comment = comments_spec.option_string("single", comments_spec.line_no)
         multi_raw = comments_spec.options.get("multi", "")
         if multi_raw:
-            pair = parse_strings(multi_raw, comments_spec.line_no)
+            pair = parse_string_list(multi_raw, comments_spec.line_no)
             if len(pair) != 2:
                 raise RuleError(
                     comments_spec.line_no, "comments multi precisa de [open, close]"
@@ -1518,7 +1482,12 @@ def make_actions_header(config: LexerConfig) -> str:
 
 
 def make_gitignore() -> str:
-    return "lexer.hpp\nlexer.cpp\nactions.hpp\nkeyword-table.hpp\n__pycache__/\n"
+    return gitignore_lines([
+        "lexer.hpp",
+        "lexer.cpp",
+        "actions.hpp",
+        "keyword-table.hpp",
+    ])
 
 
 def generated_files(config: LexerConfig) -> list[tuple[str, str]]:
@@ -1582,15 +1551,10 @@ def validate_types(config: LexerConfig, types_path: Path) -> None:
 
 
 def write_generated(out_dir: Path, config: LexerConfig) -> list[Path]:
-    written: list[Path] = []
     try:
-        for name, content in generated_files(config):
-            target = out_dir / name
-            target.write_text(content, encoding="utf-8")
-            written.append(target)
+        return write_generated_files(out_dir, generated_files(config))
     except ValueError as exc:
         raise RuleError(1, str(exc)) from exc
-    return written
 
 
 def main() -> int:
@@ -1623,7 +1587,6 @@ def main() -> int:
         print(exc.render(rules_path), file=sys.stderr)
         return 2
 
-    out_path.mkdir(parents=True, exist_ok=True)
     try:
         written = write_generated(out_path, config)
     except RuleError as exc:

@@ -15,7 +15,15 @@ while not (_REPO_ROOT / "tools").is_dir():
     _REPO_ROOT = _REPO_ROOT.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from tools.rules_kit import RuleError, cpp_string, strip_comment, to_camel
+from tools.rules_kit import (
+    RuleError,
+    cpp_string,
+    dedupe_preserve_order,
+    gitignore_lines,
+    strip_comment,
+    to_camel,
+    write_generated as write_generated_files,
+)
 
 
 @dataclass(frozen=True)
@@ -1098,13 +1106,7 @@ def emit_required_validation(args: list[Arg], count_var: str, context_label: str
 
 
 def unique(values: list[str]) -> list[str]:
-    out: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        if value not in seen:
-            seen.add(value)
-            out.append(value)
-    return out
+    return dedupe_preserve_order(values)
 
 
 def emit_string_array(name: str, values: list[str]) -> list[str]:
@@ -1557,7 +1559,7 @@ def make_cli_source(
 
 
 def make_gitignore() -> str:
-    return "cli.hpp\ncli.cpp\nactions.hpp\n__pycache__/\n"
+    return gitignore_lines(["cli.hpp", "cli.cpp", "actions.hpp"])
 
 
 def write_generated(
@@ -1567,11 +1569,16 @@ def write_generated(
     commands: dict[str, Command],
     default_action: Action | None,
     actions: list[Action],
-) -> None:
-    (out_dir / "cli.hpp").write_text(make_cli_header(flags, commands, args, default_action), encoding="utf-8")
-    (out_dir / "cli.cpp").write_text(make_cli_source(flags, args, commands, default_action), encoding="utf-8")
-    (out_dir / "actions.hpp").write_text(make_actions_header(actions), encoding="utf-8")
-    (out_dir / ".gitignore").write_text(make_gitignore(), encoding="utf-8")
+) -> list[Path]:
+    return write_generated_files(
+        out_dir,
+        [
+            ("cli.hpp", make_cli_header(flags, commands, args, default_action)),
+            ("cli.cpp", make_cli_source(flags, args, commands, default_action)),
+            ("actions.hpp", make_actions_header(actions)),
+            (".gitignore", make_gitignore()),
+        ],
+    )
 
 
 def main() -> int:
@@ -1595,12 +1602,9 @@ def main() -> int:
         print(exc.render(rules_path), file=sys.stderr)
         return 2
 
-    out_path.mkdir(parents=True, exist_ok=True)
-    write_generated(out_path, flags, rule_args, commands, default_action, actions)
-    print(f"generated {out_path / 'cli.hpp'}")
-    print(f"generated {out_path / 'cli.cpp'}")
-    print(f"generated {out_path / 'actions.hpp'}")
-    print(f"generated {out_path / '.gitignore'}")
+    written = write_generated(out_path, flags, rule_args, commands, default_action, actions)
+    for target in written:
+        print(f"generated {target}")
     return 0
 
 

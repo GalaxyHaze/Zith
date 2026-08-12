@@ -147,3 +147,9 @@ ctest --test-dir build -R session --output-on-failure
 - `session-generator-regression` verifies the generator accepts one `[context]`, rejects missing or
   duplicate contexts, rejects invalid type syntax, and compiles a smoke consumer with custom
   dispatch bodies.
+
+## Agent Boundary
+
+Edit `session.rules` for context/stage/state declarations, `types.hpp` for user-owned include
+surface, and `dispatch.cpp` for pipeline behavior. Do not edit `build/src/session/*`. Do not
+modify `generate.py` or shared generator rules without explicit user approval.

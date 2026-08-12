@@ -67,3 +67,9 @@ python3 src/frontend/ast/generate.py \
 
 - `ast-generated-basics` runs allocation, walk parent/order, print, and free smoke checks.
 - `ast-generator-regression` validates rule rejection and compiles the generated surface.
+
+## Agent Boundary
+
+Edit `ast.rules` for node and field declarations and `types.hpp` for user-owned type surface.
+Do not edit `build/src/frontend/ast/*`. Do not modify `generate.py` or shared generator rules
+without explicit user approval.

@@ -8,6 +8,37 @@ from pathlib import Path
 
 from tools.rules_kit.errors import RuleError
 
+def dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def parse_string_list(raw: str, line_no: int) -> list[str]:
+    raw = raw.strip()
+    if raw.startswith("[") and raw.endswith("]"):
+        raw = raw[1:-1]
+    values: list[str] = []
+    for item in split_top_level(raw, line_no):
+        if not item:
+            continue
+        values.append(parse_quoted(item, line_no))
+    return values
+
+
+def parse_bool_flag(raw: str, line_no: int, label: str) -> bool:
+    lowered = raw.strip().lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    raise RuleError(line_no, f"{label} invalido: {raw!r}")
+
 
 def strip_comment(line: str) -> str:
     quote: str | None = None
@@ -109,6 +140,37 @@ def validate_identifier(value: str, line_no: int, label: str) -> None:
 def validate_cpp_type(value: str, line_no: int, label: str) -> None:
     if not _CPP_TYPE_RE.fullmatch(value):
         raise RuleError(line_no, f"tipo de {label} invalido: {value!r}")
+
+
+def parse_hook(raw: str, line_no: int, return_type: str = "void") -> str:
+    match = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_:]*)\s*\(\)", raw.strip())
+    if not match:
+        raise RuleError(line_no, f"forma de action invalida: {raw!r}")
+    return match.group(1)
+
+
+def parse_typed_member(
+    raw: str,
+    line_no: int,
+    label: str,
+    *,
+    requires_default: bool,
+) -> tuple[str, str, str]:
+    if requires_default and "=" not in raw:
+        raise RuleError(line_no, f"member invalido (falta '='): {raw!r}")
+    lhs, sep, default = raw.partition("=")
+    lhs = lhs.strip()
+    default = default.strip()
+    if lhs.endswith(":"):
+        lhs = lhs[:-1].strip()
+    if ":" not in lhs:
+        raise RuleError(line_no, f"member sem tipo: {raw!r}")
+    name, cpp_type = (part.strip() for part in lhs.split(":", 1))
+    validate_identifier(name, line_no, f"nome de {label} invalido")
+    validate_cpp_type(cpp_type, line_no, label)
+    if requires_default and not default:
+        raise RuleError(line_no, f"default vazio para {label}: {name!r}")
+    return name, cpp_type, default
 
 
 def is_balanced(body: str) -> bool:

@@ -4,8 +4,8 @@
 
 namespace common::ast {
 
-template <typename T>
-bool pruneChild(T *parent, T *child) {
+template <typename Parent, typename Child>
+bool pruneChild(Parent *parent, Child *child) {
     if (parent == nullptr || child == nullptr)
         return false;
 

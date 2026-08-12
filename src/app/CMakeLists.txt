@@ -5,7 +5,7 @@ add_executable(zithc
 target_link_libraries(zithc PRIVATE
     zith_cli
     zith_frontend_lexer
-    zith_project_config
+    zith_flags
     zith_common
     zith_session
 )

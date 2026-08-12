@@ -27,6 +27,10 @@ Module
 Expr
 Type
 
+[state Module]
+name: std::string_view
+nested: int
+
 [context TopLevel]
 Fn lexeme="fn" push=Module action=hooks::parser::beginModule()
 Identifier action=hooks::parser::sawTopIdentifier()

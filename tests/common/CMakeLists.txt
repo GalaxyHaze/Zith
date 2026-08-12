@@ -37,6 +37,41 @@ add_test(
     COMMAND common-diagnostic-render-test
 )
 
+add_executable(common-diagnostic-error-test
+    diagnostic-error-test.cpp
+)
+
+target_link_libraries(common-diagnostic-error-test PRIVATE
+    zith_common
+)
+
+add_test(
+    NAME common-diagnostic-error-basics
+    COMMAND common-diagnostic-error-test
+)
+
+add_executable(project-scaffold-test
+    project-scaffold-test.cpp
+)
+
+add_test(
+    NAME project-scaffold-basics
+    COMMAND project-scaffold-test
+            "${PROJECT_SOURCE_DIR}"
+)
+
+add_test(
+    NAME diagnostic-generator-regression
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/diagnostic-generator-test.py"
+            "${PROJECT_SOURCE_DIR}"
+            "${CMAKE_CXX_COMPILER}"
+    DEPENDS
+        "${PROJECT_SOURCE_DIR}/tools/test_kit/__init__.py"
+        "${PROJECT_SOURCE_DIR}/tools/test_kit/asserts.py"
+        "${PROJECT_SOURCE_DIR}/tools/test_kit/smoke.py"
+)
+
 add_executable(common-text-test
     text-test.cpp
 )

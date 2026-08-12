@@ -1,29 +1,28 @@
 # Project Config Helper
 
+# Project Scaffold
+
 ## Purpose
 
-The project config helper generates the strongly typed `ProjectConfig` API from `default.toml`.
+`project/` contains the project-tree scaffold blueprints. The typed `ProjectConfig` defaults now
+live in `src/config/flags/default.toml`.
 
 ## Source Of Truth
 
-Edit `default.toml` to change project configuration defaults. Regenerate the C++ side rather than
-editing generated files.
+Edit `scaffold.toml` to change generated project files. The scaffold is a manual tool and is never
+invoked as a CMake build target.
 
-Supported values are strings, integers, booleans, and arrays of strings.
-
-## Regenerate
+## Run
 
 ```bash
-python3 src/config/project/generate.py \
-  src/config/project/default.toml \
-  --out build/src/config/project
+python3 src/config/project/scaffold.py \
+  --rules src/config/project/scaffold.toml \
+  --out .
 ```
 
-## Verify
+## Agent Boundary
 
-```bash
-cmake --build build -j
-ctest --test-dir build --output-on-failure
-```
-
-Details about supported sections and field naming are in `src/config/README.md`.
+Edit `scaffold.toml` to change project-tree blueprints. Do not edit generated project files
+manually. The scaffold is a manual tool and is never invoked as a CMake build target; do not
+modify `scaffold.py` or shared generator rules without explicit user approval. Running the script
+to create or refresh a project tree is allowed.

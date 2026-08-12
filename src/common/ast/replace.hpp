@@ -4,8 +4,8 @@
 
 namespace common::ast {
 
-template <typename T>
-bool replaceChild(T *parent, T *oldNode, T *newNode) {
+template <typename Parent, typename OldNode, typename NewNode>
+bool replaceChild(Parent *parent, OldNode *oldNode, NewNode *newNode) {
     if (parent == nullptr || oldNode == nullptr || newNode == nullptr)
         return false;
 

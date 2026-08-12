@@ -217,6 +217,29 @@ bool expect_parent_chain() {
            parser.topState() == ParserState::TopLevel;
 }
 
+bool expect_state_frames() {
+    Arena arena;
+    StringInterner strings(arena);
+    Lexer lexer;
+    TokenStream tokens = lexer.run("", strings);
+    Parser<sample::ParseOutput> parser(arena);
+
+    // The generated parser always keeps a TopLevel frame after construction.
+    if (!parser.hasFrame<ParserState::TopLevel>())
+        return false;
+    parser.pushState(ParserState::Module);
+    if (!parser.hasFrame<ParserState::Module>())
+        return false;
+
+    parser.frame<ParserState::Module>().name = "m";
+    parser.frame<ParserState::Module>().nested = 3;
+    if (parser.frame<ParserState::Module>().nested != 3)
+        return false;
+    if (!parser.popState(ParserState::Module))
+        return false;
+    return !parser.hasFrame<ParserState::Module>();
+}
+
 bool expect_parent_chain_deep() {
     Arena arena;
     StringInterner strings(arena);
@@ -311,6 +334,7 @@ int main() {
     ok &= expect_helpers();
     ok &= expect_output_builder();
     ok &= expect_top_level_and_pop();
+    ok &= expect_state_frames();
     ok &= expect_parent_chain();
     ok &= expect_parent_chain_deep();
     ok &= expect_global_end();

@@ -16,7 +16,14 @@ while not (_REPO_ROOT / "tools").is_dir():
     _REPO_ROOT = _REPO_ROOT.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from tools.rules_kit import cpp_string, split_top_level, strip_comment, to_camel
+from tools.rules_kit import (
+    cpp_string,
+    gitignore_lines,
+    split_top_level,
+    strip_comment,
+    to_camel,
+    write_generated as write_generated_files,
+)
 
 
 class ConfigError(ValueError):
@@ -389,9 +396,7 @@ def make_source(config: Config) -> str:
 
 
 def make_gitignore() -> str:
-    return "\n".join(
-        ["project-config.hpp", "project-config.cpp", ".gitignore", "__pycache__/", ""]
-    )
+    return gitignore_lines(["project-config.hpp", "project-config.cpp"])
 
 
 def main() -> int:
@@ -409,10 +414,16 @@ def main() -> int:
     config.validate()
 
     out = args.out
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "project-config.hpp").write_text(make_header(config), encoding="utf-8")
-    (out / "project-config.cpp").write_text(make_source(config), encoding="utf-8")
-    (out / ".gitignore").write_text(make_gitignore(), encoding="utf-8")
+    written = write_generated_files(
+        out,
+        [
+            ("project-config.hpp", make_header(config)),
+            ("project-config.cpp", make_source(config)),
+            (".gitignore", make_gitignore()),
+        ],
+    )
+    for target in written:
+        print(f"generated {target}")
     return 0
 
 

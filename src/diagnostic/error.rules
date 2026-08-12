@@ -1,0 +1,25 @@
+# Declarative error catalogue used by common::diagnostic.
+#
+# Each entry declares a stable numeric code plus the fields the renderer and
+# callers need. `template` and `note` may contain `{message}` placeholders that
+# substitute the Diagnostic message, and templates may also contain `{lexeme}`
+# placeholders that substitute the second argument passed to ErrorTemplate::render.
+# Missing optional fields fall back to safe defaults.
+#
+# codes:
+#   E4001 - generic compiler error
+[errors]
+
+E4001: generic
+severity = Error
+category = compiler
+title = "generic error"
+template = "{message}"
+note = "invalid source"
+
+E4002: lookup
+severity = Error
+category = name
+title = "name lookup"
+template = "unknown {lexeme}"
+note = "check the spelling"

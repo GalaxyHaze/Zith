@@ -47,6 +47,17 @@ std::string_view StringInterner::lookup(InternedId id) const {
     return (*pool)[id];
 }
 
+Optional<InternedId> StringInterner::findId(std::string_view str) const {
+#if !defined(ZITH_IS_WASM)
+    std::shared_lock<std::shared_mutex> lock(rwMutex_);
+#endif
+
+    const auto *value = map->get(str);
+    if (!value)
+        return {};
+    return *value;
+}
+
 void StringInterner::init() {
     pool = allocator_->make<DynArray<std::string_view>>(*allocator_);
     map  = allocator_->make<FlatMap<std::string_view, InternedId>>();

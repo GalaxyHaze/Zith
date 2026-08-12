@@ -18,13 +18,17 @@ from tools.rules_kit import (
     RuleError,
     cpp_char,
     cpp_string,
+    gitignore_lines,
     join_logical_lines,
+    parse_hook as parse_hook_name,
     parse_quoted,
     split_top_level,
     strip_comment,
     validate_cpp_type,
     validate_identifier,
+    write_generated as write_generated_files,
 )
+
 @dataclass(frozen=True)
 class Hook:
     qualified_name: str
@@ -59,6 +63,13 @@ class Rule:
 
 
 @dataclass
+class StateField:
+    name: str
+    cpp_type: str
+    line_no: int
+
+
+@dataclass
 class ParserRules:
     input: str
     output: str
@@ -71,6 +82,7 @@ class ParserRules:
     on_error: Hook | None = None
     context_builders: dict[str, bool] | None = None
     builder: str | None = None
+    state_members: dict[str, list[StateField]] | None = None
 
     @property
     def states(self) -> list[str]:
@@ -101,19 +113,9 @@ class ParserRules:
         return self.builder or f"common::parser::OutputBuilder<{self.output}>"
 
 
-def parse_string_list(raw: str, line_no: int) -> list[str]:
-    raw = raw.strip()
-    if raw.startswith("[") and raw.endswith("]"):
-        raw = raw[1:-1]
-    return [item for item in split_top_level(raw, line_no) if item]
-
-
 def parse_hook(raw: str, line_no: int, return_type: str = "void") -> Hook:
-    match = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_:]*)\s*\(\)", raw.strip())
-    if not match:
-        raise RuleError(line_no, f"forma de action invalida: {raw!r}")
     return Hook(
-        qualified_name=match.group(1),
+        qualified_name=parse_hook_name(raw, line_no),
         line_no=line_no,
         return_type=return_type,
     )
@@ -225,6 +227,8 @@ def parse_rules(text: str, path: Path) -> ParserRules:
     on_error: Hook | None = None
     section = ""
     context = ""
+    state_section: str | None = None
+    state_fields_map: dict[str, list[StateField]] = {}
 
     for line_no, line in logical:
         header = re.fullmatch(r"\[([^\]]+)\]", line)
@@ -233,9 +237,11 @@ def parse_rules(text: str, path: Path) -> ParserRules:
             lowered = raw_section.lower()
             if lowered == "parser":
                 section = "parser"
+                state_section = None
             elif lowered == "contexts":
                 section = "contexts"
             elif lowered.startswith("context "):
+                state_section = None
                 raw_context = raw_section[len("context "):].strip()
                 header_parts = raw_context.split()
                 candidate = header_parts[0]
@@ -289,6 +295,12 @@ def parse_rules(text: str, path: Path) -> ParserRules:
                 context_parents[candidate].append(parents)
                 section = "context"
                 context = candidate
+            elif lowered.startswith("state "):
+                section = "state"
+                raw_state = raw_section[len("state "):].strip()
+                validate_identifier(raw_state, line_no, "state")
+                state_section = raw_state
+                state_fields_map.setdefault(raw_state, [])
             else:
                 raise RuleError(line_no, f"secao desconhecida: [{raw_section}]")
             continue
@@ -340,6 +352,23 @@ def parse_rules(text: str, path: Path) -> ParserRules:
             if value in contexts:
                 raise RuleError(line_no, f"context repetido: {value!r}")
             contexts.append(value)
+            continue
+
+        if section == "state":
+            if state_section is None:
+                raise RuleError(line_no, f"member fora de [state]: {line!r}")
+            if ":" not in line:
+                raise RuleError(line_no, f"member sem tipo: {line!r}")
+            name, cpp_type = (part.strip() for part in line.split(":", 1))
+            validate_identifier(name, line_no, "state member")
+            validate_cpp_type(cpp_type, line_no, "state member")
+            fields = state_fields_map.setdefault(state_section, [])
+            if any(field.name == name for field in fields):
+                raise RuleError(
+                    line_no,
+                    f"member repetido em [{state_section}]: {name!r}",
+                )
+            fields.append(StateField(name=name, cpp_type=cpp_type, line_no=line_no))
             continue
 
         if section == "context":
@@ -409,6 +438,18 @@ def parse_rules(text: str, path: Path) -> ParserRules:
                 f"pop para context nao declarado: {rule.pop!r}",
             )
 
+    for state_name, fields in state_fields_map.items():
+        if state_name not in contexts:
+            raise RuleError(
+                context_lines.get(state_name, 1),
+                f"[state {state_name}] nao declarado nos contexts",
+            )
+        if not fields:
+            raise RuleError(
+                context_lines.get(state_name, 1),
+                f"[state {state_name}] tem de declarar pelo menos um member",
+            )
+
     builder_contexts = {
         name
         for name, enabled in context_builders.items()
@@ -460,6 +501,7 @@ def parse_rules(text: str, path: Path) -> ParserRules:
         on_error=on_error,
         context_builders=context_builders,
         builder=parser_fields.get("builder", (None, 0))[0],
+        state_members=state_fields_map or None,
     )
 
 
@@ -513,14 +555,136 @@ def state_enum_lines(states: list[str]) -> list[str]:
     return lines
 
 
-def context_conditions(context: str, parents: list[str]) -> list[str]:
+def state_frame_decls(rules: ParserRules) -> list[str]:
+    if not rules.state_members:
+        return []
+    lines = []
+    for state in rules.states:
+        lines.append(f"struct StateFrame_{state};")
+        lines.append("")
+    for state in rules.states:
+        lines.append(f"struct StateFrame_{state} {{")
+        if rules.state_members.get(state):
+            for field in rules.state_members[state]:
+                lines.append(f"    {field.cpp_type} {field.name}{{}};")
+        else:
+            lines.append("    std::monostate unused{};")
+        lines.append("};")
+        lines.append("")
+    lines.extend(
+        [
+            "struct StateFrame {",
+            "    ParserState state = ParserState::TopLevel;",
+            "    std::variant<",
+        ]
+    )
+    lines.append("        std::monostate,")
+    for index, state in enumerate(rules.states):
+        suffix = "," if index + 1 < len(rules.states) else ">"
+        lines.append(f"        StateFrame_{state}{suffix}")
+    lines.extend(
+        [
+            "    data;",
+            "};",
+            "",
+            "template <ParserState State>",
+            "struct StateFrameFor;",
+        ]
+    )
+    for state in rules.states:
+        lines.append(
+            f"template <> struct StateFrameFor<ParserState::{state}> "
+            f"{{ using type = StateFrame_{state}; }};"
+        )
+    lines.append("")
+    return lines
+
+
+def state_frame_accessors(rules: ParserRules, indent: str = "    ") -> list[str]:
+    if not rules.state_members:
+        return []
+    lines = [
+        f"{indent}template <ParserState State>",
+        f"{indent}[[nodiscard]] bool hasFrame() const noexcept;",
+        f"{indent}template <ParserState State>",
+        f"{indent}[[nodiscard]] const StateFrameFor<State>::type &frame() const noexcept;",
+        f"{indent}template <ParserState State>",
+        f"{indent}[[nodiscard]] StateFrameFor<State>::type &frame() noexcept;",
+        "",
+    ]
+    return lines
+
+
+def state_frame_impls(rules: ParserRules, indent: str = "    ") -> list[str]:
+    if not rules.state_members:
+        return []
+    out: list[str] = [
+        f"{indent}template <typename Output>",
+        f"{indent}template <ParserState State>",
+        f"{indent}bool Parser<Output>::hasFrame() const noexcept {{",
+        f"{indent}    for (const StateFrame &f : stack_)",
+        f"{indent}        if (f.state == State)",
+        f"{indent}            return true;",
+        f"{indent}    return false;",
+        f"{indent}}}",
+        f"{indent}template <typename Output>",
+        f"{indent}template <ParserState State>",
+        f"{indent}const typename StateFrameFor<State>::type &",
+        f"{indent}    Parser<Output>::frame() const noexcept {{",
+        f"{indent}    for (const StateFrame &f : stack_)",
+        f"{indent}        if (f.state == State)",
+        f"{indent}            return std::get<typename StateFrameFor<State>::type>(f.data);",
+        f"{indent}    std::abort();",
+        f"{indent}}}",
+        f"{indent}template <typename Output>",
+        f"{indent}template <ParserState State>",
+        f"{indent}typename StateFrameFor<State>::type &",
+        f"{indent}    Parser<Output>::frame() noexcept {{",
+        f"{indent}    for (StateFrame &f : stack_)",
+        f"{indent}        if (f.state == State)",
+        f"{indent}            return std::get<typename StateFrameFor<State>::type>(f.data);",
+        f"{indent}    std::abort();",
+        f"{indent}}}",
+    ]
+    return out
+
+
+def state_frame_internal_fns(rules: ParserRules, indent: str = "    ") -> list[str]:
+    if not rules.state_members:
+        return []
+    lines = [
+        f"{indent}void resetInternal() noexcept {{",
+        f"{indent}    stack_.clear();",
+        f"{indent}    pushState(ParserState::TopLevel);",
+        f"{indent}}}",
+        f"{indent}[[nodiscard]] StateFrame makeFrame(ParserState state) noexcept {{",
+        f"{indent}    switch (state) {{",
+    ]
+    for state in rules.states:
+        lines.append(f"{indent}    case ParserState::{state}:")
+        lines.append(f"{indent}        return StateFrame{{state, StateFrame_{state}{{}}}};")
+    lines.extend(
+        [
+            f"{indent}    default:",
+            f"{indent}        return StateFrame{{state, std::monostate{{}}}};",
+            f"{indent}    }}",
+            f"{indent}}}",
+        ]
+    )
+    return lines
+
+
+def context_conditions(context: str, parents: list[str], frames: bool) -> list[str]:
     cond = [f"topState() == ParserState::{context}"]
     for depth, parent in enumerate(parents, start=2):
-        cond.append(f"stack_[stack_.size() - {depth}] == ParserState::{parent}")
+        expr = f"stack_[stack_.size() - {depth}]"
+        if frames:
+            expr += ".state"
+        cond.append(f"{expr} == ParserState::{parent}")
     return cond
 
 
-def rule_conditions(rule: Rule, parents: list[str]) -> list[str]:
+def rule_conditions(rule: Rule, parents: list[str], frames: bool) -> list[str]:
     if len(rule.kinds) == 1:
         kind_cond = f"token.kind == TokenKind::{rule.kinds[0]}"
     else:
@@ -532,7 +696,7 @@ def rule_conditions(rule: Rule, parents: list[str]) -> list[str]:
         cond.append(f"this->lexeme(token) == {cpp_string(rule.lexeme)}")
     if rule.punc is not None:
         cond.append(f"token.punc == {cpp_char(rule.punc)}")
-    cond.extend(context_conditions(rule.context, parents))
+    cond.extend(context_conditions(rule.context, parents, frames))
     return cond
 
 
@@ -549,7 +713,7 @@ def make_rule_apply(rules: ParserRules) -> str:
         lines.append("        }")
     for rule in rules.rules:
         lines.append(
-            f"        if ({' && '.join(rule_conditions(rule, rule.parents))}) {{"
+            f"        if ({' && '.join(rule_conditions(rule, rule.parents, bool(rules.state_members)))}) {{"
         )
         if rule.action is not None:
             lines.append(f"            {rule.action.qualified_name}(*this, token);")
@@ -651,6 +815,8 @@ def make_parser_header(rules: ParserRules) -> str:
             "#include <utility>",
         ]
     )
+    if rules.state_members:
+        lines.append('#include <variant>')
     lines.extend(
         [
             "",
@@ -713,6 +879,7 @@ def make_parser_header(rules: ParserRules) -> str:
             "",
         ]
     )
+    lines.extend(state_frame_decls(rules))
     lines.extend(make_parser_lookup(rules))
     lines.extend(
         [
@@ -744,7 +911,8 @@ def make_parser_header(rules: ParserRules) -> str:
             f"    explicit Parser(common::memory::Arena &arena)",
             f"        : stack_(arena), diagnostics_(arena)"
             + (", builder_(arena)" if rules.builder_enabled else "") + " {",
-            "        pushState(ParserState::TopLevel);",
+            ("        resetInternal();" if rules.state_members else
+             "        pushState(ParserState::TopLevel);"),
             "    }",
             "",
         ]
@@ -776,7 +944,8 @@ def make_parser_header(rules: ParserRules) -> str:
             "        diagnostics_.clear();",
             "        abort_ = false;",
             "        stack_.clear();",
-            "        pushState(ParserState::TopLevel);",
+            ("        resetInternal();" if rules.state_members else
+             "        pushState(ParserState::TopLevel);"),
             "    }",
             "",
             "    [[nodiscard]] TokenStreamAlias &tokenStream() noexcept { return *tokens_; }",
@@ -809,22 +978,36 @@ def make_parser_header(rules: ParserRules) -> str:
             "        return tokenStream().slice(start, count);",
             "    }",
             "",
-            "    [[nodiscard]] ParserState topState() const noexcept {",
-            "        return stack_.back();",
-            "    }",
-            "    [[nodiscard]] common::memory::DynArray<ParserState> &stack() noexcept {",
-            "        return stack_;",
-            "    }",
-            "    [[nodiscard]] const common::memory::DynArray<ParserState> &stack() const noexcept {",
-            "        return stack_;",
-            "    }",
-            "    void pushState(ParserState state) noexcept {",
-            "        stack_.push(state);",
-            "    }",
+            ("    [[nodiscard]] ParserState topState() const noexcept {\n"
+             "        return stack_.back().state;\n"
+             "    }\n"
+             "    [[nodiscard]] common::memory::DynArray<StateFrame> &stack() noexcept {\n"
+             "        return stack_;\n"
+             "    }\n"
+             "    [[nodiscard]] const common::memory::DynArray<StateFrame> &stack() const noexcept {\n"
+             "        return stack_;\n"
+             "    }\n"
+             "    void pushState(ParserState state) noexcept {\n"
+             "        stack_.push(makeFrame(state));\n"
+             "    }\n"
+             if rules.state_members else
+             "    [[nodiscard]] ParserState topState() const noexcept {\n"
+             "        return stack_.back();\n"
+             "    }\n"
+             "    [[nodiscard]] common::memory::DynArray<ParserState> &stack() noexcept {\n"
+             "        return stack_;\n"
+             "    }\n"
+             "    [[nodiscard]] const common::memory::DynArray<ParserState> &stack() const noexcept {\n"
+             "        return stack_;\n"
+             "    }\n"
+             "    void pushState(ParserState state) noexcept {\n"
+             "        stack_.push(state);\n"
+             "    }\n"
+             ),
             "    bool popState(ParserState expected) noexcept {",
             "        if (stack_.empty() || stack_.size() == 1 || topState() != expected)",
             "            return false;",
-            "        stack_.pop_back();",
+            "        popState();",
             "        return true;",
             "    }",
             "    void popState() noexcept {",
@@ -879,6 +1062,8 @@ def make_parser_header(rules: ParserRules) -> str:
             "",
         ]
     )
+    if rules.state_members:
+        lines.extend(state_frame_accessors(rules))
     lines.extend(
         [
             "",
@@ -890,18 +1075,27 @@ def make_parser_header(rules: ParserRules) -> str:
             "private:",
             "    TokenStreamAlias *tokens_ = nullptr;",
             "    Input source_{};",
-            "    common::memory::DynArray<ParserState> stack_;",
+            ("    common::memory::DynArray<StateFrame> stack_;"
+             if rules.state_members else
+             "    common::memory::DynArray<ParserState> stack_;"),
             "    common::memory::DynArray<DiagnosticAlias> diagnostics_;",
             "    common::memory::Optional<OutputAlias> output_;",
             ("    BuilderAlias builder_;"
              if rules.builder_enabled else ""),
             "    bool abort_ = false;",
+            *state_frame_internal_fns(rules),
             "};",
-            "",
-            "} // namespace generated_parser",
             "",
         ]
     )
+    if rules.state_members:
+        lines.extend(state_frame_impls(rules, indent=""))
+        lines.append("")
+        lines.append("} // namespace generated_parser")
+        lines.append("")
+    else:
+        lines.append("} // namespace generated_parser")
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -919,7 +1113,7 @@ def make_parser_lookup(rules: ParserRules) -> list[str]:
 
 
 def make_gitignore() -> str:
-    return "parser.hpp\nparser.cpp\nactions.hpp\n__pycache__/\n"
+    return gitignore_lines(["parser.hpp", "parser.cpp", "actions.hpp"])
 
 
 def generated_files(rules: ParserRules) -> list[tuple[str, str]]:
@@ -959,10 +1153,8 @@ def main() -> int:
         print(exc.render(rules_path), file=sys.stderr)
         return 2
 
-    out_path.mkdir(parents=True, exist_ok=True)
-    for name, content in generated_files(rules):
-        target = out_path / name
-        target.write_text(content, encoding="utf-8")
+    written = write_generated_files(out_path, generated_files(rules))
+    for target in written:
         print(f"generated {target}")
     return 0
 

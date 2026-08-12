@@ -14,7 +14,14 @@ while not (_REPO_ROOT / "tools").is_dir():
     _REPO_ROOT = _REPO_ROOT.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from tools.rules_kit import RuleError, cpp_string, join_logical_lines, strip_comment
+from tools.rules_kit import (
+    RuleError,
+    cpp_string,
+    gitignore_lines,
+    join_logical_lines,
+    strip_comment,
+    write_generated as write_generated_files,
+)
 
 
 SUPPORTED_TAGS = {"child", "children", "string", "value"}
@@ -249,6 +256,7 @@ def make_ast_header(nodes: list[Node]) -> str:
     lines = [
         "#pragma once",
         "",
+        '#include "common/ast/clone.hpp"',
         '#include "common/memory/arena.hpp"',
         '#include "common/memory/dyn-array.hpp"',
         '#include "frontend/ast/types.hpp"',
@@ -263,6 +271,7 @@ def make_ast_header(nodes: list[Node]) -> str:
         "",
     ]
     lines.extend(make_kinds_and_structs(nodes))
+    lines.extend(make_foreach_header(nodes))
     lines.extend(
         [
             "struct AstRoot {",
@@ -308,7 +317,148 @@ def make_ast_header(nodes: list[Node]) -> str:
             "",
         ]
     )
+    lines.append("namespace generated_ast {")
+    lines.append("")
+    lines.append("// cloneInto must be visible after AstRoot and alloc/make are defined.")
+    lines.append("")
+    lines.extend(make_clone_into_header(nodes))
+    lines.append("} // namespace generated_ast")
+    lines.append("")
     return "\n".join(lines)
+
+
+def make_clone_into_header(nodes: list[Node]) -> list[str]:
+    lines = []
+    lines.extend(
+        [
+            "template <typename AstRoot>",
+            "AstNode *cloneInto(AstRoot &ast, AstNode *source);",
+            "",
+        ]
+    )
+    for node in nodes:
+        lines.append("template <typename AstRoot>")
+        lines.append(
+            f"{node.name} *cloneInto(AstRoot &ast, {node.name} *source);"
+        )
+    lines.append("")
+    for node in nodes:
+        lines.append("template <typename AstRoot>")
+        lines.append(
+            f"{node.name} *cloneInto(AstRoot &ast, {node.name} *source) {{"
+        )
+        lines.append("    if (source == nullptr)")
+        lines.append("        return nullptr;")
+        for field in node.fields:
+            if field.tag == "child":
+                lines.append(
+                    f"    auto *cloned_{field.name} = "
+                    f"common::ast::cloneNode(ast, source->{field.name});"
+                )
+        alloc_args = []
+        for field in node.fields:
+            if field.tag == "children":
+                continue
+            name = field.name
+            if field.tag == "child":
+                alloc_args.append(f"cloned_{name}")
+            else:
+                alloc_args.append(f"source->{name}")
+        invocation = f"make<{node.name}>(ast"
+        if alloc_args:
+            invocation += ", " + ", ".join(alloc_args)
+        invocation += ")"
+        lines.append(f"    auto *clone = {invocation};")
+        for field in node.fields:
+            if field.tag == "children":
+                lines.append(
+                    f"    for (AstNode *child : source->{field.name})"
+                )
+                lines.append(
+                    f"        clone->{field.name}.push("
+                    f"common::ast::cloneNode(ast, child));"
+                )
+        lines.append("    return clone;")
+        lines.append("}")
+        lines.append("")
+    lines.extend(
+        [
+            "template <typename AstRoot>",
+            "AstNode *cloneInto(AstRoot &ast, AstNode *source) {",
+            "    if (source == nullptr)",
+            "        return nullptr;",
+            "    switch (source->kind) {",
+        ]
+    )
+    for node in nodes:
+        lines.append(f"    case NodeKind::{node.name}:")
+        lines.append(
+            f"        return cloneInto(ast, "
+            f"static_cast<{node.name} *>(source));"
+        )
+    lines.extend(
+        [
+            "    }",
+            "    return nullptr;",
+            "}",
+            "",
+        ]
+    )
+    return lines
+
+
+def make_foreach_header(nodes: list[Node]) -> list[str]:
+    lines = [
+        "",
+        "template <typename Fn>",
+        "void for_each_child(AstNode *node, Fn &&fn);",
+        "",
+    ]
+    for node in nodes:
+        if node.node_fields:
+            lines.append("template <typename Fn>")
+            lines.append(
+                f"void for_each_child({node.name} *node, Fn &&fn);"
+            )
+    lines.append("")
+    for node in nodes:
+        if not node.node_fields:
+            continue
+        lines.append("template <typename Fn>")
+        lines.append(
+            f"void for_each_child({node.name} *node, Fn &&fn) {{"
+        )
+        lines.append("    if (node == nullptr)")
+        lines.append("        return;")
+        for field in node.node_fields:
+            if field.tag == "child":
+                lines.append(f"    fn(node->{field.name});")
+            else:
+                lines.append(f"    for (AstNode *&candidate : node->{field.name})")
+                lines.append("        fn(candidate);")
+        lines.append("}")
+        lines.append("")
+    lines.append(
+        "template <typename Fn>"
+    )
+    lines.append(
+        "void for_each_child(AstNode *node, Fn &&fn) {"
+    )
+    lines.append("    if (node == nullptr)")
+    lines.append("        return;")
+    lines.append("    switch (node->kind) {")
+    for node in nodes:
+        lines.append(f"    case NodeKind::{node.name}:")
+        if node.node_fields:
+            lines.append(
+                f"        for_each_child(static_cast<{node.name} *>(node), "
+                "std::forward<Fn>(fn));"
+            )
+        lines.append("        break;")
+    lines.append("    }")
+    lines.append("}")
+    lines.append("")
+    return lines
 
 
 def make_ast_source(nodes: list[Node]) -> str:
@@ -521,10 +671,6 @@ def make_walk_header(nodes: list[Node]) -> str:
     return "\n".join(lines)
 
 
-def make_gitignore() -> str:
-    return "ast.hpp\nast.cpp\nwalk.hpp\n__pycache__/\n"
-
-
 def generated_files(nodes: list[Node]) -> list[tuple[str, str]]:
     return [
         ("ast.hpp", make_ast_header(nodes)),
@@ -532,6 +678,10 @@ def generated_files(nodes: list[Node]) -> list[tuple[str, str]]:
         ("walk.hpp", make_walk_header(nodes)),
         (".gitignore", make_gitignore()),
     ]
+
+
+def make_gitignore() -> str:
+    return gitignore_lines(["ast.hpp", "ast.cpp", "walk.hpp"])
 
 
 def main() -> int:
@@ -553,10 +703,8 @@ def main() -> int:
         print(exc.render(rules_path), file=sys.stderr)
         return 2
 
-    out_path.mkdir(parents=True, exist_ok=True)
-    for name, content in generated_files(nodes):
-        target = out_path / name
-        target.write_text(content, encoding="utf-8")
+    written = write_generated_files(out_path, generated_files(nodes))
+    for target in written:
         print(f"generated {target}")
     return 0
 

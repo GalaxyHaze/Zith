@@ -10,10 +10,14 @@ set(_zith_common_sources
 
 add_library(zith_common STATIC ${_zith_common_sources})
 
+add_subdirectory(import)
+
 target_link_libraries(zith_common PUBLIC
     mio::mio
+    zith_diagnostic
 )
 
 target_include_directories(zith_common PUBLIC
     "${PROJECT_SOURCE_DIR}/src"
+    "${PROJECT_BINARY_DIR}/src"
 )

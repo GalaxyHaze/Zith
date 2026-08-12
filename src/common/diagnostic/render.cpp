@@ -1,6 +1,7 @@
 #include "common/diagnostic/render.hpp"
 
 #include "common/diagnostic/diagnostic.hpp"
+#include "diagnostic/error-info.hpp"
 #include "common/memory/dyn-array.hpp"
 #include "common/memory/source-file.hpp"
 #include "common/memory/source-map.hpp"
@@ -84,7 +85,8 @@ void writeSourceContext(
     const memory::SourceLoc &source,
     const memory::SourceSpan &fileSpan,
     memory::Loc loc,
-    unsigned contextLines
+    unsigned contextLines,
+    std::string_view afterCaret = {}
 ) {
     const std::string_view content = source.slice();
     if (loc.line == 0 || loc.col == 0)
@@ -122,6 +124,10 @@ void writeSourceContext(
             std::fputc('^', out);
             for (size_t j = 1; j < caretWidth; ++j)
                 std::fputc('~', out);
+            if (!afterCaret.empty()) {
+                std::fputc(' ', out);
+                std::fwrite(afterCaret.data(), 1, afterCaret.size(), out);
+            }
             std::fputc('\n', out);
         }
     }
@@ -138,17 +144,43 @@ void renderDiagnostic(
     const memory::Loc loc = sourceMap.loc(diag.span);
     const auto pathView = sourceMap.view(diag.span.file);
     const std::string_view path = pathView ? pathView.value() : std::string_view{"<unknown>"};
+    const auto snippet = sourceMap.snippet(diag.span);
+    const std::string_view lexeme = snippet ? snippet.value() : std::string_view{"<invalid span>"};
 
     std::fprintf(out, "%.*s:%u:%u: ", static_cast<int>(path.size()), path.data(), loc.line, loc.col);
     writeSeverity(out, diag.severity, options.useColor);
-    std::fprintf(out, ": %s\n", diag.message.c_str());
-
-    if (options.contextLines == 0)
-        return;
-
-    const auto file = sourceMap.get(diag.span.file);
-    if (file)
-        writeSourceContext(out, file->get(), diag.span, loc, options.contextLines);
+    if (diag.code != 0) {
+        const ErrorInfo &info = errorInfo(diag.code);
+        const std::string rendered = ErrorTemplate{&info}.render(diag.message, lexeme);
+        std::fprintf(out, ": E%u: %s\n", diag.code, rendered.c_str());
+        std::fprintf(
+            out,
+            "  --> %.*s:%u:%u\n",
+            static_cast<int>(path.size()),
+            path.data(),
+            loc.line,
+            loc.col
+        );
+        if (options.contextLines != 0) {
+            const auto file = sourceMap.get(diag.span.file);
+            if (file)
+                writeSourceContext(out, file->get(), diag.span, loc, options.contextLines, rendered);
+        }
+        if (!info.note.empty())
+            std::fprintf(out, "  = note: %.*s\n", static_cast<int>(info.note.size()), info.note.data());
+        for (const Note &note : diag.notes)
+            if (!note.message.empty())
+                std::fprintf(out, "  = note: %s\n", note.message.c_str());
+    } else {
+        std::fprintf(out, ": %s\n", diag.message.c_str());
+        for (const Note &note : diag.notes)
+            std::fprintf(out, "  note: %s\n", note.message.c_str());
+        if (options.contextLines != 0) {
+            const auto file = sourceMap.get(diag.span.file);
+            if (file)
+                writeSourceContext(out, file->get(), diag.span, loc, options.contextLines);
+        }
+    }
 }
 
 void renderDiagnostics(

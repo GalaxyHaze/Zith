@@ -1,0 +1,32 @@
+# Zith symbol-table declarative structure.
+#
+# [kinds] enumerates the symbol-kind tags emitted as `SymKind`.
+# [data] declares the fields of `SymbolData`.  Each field uses
+#   Name: CppType   (the C++ type as written into the generated struct).
+
+[kinds]
+Fn
+Struct
+Trait
+Interface
+Enum
+Alias
+Variable
+Module
+Component
+Union
+Asset
+Word
+Context
+
+[data]
+name: InternedId
+scope: ScopeId
+visibility: SymbolVisibility
+mod_depth: int32_t
+kind: SymKind
+decl_id: uint32_t
+span: Span
+doc_span: Span
+target: SymId
+members: DynArray<SymId>

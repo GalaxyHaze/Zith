@@ -1,4 +1,6 @@
 add_subdirectory(common)
+add_subdirectory(symbols)
+add_subdirectory(import)
 add_subdirectory(frontend)
 add_subdirectory(session)
 add_subdirectory(integration)

@@ -17,25 +17,15 @@ sys.path.insert(0, str(_REPO_ROOT))
 from tools.rules_kit import (
     RuleError,
     cpp_string,
+    gitignore_lines,
     join_logical_lines,
+    parse_typed_member,
     validate_cpp_type,
+    write_generated as write_generated_files,
 )
 
 def parse_state_member(raw: str, line_no: int) -> tuple[str, str, str]:
-    if "=" not in raw:
-        raise RuleError(line_no, f"state sem default (falta '='): {raw!r}")
-    lhs, rhs = raw.split("=", 1)
-    lhs = lhs.strip()
-    rhs = rhs.strip()
-    if lhs.endswith(":"):
-        lhs = lhs[:-1].strip()
-    if ":" not in lhs:
-        raise RuleError(line_no, f"state sem tipo: {raw!r}")
-    name, cpp_type = (part.strip() for part in lhs.split(":", 1))
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
-        raise RuleError(line_no, f"nome de state invalido: {name!r}")
-    validate_cpp_type(cpp_type, line_no, "state")
-    return name, cpp_type, rhs
+    return parse_typed_member(raw, line_no, "state", requires_default=True)
 
 
 @dataclass
@@ -354,22 +344,19 @@ def make_dispatch_header(rules: SessionRules) -> str:
 
 
 def make_gitignore() -> str:
-    return "session.hpp\nsession.cpp\ndispatch.hpp\n__pycache__/\n"
+    return gitignore_lines(["session.hpp", "session.cpp", "dispatch.hpp"])
 
 
 def write_generated(out_dir: Path, rules: SessionRules) -> list[Path]:
-    outputs = [
-        ("session.hpp", make_session_header(rules)),
-        ("session.cpp", make_session_source(rules)),
-        ("dispatch.hpp", make_dispatch_header(rules)),
-        (".gitignore", make_gitignore()),
-    ]
-    written: list[Path] = []
-    for name, content in outputs:
-        target = out_dir / name
-        target.write_text(content, encoding="utf-8")
-        written.append(target)
-    return written
+    return write_generated_files(
+        out_dir,
+        [
+            ("session.hpp", make_session_header(rules)),
+            ("session.cpp", make_session_source(rules)),
+            ("dispatch.hpp", make_dispatch_header(rules)),
+            (".gitignore", make_gitignore()),
+        ],
+    )
 
 
 def main() -> int:
@@ -390,7 +377,6 @@ def main() -> int:
         print(exc.render(rules_path), file=sys.stderr)
         return 2
 
-    out_path.mkdir(parents=True, exist_ok=True)
     written = write_generated(out_path, rules)
     for target in written:
         print(f"generated {target}")

@@ -17,7 +17,7 @@ Prefer these types for new compiler-internal state:
 | `common::memory::SourceMap` | Source file identity and content lookup. |
 | `common::memory::Optional<T>` | Optional value without `std::optional`. |
 | `common::memory::Result<T, E>` | Value/error return. |
-| `common::diagnostic` | Diagnostics, Levenshtein distance, and suggestions. |
+| `common::diagnostic` | Diagnostic engine, renderer, Levenshtein distance, and suggestions. |
 | `common::parser` | Output builder template used by generated parsers. |
 | `common::text` | Parsing primitives emitted by generators. |
 
@@ -27,7 +27,7 @@ Prefer these types for new compiler-internal state:
 |---|---|
 | `memory/` | Arena, arrays, maps, source files, spans, and result/optional types. |
 | `ast/` | Template helpers for node-tree visits, clones, replacements, prunes, and transforms. |
-| `diagnostic/` | Diagnostic type and suggestion helpers. |
+| `diagnostic/` | Diagnostic type, renderer, and suggestion helpers. The declarative error catalogue lives in `src/diagnostic/`. |
 | `parser/` | `OutputBuilder` used to assemble user-defined parse output. |
 | `text/` | Parse helpers for booleans, integers, strings, and string lists. |
 | `CMakeLists.txt` | Library target `zith_common`. |
@@ -135,3 +135,9 @@ The target propagates public include directories needed by the runtime headers.
 cmake --build build -j
 ctest --test-dir build -R source-map --output-on-failure
 ```
+
+## Runtime Boundaries
+
+`src/common/` is handwritten runtime support, not generated surface. Keep it focused on stable
+types and behavior shared by generators or compiler code. Do not add ad-hoc parser/generator
+logic here; shared Python generator logic belongs in `tools/rules_kit/`.

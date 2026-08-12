@@ -156,6 +156,12 @@ int depsAdd() {
 If the action receives `opts`, the generated declaration and the handwritten definition must both
 use `const generated_cli::Options &`.
 
+## Agent Boundary
+
+Normal CLI changes belong in `src/cli/cli.rules` and `src/cli/handlers.cpp`. Do not edit
+`build/src/cli/*`; those files are rebuilt from `cli.rules`. Do not modify `generate.py` or
+shared generator rules without explicit user approval.
+
 ## Tests
 
 The CLI behavior tests live in `tests/integration` and cover help/version output, valid dispatch,

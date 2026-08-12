@@ -110,6 +110,11 @@ value: int = value
 
 SMOKE_CPP = """\
 #include "frontend/ast/ast.hpp"
+#include "common/ast/clone.hpp"
+#include "common/ast/prune.hpp"
+#include "common/ast/replace.hpp"
+#include "common/ast/transform.hpp"
+#include "common/ast/visit.hpp"
 #include "frontend/ast/walk.hpp"
 
 #include <cstdio>
@@ -127,6 +132,32 @@ int main() {
         return 1;
     program->body.push(static_cast<generated_ast::AstNode *>(call));
     ast.root = program;
+
+    int visited = 0;
+    common::ast::visit(ast.root, [&](auto *, auto *) { ++visited; });
+    if (visited != 4)
+        return 5;
+
+    generated_ast::AstRoot cloneAst(arena);
+    auto *clone = common::ast::cloneTree(cloneAst, ast.root);
+    if (clone == nullptr)
+        return 6;
+
+    if (!common::ast::replaceChild(
+            static_cast<generated_ast::Program *>(ast.root),
+            static_cast<generated_ast::AstNode *>(call),
+            static_cast<generated_ast::AstNode *>(clone)))
+        return 7;
+    if (ast.root->body.size() == 0)
+        return 8;
+
+    auto *transformed = common::ast::transform(
+        ast,
+        static_cast<generated_ast::AstNode *>(ast.root),
+        [&](auto *node, auto *) -> generated_ast::AstNode * { return node; }
+    );
+    if (transformed == nullptr)
+        return 10;
 
     int counts[3] = {};
     generated_ast::walk(ast, [&](auto *, auto *parent) {

@@ -206,4 +206,68 @@ public:
     }
 };
 
+template <class T> class Optional<T &> {
+    T *data = nullptr;
+
+public:
+    Optional() = default;
+    Optional(T &value) : data(&value) {}
+    explicit Optional(std::nullptr_t) : data(nullptr) {}
+
+    bool isValid() const noexcept {
+        return data != nullptr;
+    }
+
+    bool isEmpty() const noexcept {
+        return data == nullptr;
+    }
+
+    explicit operator bool() const noexcept {
+        return data != nullptr;
+    }
+
+    T &value() & {
+        return *requireValue_();
+    }
+
+    T &value() const & {
+        return *requireValue_();
+    }
+
+    T &value() && {
+        return *requireValue_();
+    }
+
+    T *get() const noexcept {
+        return data;
+    }
+
+    T *operator->() {
+        return requireValue_();
+    }
+
+    const T *operator->() const {
+        return requireValue_();
+    }
+
+    T &operator*() & {
+        return value();
+    }
+
+    const T &operator*() const & {
+        return value();
+    }
+
+    T &operator*() && {
+        return value();
+    }
+
+private:
+    T *requireValue_() const noexcept {
+        if (!data)
+            std::abort();
+        return data;
+    }
+};
+
 } // namespace common::memory

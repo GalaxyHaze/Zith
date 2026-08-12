@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from tools.rules_kit.errors import RuleError, render_error
 from tools.rules_kit.text import (
+    dedupe_preserve_order,
+    parse_bool_flag,
+    parse_hook,
+    parse_string_list,
+    parse_typed_member,
     cpp_char,
     cpp_string,
     is_balanced,
@@ -16,9 +21,21 @@ from tools.rules_kit.text import (
     validate_identifier,
 )
 
+from tools.rules_kit.runtime import (
+    gitignore_lines,
+    write_generated,
+)
+
 __all__ = [
     "RuleError",
     "render_error",
+    "dedupe_preserve_order",
+    "parse_bool_flag",
+    "parse_hook",
+    "parse_string_list",
+    "parse_typed_member",
+    "gitignore_lines",
+    "write_generated",
     "cpp_char",
     "cpp_string",
     "is_balanced",

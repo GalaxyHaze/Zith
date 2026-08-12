@@ -13,6 +13,13 @@ of truth for each area.
 
 - Prefer changing a declarative rules file over hand-editing generated parser, lexer, or config
   code. Generators are not one-off scripts; they are the intended maintenance path.
+- Do not modify generators (`src/*/generate.py`, `src/*/*/generate.py`,
+  `src/config/project/scaffold.py`, `tools/rules_kit/`, or `tools/test_kit/`) unless the user
+  explicitly approves a generator change. Running `scaffold.py` to create or refresh a new tree is
+  allowed; changing the script itself is not.
+  Most work is intended to be a `.rules`/TOML edit plus a handwritten action/handler update.
+- Do not modify `src/symbols/` or `src/common/import/` without explicit user approval.
+  The symbol generator and the import graph are a protected subsystem.
 - Keep handwritten code focused on behavior, not plumbing. If a change is mostly table wiring or
   option parsing, it probably belongs in the generator and its rules file.
 - Keep the app entry point intentionally thin. Do not move parsing, dispatch, project
@@ -28,14 +35,26 @@ of truth for each area.
   does not apply are acceptable.
 - Keep generated output untouched by hand edits. Regenerate it, and keep the generator as the
   reproducible source of the emitted files.
+- Keep shared generator logic in `tools/rules_kit/` instead of duplicating it in sibling
+  generators. Put generator tests in `tools/test_kit/` only through the existing helper surface.
+- Treat a `.rules`/TOML file as the declarative surface: edit that file first, regenerate through
+  the documented command, and verify generated C++ through the build and tests. If a requested
+  change needs a new generator capability, stop and ask before modifying a generator.
 
 ## Common Workflow
 
 1. Read `readme.md` and the relevant rules file for the subsystem.
-2. Change the declarative source or generator first.
-3. Regenerate and build so the generated code reflects the rules.
-4. Run the full test suite with `ctest --test-dir build --output-on-failure`.
-5. Keep changes small enough that behavior and rollout can be reviewed incrementally.
+2. Determine the normal edit surface:
+   - `.rules` / TOML: change the declarative structure.
+   - handwritten C++: implement behavior in the documented `actions.cpp`, `handlers.cpp`,
+     `dispatch.cpp`, or types header.
+   - generator/shared tooling: only change with explicit user approval; otherwise stop and ask.
+   - protected subsystem: never touch `src/symbols/` or `src/common/import/` without explicit
+     user approval; even read-only audits should note that the boundary remains unchanged.
+3. Do not edit files under `build/`; they are generated outputs.
+4. Regenerate and build so the generated code reflects the rules.
+5. Run the full test suite with `ctest --test-dir build --output-on-failure`.
+6. Keep changes small enough that behavior and rollout can be reviewed incrementally.
 
 ## Project Search
 
@@ -51,3 +70,8 @@ existing tests.
   dispatch, and typo suggestions are covered there.
 - If a generator changes behavior, verify the generated result, not only the Python generator
   source.
+- A generator change requires explicit user approval and must be verified by the generator
+  regression tests plus `ctest --test-dir build --output-on-failure`.
+- A `.rules`/TOML edit must keep the generated/source boundary unchanged: structure and table
+  wiring belong in the declarative file, behavior belongs in handwritten C++. Verify the rebuilt
+  generated files with the subsystem regression test and `ctest --test-dir build --output-on-failure`.

@@ -86,6 +86,40 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    const Diagnostic coded{
+        .span = SourceSpan{add.value(), Span{23, 24}},
+        .severity = Severity::Error,
+        .code = 4002,
+        .message = "x",
+    };
+
+    FileCapture codedOut;
+    renderDiagnostic(codedOut.ptr(), map, coded, RenderOptions{false, 1});
+    const std::string codedText = codedOut.text();
+    if (!contains(codedText, "src/main.zith:2:12: error: E4002: unknown +")) {
+        std::fprintf(stderr, "FAIL: missing coded compact line\n%s\n", codedText.c_str());
+        return EXIT_FAILURE;
+    }
+    if (!contains(codedText, "  --> src/main.zith:2:12\n")) {
+        std::fprintf(stderr, "FAIL: missing coded rich header\n%s\n", codedText.c_str());
+        return EXIT_FAILURE;
+    }
+    if (!contains(codedText, "= note: check the spelling")) {
+        std::fprintf(stderr, "FAIL: missing catalogue note\n%s\n", codedText.c_str());
+        return EXIT_FAILURE;
+    }
+
+    Diagnostic codedWithNote = coded;
+    codedWithNote.notes.push_back(common::diagnostic::Note{"this name is not defined"});
+    FileCapture notesOut;
+    renderDiagnostic(notesOut.ptr(), map, codedWithNote, RenderOptions{false, 1});
+    const std::string notesText = notesOut.text();
+    if (!contains(notesText, "= note: check the spelling")
+        || !contains(notesText, "= note: this name is not defined")) {
+        std::fprintf(stderr, "FAIL: missing coded notes\n%s\n", notesText.c_str());
+        return EXIT_FAILURE;
+    }
+
     FileCapture context;
     renderDiagnostic(context.ptr(), map, diag, RenderOptions{false, 1});
     const std::string contextOut = context.text();
