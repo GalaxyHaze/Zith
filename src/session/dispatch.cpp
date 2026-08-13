@@ -2,7 +2,7 @@
 #include "session/dispatch.hpp"
 #include "session/session.hpp"
 
-namespace zith::session {
+namespace toolkit::session {
 
 template <>
 common::memory::Result<LexedResult> dispatch<Stage::Lexed>(CompilationSession &session) {
@@ -85,4 +85,4 @@ common::memory::Result<CachedResult> dispatch<Stage::Cached>(CompilationSession 
     return {};
 }
 
-} // namespace zith::session
+} // namespace toolkit::session

@@ -1,9 +1,8 @@
 #include "common/memory/source-map.hpp"
 
+#include "common/memory/file-source.hpp"
 #include "common/memory/source-file.hpp"
 #include "common/memory/span.hpp"
-
-#include <mio/mmap.hpp>
 
 #include <mutex>
 #include <string_view>
@@ -79,17 +78,10 @@ auto SourceMap::loadFile(std::string_view path, bool write) -> Result<FileId> {
         return *existing;
 
     std::error_code error;
-    if (write) {
-        auto file = mio::make_mmap_sink(std::string(path), error);
-        if (error)
-            return Error{error.message()};
-        return build_loc(files, std::string(path), std::move(file), cache);
-    }
-
-    auto file = mio::make_mmap_source(std::string(path), error);
-    if (error)
-        return Error{error.message()};
-    return build_loc(files, std::string(path), std::move(file), cache);
+    auto file = FileSource::mmap(std::string(path), write);
+    if (!file)
+        return file.error();
+    return build_loc(files, std::string(path), std::move(file).value(), cache);
 }
 
 auto SourceMap::exists(FileId id) const noexcept -> bool {

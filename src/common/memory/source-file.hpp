@@ -1,10 +1,9 @@
 #pragma once
 #include "common/memory/arena.hpp"
 #include "common/memory/dyn-array.hpp"
+#include "common/memory/file-source.hpp"
 #include "common/memory/result.hpp"
 #include "common/memory/span.hpp"
-
-#include <mio/mmap.hpp>
 
 #include <string>
 #include <string_view>
@@ -13,7 +12,7 @@
 namespace common::memory {
 
 struct SourceLoc {
-    using FileVar = std::variant<mio::mmap_source, mio::mmap_sink, std::string>;
+    using FileVar = std::variant<FileSource, std::string>;
 
     FileVar file;
     std::string path;

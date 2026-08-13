@@ -11,13 +11,23 @@ find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 include(FetchContent)
 
-set(MIO_TAG master CACHE STRING "mio header-only library revision")
-FetchContent_Declare(
-    mio
-    GIT_REPOSITORY https://github.com/mandreyel/mio.git
-    GIT_TAG "${MIO_TAG}"
-)
-FetchContent_MakeAvailable(mio)
+option(ZITH_HAS_MIO "Enable memory-mapped file support" ON)
+option(ZITH_HAS_LLVM "Enable optional LLVM-related cache build paths" OFF)
+
+if(NOT ZITH_HAS_MIO)
+    # Cache and source-map fall back to buffered reads; no network dependency.
+endif()
+
+if(ZITH_HAS_MIO)
+    set(MIO_TAG master CACHE STRING "mio header-only library revision")
+    FetchContent_Declare(
+        mio
+        GIT_REPOSITORY https://github.com/mandreyel/mio.git
+        GIT_TAG "${MIO_TAG}"
+    )
+    FetchContent_MakeAvailable(mio)
+endif()
 
 add_subdirectory(src)
 add_subdirectory(tests)
+add_subdirectory(src/facts)

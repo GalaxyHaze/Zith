@@ -36,6 +36,9 @@ target_include_directories(zith_diagnostic PUBLIC
     "${PROJECT_BINARY_DIR}/src"
 )
 
-target_link_libraries(zith_diagnostic PRIVATE
-    mio::mio
-)
+if(ZITH_HAS_MIO)
+    target_compile_definitions(zith_diagnostic PUBLIC ZITH_HAS_MIO=1)
+    target_include_directories(zith_diagnostic SYSTEM PUBLIC
+        "${PROJECT_BINARY_DIR}/_deps/mio-src/include"
+    )
+endif()

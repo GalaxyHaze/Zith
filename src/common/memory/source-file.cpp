@@ -7,12 +7,20 @@ namespace common::memory {
 
 auto SourceLoc::slice() const noexcept -> std::string_view {
     return std::visit([](const auto &stored) -> std::string_view {
-        return {stored.data(), stored.size()};
+        if constexpr (requires { stored.slice(); })
+            return stored.slice();
+        else
+            return {stored.data(), stored.size()};
     }, file);
 }
 
 auto SourceLoc::data() const noexcept -> const char * {
-    return std::visit([](const auto &stored) { return stored.data(); }, file);
+    return std::visit([](const auto &stored) -> const char * {
+        if constexpr (requires { stored.data(); })
+            return stored.data();
+        else
+            return stored.c_str();
+    }, file);
 }
 
 void SourceLoc::buildLines() noexcept {

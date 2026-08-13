@@ -5,7 +5,7 @@
 # CompilationSession; outputs de fases anteriores ficam acessiveis pelos slots
 # hasStageResult<Stage>() / stageResult<Stage>() da propria session.
 [context]
-type: zith::session::ZithSessionContext
+type: toolkit::session::ZithSessionContext
 
 [stages]
 Source: void

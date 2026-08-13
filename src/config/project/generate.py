@@ -214,7 +214,7 @@ def make_header(config: Config) -> str:
         "",
         "#include <string_view>",
         "",
-        "namespace zith {",
+        "namespace toolkit {",
         "",
         "struct ProjectConfig {",
     ]
@@ -251,7 +251,7 @@ def make_header(config: Config) -> str:
             "    std::string_view tomlText, common::memory::Arena &arena,",
             "    common::memory::StringInterner &strings, ProjectConfig &config);",
             "",
-            "} // namespace zith",
+            "} // namespace toolkit",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -268,7 +268,7 @@ def make_source(config: Config) -> str:
         "#include <system_error>",
         "#include <vector>",
         "",
-        "namespace zith {",
+        "namespace toolkit {",
         "std::string_view stripComment(std::string_view line) noexcept {",
         "    std::size_t start = 0;",
         "    while (start < line.size() && (line[start] == ' ' || line[start] == '\\t'))",
@@ -388,7 +388,7 @@ def make_source(config: Config) -> str:
             "    return {};",
             "}",
             "",
-            "} // namespace zith",
+            "} // namespace toolkit",
             "",
         ]
     )

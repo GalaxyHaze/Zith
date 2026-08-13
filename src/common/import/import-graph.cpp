@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <string_view>
 
-namespace zith::import {
+namespace toolkit::import {
 
 // --- Module ---
 
@@ -295,4 +295,4 @@ ModuleId ImportGraph::idOf_(const Module &module) const noexcept {
     return static_cast<ModuleId>(nodes_.size());
 }
 
-} // namespace zith::import
+} // namespace toolkit::import

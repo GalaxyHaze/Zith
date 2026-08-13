@@ -171,7 +171,7 @@ The current executable is `zithc`, with a generated CLI surface that already exp
 - subcommands such as `deps add`, `deps check`, and `deps remove`
 - typo suggestions for commands, subcommands, and flags
 
-`zithc check`, `zithc run`, and `zithc build` now create a `zith::session::CompilationSession`,
+`zithc check`, `zithc run`, and `zithc build` now create a `toolkit::session::CompilationSession`,
 load the selected source file, and run the pipeline through the `Lexed` stage.
 
 Example:

@@ -5,11 +5,11 @@
 #include <cstdlib>
 #include <string_view>
 
-using zith::import::ImportGraph;
-using zith::symbols::SymId;
-using zith::symbols::SymKind;
-using zith::symbols::SymbolVisibility;
-using zith::symbols::SymbolVisibilityKind;
+using toolkit::import::ImportGraph;
+using toolkit::symbols::SymId;
+using toolkit::symbols::SymKind;
+using toolkit::symbols::SymbolVisibility;
+using toolkit::symbols::SymbolVisibilityKind;
 
 namespace {
 
@@ -27,10 +27,10 @@ int main() {
     // --- SymKind ---
     ok &= check(static_cast<uint8_t>(SymKind::Fn) == 0, "SymKind::Fn == 0");
     ok &= check(static_cast<uint8_t>(SymKind::Context) == 12, "SymKind::Context == 12");
-    ok &= check(zith::symbols::kSymKindCount == 13, "kSymKindCount == 13");
-    ok &= check(std::string_view(zith::symbols::symKindName(SymKind::Fn)) == "Fn",
+    ok &= check(toolkit::symbols::kSymKindCount == 13, "kSymKindCount == 13");
+    ok &= check(std::string_view(toolkit::symbols::symKindName(SymKind::Fn)) == "Fn",
                 "symKindName(Fn)");
-    ok &= check(std::string_view(zith::symbols::symKindName(SymKind::Module)) == "Module",
+    ok &= check(std::string_view(toolkit::symbols::symKindName(SymKind::Module)) == "Module",
                 "symKindName(Module)");
 
     // --- Generated symbol helpers ---
@@ -41,15 +41,15 @@ int main() {
         const auto name = interner.intern("factory");
         SymbolVisibility pub;
         pub.kind = SymbolVisibilityKind::Public;
-        const auto data = zith::symbols::makeSymbol(arena, name, SymKind::Fn, pub);
+        const auto data = toolkit::symbols::makeSymbol(arena, name, SymKind::Fn, pub);
 
         ok &= check(data.name == name, "makeSymbol stores interned name");
         ok &= check(data.kind == SymKind::Fn, "makeSymbol stores kind");
         ok &= check(data.visibility.kind == SymbolVisibilityKind::Public,
                     "makeSymbol stores visibility");
-        ok &= check(std::string_view(zith::symbols::visibilityName(data.visibility)) == "Public",
+        ok &= check(std::string_view(toolkit::symbols::visibilityName(data.visibility)) == "Public",
                     "visibilityName returns Public");
-        ok &= check(std::string_view(zith::symbols::visibilityKindName(SymbolVisibilityKind::Module))
+        ok &= check(std::string_view(toolkit::symbols::visibilityKindName(SymbolVisibilityKind::Module))
                         == "Module",
                     "visibilityKindName returns Module");
 
@@ -150,16 +150,16 @@ int main() {
 
     // --- Defaults and invalid ids ---
     {
-        zith::symbols::ModuleVisibilityRange r;
+        toolkit::symbols::ModuleVisibilityRange r;
         ok &= check(r.ancestors == -1, "default ancestors == -1");
         ok &= check(r.descendants == -1, "default descendants == -1");
 
         SymbolVisibility v;
         ok &= check(v.kind == SymbolVisibilityKind::Private, "default visibility is Private");
 
-        ok &= check(zith::symbols::kInvalidModule == ~0u, "kInvalidModule is ~0u");
-        ok &= check(zith::symbols::kInvalidSymId.local == 0, "kInvalidSymId.local == 0");
-        ok &= check(zith::symbols::kInvalidSymId.module == zith::symbols::kInvalidModule,
+        ok &= check(toolkit::symbols::kInvalidModule == ~0u, "kInvalidModule is ~0u");
+        ok &= check(toolkit::symbols::kInvalidSymId.local == 0, "kInvalidSymId.local == 0");
+        ok &= check(toolkit::symbols::kInvalidSymId.module == toolkit::symbols::kInvalidModule,
                     "kInvalidSymId.module == kInvalidModule");
     }
 

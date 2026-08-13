@@ -1,0 +1,242 @@
+# Generic section cache format used by the compiler cache.
+#
+# The generator emits the binary file header, the section table, and the
+# serialization/deserialization helpers for the domain records below.
+
+[format]
+name = "generic-cache"
+magic = "zgcache1"
+version = 1
+endian = "little"
+
+[metadata]
+cacheKeyHash: std::uint32_t
+moduleIdHi: std::uint32_t
+moduleIdLo: std::uint32_t
+sourceFpHi: std::uint32_t
+sourceFpLo: std::uint32_t
+publicAbiHi: std::uint32_t
+publicAbiLo: std::uint32_t
+
+[sections]
+Metadata
+Deps
+Strings
+Paths
+Decls
+Templates
+Functions
+Markers
+Attrs
+Debug
+
+[encoding]
+length: uint32
+align: 8
+checksum: fnv1a64
+
+[enum.DeclKind]
+cpp = "toolkit::cache::DeclKind"
+Fn = 0
+Struct = 1
+Trait = 2
+Interface = 3
+Enum = 4
+Alias = 5
+Variable = 6
+Module = 7
+Component = 8
+Union = 9
+Asset = 10
+Word = 11
+Context = 12
+
+[enum.Visibility]
+cpp = "toolkit::cache::Visibility"
+Private = 0
+Module = 1
+Public = 2
+
+[enum.ExprKind]
+cpp = "toolkit::cache::ExprKind"
+Literal = 0
+Binary = 1
+Unary = 2
+Let = 3
+Var = 4
+Call = 5
+Ret = 6
+Branch = 7
+Jump = 8
+Phi = 9
+Assign = 10
+Index = 11
+Field = 12
+StructLiteral = 13
+ArrayLiteral = 14
+EnumValue = 15
+SlotAlloca = 16
+SlotStore = 17
+SlotLoad = 18
+SlotAddr = 19
+MakeNone = 20
+MakeSome = 21
+Cast = 22
+LayoutIntrinsic = 23
+MarkerStore = 24
+MarkerLoad = 25
+MarkerDock = 26
+MarkerJump = 27
+MarkerRet = 28
+
+[record.DependencyRecord]
+cpp = "toolkit::cache::DependencyRecord"
+canonical_path: string
+import_key: string
+public_abi_hi: u32
+public_abi_lo: u32
+
+[record.DeclRecord]
+cpp = "toolkit::cache::DeclRecord"
+name: string
+kind: enum[DeclKind]
+visibility: enum[Visibility]
+mod_depth: i64 -> std::int32_t
+name_id: u32
+type_id: u32
+template_index: u32
+body_fn_index: u32
+field_name_ids: vector[uint32] max_items = 4096
+field_type_ids: vector[uint32] max_items = 4096
+method_decl_indices: vector[uint32] max_items = 4096
+is_extern: bool
+
+[record.GenericParamRecord]
+cpp = "toolkit::cache::GenericParamRecord"
+name: string
+name_id: u32
+bound_type_ids: vector[uint32] max_items = 4096
+
+[record.TemplateBlueprint]
+cpp = "toolkit::cache::TemplateBlueprint"
+name: string
+name_id: u32
+kind: enum[DeclKind]
+params: vector[GenericParamRecord] max_items = 4096
+method_params: vector[GenericParamRecord] max_items = 4096
+return_type_id: u32
+param_type_ids: vector[uint32] max_items = 4096
+param_name_ids: vector[uint32] max_items = 4096
+field_name_ids: vector[uint32] max_items = 4096
+field_type_ids: vector[uint32] max_items = 4096
+canonical_field_order: vector[uint32] max_items = 4096
+method_decl_indices: vector[uint32] max_items = 4096
+trait_type_ids: vector[uint32] max_items = 4096
+is_extern: bool
+
+[record.CompactExpr]
+cpp = "toolkit::cache::CompactExpr"
+kind: enum[ExprKind]
+type_id: u32
+ref_a: u32
+ref_b: u32
+ref_c: u32
+ref_d: u32
+ref_e: u32
+ref_f: u32
+op: u8
+flags: u8
+int_val: i64
+flt_val: float64
+name_id: u32
+args: vector[uint32] max_items = 4096
+arg_types: vector[uint32] max_items = 4096
+
+[record.CompactBasicBlock]
+cpp = "toolkit::cache::CompactBasicBlock"
+insts: vector[uint32] max_items = 4096
+terminator: u32
+
+[record.CompactFunction]
+cpp = "toolkit::cache::CompactFunction"
+name: string
+name_id: u32
+param_type_ids: vector[uint32] max_items = 4096
+param_name_ids: vector[uint32] max_items = 4096
+return_type_id: u32
+blocks: vector[CompactBasicBlock] max_items = 4096
+exprs: vector[CompactExpr] max_items = 4096
+is_extern: bool
+is_variadic: bool
+
+[record.CompactMarkerParam]
+cpp = "toolkit::cache::CompactMarkerParam"
+name_id: u32
+type_id: u32
+offset: u32
+
+[record.CompactMarker]
+cpp = "toolkit::cache::CompactMarker"
+name_id: u32
+marker_id: u32
+stackful: bool
+blob_offset: u32
+body_expr: u32
+module_name_id: u32
+params: vector[CompactMarkerParam] max_items = 4096
+
+[record.HirSlotAttrsRecord]
+cpp = "toolkit::cache::HirSlotAttrsRecord"
+slot: u32
+ownership: u8
+consumed: u8
+non_null: bool
+
+[record.HirCallAttrsRecord]
+cpp = "toolkit::cache::HirCallAttrsRecord"
+expr_id: u32
+arg_escapes: vector[uint32] max_items = 4096
+returns_arg: u32
+
+[record.HirFnAttrsRecord]
+cpp = "toolkit::cache::HirFnAttrsRecord"
+fn_index: u32
+return_consumed: u8
+non_null: bool
+no_alias: bool
+read_only: bool
+no_capture: bool
+
+[section.Metadata]
+fields: [canonical_path: string, module_name: string]
+
+[section.Deps]
+items: vector[DependencyRecord] max_items = 4096
+
+[section.Strings]
+fields: [strings: vector[string] max_items = 4096]
+
+[section.Paths]
+fields: [paths: vector[string] max_items = 4096]
+
+[section.Decls]
+items: vector[DeclRecord] max_items = 4096
+
+[section.Templates]
+items: vector[TemplateBlueprint] max_items = 4096
+
+[section.Functions]
+items: vector[CompactFunction] max_items = 4096
+
+[section.Markers]
+items: vector[CompactMarker] max_items = 4096
+
+[section.Attrs]
+fields: [
+    attrs_slots: vector[HirSlotAttrsRecord] max_items = 4096,
+    attrs_calls: vector[HirCallAttrsRecord] max_items = 4096,
+    attrs_fns: vector[HirFnAttrsRecord] max_items = 4096,
+]
+
+[section.Debug]
+fields: []

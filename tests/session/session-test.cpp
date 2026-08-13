@@ -7,9 +7,9 @@
 #include <string_view>
 #include <vector>
 
-using zith::session::CompilationSession;
-using zith::session::PipelinePlan;
-using zith::session::Stage;
+using toolkit::session::CompilationSession;
+using toolkit::session::PipelinePlan;
+using toolkit::session::Stage;
 
 namespace {
 
@@ -28,15 +28,15 @@ void record(Stage stage) {
 } // namespace
 
 template <>
-common::memory::Result<zith::session::SourceResult>
-zith::session::dispatch<Stage::Source>(CompilationSession &) {
+common::memory::Result<toolkit::session::SourceResult>
+toolkit::session::dispatch<Stage::Source>(CompilationSession &) {
     record(Stage::Source);
     return {};
 }
 
 template <>
-common::memory::Result<zith::session::LexedResult>
-zith::session::dispatch<Stage::Lexed>(CompilationSession &session) {
+common::memory::Result<toolkit::session::LexedResult>
+toolkit::session::dispatch<Stage::Lexed>(CompilationSession &session) {
     if (session.context().filePath.empty())
         return common::memory::Error{"missing file"};
     record(Stage::Lexed);
@@ -50,8 +50,8 @@ zith::session::dispatch<Stage::Lexed>(CompilationSession &session) {
 }
 
 template <>
-common::memory::Result<zith::session::ScannedResult>
-zith::session::dispatch<Stage::Scanned>(CompilationSession &session) {
+common::memory::Result<toolkit::session::ScannedResult>
+toolkit::session::dispatch<Stage::Scanned>(CompilationSession &session) {
     if (!session.hasStageResult<Stage::Lexed>()) {
         return common::memory::Error{"scanner ran without a Lexed result"};
     }
@@ -64,57 +64,57 @@ zith::session::dispatch<Stage::Scanned>(CompilationSession &session) {
 }
 
 template <>
-common::memory::Result<zith::session::ImportedResult>
-zith::session::dispatch<Stage::Imported>(CompilationSession &) {
+common::memory::Result<toolkit::session::ImportedResult>
+toolkit::session::dispatch<Stage::Imported>(CompilationSession &) {
     record(Stage::Imported);
     return {};
 }
 
 template <>
-common::memory::Result<zith::session::ResolvedResult>
-zith::session::dispatch<Stage::Resolved>(CompilationSession &) {
+common::memory::Result<toolkit::session::ResolvedResult>
+toolkit::session::dispatch<Stage::Resolved>(CompilationSession &) {
     record(Stage::Resolved);
     return {};
 }
 
 template <>
-common::memory::Result<zith::session::TypeCheckedResult>
-zith::session::dispatch<Stage::TypeChecked>(CompilationSession &) {
+common::memory::Result<toolkit::session::TypeCheckedResult>
+toolkit::session::dispatch<Stage::TypeChecked>(CompilationSession &) {
     record(Stage::TypeChecked);
     return {};
 }
 
 template <>
-common::memory::Result<zith::session::SolvedResult>
-zith::session::dispatch<Stage::Solved>(CompilationSession &) {
+common::memory::Result<toolkit::session::SolvedResult>
+toolkit::session::dispatch<Stage::Solved>(CompilationSession &) {
     record(Stage::Solved);
     return {};
 }
 
 template <>
-common::memory::Result<zith::session::NraResolvedResult>
-zith::session::dispatch<Stage::NraResolved>(CompilationSession &) {
+common::memory::Result<toolkit::session::NraResolvedResult>
+toolkit::session::dispatch<Stage::NraResolved>(CompilationSession &) {
     record(Stage::NraResolved);
     return {};
 }
 
 template <>
-common::memory::Result<zith::session::HirLoweredResult>
-zith::session::dispatch<Stage::HirLowered>(CompilationSession &) {
+common::memory::Result<toolkit::session::HirLoweredResult>
+toolkit::session::dispatch<Stage::HirLowered>(CompilationSession &) {
     record(Stage::HirLowered);
     return {};
 }
 
 template <>
-common::memory::Result<zith::session::CodegenReadyResult>
-zith::session::dispatch<Stage::CodegenReady>(CompilationSession &) {
+common::memory::Result<toolkit::session::CodegenReadyResult>
+toolkit::session::dispatch<Stage::CodegenReady>(CompilationSession &) {
     record(Stage::CodegenReady);
     return {};
 }
 
 template <>
-common::memory::Result<zith::session::CachedResult>
-zith::session::dispatch<Stage::Cached>(CompilationSession &) {
+common::memory::Result<toolkit::session::CachedResult>
+toolkit::session::dispatch<Stage::Cached>(CompilationSession &) {
     record(Stage::Cached);
     return {};
 }
@@ -154,7 +154,7 @@ int main() {
     ok &= check(!plan.advance(), "advance stops at target inclusive");
     ok &= check(plan.current == Stage::Lexed, "advance leaves current at target");
 
-    zith::session::ZithSessionContext context;
+    toolkit::session::ZithSessionContext context;
     CompilationSession session(context);
     ok &= check(&session.context() == &context, "session keeps the injected context");
     ok &= check(context.filePath.empty(), "context starts with no file path");
@@ -195,7 +195,7 @@ int main() {
         "Scanned stage sees the token stream produced by Lexed"
     );
 
-    zith::session::ZithSessionContext failedContext;
+    toolkit::session::ZithSessionContext failedContext;
     CompilationSession failed(failedContext);
     g_calls.clear();
     const auto failedResult = failed.runTo(Stage::Resolved);

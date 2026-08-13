@@ -68,9 +68,9 @@ The default expression is emitted as part of the constructor initializer.
 
 ```cpp
 my::CompilerContext context;
-zith::session::CompilationSession session(context);
+toolkit::session::CompilationSession session(context);
 
-const auto result = session.runTo(zith::session::Stage::Lexed);
+const auto result = session.runTo(toolkit::session::Stage::Lexed);
 if (!result) {
     // result.error().stage identifies the failing stage.
     return false;
@@ -81,8 +81,8 @@ Pipeline execution stores each successful stage output in the session. Query or 
 result by stage:
 
 ```cpp
-if (session.hasStageResult<zith::session::Stage::Lexed>()) {
-    auto &tokens = session.stageResult<zith::session::Stage::Lexed>().value();
+if (session.hasStageResult<toolkit::session::Stage::Lexed>()) {
+    auto &tokens = session.stageResult<toolkit::session::Stage::Lexed>().value();
     // tokens is generated_lexer::TokenStream for this stage's rule output.
 }
 ```

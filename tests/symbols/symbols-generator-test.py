@@ -114,11 +114,11 @@ def test_smoke_compile() -> None:
 
             #include <type_traits>
 
-            static_assert(!std::is_default_constructible_v<zith::symbols::SymId>);
+            static_assert(!std::is_default_constructible_v<toolkit::symbols::SymId>);
 
             int main() {
-                const auto invalid = zith::symbols::kInvalidSymId;
-                return invalid.module == zith::symbols::kInvalidModule &&
+                const auto invalid = toolkit::symbols::kInvalidSymId;
+                return invalid.module == toolkit::symbols::kInvalidModule &&
                                invalid.local == 0
                            ? 0
                            : 1;

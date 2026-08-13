@@ -86,14 +86,14 @@ SMOKE_CPP = """\
 #include "session/dispatch.hpp"
 
 template <>
-common::memory::Result<zith::session::ParseResult>
-zith::session::dispatch<zith::session::Stage::Parse>(CompilationSession &) {
+common::memory::Result<toolkit::session::ParseResult>
+toolkit::session::dispatch<toolkit::session::Stage::Parse>(CompilationSession &) {
     return {};
 }
 
 template <>
-common::memory::Result<zith::session::EmitResult>
-zith::session::dispatch<zith::session::Stage::Emit>(CompilationSession &session) {
+common::memory::Result<toolkit::session::EmitResult>
+toolkit::session::dispatch<toolkit::session::Stage::Emit>(CompilationSession &session) {
     if (session.context().value < 0)
         return common::memory::Error{"invalid emit value"};
     return session.context().value;
@@ -101,26 +101,26 @@ zith::session::dispatch<zith::session::Stage::Emit>(CompilationSession &session)
 
 int main() {
     sample::TestContext context{};
-    zith::session::CompilationSession session(context);
+    toolkit::session::CompilationSession session(context);
 
-    const auto parse = zith::session::dispatch<zith::session::Stage::Parse>(session);
-    const auto emit = zith::session::dispatch<zith::session::Stage::Emit>(session);
+    const auto parse = toolkit::session::dispatch<toolkit::session::Stage::Parse>(session);
+    const auto emit = toolkit::session::dispatch<toolkit::session::Stage::Emit>(session);
     if (parse && emit && emit.value() == 7 && &session.context() == &context &&
-        !session.hasStageResult<zith::session::Stage::Parse>() &&
-        !session.hasStageResult<zith::session::Stage::Emit>()) {
-        const auto output = session.runTo(zith::session::Stage::Emit);
-        if (!output || !session.hasStageResult<zith::session::Stage::Parse>() ||
-            !session.hasStageResult<zith::session::Stage::Emit>() ||
-            session.stageResult<zith::session::Stage::Emit>().value() != 7) {
+        !session.hasStageResult<toolkit::session::Stage::Parse>() &&
+        !session.hasStageResult<toolkit::session::Stage::Emit>()) {
+        const auto output = session.runTo(toolkit::session::Stage::Emit);
+        if (!output || !session.hasStageResult<toolkit::session::Stage::Parse>() ||
+            !session.hasStageResult<toolkit::session::Stage::Emit>() ||
+            session.stageResult<toolkit::session::Stage::Emit>().value() != 7) {
             return 1;
         }
 
         sample::TestContext failing{};
         failing.value = -1;
-        zith::session::CompilationSession failed(failing);
-        const auto failedRun = failed.runTo(zith::session::Stage::Emit);
-        return (!failedRun && failed.hasStageResult<zith::session::Stage::Parse>() &&
-                !failed.hasStageResult<zith::session::Stage::Emit>())
+        toolkit::session::CompilationSession failed(failing);
+        const auto failedRun = failed.runTo(toolkit::session::Stage::Emit);
+        return (!failedRun && failed.hasStageResult<toolkit::session::Stage::Parse>() &&
+                !failed.hasStageResult<toolkit::session::Stage::Emit>())
                    ? 0
                    : 1;
     }

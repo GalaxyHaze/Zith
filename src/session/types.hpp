@@ -11,7 +11,7 @@ namespace generated_cli {
 struct Options;
 }
 
-namespace zith::session {
+namespace toolkit::session {
 
 struct ZithSessionContext {
     common::memory::Arena arena{};
@@ -25,4 +25,4 @@ struct ZithSessionContext {
     ZithSessionContext() : arena(), sourceMap(), interner(arena) {}
 };
 
-} // namespace zith::session
+} // namespace toolkit::session

@@ -87,13 +87,13 @@ int apply(const generated_cli::Options &opts, std::string_view inputPath,
     if (inputPath.empty())
         return 1;
 
-    zith::session::ZithSessionContext context;
+    toolkit::session::ZithSessionContext context;
     context.filePath = inputPath;
     context.projectRoot = ".";
     context.options = const_cast<generated_cli::Options *>(&opts);
 
-    zith::session::CompilationSession session(context);
-    const auto result = session.runTo(zith::session::Stage::Lexed);
+    toolkit::session::CompilationSession session(context);
+    const auto result = session.runTo(toolkit::session::Stage::Lexed);
     if (!result) {
         std::fprintf(stderr, "erro no estágio %s\n", result.error().msg.c_str());
         return 1;

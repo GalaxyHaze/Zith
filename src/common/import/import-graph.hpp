@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace zith::import {
+namespace toolkit::import {
 
 using ModuleId = uint32_t;
 
@@ -253,4 +253,4 @@ void Module::forEachAll(Fn &&fn) const {
     }
 }
 
-} // namespace zith::import
+} // namespace toolkit::import

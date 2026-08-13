@@ -97,3 +97,5 @@ add_test(
     NAME ast-helpers-basics
     COMMAND ast-helpers-test
 )
+
+add_subdirectory(sir)

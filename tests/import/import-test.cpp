@@ -4,12 +4,12 @@
 #include <cstdlib>
 #include <string_view>
 
-using zith::import::ImportGraph;
-using zith::import::Module;
-using zith::symbols::SymId;
-using zith::symbols::SymKind;
-using zith::symbols::SymbolVisibility;
-using zith::symbols::SymbolVisibilityKind;
+using toolkit::import::ImportGraph;
+using toolkit::import::Module;
+using toolkit::symbols::SymId;
+using toolkit::symbols::SymKind;
+using toolkit::symbols::SymbolVisibility;
+using toolkit::symbols::SymbolVisibilityKind;
 
 namespace {
 

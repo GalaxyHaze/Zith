@@ -111,7 +111,7 @@ def _emit_header(rules: SymbolsRules) -> str:
     out.append("#include <cstdint>")
     out.append("#include <cstdio>")
     out.append("")
-    out.append("namespace zith::symbols {")
+    out.append("namespace toolkit::symbols {")
     out.append("")
     out.append("using common::memory::InternedId;")
     out.append("using common::memory::Span;")
@@ -231,7 +231,7 @@ def _emit_header(rules: SymbolsRules) -> str:
                     f" kInvalidSymId{', ' if member_expr else ''}{member_expr}}};"))
         out.append("}")
 
-    out.append("} // namespace zith::symbols")
+    out.append("} // namespace toolkit::symbols")
     return "\n".join(out) + "\n"
 
 

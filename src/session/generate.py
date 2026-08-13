@@ -177,7 +177,7 @@ def make_session_header(rules: SessionRules) -> str:
         "#include <string>",
         "#include <utility>",
         "",
-        "namespace zith::session {",
+        "namespace toolkit::session {",
         "",
     ]
     first_stage = rules.stages[0]
@@ -282,7 +282,7 @@ def make_session_header(rules: SessionRules) -> str:
             "bool dispatch(Stage stage, CompilationSession &session);",
             "bool storeStage(Stage stage, CompilationSession &session);",
             "",
-            "} // namespace zith::session",
+            "} // namespace toolkit::session",
             "",
         ]
     )
@@ -306,7 +306,7 @@ def make_session_source(rules: SessionRules) -> str:
         '#include "session.hpp"',
         '#include "session/dispatch.hpp"',
         "",
-        "namespace zith::session {",
+        "namespace toolkit::session {",
         "",
         *init_lines,
         "{",
@@ -397,7 +397,7 @@ def make_session_source(rules: SessionRules) -> str:
             "    }",
             "}",
             "",
-            "} // namespace zith::session",
+            "} // namespace toolkit::session",
             "",
         ]
     )
@@ -412,7 +412,7 @@ def make_dispatch_header(rules: SessionRules) -> str:
         '#include "session/session.hpp"',
         '#include "session/types.hpp"',
         "",
-        "namespace zith::session {",
+        "namespace toolkit::session {",
         "",
     ]
     for stage in rules.stages:
@@ -422,7 +422,7 @@ def make_dispatch_header(rules: SessionRules) -> str:
     lines.append("[[nodiscard]] common::memory::Result<typename dispatch_result<S>::type> dispatch(")
     lines.append("    CompilationSession &session);")
     lines.append("")
-    lines.append("} // namespace zith::session")
+    lines.append("} // namespace toolkit::session")
     lines.append("")
     return "\n".join(lines)
 

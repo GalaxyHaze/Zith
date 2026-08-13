@@ -72,8 +72,13 @@ target_include_directories(zith_session PUBLIC
     "${PROJECT_BINARY_DIR}/src"
     "${PROJECT_SOURCE_DIR}/src/frontend/lexer"
     "${PROJECT_BINARY_DIR}/src/frontend/lexer"
-    "${PROJECT_BINARY_DIR}/_deps/mio-src/include"
 )
+
+if(ZITH_HAS_MIO)
+    target_include_directories(zith_session SYSTEM PUBLIC
+        "${PROJECT_BINARY_DIR}/_deps/mio-src/include"
+    )
+endif()
 
 add_dependencies(zith_session_core_objects zith_session_generated)
 add_dependencies(zith_session_core zith_session_generated)
