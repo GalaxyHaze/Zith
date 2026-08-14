@@ -4,11 +4,11 @@
 
 namespace toolkit::facts {
 
-template <Arithmetic Number>
+template <IntegralSigned Number>
 constexpr bool ValueDomain<Number>::contains(Number value) const noexcept {
   if (kind == DomainKind::Unknown)
     return true;
-  if (kind == DomainKind::Runtime || kind == DomainKind::Null)
+  if (kind == DomainKind::Null)
     return false;
   if (lower && (value < *lower || (value == *lower && !lowerInclusive)))
     return false;
@@ -16,15 +16,15 @@ constexpr bool ValueDomain<Number>::contains(Number value) const noexcept {
     return false;
   return true;
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 constexpr bool
 ValueDomain<Number>::contains(const ValueDomain &other) const noexcept {
   if (other.kind == DomainKind::Unknown)
-    return kind == DomainKind::Unknown;
-  if (kind == DomainKind::Runtime || kind == DomainKind::Null)
+    return true;
+  if (other.kind == DomainKind::Null || kind == DomainKind::Null)
     return false;
-  if (other.kind == DomainKind::Runtime || other.kind == DomainKind::Null)
-    return false;
+  if (kind == DomainKind::Unknown)
+    return true;
   if (other.exact)
     return contains(*other.exact);
   if (other.kind != DomainKind::Range || (!other.lower && !other.upper))
@@ -57,13 +57,12 @@ ValueDomain<Number>::contains(const ValueDomain &other) const noexcept {
   return true;
 }
 
-template <Arithmetic Number>
+template <IntegralSigned Number>
 constexpr ValueDomain<Number>
 ValueDomain<Number>::intersect(const ValueDomain &other) const noexcept {
   if (kind == DomainKind::Unknown || other.kind == DomainKind::Unknown)
-    return {DomainKind::Unknown};
-  if (kind == DomainKind::Runtime || other.kind == DomainKind::Runtime ||
-      kind == DomainKind::Null || other.kind == DomainKind::Null)
+    return kind == DomainKind::Unknown ? other : *this;
+  if (kind == DomainKind::Null || other.kind == DomainKind::Null)
     return {DomainKind::Null};
 
   const auto pickLower = [](const ValueDomain &a,
@@ -115,7 +114,7 @@ ValueDomain<Number>::intersect(const ValueDomain &other) const noexcept {
   return {DomainKind::Range, {}, lower, upper, lowerInclusive, upperInclusive};
 }
 
-template <Arithmetic Number> struct FactStore<Number>::WorldNode {
+template <IntegralSigned Number> struct FactStore<Number>::WorldNode {
   enum class Kind : std::uint8_t { Root, SplitChild, Merge };
   explicit WorldNode(common::memory::Arena &arena, Kind nodeKind)
       : kind(nodeKind), alternatives(arena), constraints(arena) {}
@@ -126,12 +125,12 @@ template <Arithmetic Number> struct FactStore<Number>::WorldNode {
   bool alive = true;
 };
 
-template <Arithmetic Number> struct FactStore<Number>::Branch {
+template <IntegralSigned Number> struct FactStore<Number>::Branch {
   explicit Branch(common::memory::Arena &arena) : nodes(arena) {}
   common::memory::DynArray<WorldId> nodes;
 };
 
-template <Arithmetic Number> struct FactStore<Number>::Solver {
+template <IntegralSigned Number> struct FactStore<Number>::Solver {
   enum class Truth : std::uint8_t { True, False, Unknown };
   explicit Solver(common::memory::Arena &arena, std::size_t factCount)
       : domains(arena), parent(arena), rank(arena), constraints(arena) {
@@ -393,66 +392,83 @@ template <Arithmetic Number> struct FactStore<Number>::Solver {
   }
 };
 
-template <Arithmetic Number>
+template <IntegralSigned Number>
 FactStore<Number>::FactStore(common::memory::Arena &arena)
     : arena_(arena), worlds_(arena), factOwners_(arena), conflicts_(arena) {
+  static_assert(IntegralSigned<Number>,
+                "FactStore requires a signed integral value type");
   worlds_.emplace(arena_, WorldNode::Kind::Root);
 }
-template <Arithmetic Number> FactRef FactStore<Number>::fact(WorldId world) {
+template <IntegralSigned Number>
+FactResult<FactRef> FactStore<Number>::fact(WorldId world) {
+  if (!validWorld_(world))
+    return FactResult<FactRef>{FactError{"FactStore::fact received an invalid WorldId"}};
   FactRef result{FactId{static_cast<std::uint32_t>(factOwners_.size())}};
   factOwners_.push(world);
   return result;
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 auto FactStore<Number>::value(FactRef fact) const noexcept -> Expr {
   return {Expr::Kind::Fact, fact, {}};
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 auto FactStore<Number>::constant(Number value) const noexcept -> Expr {
   return {Expr::Kind::Constant, {}, value};
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 auto FactStore<Number>::add(FactRef fact, Number offset) const noexcept
     -> Expr {
   return {Expr::Kind::AddConstant, fact, offset};
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 const typename FactStore<Number>::Formula &
 FactStore<Number>::atom(Expr lhs, Rel relation, Expr rhs) {
   return *arena_.make<Formula>(
       Formula{Formula::Kind::Atom, lhs, relation, rhs});
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 const typename FactStore<Number>::Formula &
 FactStore<Number>::and_(const Formula &lhs, const Formula &rhs) {
   return *arena_.make<Formula>(
       Formula{Formula::Kind::And, {}, Rel::Equal, {}, &lhs, &rhs});
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 const typename FactStore<Number>::Formula &
 FactStore<Number>::or_(const Formula &lhs, const Formula &rhs) {
   return *arena_.make<Formula>(
       Formula{Formula::Kind::Or, {}, Rel::Equal, {}, &lhs, &rhs});
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 WorldId FactStore<Number>::makeSplit_(WorldId parent) {
   const WorldId id{static_cast<std::uint32_t>(worlds_.size())};
   auto &node = worlds_.emplace(arena_, WorldNode::Kind::SplitChild);
   node.parent = parent;
   return id;
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 WorldId FactStore<Number>::makeMerge_(std::span<const WorldId> alternatives) {
   const WorldId id{static_cast<std::uint32_t>(worlds_.size())};
   auto &node = worlds_.emplace(arena_, WorldNode::Kind::Merge);
   node.alternatives.appendRange(alternatives);
   return id;
 }
-template <Arithmetic Number>
-WorldId FactStore<Number>::merge(std::span<const WorldId> alternatives) {
+template <IntegralSigned Number>
+FactResult<WorldId>
+FactStore<Number>::merge(std::span<const WorldId> alternatives) {
+  if (alternatives.empty())
+    return FactResult<WorldId>{FactError{"FactStore::merge requires at least one alternative"}};
+  for (std::size_t index = 0; index < alternatives.size(); ++index) {
+    if (!validWorld_(alternatives[index]))
+      return FactResult<WorldId>{
+          FactError{"FactStore::merge received an invalid WorldId"}};
+    for (std::size_t previous = 0; previous < index; ++previous)
+      if (alternatives[previous] == alternatives[index])
+        return FactResult<WorldId>{
+            FactError{"FactStore::merge rejects repeated alternatives"}};
+  }
   return makeMerge_(alternatives);
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 bool FactStore<Number>::isVisible_(WorldId world, WorldId owner) const {
   const auto &node = worlds_[world.value];
   if (world == owner)
@@ -466,15 +482,21 @@ bool FactStore<Number>::isVisible_(WorldId world, WorldId owner) const {
       return false;
   return true;
 }
-template <Arithmetic Number>
-bool FactStore<Number>::visible(WorldId world, FactRef fact) const {
+template <IntegralSigned Number>
+bool FactStore<Number>::visible_(WorldId world, FactRef fact) const {
   return fact.id.value < factOwners_.size() &&
          isVisible_(world, factOwners_[fact.id.value]);
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
+FactResult<bool> FactStore<Number>::visible(WorldId world, FactRef fact) const {
+  if (!validWorld_(world))
+    return FactResult<bool>{FactError{"FactStore::visible received an invalid WorldId"}};
+  return visible_(world, fact);
+}
+template <IntegralSigned Number>
 void FactStore<Number>::addConstraint_(WorldId world, Constraint constraint) {
   auto valid = [&](Expr e) {
-    return e.kind == Expr::Kind::Constant || visible(world, e.fact);
+    return e.kind == Expr::Kind::Constant || visible_(world, e.fact);
   };
   if (!valid(constraint.lhs) || !valid(constraint.rhs)) {
     conflicts_.push(
@@ -484,7 +506,7 @@ void FactStore<Number>::addConstraint_(WorldId world, Constraint constraint) {
   }
   worlds_[world.value].constraints.push(constraint);
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 void FactStore<Number>::lower_(WorldId world, const Formula &formula,
                                bool expected,
                                common::memory::DynArray<WorldId> &out) {
@@ -545,15 +567,18 @@ void FactStore<Number>::lower_(WorldId world, const Formula &formula,
   lower_(makeSplit_(world), *first, expected, out);
   lower_(makeSplit_(world), *second, expected, out);
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 auto FactStore<Number>::assume(WorldId world, const Formula &formula,
                                bool expected)
-    -> common::memory::DynArray<WorldId> {
+    -> FactResult<common::memory::DynArray<WorldId>> {
+  if (!validWorld_(world))
+    return FactResult<common::memory::DynArray<WorldId>>{
+        FactError{"FactStore::assume received an invalid WorldId"}};
   common::memory::DynArray<WorldId> result(arena_);
   lower_(world, formula, expected, result);
   return result;
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 void FactStore<Number>::branches_(
     WorldId world, const common::memory::DynArray<WorldId> &suffix,
     common::memory::DynArray<Branch> &out) const {
@@ -576,7 +601,7 @@ void FactStore<Number>::branches_(
   for (const auto alternative : node.alternatives)
     branches_(alternative, next, out);
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 auto FactStore<Number>::solve_(const Branch &branch) const -> Solver {
   Solver solver(arena_, factOwners_.size());
   for (const auto nodeId : branch.nodes)
@@ -585,7 +610,7 @@ auto FactStore<Number>::solve_(const Branch &branch) const -> Solver {
   solver.run();
   return solver;
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 auto FactStore<Number>::join_(WorldId world, const Formula &formula) const
     -> Query {
   common::memory::DynArray<WorldId> suffix(arena_);
@@ -636,30 +661,52 @@ auto FactStore<Number>::join_(WorldId world, const Formula &formula) const
     return Query::False;
   return Query::Unknown;
 }
-template <Arithmetic Number>
-Query FactStore<Number>::status(WorldId world, const Formula &formula) const {
+template <IntegralSigned Number>
+FactResult<Query> FactStore<Number>::status(WorldId world,
+                                           const Formula &formula) const {
+  if (!validWorld_(world))
+    return FactResult<Query>{FactError{"FactStore::status received an invalid WorldId"}};
   return join_(world, formula);
 }
-template <Arithmetic Number>
-Query FactStore<Number>::status(WorldId world, Expr lhs, Rel relation,
-                                Expr rhs) const {
+template <IntegralSigned Number>
+FactResult<Query> FactStore<Number>::status(WorldId world, Expr lhs,
+                                           Rel relation, Expr rhs) const {
+  if (!validWorld_(world))
+    return FactResult<Query>{FactError{"FactStore::status received an invalid WorldId"}};
   return join_(world, Formula{Formula::Kind::Atom, lhs, relation, rhs});
 }
-template <Arithmetic Number>
-ValueDomain<Number> FactStore<Number>::domain(WorldId world,
-                                              FactRef fact) const {
-  if (!visible(world, fact))
-    return {};
+template <IntegralSigned Number>
+FactResult<Query> FactStore<Number>::evaluate(WorldId world,
+                                             const Formula &formula) const {
+  if (!validWorld_(world))
+    return FactResult<Query>{FactError{"FactStore::evaluate received an invalid WorldId"}};
+  return join_(world, formula);
+}
+template <IntegralSigned Number>
+FactResult<Query> FactStore<Number>::evaluate(WorldId world, Expr lhs,
+                                             Rel relation, Expr rhs) const {
+  if (!validWorld_(world))
+    return FactResult<Query>{FactError{"FactStore::evaluate received an invalid WorldId"}};
+  return join_(world, Formula{Formula::Kind::Atom, lhs, relation, rhs});
+}
+template <IntegralSigned Number>
+FactResult<ValueDomain<Number>>
+FactStore<Number>::domain(WorldId world, FactRef fact) const {
+  if (!validWorld_(world))
+    return FactResult<ValueDomain<Number>>{
+        FactError{"FactStore::domain received an invalid WorldId"}};
+  if (!visible_(world, fact))
+    return ValueDomain<Number>{DomainKind::Null};
   common::memory::DynArray<WorldId> suffix(arena_);
   common::memory::DynArray<Branch> branches(arena_);
   branches_(world, suffix, branches);
   if (branches.size() != 1)
-    return {};
+    return ValueDomain<Number>{DomainKind::Null};
   auto solver = solve_(branches[0]);
-  return solver.conflict ? ValueDomain<Number>{}
+  return solver.conflict ? ValueDomain<Number>{DomainKind::Null}
                          : solver.domains[solver.find(fact.id.value)];
 }
-template <Arithmetic Number>
+template <IntegralSigned Number>
 std::span<const ConflictV2> FactStore<Number>::conflicts() const noexcept {
   return {conflicts_.data(), conflicts_.size()};
 }

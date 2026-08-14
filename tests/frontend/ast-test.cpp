@@ -88,8 +88,13 @@ int main() {
         text.find("valueText=answer") == std::string::npos)
         return EXIT_FAILURE;
 
-    generated_ast::free(ast);
+    AstRoot moved{std::move(ast)};
+    if (moved.nodeCount() != 4 || moved.root != program)
+        return EXIT_FAILURE;
     if (ast.nodeCount() != 0 || ast.root != nullptr)
+        return EXIT_FAILURE;
+    generated_ast::free(moved);
+    if (moved.nodeCount() != 0 || moved.root != nullptr)
         return EXIT_FAILURE;
 
     return EXIT_SUCCESS;

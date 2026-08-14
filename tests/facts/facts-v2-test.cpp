@@ -29,15 +29,46 @@ void check(bool condition, const char *message) {
 void checkStatus(const FactStore<int> &store, WorldId world,
                  const FactStore<int>::Formula &formula, Query expected,
                  const char *message) {
-  check(store.status(world, formula) == expected, message);
+  const auto result = store.status(world, formula);
+  check(result.isOk() && result.value() == expected, message);
 }
 
 auto assumeOne(FactStore<int> &store, WorldId world,
                const FactStore<int>::Formula &formula, bool expected,
                const char *message) -> WorldId {
-  const auto worlds = store.assume(world, formula, expected);
-  check(worlds.size() == 1, message);
-  return worlds[0];
+  const auto result = store.assume(world, formula, expected);
+  check(result.isOk() && result.value().size() == 1, message);
+  return result.value()[0];
+}
+
+auto assumeValue(FactStore<int> &store, WorldId world,
+                 const FactStore<int>::Formula &formula, bool expected,
+                 const char *message)
+    -> common::memory::DynArray<WorldId> {
+  auto result = store.assume(world, formula, expected);
+  check(result.isOk(), message);
+  return std::move(result).value();
+}
+
+auto mergeValue(FactStore<int> &store, std::span<const WorldId> alternatives)
+    -> WorldId {
+  auto result = store.merge(alternatives);
+  check(result.isOk(), "a valid merge must return a world");
+  return result.value();
+}
+
+auto domainValue(const FactStore<int> &store, WorldId world, FactRef fact)
+    -> ValueDomain<int> {
+  auto result = store.domain(world, fact);
+  check(result.isOk(), "a valid domain query must return a domain");
+  return result.value();
+}
+
+auto visibleValue(const FactStore<int> &store, WorldId world, FactRef fact)
+    -> bool {
+  auto result = store.visible(world, fact);
+  check(result.isOk(), "a valid visibility query must return a bool");
+  return result.value();
 }
 
 constexpr auto complement(Rel relation) -> Rel {
@@ -88,7 +119,6 @@ void testValueDomains() {
                               .upper = 7,
                               .lowerInclusive = false,
                               .upperInclusive = false};
-  const ValueDomain<int> runtime{.kind = DomainKind::Runtime};
   const ValueDomain<int> nullValue{.kind = DomainKind::Null};
 
   check(unknown.contains(-99), "unknown domains contain every concrete value");
@@ -98,15 +128,14 @@ void testValueDomains() {
         "closed ranges contain both boundaries");
   check(!open.contains(2) && !open.contains(7),
         "open ranges exclude both boundaries");
-  check(!runtime.contains(0) && !nullValue.contains(0),
-        "runtime and null domains contain no concrete values");
+  check(!nullValue.contains(0), "null domains contain no concrete values");
   check(closed.contains(exact), "a range contains an exact value inside it");
   check(!closed.contains(ValueDomain<int>::exactValue(9)),
         "a range rejects an exact value outside it");
   check(closed.contains(open),
         "contains(domain) accepts an open range inside a closed range");
-  check(!exact.contains(unknown),
-        "unknown is not treated as a concrete exact value");
+  check(exact.contains(unknown), "every domain contains unknown as top");
+  check(!closed.contains(nullValue), "a range does not contain the null domain");
 }
 
 void testValueDomainIntersection() {
@@ -137,7 +166,6 @@ void testValueDomainIntersection() {
                                .upper = 20,
                                .lowerInclusive = true,
                                .upperInclusive = true};
-  const ValueDomain<int> runtime{.kind = DomainKind::Runtime};
   const ValueDomain<int> nullValue{.kind = DomainKind::Null};
   const auto unknown = ValueDomain<int>::unknown();
 
@@ -156,12 +184,25 @@ void testValueDomainIntersection() {
             !partialLower.intersect(partialUpper).lowerInclusive &&
             partialLower.intersect(partialUpper).upperInclusive,
         "one-sided ranges keep each side and inclusive flags");
-  check(unknown.intersect(closed).kind == DomainKind::Unknown,
-        "unknown intersection stays unknown");
-  check(runtime.intersect(closed).kind == DomainKind::Null,
-        "runtime intersection is null");
+  const auto unknownClosed = unknown.intersect(closed);
+  check(unknownClosed.kind == DomainKind::Range &&
+            unknownClosed.lower == closed.lower &&
+            unknownClosed.upper == closed.upper &&
+            unknownClosed.lowerInclusive == closed.lowerInclusive &&
+            unknownClosed.upperInclusive == closed.upperInclusive,
+        "unknown intersection returns the other domain");
+  const auto closedUnknown = closed.intersect(unknown);
+  check(closedUnknown.kind == DomainKind::Range &&
+            closedUnknown.lower == closed.lower &&
+            closedUnknown.upper == closed.upper &&
+            closedUnknown.lowerInclusive == closed.lowerInclusive &&
+            closedUnknown.upperInclusive == closed.upperInclusive,
+        "intersection with unknown returns the known domain");
   check(nullValue.intersect(closed).kind == DomainKind::Null,
         "null intersection is null");
+  check(unknown.intersect(nullValue).kind == DomainKind::Null &&
+            nullValue.intersect(unknown).kind == DomainKind::Null,
+        "unknown and null still intersect to null because null is empty");
 }
 
 void testValueDomainSubset() {
@@ -184,7 +225,7 @@ void testValueDomainSubset() {
                                       .upper = 10,
                                       .upperInclusive = true};
   const ValueDomain<int> nullValue{.kind = DomainKind::Null};
-  const ValueDomain<int> runtime{.kind = DomainKind::Runtime};
+  const auto unknown = ValueDomain<int>::unknown();
 
   check(closed.contains(closed), "identical ranges are subsets");
   check(closed.contains(inside), "ranges inside a closed range are subsets");
@@ -195,8 +236,8 @@ void testValueDomainSubset() {
         "one-sided wider range is not a subset");
   check(closed.contains(ValueDomain<int>::exactValue(5)),
         "exact point inside a range is a subset");
-  check(!closed.contains(nullValue) && !closed.contains(runtime),
-        "null and runtime are not subset values");
+  check(closed.contains(unknown), "unknown is a superset of every domain");
+  check(!closed.contains(nullValue), "null is not inside a value domain");
 }
 
 void testAtomicRelationsAndNegation() {
@@ -250,9 +291,9 @@ void testBooleanLoweringMatrix() {
     const auto &A = store.atom(store.value(a), Rel::Equal, store.constant(1));
     const auto &B = store.atom(store.value(b), Rel::Equal, store.constant(2));
     const auto &formula = store.and_(A, B);
-    const auto worlds = store.assume(store.root(), formula, true);
-    check(worlds.size() == 1, "true A and B must use one world");
-    checkStatus(store, worlds[0], formula, Query::True,
+    const auto world = assumeOne(store, store.root(), formula, true,
+                                 "true A and B must use one world");
+    checkStatus(store, world, formula, Query::True,
                 "true A and B must prove the formula");
   }
   {
@@ -263,9 +304,9 @@ void testBooleanLoweringMatrix() {
     const auto &A = store.atom(store.value(a), Rel::Equal, store.constant(1));
     const auto &B = store.atom(store.value(b), Rel::Equal, store.constant(2));
     const auto &formula = store.or_(A, B);
-    const auto worlds = store.assume(store.root(), formula, false);
-    check(worlds.size() == 1, "false A or B must use one world");
-    checkStatus(store, worlds[0], formula, Query::False,
+    const auto world = assumeOne(store, store.root(), formula, false,
+                                 "false A or B must use one world");
+    checkStatus(store, world, formula, Query::False,
                 "false A or B must refute the formula");
   }
   {
@@ -276,7 +317,8 @@ void testBooleanLoweringMatrix() {
     const auto &A = store.atom(store.value(a), Rel::Equal, store.constant(1));
     const auto &B = store.atom(store.value(b), Rel::Equal, store.constant(2));
     const auto &formula = store.or_(A, B);
-    const auto worlds = store.assume(store.root(), formula, true);
+    const auto worlds = assumeValue(store, store.root(), formula, true,
+                                    "true A or B must split into two worlds");
     check(worlds.size() == 2, "true A or B must split into two worlds");
     for (const auto world : worlds)
       checkStatus(store, world, formula, Query::True,
@@ -290,7 +332,8 @@ void testBooleanLoweringMatrix() {
     const auto &A = store.atom(store.value(a), Rel::Equal, store.constant(1));
     const auto &B = store.atom(store.value(b), Rel::Equal, store.constant(2));
     const auto &formula = store.and_(A, B);
-    const auto worlds = store.assume(store.root(), formula, false);
+    const auto worlds = assumeValue(store, store.root(), formula, false,
+                                    "false A and B must split into two worlds");
     check(worlds.size() == 2, "false A and B must split into two worlds");
     for (const auto world : worlds)
       checkStatus(store, world, formula, Query::False,
@@ -332,16 +375,19 @@ void testKleeneAndJoinMatrix() {
     const auto &C = store.atom(store.value(c), Rel::Equal, store.constant(3));
     const auto &orFormula = store.or_(A, B);
     const auto &andFormula = store.and_(A, B);
-    const auto split = store.assume(store.root(), orFormula, true);
+    const auto split =
+        assumeValue(store, store.root(), orFormula, true,
+                    "join matrix needs a binary split");
     check(split.size() == 2, "join matrix needs a binary split");
-    const auto merged = store.merge({split.data(), split.size()});
+    const auto merged = mergeValue(store, {split.data(), split.size()});
     checkStatus(store, merged, orFormula, Query::True,
                 "all true alternatives join to true");
-    const auto falseSplit = store.assume(store.root(), andFormula, false);
+    const auto falseSplit = assumeValue(store, store.root(), andFormula, false,
+                                        "false and must split into two");;
     check(falseSplit.size() == 2,
           "false and must create two alternatives for join evaluation");
     const auto falseMerged =
-        store.merge({falseSplit.data(), falseSplit.size()});
+        mergeValue(store, {falseSplit.data(), falseSplit.size()});
     checkStatus(store, falseMerged, andFormula, Query::False,
                 "each branch evaluates the whole formula before joining");
     checkStatus(store, merged, C, Query::Unknown,
@@ -359,28 +405,38 @@ void testWorldVisibilityAndPostMergeConstraints() {
   const auto b = store.globalFact();
   const auto &A = store.atom(store.value(a), Rel::Equal, store.constant(1));
   const auto &B = store.atom(store.value(b), Rel::Equal, store.constant(2));
-  const auto split = store.assume(store.root(), store.or_(A, B), true);
+  const auto split = assumeValue(store, store.root(), store.or_(A, B), true,
+                                 "visibility test needs two children");
   check(split.size() == 2, "visibility test needs two children");
-  check(store.visible(split[0], rootFact) && store.visible(split[1], rootFact),
+  check(visibleValue(store, split[0], rootFact) &&
+            visibleValue(store, split[1], rootFact),
         "a root fact is visible in each child");
-  const auto local = store.fact(split[0]);
-  check(store.visible(split[0], local) && !store.visible(split[1], local),
+  const auto localResult = store.fact(split[0]);
+  check(localResult.isOk(), "creating a local fact must succeed");
+  const auto local = localResult.value();
+  check(visibleValue(store, split[0], local) &&
+            !visibleValue(store, split[1], local),
         "a child fact is visible only in its own child");
   const auto descendant = assumeOne(
       store, split[0], A, true, "a local child remains usable in descendants");
-  check(store.visible(descendant, local),
+  check(visibleValue(store, descendant, local),
         "a child fact is visible in descendants");
-  const auto merged = store.merge({split.data(), split.size()});
-  check(store.visible(merged, rootFact) && !store.visible(merged, local),
+  const auto merged = mergeValue(store, {split.data(), split.size()});
+  check(visibleValue(store, merged, rootFact) &&
+            !visibleValue(store, merged, local),
         "merge visibility requires every alternative to own the fact");
-  const auto afterMerge = store.fact(merged);
-  check(store.visible(merged, afterMerge),
+  const auto afterMergeResult = store.fact(merged);
+  check(afterMergeResult.isOk(), "creating a post-merge fact must succeed");
+  const auto afterMerge = afterMergeResult.value();
+  check(visibleValue(store, merged, afterMerge),
         "facts created after merge are visible in that merge");
-  const auto later = store.assume(merged, store.or_(A, B), true);
-  check(later.size() == 2 && store.visible(later[0], afterMerge),
+  const auto later = assumeValue(store, merged, store.or_(A, B), true,
+                                 "a post-merge split is valid");
+  check(later.size() == 2 && visibleValue(store, later[0], afterMerge),
         "a post-merge fact is visible in later children");
   const auto &invalid = store.equal(local, store.constant(9));
-  const auto rejected = store.assume(merged, invalid, true);
+  const auto rejected = assumeValue(store, merged, invalid, true,
+                                    "a branch-local post-merge constraint is invalid");
   check(rejected.empty() && store.hasConflicts(),
         "a branch-local post-merge constraint must conflict, not become maybe");
 }
@@ -399,8 +455,8 @@ void testAffineChainsAndOverflow() {
         assumeOne(store, store.root(), zIsFive, true, "z == 5 is valid");
     world = assumeOne(store, world, yIsZMinusTwo, true, "y == z - 2 is valid");
     world = assumeOne(store, world, xIsYPlusFour, true, "x == y + 4 is valid");
-    check(store.domain(world, x).exact == 7 &&
-              store.domain(world, y).exact == 3,
+    check(domainValue(store, world, x).exact == 7 &&
+              domainValue(store, world, y).exact == 3,
           "affine chains must propagate exact values");
   }
   {
@@ -414,7 +470,7 @@ void testAffineChainsAndOverflow() {
                            "unresolved affine equality is valid");
     world =
         assumeOne(store, world, yIsFive, true, "late affine constant is valid");
-    check(store.domain(world, x).exact == 9,
+    check(domainValue(store, world, x).exact == 9,
           "affine propagation must not depend on assumption order");
   }
   {
@@ -426,7 +482,7 @@ void testAffineChainsAndOverflow() {
     const auto &bIsFive = store.equal(b, store.constant(5));
     auto world = assumeOne(store, store.root(), same, true, "a == b is valid");
     world = assumeOne(store, world, bIsFive, true, "b == 5 is valid");
-    check(store.domain(world, a).exact == 5,
+    check(domainValue(store, world, a).exact == 5,
           "simple equality must share a known constant");
   }
   for (const auto [value, offset] :
@@ -439,7 +495,8 @@ void testAffineChainsAndOverflow() {
     const auto &yIsValue = store.equal(y, store.constant(value));
     const auto world = assumeOne(store, store.root(), xIsYOffset, true,
                                  "an unresolved affine equality is valid");
-    const auto overflow = store.assume(world, yIsValue, true);
+    const auto overflow = assumeValue(store, world, yIsValue, true,
+                                      "overflowing add must discard its path");
     check(overflow.empty() && store.hasConflicts(),
           "overflowing add must discard the path and record a conflict");
   }
@@ -452,16 +509,70 @@ void testBranchLocalConflictIsolation() {
   const auto b = store.globalFact();
   const auto &A = store.atom(store.value(a), Rel::Equal, store.constant(1));
   const auto &B = store.atom(store.value(b), Rel::Equal, store.constant(2));
-  const auto split = store.assume(store.root(), store.or_(A, B), true);
+  const auto split = assumeValue(store, store.root(), store.or_(A, B), true,
+                                 "conflict isolation needs two worlds");
   check(split.size() == 2, "conflict isolation needs two worlds");
-  const auto killed = store.assume(split[0], A, false);
+  const auto killed = assumeValue(store, split[0], A, false,
+                                  "contradicting one branch must kill that branch");
   check(killed.empty() && store.hasConflicts(),
         "contradicting one branch must kill that branch");
   checkStatus(store, split[1], B, Query::True,
               "the sibling branch must remain queryable");
-  const auto merged = store.merge({split.data(), split.size()});
+  const auto merged = mergeValue(store, {split.data(), split.size()});
   checkStatus(store, merged, B, Query::True,
               "a merge must use only its surviving branch");
+}
+
+void testFactContractErrors() {
+  common::memory::Arena arena;
+  FactStore<int> store(arena);
+  const auto invalidWorldWorldId = WorldId{999};
+  const auto rootFact = store.globalFact();
+  const auto &atom = store.equal(rootFact, store.constant(0));
+
+  const auto invalidAssume = store.assume(invalidWorldWorldId, atom, true);
+  check(invalidAssume.isError(), "assume rejects an invalid WorldId");
+
+  const auto invalidStatus = store.status(invalidWorldWorldId, atom);
+  check(invalidStatus.isError(), "status rejects an invalid WorldId");
+
+  const std::span<const WorldId> none;
+  const auto emptyMerge = store.merge(none);
+  check(emptyMerge.isError(), "merge rejects an empty alternative list");
+
+  const std::array<WorldId, 2> repeated = {store.root(), store.root()};
+  const auto duplicate = store.merge({repeated.data(), repeated.size()});
+  check(duplicate.isError(), "merge rejects repeated alternatives");
+
+  const std::array<WorldId, 1> invalidAlternatives = {invalidWorldWorldId};
+  const auto invalidMerge =
+      store.merge({invalidAlternatives.data(), invalidAlternatives.size()});
+  check(invalidMerge.isError(), "merge rejects an invalid alternative");
+
+  const auto invalidDomain = store.domain(invalidWorldWorldId, rootFact);
+  check(invalidDomain.isError(), "domain rejects an invalid WorldId");
+
+  const auto invalidVisible = store.visible(invalidWorldWorldId, rootFact);
+  check(invalidVisible.isError(), "visible rejects an invalid WorldId");
+}
+
+void testEvaluateAfterAssumptions() {
+  common::memory::Arena arena;
+  FactStore<int> store(arena);
+  const auto x = store.globalFact();
+  const auto y = store.globalFact();
+  const auto &xIsOne = store.equal(x, store.constant(1));
+  const auto &yIsTwo = store.equal(y, store.constant(2));
+  const auto world = assumeOne(store, store.root(), xIsOne, true,
+                               "one atom keeps one world");
+  const auto evaluatedAnd = store.evaluate(world, store.and_(xIsOne, yIsTwo));
+  check(evaluatedAnd.isOk(), "evaluate accepts a formula after assumptions");
+  check(evaluatedAnd.value() == Query::Unknown ||
+            evaluatedAnd.value() == Query::Maybe,
+        "evaluate does not assume facts as hard constraints");
+  const auto evaluatedAtom = store.evaluate(world, yIsTwo);
+  check(evaluatedAtom.isOk() && evaluatedAtom.value() == Query::Unknown,
+        "evaluate does not create a world for the queried atom");
 }
 
 struct DeterministicRng {
@@ -511,10 +622,12 @@ void testRandomizedWorldContract() {
         assumeOne(store, store.root(), affine, true,
                   "random affine relation must be valid first");
     const auto &known = store.equal(facts[1], store.constant(value));
-    const auto affineResult = store.assume(affineWorld, known, true);
+    const auto affineResult = assumeValue(store, affineWorld, known, true,
+                                          "random affine assumption must be valid");
     if (value <= INT_MAX - offset) {
       check(affineResult.size() == 1 &&
-                store.domain(affineResult[0], facts[0]).exact == value + offset,
+                domainValue(store, affineResult[0], facts[0]).exact ==
+                    value + offset,
             "random affine relation must infer its exact value");
     } else {
       check(affineResult.empty() && store.hasConflicts(),
@@ -536,7 +649,8 @@ void testRandomizedWorldContract() {
                             : step % 4U == 1U ? store.and_(first, second)
                                               : first;
       const bool expected = (rng.next() & 1U) != 0U;
-      const auto worlds = store.assume(current, formula, expected);
+      const auto worlds = assumeValue(store, current, formula, expected,
+                                      "random assumption must return a result");
       const std::string context =
           "scenario=" + std::to_string(scenario) +
           " step=" + std::to_string(step) +
@@ -553,21 +667,26 @@ void testRandomizedWorldContract() {
                     expected ? Query::True : Query::False,
                     (context + " violated the assumed formula").c_str());
         for (const auto fact : facts)
-          check(store.visible(world, fact),
+          check(visibleValue(store, world, fact),
                 (context + " hid a global fact").c_str());
         const auto status = store.status(world, formula);
-        check(status == Query::True || status == Query::False ||
-                  status == Query::Unknown || status == Query::Maybe,
+        check(status.isOk() &&
+                  (status.value() == Query::True ||
+                   status.value() == Query::False ||
+                   status.value() == Query::Unknown ||
+                   status.value() == Query::Maybe),
               (context + " returned an invalid query state").c_str());
       }
       if (worlds.size() == 2) {
-        const auto merged = store.merge({worlds.data(), worlds.size()});
+        const auto merged = mergeValue(store, {worlds.data(), worlds.size()});
         const std::array<WorldId, 2> reversed = {worlds[1], worlds[0]};
         const auto reverseMerged =
-            store.merge({reversed.data(), reversed.size()});
-        checkStatus(
-            store, merged, formula, store.status(reverseMerged, formula),
-            (context + " merge order changed the formula status").c_str());
+            mergeValue(store, {reversed.data(), reversed.size()});
+        const auto firstStatus = store.status(merged, formula);
+        const auto secondStatus = store.status(reverseMerged, formula);
+        check(firstStatus.isOk() && secondStatus.isOk() &&
+                  firstStatus.value() == secondStatus.value(),
+              (context + " merge order changed the formula status").c_str());
         current = merged;
       } else {
         current = worlds[0];
@@ -598,6 +717,8 @@ auto main(int argc, char **argv) -> int {
   testWorldVisibilityAndPostMergeConstraints();
   testAffineChainsAndOverflow();
   testBranchLocalConflictIsolation();
+  testFactContractErrors();
+  testEvaluateAfterAssumptions();
   if (intensive)
     testRandomizedWorldContract();
   std::cout << "facts-v2-test: all tests passed";

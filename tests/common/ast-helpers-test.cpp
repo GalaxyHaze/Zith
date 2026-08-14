@@ -135,6 +135,50 @@ bool runTransformTest() {
   return result != nullptr && allZero;
 }
 
+bool runTransformParentContractTest() {
+  common::memory::Arena arena;
+  AstRoot ast(arena);
+
+  auto *leaf = makeLit(ast, 1);
+  auto *root = makeBin(ast, makeLit(ast, 2), makeLit(ast, 3));
+
+  bool rootParentIsNull = false;
+  bool leafParentIsRoot = false;
+  bool hasChildParent = false;
+  bool transformed = true;
+  common::ast::transform(ast, root, [&](Expr *node, Expr *parent) -> Expr * {
+    if (node == root && parent != nullptr)
+      transformed = false;
+    if (node == root)
+      rootParentIsNull = true;
+    if (node != root && parent == root)
+      leafParentIsRoot = true;
+    if (parent != nullptr)
+      hasChildParent = true;
+    return node;
+  });
+  rootParentIsNull = false;
+  common::ast::transform(ast, leaf, [&](Expr *node, Expr *parent) -> Expr * {
+    if (node == leaf && parent == nullptr)
+      rootParentIsNull = true;
+    return node;
+  });
+  return transformed && rootParentIsNull && leafParentIsRoot && hasChildParent;
+}
+
+bool runCloneChildrenTest() {
+  common::memory::Arena arena;
+  AstRoot source(arena);
+  AstRoot target(arena);
+
+  auto *root = makeBin(source, makeLit(source, 1), makeLit(source, 2));
+  auto *copy = common::ast::cloneTree(target, root);
+  if (copy == nullptr || copy->left == nullptr || copy->right == nullptr)
+    return false;
+  return copy->left != root->left && copy->right != root->right &&
+         copy->left->value == 1 && copy->right->value == 2;
+}
+
 bool runVisitTest() {
   common::memory::Arena arena;
   AstRoot ast(arena);
@@ -166,6 +210,8 @@ int main() {
   ok = ok && runReplaceTest();
   ok = ok && runPruneTest();
   ok = ok && runTransformTest();
+  ok = ok && runTransformParentContractTest();
+  ok = ok && runCloneChildrenTest();
   ok = ok && runVisitTest();
 
   if (!ok) {

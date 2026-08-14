@@ -119,6 +119,7 @@ SMOKE_CPP = """\
 
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 int main() {
     common::memory::Arena arena;
@@ -179,6 +180,17 @@ int main() {
     if (std::strstr(buffer, "CallExpr") == nullptr ||
         std::strstr(buffer, "Program") == nullptr)
         return 4;
+
+    generated_ast::AstRoot moved(std::move(ast));
+    if (moved.nodeCount() != 1 || !moved.contains(program) ||
+        ast.nodeCount() != 0 || ast.root != nullptr)
+        return 11;
+
+    generated_ast::AstRoot assigned(arena);
+    assigned = std::move(moved);
+    if (assigned.nodeCount() != 1 || !assigned.contains(program) ||
+        moved.nodeCount() != 0 || moved.root != nullptr)
+        return 12;
     return 0;
 }
 """

@@ -11,7 +11,11 @@ and merge nodes. A node owns only the facts and hard constraints introduced
 there. A merge references its alternatives; it does not copy or intersect their
 constraints.
 
-`assume(world, formula, expected)` lowers boolean structure into hard worlds:
+`assume(world, formula, expected)` lowers boolean structure into hard worlds and
+returns `FactResult<DynArray<WorldId>>`. It rejects invalid worlds with
+`FactError`; one-sided or false branches can still return an empty list, but only
+because the path is contradictory or invisible, not because the call was
+misused:
 
 | Formula | expected | result |
 | --- | --- | --- |
@@ -62,18 +66,31 @@ store.assume(world, store.equal(a, store.add(b, 1)), true);
 store.assume(world, store.equal(b, store.constant(INT_MAX)), true); // conflict
 ```
 
-`ValueDomain<T>` offers `unknown`, `exactValue`, and manual ranges with inclusive
-or open endpoints. It can answer whether it contains a concrete value or another
-exact domain.
+`ValueDomain<T>` is only instantiated with signed integral types for
+`FactStore<T>`. Its `DomainKind` values are `Unknown`, `Exact`, `Range`, and
+`Null`: `Unknown` is the top domain and `Null` is the empty set. `contains`
+therefore accepts `Unknown` for every domain, rejects `Null`, and respects open
+or one-sided range endpoints. `intersect` is set intersection: `Unknown ∩ X` is
+`X`, disjoint ranges are `Null`, and a one-point result is `Exact`.
+
+Unsigned and floating-point stores are rejected intentionally. The generated
+`Bool` aliases continue to be `FactStore<int>` because a domain store should not
+mix boolean values into integer fact solving.
 
 ## Query API
 
 - `status(world, formula)` and `status(world, lhs, relation, rhs)` return
-  `True`, `False`, `Unknown`, or `Maybe`;
+  `FactResult<Query>` with `True`, `False`, `Unknown`, or `Maybe`;
+- `evaluate(world, formula)` and `evaluate(world, lhs, relation, rhs)` query the
+  already collected facts without creating new worlds;
 - `domain(world, fact)` returns the exact/ranged value known in a single-path
-  world, or an empty domain for a merged world;
-- `visible(world, fact)` checks fact visibility;
+  world, or `Null` for a merged/invisible world;
+- `visible(world, fact)` checks fact visibility as a `FactResult<bool>`;
 - `conflicts()` and `hasConflicts()` report rejected paths for diagnostics.
+
+`merge` rejects empty, repeated, or invalid alternatives. `assume`, `status`,
+`domain`, `visible`, and `evaluate` reject invalid `WorldId` values with
+`FactError`; no public world-taking operation reads out of bounds.
 
 ## Demo and tests
 

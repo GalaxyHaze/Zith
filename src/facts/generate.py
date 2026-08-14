@@ -28,7 +28,7 @@ _ENUM_TYPE_RE = re.compile(r"^enum\[([A-Za-z_][A-Za-z0-9_]*)\]$")
 _ATTRIBUTE_RE = re.compile(r"^attribute\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$")
 _SUPPORTED_TYPES = {"Bool", "Int"}
 _CPP_TYPES = {
-    "Bool": "bool",
+    "Bool": "int",
     "Int": "int",
 }
 
@@ -244,7 +244,7 @@ def _make_header(enums: dict[str, FactEnum], domains: list[FactDomain]) -> str:
         out.append("};")
         out.append("")
         out.append(
-            f"template <Arithmetic Number> using {domain.name}FactStore = FactStore<Number>;"
+            f"template <IntegralSigned Number> using {domain.name}FactStore = FactStore<Number>;"
         )
         out.append("")
         has_bool = any(attribute.rule_type == "Bool" for attribute in domain.attributes)
@@ -253,7 +253,7 @@ def _make_header(enums: dict[str, FactEnum], domains: list[FactDomain]) -> str:
             attribute.rule_type.startswith("enum[") for attribute in domain.attributes
         )
         if has_bool:
-            out.append(f"using {domain.name}BoolStore = FactStore<bool>;")
+            out.append(f"using {domain.name}BoolStore = FactStore<int>;")
         if has_int or has_enum:
             out.append(f"using {domain.name}IntStore = FactStore<int>;")
         if has_bool or has_int or has_enum:

@@ -5,6 +5,7 @@
 #include "common/memory/dyn-array.hpp"
 
 #include <cstddef>
+#include <type_traits>
 
 namespace common::ast {
 
@@ -26,14 +27,16 @@ T *cloneNode(AstRoot &target, T *source) {
             return nullptr;
 
         if constexpr (requires(T *node) { for_each_child(node, [](auto &) {}); }) {
-            common::memory::DynArray<T *> sourceChildren{*target.arena};
+            common::memory::DynArray<void *> sourceChildren{*target.arena};
             for_each_child(source, [&](auto &childRef) {
-                sourceChildren.push(static_cast<T *>(childRef));
+                sourceChildren.push(&childRef);
             });
 
-            size_t index = 0;
+            std::size_t index = 0;
             for_each_child(clone, [&](auto &childRef) {
-                childRef = cloneNode(target, sourceChildren[index++]);
+                using ChildRaw = std::remove_reference_t<decltype(childRef)>;
+                auto *sourcePtr = static_cast<ChildRaw *>(sourceChildren[index++]);
+                childRef = cloneNode(target, *sourcePtr);
             });
         }
         return clone;

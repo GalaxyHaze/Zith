@@ -43,8 +43,8 @@ SMOKE_CPP = """\
 int main() {
     using toolkit::facts::FactStore;
     using toolkit::facts::ValueDomain;
-    static_assert(std::is_same_v<toolkit::facts::VersionBoolStore, FactStore<bool>>);
-    static_assert(std::is_same_v<toolkit::facts::ResourceStateLentStore, FactStore<bool>>);
+    static_assert(std::is_same_v<toolkit::facts::VersionBoolStore, FactStore<int>>);
+    static_assert(std::is_same_v<toolkit::facts::ResourceStateLentStore, FactStore<int>>);
     static_assert(std::is_same_v<toolkit::facts::VersionIntStore, FactStore<int>>);
     static_assert(std::is_same_v<toolkit::facts::VersionStateStore, FactStore<int>>);
     constexpr auto domain = ValueDomain<int>::exactValue(5);
@@ -86,7 +86,7 @@ def main() -> int:
 
         header = (out_dir / "facts.hpp").read_text(encoding="utf-8")
         assert_contains(header, "enum class VersionAttribute", "Version enum")
-        assert_contains(header, "using VersionStableStore = FactStore<bool>;", "Bool accessor")
+        assert_contains(header, "using VersionStableStore = FactStore<int>;", "Bool accessor")
         assert_contains(header, "using VersionMajorStore = FactStore<int>;", "Int accessor")
         assert_contains(header, "using VersionStateStore = FactStore<int>;", "enum accessor")
         assert_contains(header, "enum class State : std::int32_t {", "enum declaration")

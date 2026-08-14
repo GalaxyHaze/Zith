@@ -4,6 +4,14 @@
 
 namespace common::ast {
 
+template <typename Parent, typename Fn>
+    requires HasChildVisitor<Parent, Fn>
+void visitChildren(Parent *parent, Fn &&fn) {
+    if (parent == nullptr)
+        return;
+    for_each_child(parent, std::forward<Fn>(fn));
+}
+
 template <typename T, typename Parent, typename Fn>
     requires HasChildVisitor<T, Fn>
 void visitNode(T *node, Parent *parent, Fn &fn) {
@@ -11,7 +19,7 @@ void visitNode(T *node, Parent *parent, Fn &fn) {
         return;
 
     fn(node, parent);
-    for_each_child(node, [&](auto &childRef) { visitNode(childRef, node, fn); });
+    visitChildren(node, [&](auto &childRef) { visitNode(childRef, node, fn); });
 }
 
 template <typename T, typename Parent, typename Fn>
