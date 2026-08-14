@@ -1,13 +1,13 @@
-add_executable(zithc
-    zithc-main.cpp
+add_executable(turvc
+    turvc-main.cpp
 )
 
-target_link_libraries(zithc PRIVATE
-    zith_cli
-    zith_frontend_lexer
-    zith_flags
-    zith_common
-    zith_session
+target_link_libraries(turvc PRIVATE
+    zct_cli
+    zct_frontend_lexer
+    zct_flags
+    zct_common
+    zct_session
 )
 
-add_dependencies(zithc zith_generate_sources)
+add_dependencies(turvc zct_generate_sources)

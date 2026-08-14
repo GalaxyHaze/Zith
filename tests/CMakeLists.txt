@@ -5,3 +5,7 @@ add_subdirectory(frontend)
 add_subdirectory(session)
 add_subdirectory(integration)
 add_subdirectory(cache)
+
+if(ZCT_CODEGEN)
+    add_subdirectory(codegen)
+endif()

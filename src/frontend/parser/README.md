@@ -132,3 +132,14 @@ python3 src/frontend/parser/generate.py \
 Edit `parser.rules` for parser/context/rule declarations, `types.hpp` for user-owned type
 surface, and `actions.cpp` for syntax behavior. Do not edit `build/src/frontend/parser/*`. Do not
 modify `generate.py` or shared generator rules without explicit user approval.
+
+## Demo
+
+`tests/frontend/parser-demo.cpp` defines local `hooks::parser` action/recovery implementations for
+the current generated rules and parses three supported snippets: `alpha`, `module alpha ;`, and
+`fn def [ * ] ;`. It prints the parse status, output count, and context stack size.
+
+```bash
+cmake --build build --target parser-demo -j
+ctest --test-dir build -R '^parser-demo$' --output-on-failure
+```

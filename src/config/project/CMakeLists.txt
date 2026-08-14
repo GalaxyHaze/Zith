@@ -1,11 +1,11 @@
-set(_zith_project_config_generated
+set(_zct_project_config_generated
     "${CMAKE_BINARY_DIR}/src/config/project/project-config.cpp"
     "${CMAKE_BINARY_DIR}/src/config/project/project-config.hpp"
     "${CMAKE_BINARY_DIR}/src/config/project/actions.hpp"
 )
 
 add_custom_command(
-    OUTPUT ${_zith_project_config_generated}
+    OUTPUT ${_zct_project_config_generated}
     BYPRODUCTS "${CMAKE_BINARY_DIR}/src/config/project/.gitignore"
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/generate.py"
@@ -22,15 +22,28 @@ add_custom_command(
     COMMENT "Generating flags configuration sources from default.toml"
 )
 
-add_custom_target(zith_flags_generated DEPENDS ${_zith_project_config_generated})
+add_custom_target(zct_flags_generated DEPENDS ${_zct_project_config_generated})
 
-add_library(zith_flags STATIC
+add_library(zct_flags STATIC
     "${CMAKE_BINARY_DIR}/src/config/project/project-config.cpp"
 )
 
-target_include_directories(zith_flags PUBLIC
+target_include_directories(zct_flags PUBLIC
     "${PROJECT_SOURCE_DIR}/src"
     "${PROJECT_BINARY_DIR}/src"
 )
 
-add_dependencies(zith_flags zith_flags_generated)
+add_dependencies(zct_flags zct_flags_generated)
+
+add_executable(config-demo
+    "${PROJECT_SOURCE_DIR}/tests/config/config-demo.cpp"
+)
+
+target_link_libraries(config-demo PRIVATE
+    zct_flags
+    zct_common
+)
+
+add_dependencies(config-demo zct_flags_generated)
+
+add_test(NAME config-demo COMMAND config-demo)

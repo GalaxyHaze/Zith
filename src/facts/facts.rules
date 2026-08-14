@@ -1,0 +1,20 @@
+# ZCT fact domain declarative structure.
+#
+# [domain] declares a typed fact domain. Each attribute is emitted as a
+# stable enum member and a typed FactStore accessor alias. Behavior such as
+# implication solving remains handwritten in fact-v2.hpp/.tpp.
+
+[enum.State]
+Active = 0
+Complete = 1
+Failed = 2
+
+[domain] Version
+  attribute stable : Bool
+  attribute major  : Int
+  attribute state  : enum[State]
+
+[domain] ResourceState
+  attribute alive : Bool
+  attribute dead  : Bool
+  attribute lent  : Bool

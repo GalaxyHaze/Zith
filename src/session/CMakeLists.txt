@@ -1,11 +1,11 @@
-set(_zith_session_generated
+set(_zct_session_generated
     "${CMAKE_BINARY_DIR}/src/session/session.cpp"
     "${CMAKE_BINARY_DIR}/src/session/session.hpp"
     "${CMAKE_BINARY_DIR}/src/session/dispatch.hpp"
 )
 
 add_custom_command(
-    OUTPUT ${_zith_session_generated}
+    OUTPUT ${_zct_session_generated}
     BYPRODUCTS "${CMAKE_BINARY_DIR}/src/session/.gitignore"
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/generate.py"
@@ -22,64 +22,78 @@ add_custom_command(
     COMMENT "Generating session sources from rules"
 )
 
-add_custom_target(zith_session_generated DEPENDS ${_zith_session_generated})
+add_custom_target(zct_session_generated DEPENDS ${_zct_session_generated})
 
-add_library(zith_session_core_objects OBJECT
+add_library(zct_session_core_objects OBJECT
     "${CMAKE_BINARY_DIR}/src/session/session.cpp"
 )
 
-target_include_directories(zith_session_core_objects PUBLIC
+target_include_directories(zct_session_core_objects PUBLIC
     "${PROJECT_SOURCE_DIR}/src"
     "${PROJECT_BINARY_DIR}/src"
     "${PROJECT_SOURCE_DIR}/src/frontend/lexer"
     "${PROJECT_BINARY_DIR}/src/frontend/lexer"
 )
 
-target_link_libraries(zith_session_core_objects PUBLIC
-    zith_common
+target_link_libraries(zct_session_core_objects PUBLIC
+    zct_common
 )
 
-add_library(zith_session_core STATIC
-    $<TARGET_OBJECTS:zith_session_core_objects>
+add_library(zct_session_core STATIC
+    $<TARGET_OBJECTS:zct_session_core_objects>
 )
 
-target_link_libraries(zith_session_core PUBLIC
-    zith_common
+target_link_libraries(zct_session_core PUBLIC
+    zct_common
 )
 
-target_include_directories(zith_session_core PUBLIC
+target_include_directories(zct_session_core PUBLIC
     "${PROJECT_SOURCE_DIR}/src"
     "${PROJECT_BINARY_DIR}/src"
     "${PROJECT_SOURCE_DIR}/src/frontend/lexer"
     "${PROJECT_BINARY_DIR}/src/frontend/lexer"
 )
 
-add_library(zith_session STATIC
-    $<TARGET_OBJECTS:zith_session_core_objects>
+add_library(zct_session STATIC
+    $<TARGET_OBJECTS:zct_session_core_objects>
     "${CMAKE_CURRENT_SOURCE_DIR}/dispatch.cpp"
 )
 
-target_link_libraries(zith_session PUBLIC
-    zith_common
+target_link_libraries(zct_session PUBLIC
+    zct_common
 )
 
-target_link_libraries(zith_session PRIVATE
-    zith_frontend_lexer
+target_link_libraries(zct_session PRIVATE
+    zct_frontend_lexer
 )
 
-target_include_directories(zith_session PUBLIC
+target_include_directories(zct_session PUBLIC
     "${PROJECT_SOURCE_DIR}/src"
     "${PROJECT_BINARY_DIR}/src"
     "${PROJECT_SOURCE_DIR}/src/frontend/lexer"
     "${PROJECT_BINARY_DIR}/src/frontend/lexer"
 )
 
-if(ZITH_HAS_MIO)
-    target_include_directories(zith_session SYSTEM PUBLIC
+if(ZCT_HAS_MIO)
+    target_include_directories(zct_session SYSTEM PUBLIC
         "${PROJECT_BINARY_DIR}/_deps/mio-src/include"
     )
 endif()
 
-add_dependencies(zith_session_core_objects zith_session_generated)
-add_dependencies(zith_session_core zith_session_generated)
-add_dependencies(zith_session zith_session_generated)
+add_dependencies(zct_session_core_objects zct_session_generated)
+add_dependencies(zct_session_core zct_session_generated)
+add_dependencies(zct_session zct_session_generated)
+
+add_executable(session-demo
+    "${PROJECT_SOURCE_DIR}/tests/session/session-demo.cpp"
+)
+
+target_link_libraries(session-demo PRIVATE
+    zct_session
+    zct_frontend_lexer
+    zct_common
+)
+
+add_dependencies(session-demo zct_session_generated)
+
+add_test(NAME session-demo COMMAND session-demo)

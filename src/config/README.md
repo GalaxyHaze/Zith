@@ -23,11 +23,11 @@ The TOML file uses sections and key/value entries:
 
 ```toml
 [project]
-name = "zith"
+name = "turv"
 version = "0.1.0"
 
 [build]
-entry = "src/main.zith"
+entry = "src/main.turv"
 opt_level = 0
 verbose = false
 lto = false
@@ -90,3 +90,26 @@ regenerate.
 Normal config changes belong in `src/config/flags/default.toml`. Do not edit
 `build/src/config/project/*`; those files are rebuilt from the TOML. Do not modify
 `project/generate.py` or shared generator rules without explicit user approval.
+
+## Public API
+
+The generated surface lives in `toolkit` and exposes:
+
+- `ProjectConfig` with interned string fields, integer/bool fields, and a `DynArray` for
+  string list fields.
+- `loadFromToml(std::string_view toml, Arena &arena, StringInterner &strings,
+  ProjectConfig &out)` returning `Result<void, Error>`.
+
+String values are returned as `InternedId`; pass them back to the same `StringInterner` to get
+`std::string_view`. The `StringInterner` must outlive config lookup calls because the generated
+config stores string values as interned IDs.
+
+## Demo
+
+`tests/config/config-demo.cpp` loads a small TOML containing `[project]`, `[build]`, `[paths]`,
+and `[ffi]`, then prints the loaded values through `strings.lookup`.
+
+```bash
+cmake --build build --target config-demo -j
+ctest --test-dir build -R '^config-demo$' --output-on-failure
+```

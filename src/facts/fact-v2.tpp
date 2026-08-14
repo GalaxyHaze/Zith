@@ -21,9 +21,98 @@ constexpr bool
 ValueDomain<Number>::contains(const ValueDomain &other) const noexcept {
   if (other.kind == DomainKind::Unknown)
     return kind == DomainKind::Unknown;
+  if (kind == DomainKind::Runtime || kind == DomainKind::Null)
+    return false;
+  if (other.kind == DomainKind::Runtime || other.kind == DomainKind::Null)
+    return false;
   if (other.exact)
     return contains(*other.exact);
-  return false;
+  if (other.kind != DomainKind::Range || (!other.lower && !other.upper))
+    return false;
+  if (other.lower) {
+    if (!lower) {
+      if (!other.lowerInclusive)
+        return false;
+    } else {
+      const bool belowLower = *lower < *other.lower;
+      const bool atLower = *lower == *other.lower;
+      if (other.lowerInclusive
+              ? !(belowLower || (atLower && lowerInclusive))
+              : !(belowLower || atLower))
+        return false;
+    }
+  }
+  if (other.upper) {
+    if (!upper) {
+      if (!other.upperInclusive)
+        return false;
+    } else {
+      const bool aboveUpper = *upper > *other.upper;
+      const bool atUpper = *upper == *other.upper;
+      if (other.upperInclusive ? !(aboveUpper || (atUpper && upperInclusive))
+                               : !(aboveUpper || atUpper))
+        return false;
+    }
+  }
+  return true;
+}
+
+template <Arithmetic Number>
+constexpr ValueDomain<Number>
+ValueDomain<Number>::intersect(const ValueDomain &other) const noexcept {
+  if (kind == DomainKind::Unknown || other.kind == DomainKind::Unknown)
+    return {DomainKind::Unknown};
+  if (kind == DomainKind::Runtime || other.kind == DomainKind::Runtime ||
+      kind == DomainKind::Null || other.kind == DomainKind::Null)
+    return {DomainKind::Null};
+
+  const auto pickLower = [](const ValueDomain &a,
+                            const ValueDomain &b) -> std::optional<Number> {
+    if (!a.lower)
+      return b.lower;
+    if (!b.lower)
+      return a.lower;
+    return *a.lower > *b.lower ? a.lower : b.lower;
+  };
+  const auto pickUpper = [](const ValueDomain &a,
+                            const ValueDomain &b) -> std::optional<Number> {
+    if (!a.upper)
+      return b.upper;
+    if (!b.upper)
+      return a.upper;
+    return *a.upper < *b.upper ? a.upper : b.upper;
+  };
+
+  const std::optional<Number> lower = pickLower(*this, other);
+  const std::optional<Number> upper = pickUpper(*this, other);
+  bool lowerInclusive = true;
+  bool upperInclusive = true;
+  if (lower) {
+    lowerInclusive = false;
+    if (this->lower && *this->lower == *lower && this->lowerInclusive)
+      lowerInclusive = true;
+    if (other.lower && *other.lower == *lower && other.lowerInclusive)
+      lowerInclusive = true;
+  }
+  if (upper) {
+    upperInclusive = false;
+    if (this->upper && *this->upper == *upper && this->upperInclusive)
+      upperInclusive = true;
+    if (other.upper && *other.upper == *upper && other.upperInclusive)
+      upperInclusive = true;
+  }
+
+  if (lower && upper) {
+    if (*lower > *upper || (*lower == *upper &&
+                            (!lowerInclusive || !upperInclusive)))
+      return {DomainKind::Null};
+  }
+
+  if (lower && upper && *lower == *upper && lowerInclusive && upperInclusive)
+    return ValueDomain<Number>::exactValue(*lower);
+  if (!lower && !upper)
+    return ValueDomain<Number>::unknown();
+  return {DomainKind::Range, {}, lower, upper, lowerInclusive, upperInclusive};
 }
 
 template <Arithmetic Number> struct FactStore<Number>::WorldNode {

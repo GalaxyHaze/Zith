@@ -1,4 +1,4 @@
-# Zith symbol-table declarative structure.
+# ZCT generic symbol-table helper rules for the Turv showcase.
 #
 # [kinds] enumerates the symbol-kind tags emitted as `SymKind`.
 # [data] declares the fields of `SymbolData`.  Each field uses

@@ -1,9 +1,9 @@
-set(_zith_symbols_generated
+set(_zct_symbols_generated
     "${CMAKE_BINARY_DIR}/src/symbols/symbols.hpp"
 )
 
 add_custom_command(
-    OUTPUT ${_zith_symbols_generated}
+    OUTPUT ${_zct_symbols_generated}
     BYPRODUCTS "${CMAKE_BINARY_DIR}/src/symbols/.gitignore"
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/generate.py"
@@ -20,15 +20,15 @@ add_custom_command(
     COMMENT "Generating symbol-table header from rules"
 )
 
-add_custom_target(zith_symbols_generated
-    DEPENDS ${_zith_symbols_generated}
+add_custom_target(zct_symbols_generated
+    DEPENDS ${_zct_symbols_generated}
 )
 
-add_library(zith_symbols INTERFACE)
+add_library(zct_symbols INTERFACE)
 
-add_dependencies(zith_symbols zith_symbols_generated)
+add_dependencies(zct_symbols zct_symbols_generated)
 
-target_include_directories(zith_symbols INTERFACE
+target_include_directories(zct_symbols INTERFACE
     "${PROJECT_SOURCE_DIR}/src"
     "${PROJECT_BINARY_DIR}/src"
 )

@@ -1,4 +1,4 @@
-# Zith AST node schema.
+# ZCT generic AST helper rules for the Turv showcase.
 #
 # Each section is one node type. Field syntax:
 #   Name: Type

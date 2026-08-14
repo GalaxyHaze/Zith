@@ -155,10 +155,10 @@ template specializations.
 
 | Target | Contents |
 |---|---|
-| `zith_session_core` | Generated pipeline source only; usable by tests that provide their own dispatch bodies. |
-| `zith_session` | Generated pipeline and handwritten `dispatch.cpp`; used by production executables. |
+| `zct_session_core` | Generated pipeline source only; usable by tests that provide their own dispatch bodies. |
+| `zct_session` | Generated pipeline and handwritten `dispatch.cpp`; used by production executables. |
 
-Static libraries commonly require `zith_session` callers to include the handwritten dispatch
+Static libraries commonly require `zct_session` callers to include the handwritten dispatch
 implementation. The session wiring avoids a link-order workaround by sharing one generated object
 between both targets.
 
@@ -183,7 +183,7 @@ ctest --test-dir build -R session --output-on-failure
 
 ## Tests
 
-- `session-generated-basics` constructs a `ZithSessionContext`, applies the generated pipeline, and
+- `session-generated-basics` constructs a `TurvSessionContext`, applies the generated pipeline, and
   checks `runTo`, failure, and `resume()` behavior.
 - `session-generator-regression` verifies the generator accepts one `[context]`, rejects missing or
   duplicate contexts, rejects invalid type syntax, and compiles a smoke consumer with custom
@@ -194,3 +194,15 @@ ctest --test-dir build -R session --output-on-failure
 Edit `session.rules` for context/stage/state declarations, `types.hpp` for user-owned include
 surface, and `dispatch.cpp` for pipeline behavior. Do not edit `build/src/session/*`. Do not
 modify `generate.py` or shared generator rules without explicit user approval.
+
+## Demo
+
+`tests/session/session-demo.cpp` writes a real `fn main(x) { return 42; }` source file under the
+system temp directory, creates a `TurvSessionContext` whose `filePath` is kept alive for the
+session scope, runs `CompilationSession::runTo(Stage::Lexed)`, and prints the `stageLabel` plus
+the number of tokens.
+
+```bash
+cmake --build build --target session-demo -j
+ctest --test-dir build -R '^session-demo$' --output-on-failure
+```

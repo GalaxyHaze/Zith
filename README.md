@@ -1,16 +1,17 @@
-# Zith `autonom`
+# Zith Compiler's Toolkit
 
-> **Status: Experimental tooling branch.**
-> `autonom` is a tooling-focused branch of Zith. Instead of presenting the language first,
-> this branch focuses on making code production simpler, reducing handwritten boilerplate,
-> and improving long-term maintainability through small generators and declarative inputs.
+> **Status: Experimental tooling repository.**
+> Zith Compiler's Toolkit (ZCT) is a declarative compiler toolchain. The default showcase is
+> Turv, a toy language that is intentionally minimal; the toolchain exists to show how
+> repetitive compiler and tooling code can be kept small through generators and declarative
+> inputs.
 
 A large part of compiler and tooling code is repetitive: command-line parsing, token tables,
-configuration defaults, typed config loading, and error-prone glue code. The goal of
-`autonom` is to move those repetitive parts into compact source descriptions and let
+configuration defaults, typed config loading, and error-prone glue code. ZCT moves those
+repetitive parts into compact source descriptions and lets
 small helpers generate the C++ implementation.
 
-The result is a branch that aims to be:
+The result is a repository that aims to be:
 
 - simpler to extend
 - easier to review
@@ -20,12 +21,10 @@ The result is a branch that aims to be:
 
 ---
 
-## What This Branch Introduces
+## What This Repository Contains
 
-Inspired by the structure and readability of the `main` branch README, `autonom` reframes the
-project as a set of code-generation helpers for building maintainable compiler infrastructure.
-
-Today, the branch already includes several concrete helpers:
+The toolkit today includes several concrete helpers, the default Turv toy-language grammar used
+by demos, and an experimental VM backend for the planned codegen roadmap:
 
 | Helper | Purpose | Source of truth |
 |---|---|---|
@@ -38,17 +37,28 @@ Today, the branch already includes several concrete helpers:
 | Diagnostic helper | Generate the error catalogue consumed by the common renderer | `src/diagnostic/README.md` |
 | Symbol helper | Generate symbol kinds, symbol data layout, and basic helpers | `src/symbols/symbols.rules` |
 
+The default Turv showcase grammar covers functions (`fn`), variables (`let`), `print`, boolean
+literals, `if`/`else`, `while`, `return`, integer/float/string literals, arithmetic and
+comparison operators, brackets, and `//` and `/* */` comments. The current demos exercise the
+lexer, session pipeline, cache configuration, and the scratch VM without promising a complete
+production language implementation.
+
 Supporting those helpers is a small common runtime with arena allocation, interned strings,
-results, option-like types, and dynamic arrays under `src/common`.
+results, option-like types, dynamic arrays, AST transforms, import graph APIs, SIR, and source
+mapping under `src/common`.
 
 The Python side stays deliberately thin. `tools/rules_kit/` provides the shared parser, output,
 and entry-point primitives used by all generators; subsystem generators remain small
 declarative-to-C++ translators. `tools/test_kit/` owns the shared generator-regression harness.
 Generated files in `build/` are not source and must never be edited by hand.
 
+`tools/` is the stable core of the tooling: shared Python logic that every generator and
+generator regression test relies on. It is protected code and should only change with explicit
+approval.
+
 ### Agent Contract
 
-Agents and contributors should treat this branch as **declarative-first**:
+Agents and contributors should treat this repository as **declarative-first**:
 
 - Normal changes edit a `.rules`/TOML file and, when behavior is needed, the documented
   handwritten `actions.cpp`, `handlers.cpp`, `dispatch.cpp`, or types header.
@@ -128,12 +138,9 @@ require explicit user approval before code changes.
 ## Quick Start
 
 ```bash
-git clone https://github.com/GalaxyHaze/Zith.git
-cd Zith
-git checkout autonom
 cmake -S . -B build
 cmake --build build -j
-./build/zithc --help
+./build/turvc --help
 ```
 
 Requires:
@@ -146,9 +153,9 @@ The build runs the generators automatically and places generated files in the bu
 
 ---
 
-## Why `autonom`
+## Why ZCT
 
-This branch is built around one practical idea:
+This repository is built around one practical idea:
 
 **when a subsystem is mostly structure, make the structure declarative.**
 
@@ -164,22 +171,33 @@ That gives a few concrete benefits:
 
 ## Current Surface
 
-The current executable is `zithc`, with a generated CLI surface that already exposes:
+The current executable is `turvc`, with a generated CLI surface that already exposes:
 
 - global flags such as `--help`, `--version`, `--verbose`, `--strict`, `--opt-level`, `--include`, `--jobs`
 - commands such as `check`, `fmt`, `run`, `build`, and `deps`
 - subcommands such as `deps add`, `deps check`, and `deps remove`
 - typo suggestions for commands, subcommands, and flags
 
-`zithc check`, `zithc run`, and `zithc build` now create a `toolkit::session::CompilationSession`,
+`turvc check`, `turvc run`, and `turvc build` now create a `toolkit::session::CompilationSession`,
 load the selected source file, and run the pipeline through the `Lexed` stage.
 
 Example:
 
 ```bash
-./build/zithc --help
-./build/zithc --version
+./build/turvc --help
+./build/turvc --version
 ```
+
+## Codegen Roadmap
+
+The backend selector reserves five names: `tiny`, `tinyJit`, `vm`, `llvm`, and `llvmJit`.
+Only `vm` is implemented in this phase and it is the default backend used by the codegen
+demos. `tiny`, `tinyJit`, `llvm`, and `llvmJit` are roadmap entries only; enabling them through
+the build is rejected until a milestone implements them.
+
+Future `cache`, `ast`, `import`, and `symbols` improvements are intentionally incremental. They
+must remain compatible with the current generated/rules boundary and are not planned as a
+replacement architecture in this phase.
 
 ---
 
@@ -364,7 +382,7 @@ Full usage details are in `src/frontend/lexer/README.md`.
 2. Define tokens, keywords, punctuation, operators, comments, and optional lexer/token members or hooks.
 3. Rebuild the project, or run the generator manually.
 4. Implement any declared hooks in `src/frontend/lexer/actions.cpp`.
-5. Consume the generated lexer through the `zith_frontend_lexer` library target.
+5. Consume the generated lexer through the `zct_frontend_lexer` library target.
 
 **Manual command**
 
@@ -511,16 +529,16 @@ python3 src/config/project/generate.py src/config/flags/default.toml --out build
 
 ```toml
 [project]
-name = "zith"
+name = "turv"
 version = "0.1.0"
-description = "A systems language project"
-authors = ["Zith Authors"]
+description = "A toy language and compiler tooling project"
+authors = ["Turv Authors"]
 license = "MIT"
 homepage = ""
 
 [build]
-entry = "src/main.zith"
-output = "out/zith"
+entry = "src/main.turv"
+output = "out/turv"
 mode = "debug"
 opt_level = 0
 debug_level = 1
@@ -713,13 +731,13 @@ nonzero code. Diagnostics without a code keep the existing compact format with `
 
 ## Development Model
 
-The intended workflow in `autonom` is:
+The intended workflow is:
 
 1. describe structure in a compact source file
 2. generate the repetitive C++ layer
 3. keep handwritten code focused on behavior, not plumbing
 
-In other words, this branch treats generators as maintainability tools, not as one-off scripts.
+In other words, Turv treats generators as maintainability tools, not as one-off scripts.
 
 ---
 
@@ -772,8 +790,7 @@ ctest --test-dir build --output-on-failure
 
 ## Positioning
 
-`main` presents Zith primarily as a language project.
-
-`autonom` presents Zith as a maintainability experiment: a toolkit for encoding repetitive
-compiler/tooling structure declaratively, then generating the boring parts so the handwritten code
-stays smaller, clearer, and easier to evolve.
+ZCT is the compiler toolkit; Turv is its toy-language showcase. The public `turvc` entry point
+remains Turv-branded, while the internal libraries and build options use the `zct_*`/`ZCT_*`
+prefix. The public roadmap is the five backend names above; everything else is maintained
+declaratively so the handwritten compiler code can stay small, clear, and easier to evolve.

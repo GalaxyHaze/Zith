@@ -6,18 +6,24 @@ add_subdirectory(cli)
 add_subdirectory(frontend)
 add_subdirectory(config)
 add_subdirectory(session)
+add_subdirectory(facts)
 
-add_custom_target(zith_generate_sources
+if(ZCT_CODEGEN)
+    add_subdirectory(codegen)
+endif()
+
+add_custom_target(zct_generate_sources
     DEPENDS
-        zith_diagnostic_generated
-        zith_symbols_generated
-        zith_cli_generated
-        zith_frontend_lexer_generated
-        zith_frontend_ast_generated
-        zith_frontend_parser_generated
-        zith_flags_generated
-        zith_cache_generated
-        zith_session_generated
+        zct_diagnostic_generated
+        zct_symbols_generated
+        zct_cli_generated
+        zct_frontend_lexer_generated
+        zct_frontend_ast_generated
+        zct_frontend_parser_generated
+        zct_flags_generated
+        zct_cache_generated
+        zct_session_generated
+        zct_facts_generated
 )
 
 add_subdirectory(app)

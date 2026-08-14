@@ -13,7 +13,7 @@ struct Options;
 
 namespace toolkit::session {
 
-struct ZithSessionContext {
+struct TurvSessionContext {
     common::memory::Arena arena{};
     common::memory::SourceMap sourceMap{};
     common::memory::StringInterner interner;
@@ -22,7 +22,7 @@ struct ZithSessionContext {
     std::string_view projectRoot{};
     common::memory::FileId fileId = 0;
 
-    ZithSessionContext() : arena(), sourceMap(), interner(arena) {}
+    TurvSessionContext() : arena(), sourceMap(), interner(arena) {}
 };
 
 } // namespace toolkit::session

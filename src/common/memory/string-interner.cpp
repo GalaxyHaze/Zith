@@ -9,7 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string_view>
-#if !defined(ZITH_IS_WASM)
+#if !defined(ZCT_IS_WASM)
 #include <mutex>
 #include <shared_mutex>
 #endif
@@ -21,7 +21,7 @@ StringInterner::StringInterner(Arena &arena) : allocator_(&arena) {
 }
 
 InternedId StringInterner::intern(std::string_view str) {
-#if !defined(ZITH_IS_WASM)
+#if !defined(ZCT_IS_WASM)
     std::unique_lock<std::shared_mutex> lock(rwMutex_);
 #endif
 
@@ -38,7 +38,7 @@ InternedId StringInterner::intern(std::string_view str) {
 }
 
 std::string_view StringInterner::lookup(InternedId id) const {
-#if !defined(ZITH_IS_WASM)
+#if !defined(ZCT_IS_WASM)
     std::shared_lock<std::shared_mutex> lock(rwMutex_);
 #endif
 
@@ -48,7 +48,7 @@ std::string_view StringInterner::lookup(InternedId id) const {
 }
 
 Optional<InternedId> StringInterner::findId(std::string_view str) const {
-#if !defined(ZITH_IS_WASM)
+#if !defined(ZCT_IS_WASM)
     std::shared_lock<std::shared_mutex> lock(rwMutex_);
 #endif
 

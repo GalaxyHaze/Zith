@@ -1,4 +1,4 @@
-# Zith facts v2
+# Turv facts v2
 
 `facts` is a small constraint/state store for compiler logic and tooling. The v2
 surface is a header-only API (`fact-v2.hpp` plus `fact-v2.tpp`) and does not use
@@ -85,26 +85,45 @@ exact domain.
   - `facts-v2-test --intensive` additionally runs 256 reproducible RNG scenarios
     with seed `0xFACADE42`.
 
-## Future `facts.rules` contract
+## `facts.rules` contract
 
-The intended generator surface is a declarative `.rules` file. It is not yet
-implemented; changing `tools/rules_kit/`, a `generate.py`, or any protected
-subsystem remains out of scope.
-
-A future file should be composed of domains, attributes, and implication rules:
+`src/facts/generate.py` turns `src/facts/facts.rules` into `facts.hpp` plus a
+`.gitignore`. The declarative file is composed of reusable enum value
+catalogs and typed fact domains:
 
 ```text
+[enum.State]
+Active = 0
+Complete = 1
+Failed = 2
+
 [domain] Version
   attribute stable : Bool
   attribute major  : Int
-
-[rule]
-  release & stable => publish
-
-[rule]
-  major >= 2 => stable
+  attribute state  : enum[State]
 ```
 
-The generator would turn declarations into table-driven accessors, relation
-wiring, and generated C++; behavior such as conflict diagnostics and merging
-stays in handwritten code.
+Enum values are explicit signed integers. The generator validates unique enum
+names, member names, and values, requires at least one member per enum, and
+rejects values that do not fit `std::int32_t`. Enum attributes must reference a
+declared enum and remain int-backed: the generated store alias is still
+`FactStore<int>`, so existing `fact-v2` solving behavior is unchanged.
+
+The generated surface includes the `enum class` declaration with
+`k<Name>ValueCount`, `k<Name>Values`, domain attribute enums and aliases, and
+the per-attribute `FactStore<int>` alias. Stable `FactId` constants are
+allocated across all declared attributes. Behavior such as conflict
+diagnostics and merging stays in handwritten `fact-v2.hpp`/`fact-v2.tpp`.
+
+## Verification
+
+```bash
+cmake --build build --target facts-v2-test facts-v2-demo zct_facts_generated -j
+ctest --test-dir build --output-on-failure -R 'facts'
+```
+
+Run only the demo with:
+
+```bash
+ctest --test-dir build -R '^facts-v2-demo$' --output-on-failure
+```

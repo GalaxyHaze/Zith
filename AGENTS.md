@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Zith `autonom` is an experimental tooling branch. The goal is to keep compiler and tooling code
-simple to read and stable to maintain by encoding repetitive structure declaratively and
-generating the boring C++ from compact source files.
+ZCT is an experimental tooling repository. Its public showcase is the Turv toy language. The
+goal is to keep compiler and tooling code simple to read and stable to maintain by encoding
+repetitive structure declaratively and generating the boring C++ from compact source files.
 
 Read `readme.md` before changing a subsystem. It documents the declarative helpers and the source
 of truth for each area.
@@ -23,7 +23,7 @@ of truth for each area.
 - Keep handwritten code focused on behavior, not plumbing. If a change is mostly table wiring or
   option parsing, it probably belongs in the generator and its rules file.
 - Keep the app entry point intentionally thin. Do not move parsing, dispatch, project
-  lifetime, or architectural logic into `src/app/zithc-main.cpp` until there is a concrete need.
+  lifetime, or architectural logic into `src/app/turvc-main.cpp` until there is a concrete need.
 - Add complexity incrementally and experimentally. Text or structure that is not yet used should
   stay out of the shipped surface.
 - Prefer one clear mechanism over layering several abstractions for the same problem. The
@@ -63,7 +63,7 @@ existing tests.
 
 ## Verification Notes
 
-- `src/app/zithc-main.cpp`, generated artifacts, and handwritten handlers should compile with the
+- `src/app/turvc-main.cpp`, generated artifacts, and handwritten handlers should compile with the
   C++23 project build.
   build.
 - The test suite is the consent boundary for CLI behavior: help output, version output, valid

@@ -28,9 +28,10 @@ Prefer these types for new compiler-internal state:
 | `memory/` | Arena, arrays, maps, source files, spans, and result/optional types. |
 | `ast/` | Template helpers for node-tree visits, clones, replacements, prunes, and transforms. |
 | `diagnostic/` | Diagnostic type, renderer, and suggestion helpers. The declarative error catalogue lives in `src/diagnostic/`. |
+| `import/` | Protected import graph and module visibility resolution. See `src/common/import/README.md`. |
 | `parser/` | `OutputBuilder` used to assemble user-defined parse output. |
 | `text/` | Parse helpers for booleans, integers, strings, and string lists. |
-| `CMakeLists.txt` | Library target `zith_common`. |
+| `CMakeLists.txt` | Library target `zct_common`. |
 
 ## Usage
 
@@ -83,7 +84,7 @@ if (failed)
 
 ```cpp
 common::memory::SourceMap sourceMap;
-const auto id = sourceMap.loadFile("src/main.zith");
+const auto id = sourceMap.loadFile("src/main.turv");
 if (!id)
     return id.error();
 
@@ -121,10 +122,10 @@ does a post-order walk and replaces the returned node when `fn` returns non-null
 
 ## Linking
 
-Link `zith_common` into a target:
+Link `zct_common` into a target:
 
 ```cmake
-target_link_libraries(my_target PRIVATE zith_common)
+target_link_libraries(my_target PRIVATE zct_common)
 ```
 
 The target propagates public include directories needed by the runtime headers.
@@ -141,3 +142,13 @@ ctest --test-dir build -R source-map --output-on-failure
 `src/common/` is handwritten runtime support, not generated surface. Keep it focused on stable
 types and behavior shared by generators or compiler code. Do not add ad-hoc parser/generator
 logic here; shared Python generator logic belongs in `tools/rules_kit/`.
+
+## Demo
+
+`tests/common/common-demo.cpp` exercises the arena, `DynArray`, `StringInterner`, `Result`,
+`SourceMap`, and `common::diagnostic::renderDiagnostic` in a single runnable program.
+
+```bash
+cmake --build build --target common-demo -j
+ctest --test-dir build -R '^common-demo$' --output-on-failure
+```

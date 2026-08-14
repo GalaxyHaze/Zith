@@ -1,4 +1,4 @@
-set(_zith_cache_generated
+set(_zct_cache_generated
     "${CMAKE_BINARY_DIR}/src/cache/cache-section.hpp"
     "${CMAKE_BINARY_DIR}/src/cache/cache-section.cpp"
     "${CMAKE_BINARY_DIR}/src/cache/cache-codec.gen.hpp"
@@ -6,7 +6,7 @@ set(_zith_cache_generated
 )
 
 add_custom_command(
-    OUTPUT ${_zith_cache_generated}
+    OUTPUT ${_zct_cache_generated}
     BYPRODUCTS "${CMAKE_BINARY_DIR}/src/cache/.gitignore"
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/generate.py"
@@ -23,9 +23,9 @@ add_custom_command(
     COMMENT "Generating cache section surface from rules"
 )
 
-add_custom_target(zith_cache_generated DEPENDS ${_zith_cache_generated})
+add_custom_target(zct_cache_generated DEPENDS ${_zct_cache_generated})
 
-add_library(zith_cache STATIC
+add_library(zct_cache STATIC
     "${CMAKE_BINARY_DIR}/src/cache/cache-section.cpp"
     "${CMAKE_BINARY_DIR}/src/cache/cache-codec.gen.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/cache-buffer.cpp"
@@ -35,13 +35,26 @@ add_library(zith_cache STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/cache.cpp"
 )
 
-add_dependencies(zith_cache zith_cache_generated)
+add_dependencies(zct_cache zct_cache_generated)
 
-target_include_directories(zith_cache PUBLIC
+target_include_directories(zct_cache PUBLIC
     "${PROJECT_SOURCE_DIR}/src"
     "${PROJECT_BINARY_DIR}/src"
 )
 
-target_link_libraries(zith_cache PRIVATE
-    zith_common
+target_link_libraries(zct_cache PRIVATE
+    zct_common
 )
+
+add_executable(cache-demo
+    "${PROJECT_SOURCE_DIR}/tests/cache/cache-demo.cpp"
+)
+
+target_link_libraries(cache-demo PRIVATE
+    zct_cache
+    zct_common
+)
+
+add_dependencies(cache-demo zct_cache_generated)
+
+add_test(NAME cache-demo COMMAND cache-demo)

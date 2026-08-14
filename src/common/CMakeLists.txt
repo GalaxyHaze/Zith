@@ -1,4 +1,4 @@
-set(_zith_common_sources
+set(_zct_common_sources
     "${CMAKE_CURRENT_SOURCE_DIR}/memory/arena.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/memory/file-source.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/memory/source-file.cpp"
@@ -9,24 +9,34 @@ set(_zith_common_sources
     "${CMAKE_CURRENT_SOURCE_DIR}/text/parse.cpp"
 )
 
-add_library(zith_common STATIC ${_zith_common_sources})
+add_library(zct_common STATIC ${_zct_common_sources})
 
 add_subdirectory(import)
 
 add_subdirectory(sir)
 
-target_link_libraries(zith_common PUBLIC
-    zith_diagnostic
+target_link_libraries(zct_common PUBLIC
+    zct_diagnostic
 )
 
-if(ZITH_HAS_MIO)
-    target_compile_definitions(zith_common PUBLIC ZITH_HAS_MIO=1)
-    target_include_directories(zith_common SYSTEM PUBLIC
+if(ZCT_HAS_MIO)
+    target_compile_definitions(zct_common PUBLIC ZCT_HAS_MIO=1)
+    target_include_directories(zct_common SYSTEM PUBLIC
         "${PROJECT_BINARY_DIR}/_deps/mio-src/include"
     )
 endif()
 
-target_include_directories(zith_common PUBLIC
+target_include_directories(zct_common PUBLIC
     "${PROJECT_SOURCE_DIR}/src"
     "${PROJECT_BINARY_DIR}/src"
 )
+
+add_executable(common-demo
+    "${PROJECT_SOURCE_DIR}/tests/common/common-demo.cpp"
+)
+
+target_link_libraries(common-demo PRIVATE
+    zct_common
+)
+
+add_test(NAME common-demo COMMAND common-demo)

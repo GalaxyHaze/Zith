@@ -3,11 +3,11 @@ add_executable(cache-test
 )
 
 target_link_libraries(cache-test PRIVATE
-    zith_cache
-    zith_common
+    zct_cache
+    zct_common
 )
 
-add_dependencies(cache-test zith_cache_generated)
+add_dependencies(cache-test zct_cache_generated)
 
 add_test(
     NAME cache-generated-basics

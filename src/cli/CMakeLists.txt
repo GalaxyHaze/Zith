@@ -1,11 +1,11 @@
-set(_zith_cli_generated
+set(_zct_cli_generated
     "${CMAKE_BINARY_DIR}/src/cli/cli.cpp"
     "${CMAKE_BINARY_DIR}/src/cli/cli.hpp"
     "${CMAKE_BINARY_DIR}/src/cli/actions.hpp"
 )
 
 add_custom_command(
-    OUTPUT ${_zith_cli_generated}
+    OUTPUT ${_zct_cli_generated}
     BYPRODUCTS "${CMAKE_BINARY_DIR}/src/cli/.gitignore"
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/generate.py"
@@ -22,21 +22,34 @@ add_custom_command(
     COMMENT "Generating CLI sources from rules"
 )
 
-add_custom_target(zith_cli_generated DEPENDS ${_zith_cli_generated})
+add_custom_target(zct_cli_generated DEPENDS ${_zct_cli_generated})
 
-add_library(zith_cli STATIC
+add_library(zct_cli STATIC
     "${CMAKE_BINARY_DIR}/src/cli/cli.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/handlers.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/terminal.cpp"
 )
 
-target_include_directories(zith_cli PUBLIC
+target_include_directories(zct_cli PUBLIC
     "${PROJECT_SOURCE_DIR}/src"
     "${PROJECT_BINARY_DIR}/src"
 )
 
-target_link_libraries(zith_cli PRIVATE
-    zith_session
+target_link_libraries(zct_cli PRIVATE
+    zct_session
 )
 
-add_dependencies(zith_cli zith_cli_generated)
+add_dependencies(zct_cli zct_cli_generated)
+
+add_executable(cli-demo
+    "${PROJECT_SOURCE_DIR}/tests/cli/cli-demo.cpp"
+)
+
+target_link_libraries(cli-demo PRIVATE
+    zct_cli
+    zct_common
+)
+
+add_dependencies(cli-demo zct_cli_generated)
+
+add_test(NAME cli-demo COMMAND cli-demo)

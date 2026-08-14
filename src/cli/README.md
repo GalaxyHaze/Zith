@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The CLI helper generates the command-line parsing layer for `zithc` from a compact declarative
+The CLI helper generates the command-line parsing layer for `turvc` from a compact declarative
 rules file. It removes the repetitive C++ needed for flags, commands, subcommands, arguments,
 help text, dispatch, and typo suggestions.
 
@@ -169,4 +169,14 @@ typo suggestions, and command flags. Run the relevant subset:
 
 ```bash
 ctest --test-dir build -R cli --output-on-failure
+```
+
+## Demo
+
+`tests/cli/cli-demo.cpp` builds a `generated_cli::Cli` and exercises `--help`, `--version`, and a
+`deps add` command through `parseArgs` and `dispatch`.
+
+```bash
+cmake --build build --target cli-demo -j
+ctest --test-dir build -R '^cli-demo$' --output-on-failure
 ```

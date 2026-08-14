@@ -5,7 +5,7 @@
 #include <iterator>
 #include <string>
 
-#if defined(ZITH_HAS_MIO)
+#if defined(ZCT_HAS_MIO)
 #include <mio/mmap.hpp>
 #endif
 
@@ -27,7 +27,7 @@ struct FileSource::Owned {
 };
 
 struct FileSource::MappedFile {
-#if defined(ZITH_HAS_MIO)
+#if defined(ZCT_HAS_MIO)
     mio::mmap_source source;
     mio::mmap_sink sink;
 #else
@@ -35,7 +35,7 @@ struct FileSource::MappedFile {
 #endif
 
     [[nodiscard]] const char *data() const noexcept {
-#if defined(ZITH_HAS_MIO)
+#if defined(ZCT_HAS_MIO)
         if (source.is_mapped())
             return reinterpret_cast<const char *>(source.data());
         return reinterpret_cast<const char *>(sink.data());
@@ -45,7 +45,7 @@ struct FileSource::MappedFile {
     }
 
     [[nodiscard]] std::size_t size() const noexcept {
-#if defined(ZITH_HAS_MIO)
+#if defined(ZCT_HAS_MIO)
         if (source.is_mapped())
             return source.size();
         return sink.size();
@@ -73,7 +73,7 @@ FileSource::FileSource(std::shared_ptr<Owned> owned) : owned_(std::move(owned)) 
 FileSource::FileSource(std::shared_ptr<MappedFile> mapped) : mapped_(std::move(mapped)) {}
 
 auto FileSource::mmap(std::string path, bool writable) -> Result<FileSource> {
-#if defined(ZITH_HAS_MIO)
+#if defined(ZCT_HAS_MIO)
     auto mapped = std::make_shared<MappedFile>();
     if (writable) {
         std::error_code error;

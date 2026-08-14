@@ -103,10 +103,100 @@ void testValueDomains() {
   check(closed.contains(exact), "a range contains an exact value inside it");
   check(!closed.contains(ValueDomain<int>::exactValue(9)),
         "a range rejects an exact value outside it");
-  check(!closed.contains(open),
-        "contains(domain) accepts only concrete exact domains");
+  check(closed.contains(open),
+        "contains(domain) accepts an open range inside a closed range");
   check(!exact.contains(unknown),
         "unknown is not treated as a concrete exact value");
+}
+
+void testValueDomainIntersection() {
+  const ValueDomain<int> closed{.kind = DomainKind::Range,
+                                .lower = 2,
+                                .upper = 7,
+                                .lowerInclusive = true,
+                                .upperInclusive = true};
+  const ValueDomain<int> upperOpen{.kind = DomainKind::Range,
+                                   .lower = 4,
+                                   .upper = 9,
+                                   .lowerInclusive = false,
+                                   .upperInclusive = false};
+  const ValueDomain<int> point{.kind = DomainKind::Exact,
+                               .exact = 5,
+                               .lower = 5,
+                               .upper = 5,
+                               .lowerInclusive = true,
+                               .upperInclusive = true};
+  const ValueDomain<int> partialLower{.kind = DomainKind::Range,
+                                      .lower = 6,
+                                      .lowerInclusive = false};
+  const ValueDomain<int> partialUpper{.kind = DomainKind::Range,
+                                      .upper = 7,
+                                      .upperInclusive = true};
+  const ValueDomain<int> right{.kind = DomainKind::Range,
+                               .lower = 8,
+                               .upper = 20,
+                               .lowerInclusive = true,
+                               .upperInclusive = true};
+  const ValueDomain<int> runtime{.kind = DomainKind::Runtime};
+  const ValueDomain<int> nullValue{.kind = DomainKind::Null};
+  const auto unknown = ValueDomain<int>::unknown();
+
+  const auto mid = closed.intersect(upperOpen);
+  check(mid.kind == DomainKind::Range && *mid.lower == 4 &&
+            *mid.upper == 7 && !mid.lowerInclusive && mid.upperInclusive,
+        "closed/open intersection keeps the tighter endpoints");
+  check(closed.intersect(point).kind == DomainKind::Exact &&
+            closed.intersect(point).exact == 5,
+        "intersection that converges to one point is exact");
+  check(closed.intersect(right).kind == DomainKind::Null,
+        "disjoint ranges intersect to null");
+  check(partialLower.intersect(partialUpper).kind == DomainKind::Range &&
+            *partialLower.intersect(partialUpper).lower == 6 &&
+            *partialLower.intersect(partialUpper).upper == 7 &&
+            !partialLower.intersect(partialUpper).lowerInclusive &&
+            partialLower.intersect(partialUpper).upperInclusive,
+        "one-sided ranges keep each side and inclusive flags");
+  check(unknown.intersect(closed).kind == DomainKind::Unknown,
+        "unknown intersection stays unknown");
+  check(runtime.intersect(closed).kind == DomainKind::Null,
+        "runtime intersection is null");
+  check(nullValue.intersect(closed).kind == DomainKind::Null,
+        "null intersection is null");
+}
+
+void testValueDomainSubset() {
+  const ValueDomain<int> closed{.kind = DomainKind::Range,
+                                .lower = 2,
+                                .upper = 7,
+                                .lowerInclusive = true,
+                                .upperInclusive = true};
+  const ValueDomain<int> open{.kind = DomainKind::Range,
+                              .lower = 2,
+                              .upper = 7,
+                              .lowerInclusive = false,
+                              .upperInclusive = false};
+  const ValueDomain<int> inside{.kind = DomainKind::Range,
+                                .lower = 3,
+                                .upper = 6,
+                                .lowerInclusive = true,
+                                .upperInclusive = true};
+  const ValueDomain<int> partialUpper{.kind = DomainKind::Range,
+                                      .upper = 10,
+                                      .upperInclusive = true};
+  const ValueDomain<int> nullValue{.kind = DomainKind::Null};
+  const ValueDomain<int> runtime{.kind = DomainKind::Runtime};
+
+  check(closed.contains(closed), "identical ranges are subsets");
+  check(closed.contains(inside), "ranges inside a closed range are subsets");
+  check(closed.contains(open), "open boundary inside inclusive range is a subset");
+  check(!open.contains(closed),
+        "inclusive boundary is not inside an open range");
+  check(!closed.contains(partialUpper),
+        "one-sided wider range is not a subset");
+  check(closed.contains(ValueDomain<int>::exactValue(5)),
+        "exact point inside a range is a subset");
+  check(!closed.contains(nullValue) && !closed.contains(runtime),
+        "null and runtime are not subset values");
 }
 
 void testAtomicRelationsAndNegation() {
@@ -500,6 +590,8 @@ auto main(int argc, char **argv) -> int {
   }
 
   testValueDomains();
+  testValueDomainIntersection();
+  testValueDomainSubset();
   testAtomicRelationsAndNegation();
   testBooleanLoweringMatrix();
   testKleeneAndJoinMatrix();

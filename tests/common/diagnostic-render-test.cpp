@@ -59,7 +59,7 @@ int main() {
     using common::memory::SourceSpan;
 
     SourceMap map;
-    const auto add = map.addFile("src/main.zith", "let y = 0 ;\n let x = a + ;\nlet z = 0 ;\n");
+    const auto add = map.addFile("src/main.turv", "let y = 0 ;\n let x = a + ;\nlet z = 0 ;\n");
     if (!add)
         return EXIT_FAILURE;
 
@@ -73,7 +73,7 @@ int main() {
     renderDiagnostic(plain.ptr(), map, diag, RenderOptions{false, 1});
     const std::string plainOut = plain.text();
 
-    if (!contains(plainOut, "src/main.zith:2:12: error: unexpected token '+'")) {
+    if (!contains(plainOut, "src/main.turv:2:12: error: unexpected token '+'")) {
         std::fprintf(stderr, "FAIL: missing location line\n%s\n", plainOut.c_str());
         return EXIT_FAILURE;
     }
@@ -96,11 +96,11 @@ int main() {
     FileCapture codedOut;
     renderDiagnostic(codedOut.ptr(), map, coded, RenderOptions{false, 1});
     const std::string codedText = codedOut.text();
-    if (!contains(codedText, "src/main.zith:2:12: error: E4002: unknown +")) {
+    if (!contains(codedText, "src/main.turv:2:12: error: E4002: unknown +")) {
         std::fprintf(stderr, "FAIL: missing coded compact line\n%s\n", codedText.c_str());
         return EXIT_FAILURE;
     }
-    if (!contains(codedText, "  --> src/main.zith:2:12\n")) {
+    if (!contains(codedText, "  --> src/main.turv:2:12\n")) {
         std::fprintf(stderr, "FAIL: missing coded rich header\n%s\n", codedText.c_str());
         return EXIT_FAILURE;
     }

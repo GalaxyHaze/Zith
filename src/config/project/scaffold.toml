@@ -5,14 +5,14 @@
 # to create in a new project. It is not generated or used by the build target.
 
 [blueprints]
-zith = "basic"
+turv = "basic"
 
 [blueprints.basic]
 name = "basic"
-description = "Minimal Zith project layout"
+description = "Minimal Turv showcase project layout"
 
 [blueprints.basic.files]
 .gitignore = "out/\ntarget/\n"
-README.md = "# {project}\n\nA new Zith project.\n"
-src/main.zith = "fn main() {}\n"
-zith.toml = "[project]\nname = \"{project}\"\nversion = \"0.1.0\"\n"
+README.md = "# {project}\n\nA new Turv project.\n"
+src/main.turv = "fn main() {}\n"
+turv.toml = "[project]\nname = \"{project}\"\nversion = \"0.1.0\"\n"

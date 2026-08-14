@@ -3,12 +3,12 @@ add_executable(symbols-test
 )
 
 target_link_libraries(symbols-test PRIVATE
-    zith_import
-    zith_symbols
-    zith_common
+    zct_import
+    zct_symbols
+    zct_common
 )
 
-add_dependencies(symbols-test zith_symbols_generated)
+add_dependencies(symbols-test zct_symbols_generated)
 
 add_test(
     NAME symbols-basics

@@ -1,11 +1,11 @@
-# Zith CompilationSession declarative structure.
+# Turv CompilationSession declarative structure.
 #
 # Fases aparecem pela ordem pretendida do pipeline. Cada fase pode ter um hook,
 # executado quando runTo() atravessa essa fase. Os handladores recebem apenas a
 # CompilationSession; outputs de fases anteriores ficam acessiveis pelos slots
 # hasStageResult<Stage>() / stageResult<Stage>() da propria session.
 [context]
-type: toolkit::session::ZithSessionContext
+type: toolkit::session::TurvSessionContext
 
 [stages]
 Source: void

@@ -3,8 +3,8 @@ add_executable(sir-test
 )
 
 target_link_libraries(sir-test PRIVATE
-    zith_sir
-    zith_common
+    zct_sir
+    zct_common
 )
 
 add_test(

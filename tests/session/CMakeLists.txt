@@ -3,12 +3,12 @@ add_executable(session-test
 )
 
 target_link_libraries(session-test PRIVATE
-    zith_session_core
-    zith_frontend_lexer
-    zith_common
+    zct_session_core
+    zct_frontend_lexer
+    zct_common
 )
 
-add_dependencies(session-test zith_session_generated)
+add_dependencies(session-test zct_session_generated)
 
 add_test(
     NAME session-generated-basics

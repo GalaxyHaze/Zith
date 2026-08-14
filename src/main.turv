@@ -1,0 +1,10 @@
+fn main() {
+    let answer = 40 + 2;
+    print("hello turv");
+    if answer == 42 {
+        print(true);
+    } else {
+        print(false);
+    }
+    return answer;
+}

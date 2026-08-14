@@ -10,7 +10,7 @@
 namespace common::memory {
 
 // Stable source-file facade. The implementation may memory-map the file when
-// ZITH_HAS_MIO is enabled, or fall back to a buffered read otherwise.
+// ZCT_HAS_MIO is enabled, or fall back to a buffered read otherwise.
 class FileSource {
 public:
     FileSource();

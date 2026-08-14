@@ -137,3 +137,14 @@ Run both with:
 ```bash
 ctest --test-dir build -R lexer --output-on-failure
 ```
+
+## Demo
+
+`tests/frontend/lexer-demo.cpp` tokenizes a real source snippet and prints the token kind,
+lexeme, and span for every token. It uses the generated `Lexer::run`, `TokenStream` indexed
+access, `Token::span`, and `tokenKindName`.
+
+```bash
+cmake --build build --target lexer-demo -j
+ctest --test-dir build -R '^lexer-demo$' --output-on-failure
+```

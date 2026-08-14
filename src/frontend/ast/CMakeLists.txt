@@ -1,11 +1,11 @@
-set(_zith_frontend_ast_generated
+set(_zct_frontend_ast_generated
     "${CMAKE_BINARY_DIR}/src/frontend/ast/ast.cpp"
     "${CMAKE_BINARY_DIR}/src/frontend/ast/ast.hpp"
     "${CMAKE_BINARY_DIR}/src/frontend/ast/walk.hpp"
 )
 
 add_custom_command(
-    OUTPUT ${_zith_frontend_ast_generated}
+    OUTPUT ${_zct_frontend_ast_generated}
     BYPRODUCTS "${CMAKE_BINARY_DIR}/src/frontend/ast/.gitignore"
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/generate.py"
@@ -23,20 +23,33 @@ add_custom_command(
     COMMENT "Generating frontend AST sources from rules"
 )
 
-add_custom_target(zith_frontend_ast_generated DEPENDS ${_zith_frontend_ast_generated})
+add_custom_target(zct_frontend_ast_generated DEPENDS ${_zct_frontend_ast_generated})
 
-add_library(zith_frontend_ast STATIC
+add_library(zct_frontend_ast STATIC
     "${CMAKE_BINARY_DIR}/src/frontend/ast/ast.cpp"
 )
 
-target_include_directories(zith_frontend_ast PUBLIC
+target_include_directories(zct_frontend_ast PUBLIC
     "${PROJECT_SOURCE_DIR}/src"
     "${PROJECT_BINARY_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
-target_link_libraries(zith_frontend_ast PUBLIC
-    zith_common
+target_link_libraries(zct_frontend_ast PUBLIC
+    zct_common
 )
 
-add_dependencies(zith_frontend_ast zith_frontend_ast_generated)
+add_dependencies(zct_frontend_ast zct_frontend_ast_generated)
+
+add_executable(ast-demo
+    "${PROJECT_SOURCE_DIR}/tests/frontend/ast-demo.cpp"
+)
+
+target_link_libraries(ast-demo PRIVATE
+    zct_frontend_ast
+    zct_common
+)
+
+add_dependencies(ast-demo zct_frontend_ast_generated)
+
+add_test(NAME ast-demo COMMAND ast-demo)

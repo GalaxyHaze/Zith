@@ -56,6 +56,8 @@ template <Arithmetic Number> struct ValueDomain {
   [[nodiscard]] constexpr bool contains(Number value) const noexcept;
   [[nodiscard]] constexpr bool
   contains(const ValueDomain &other) const noexcept;
+  [[nodiscard]] constexpr ValueDomain
+  intersect(const ValueDomain &other) const noexcept;
 };
 
 struct ConflictV2 {

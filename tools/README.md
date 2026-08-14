@@ -1,8 +1,7 @@
 # Shared Generator Tooling
 
 `tools/` owns the Python behavior shared by the subsystem generators and by the generator
-regression tests. It is protected code: do not modify it without explicit user approval.
-
+regression tests. It is protected code: do not modify it without explicit reasons.
 ## Layout
 
 | Directory | Purpose |
@@ -40,7 +39,7 @@ ctest --test-dir build -R generator --output-on-failure
 ## Boundaries
 
 - Do not edit generated files under `build/`.
-- Do not edit `tools/rules_kit/` or `tools/test_kit/` without explicit user approval.
+- Do not edit `tools/rules_kit/` or `tools/test_kit/` without explicit reasons.
 - Normal work is declarative-first: change `.rules`/TOML, update handwritten behavior, rebuild,
   and verify through the test suite.
 - If a requested change needs a new generator capability or shared helper, stop and ask before

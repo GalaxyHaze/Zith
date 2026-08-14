@@ -73,3 +73,15 @@ python3 src/frontend/ast/generate.py \
 Edit `ast.rules` for node and field declarations and `types.hpp` for user-owned type surface.
 Do not edit `build/src/frontend/ast/*`. Do not modify `generate.py` or shared generator rules
 without explicit user approval.
+
+## Demo
+
+`tests/frontend/ast-demo.cpp` allocates a `Program`, a `CallExpr`, an `Expr`, and a
+`LiteralExpr`, links them through child and children fields, sets `ast.root`, and prints the tree
+with `generated_ast::print`. The constructor leaves `root` null, so callers must assign the root
+before printing or walking.
+
+```bash
+cmake --build build --target ast-demo -j
+ctest --test-dir build -R '^ast-demo$' --output-on-failure
+```

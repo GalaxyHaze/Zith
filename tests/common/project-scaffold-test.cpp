@@ -36,16 +36,16 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     const std::string scaffoldScript =
         std::string(argv[1]) + "/src/config/project/scaffold.py";
-    path base = temp_directory_path() / "zith-scaffold-test";
+    path base = temp_directory_path() / "turv-scaffold-test";
     remove_all(base);
     const path rules = base / "scaffold.toml";
     if (!writeRules(
             rules,
-            "[blueprints]\nzith = \"basic\"\n\n"
+            "[blueprints]\nturv = \"basic\"\n\n"
             "[blueprints.basic]\nname = \"basic\"\n\n"
             "[blueprints.basic.files]\n"
             "README.md = \"# {project}\\n\"\n"
-            "src/main.zith = \"fn main() {}\\n\"\n"))
+            "src/main.turv = \"fn main() {}\\n\"\n"))
         return EXIT_FAILURE;
 
     const std::string cmd =
@@ -58,7 +58,7 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     if (readFile(base / "out" / "README.md") != "# demo\n")
         return EXIT_FAILURE;
-    if (!exists(base / "out" / "src" / "main.zith"))
+    if (!exists(base / "out" / "src" / "main.turv"))
         return EXIT_FAILURE;
 
     const std::string conflictCmd =

@@ -21,3 +21,34 @@ generator, not in the generated headers or sources.
 
 See the top-level `readme.md` and `frontend/lexer/` or `frontend/ast/` documentation for the full
 workflow.
+
+## Architecture
+
+The frontend is intentionally a thin index for three generated helpers:
+
+- The lexer consumes `lexer.rules` and emits a `Lexer`, `Token`, `TokenKind`, and `TokenStream`.
+- The AST helper consumes `ast.rules` and emits `AstRoot`, node types, allocation helpers, walking,
+  cloning, and printing.
+- The parser helper consumes `parser.rules` and emits `Parser<Output>`, context rules, recovery,
+  and hook declarations.
+
+Generated output lives under `build/src/frontend/*`; handwritten behavior belongs in each helper's
+`types.hpp` or `actions.cpp`. There is no standalone frontend demo target because each helper has
+its own demo.
+
+## Demos
+
+Each frontend helper has a small executable that exercises its public API:
+
+| Demo target | CTest | Demonstrates |
+|---|---|---|
+| `lexer-demo` | `lexer-demo` | Tokenizing keywords, identifiers, punctuation, operators, strings, and numeric literals. |
+| `ast-demo` | `ast-demo` | Allocating and printing `Program -> CallExpr -> LiteralExpr`. |
+| `parser-demo` | `parser-demo` | Parsing small supported snippets and inspecting output/context. |
+
+```bash
+cmake --build build --target lexer-demo ast-demo parser-demo -j
+ctest --test-dir build -R '^lexer-demo$|^ast-demo$|^parser-demo$' --output-on-failure
+```
+
+Use the per-helper commands in each subdirectory when only one demo is needed.

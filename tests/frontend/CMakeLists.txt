@@ -3,11 +3,11 @@ add_executable(lexer-test
 )
 
 target_link_libraries(lexer-test PRIVATE
-    zith_frontend_lexer
-    zith_common
+    zct_frontend_lexer
+    zct_common
 )
 
-add_dependencies(lexer-test zith_frontend_lexer_generated)
+add_dependencies(lexer-test zct_frontend_lexer_generated)
 
 add_test(
     NAME lexer-generated-basics
@@ -31,22 +31,22 @@ add_executable(lexer-perf-smoke
 )
 
 target_link_libraries(lexer-perf-smoke PRIVATE
-    zith_frontend_lexer
-    zith_common
+    zct_frontend_lexer
+    zct_common
 )
 
-add_dependencies(lexer-perf-smoke zith_frontend_lexer_generated)
+add_dependencies(lexer-perf-smoke zct_frontend_lexer_generated)
 
 add_executable(ast-test
     ast-test.cpp
 )
 
 target_link_libraries(ast-test PRIVATE
-    zith_frontend_ast
-    zith_common
+    zct_frontend_ast
+    zct_common
 )
 
-add_dependencies(ast-test zith_frontend_ast_generated)
+add_dependencies(ast-test zct_frontend_ast_generated)
 
 add_test(
     NAME ast-generated-basics
@@ -70,12 +70,12 @@ add_executable(parser-test
 )
 
 target_link_libraries(parser-test PRIVATE
-    zith_frontend_parser
-    zith_frontend_lexer
-    zith_common
+    zct_frontend_parser
+    zct_frontend_lexer
+    zct_common
 )
 
-add_dependencies(parser-test zith_frontend_parser_generated)
+add_dependencies(parser-test zct_frontend_parser_generated)
 
 add_test(
     NAME parser-generated-basics

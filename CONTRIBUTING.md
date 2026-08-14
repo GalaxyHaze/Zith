@@ -1,7 +1,7 @@
-# Contributing to Zith `autonom`
+# Contributing to Zith Compiler's Toolkit
 
-This branch is a derived distribution of the original Zith project. Before opening a
-contribution, read `readme.md` and `AGENTS.md`; they document the declarative helpers,
+ZCT is a derived distribution of the original Zith project. Before opening a
+contribution, read `README.md`; they document the declarative helpers,
 the expected workflow, and the source of truth for each generated subsystem.
 
 ## Attribution
@@ -37,8 +37,8 @@ handwritten source.
 
 ## Development Workflow
 
-1. Clone or check out the `autonom` branch.
-2. Read `readme.md` and `AGENTS.md` for the subsystem you are changing.
+1. Check out the repository.
+2. Read `README:md` for the subsystem you are changing.
 3. Change the declarative rules or generator source first.
 4. Regenerate and build:
 
@@ -67,7 +67,7 @@ Configure and build from a fresh checkout:
 ```bash
 cmake -S . -B build
 cmake --build build -j
-./build/zithc --help
+./build/turvc --help
 ```
 
 Generators run automatically during the build and place generated files in the build tree.

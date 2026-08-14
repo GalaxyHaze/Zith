@@ -7,18 +7,23 @@ add_executable(import-demo
 )
 
 target_link_libraries(import-test PRIVATE
-    zith_import
-    zith_symbols
-    zith_common
+    zct_import
+    zct_symbols
+    zct_common
 )
 
 target_link_libraries(import-demo PRIVATE
-    zith_import
-    zith_symbols
-    zith_common
+    zct_import
+    zct_symbols
+    zct_common
 )
 
 add_test(
     NAME import-graph-basics
     COMMAND import-test
+)
+
+add_test(
+    NAME import-demo
+    COMMAND import-demo
 )

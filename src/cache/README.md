@@ -79,3 +79,25 @@ ctest --test-dir build -R cache --output-on-failure
 Change `cache.rules` for the format, section, record, and enum surface. Keep
 header/container encoding, checksum validation, and Store/Manifest behavior in
 the handwritten C++ files listed above. Do not edit `build/src/cache/*`.
+
+## Public API
+
+The handwritten and generated headers jointly expose:
+
+- `Store` with `store`, `load`, `loadEntry`, `invalidate`, `manifestEntry`, `metrics`, and `root`.
+- `CacheKey` and `ContentFingerprint` for identity and content validation.
+- `Artifact` with domain metadata, dependency records, declaration records, and serialized payloads.
+- `CacheEntry`, `ManifestEntry`, and generated `encodeArtifact`/`decodeArtifact` helpers.
+
+`Store` writes per-module artifacts under a cache root, maintains a manifest, and tracks
+hit/miss/invalid/write metrics.
+
+## Demo
+
+`tests/cache/cache-demo.cpp` creates a temporary `Store`, stores one `Artifact`, reloads it with a
+matching fingerprint, forces a miss with a different fingerprint, and prints the resulting metrics.
+
+```bash
+cmake --build build --target cache-demo -j
+ctest --test-dir build -R '^cache-demo$' --output-on-failure
+```

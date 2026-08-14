@@ -154,7 +154,7 @@ int main() {
     ok &= check(!plan.advance(), "advance stops at target inclusive");
     ok &= check(plan.current == Stage::Lexed, "advance leaves current at target");
 
-    toolkit::session::ZithSessionContext context;
+    toolkit::session::TurvSessionContext context;
     CompilationSession session(context);
     ok &= check(&session.context() == &context, "session keeps the injected context");
     ok &= check(context.filePath.empty(), "context starts with no file path");
@@ -164,9 +164,9 @@ int main() {
     ok &= check(context.interner.intern("hello") == 0, "context interner interns strings");
     ok &= check(context.interner.lookup(0) == "hello", "context interner looks up strings");
     ok &= check(context.sourceMap.exists(0) == false, "context source map starts empty");
-    context.filePath = "input.zith";
+    context.filePath = "input.turv";
     context.projectRoot = "project";
-    ok &= check(context.filePath == "input.zith", "context stores the file path");
+    ok &= check(context.filePath == "input.turv", "context stores the file path");
     ok &= check(context.projectRoot == "project", "context stores the project root");
 
     g_calls.clear();
@@ -195,7 +195,7 @@ int main() {
         "Scanned stage sees the token stream produced by Lexed"
     );
 
-    toolkit::session::ZithSessionContext failedContext;
+    toolkit::session::TurvSessionContext failedContext;
     CompilationSession failed(failedContext);
     g_calls.clear();
     const auto failedResult = failed.runTo(Stage::Resolved);
@@ -219,7 +219,7 @@ int main() {
 
     g_calls.clear();
 
-    failed.context().filePath = "input.zith";
+    failed.context().filePath = "input.turv";
     const auto resumed = failed.resume();
     ok &= check(static_cast<bool>(resumed), "resume continues after fixing the failure");
     ok &= check(resumed.value() == Stage::Resolved, "resume reaches the original target");

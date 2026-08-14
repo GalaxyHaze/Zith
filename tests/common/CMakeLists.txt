@@ -3,7 +3,7 @@ add_executable(source-map-test
 )
 
 target_link_libraries(source-map-test PRIVATE
-    zith_common
+    zct_common
 )
 
 add_test(
@@ -16,7 +16,7 @@ add_executable(common-diagnostic-test
 )
 
 target_link_libraries(common-diagnostic-test PRIVATE
-    zith_common
+    zct_common
 )
 
 add_test(
@@ -29,7 +29,7 @@ add_executable(common-diagnostic-render-test
 )
 
 target_link_libraries(common-diagnostic-render-test PRIVATE
-    zith_common
+    zct_common
 )
 
 add_test(
@@ -42,7 +42,7 @@ add_executable(common-diagnostic-error-test
 )
 
 target_link_libraries(common-diagnostic-error-test PRIVATE
-    zith_common
+    zct_common
 )
 
 add_test(
@@ -77,7 +77,7 @@ add_executable(common-text-test
 )
 
 target_link_libraries(common-text-test PRIVATE
-    zith_common
+    zct_common
 )
 
 add_test(
@@ -90,7 +90,7 @@ add_executable(ast-helpers-test
 )
 
 target_link_libraries(ast-helpers-test PRIVATE
-    zith_common
+    zct_common
 )
 
 add_test(

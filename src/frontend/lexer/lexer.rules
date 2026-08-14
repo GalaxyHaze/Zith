@@ -6,16 +6,21 @@
     hexadecimal = true
     binary = true
     octal = true
-    punc = "{}()[]:;.|!?"
-    operators = "+-*/%<>&^"
-    compound = ["+=", "-=", ">>=", "<<=", "*=", "/="]
+    punc = "{}()[]:;,"
+    operators = "+-*/%<>=!&|^"
+    compound = ["==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", ">>=", "<<="]
     comments = [single = "//", multi = ["/*", "*/"] ]
 
 [keywords]
+    Fn = "fn"
+    Variable = "let"
+    Implement = "print"
+    Is = "true"
+    Word = "false"
     If = "if"
     Else = "else"
-    When = "when"
-    Fn = "fn"
+    Control = "while"
+    Yield = "return"
 #lexer -> add methods & fields
 [lexer]
 [hooks] #onLexer offLexer, onToken
