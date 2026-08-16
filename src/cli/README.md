@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The CLI helper generates the command-line parsing layer for `turvc` from a compact declarative
+The CLI helper generates the command-line parsing layer for `zithc` from a compact declarative
 rules file. It removes the repetitive C++ needed for flags, commands, subcommands, arguments,
 help text, dispatch, and typo suggestions.
 

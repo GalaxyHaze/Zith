@@ -1,6 +1,6 @@
 fn main() {
     let answer = 40 + 2;
-    print("hello turv");
+    print("hello zith");
     if answer == 42 {
         print(true);
     } else {

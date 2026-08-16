@@ -1,7 +1,7 @@
 # Base project configuration. Generated C++ fields use camelCase names.
 
 [project]
-name = "turv"
+name = "zith"
 version = "0.1.0"
 description = "A toy language showcase for a declarative compiler toolkit"
 authors = ["ZCT Authors"]
@@ -9,8 +9,8 @@ license = "MIT"
 homepage = ""
 
 [build]
-entry = "src/main.turv"
-output = "out/turv"
+entry = "src/main.zith"
+output = "out/zith"
 mode = "debug"
 opt_level = 0
 debug_level = 1

@@ -17,7 +17,7 @@ bool expect(bool condition, std::string_view message) {
 int main() {
     generated_cli::Cli cli;
 
-    const char *helpArgs[] = {"turvc", "--help"};
+    const char *helpArgs[] = {"zithc", "--help"};
     const int helpStatus = cli.parseArgs(2, const_cast<char **>(helpArgs));
     if (!expect(helpStatus == 0, "--help parses"))
         return EXIT_FAILURE;
@@ -29,7 +29,7 @@ int main() {
         return EXIT_FAILURE;
 
     generated_cli::Cli versionCli;
-    const char *versionArgs[] = {"turvc", "--version"};
+    const char *versionArgs[] = {"zithc", "--version"};
     const int versionStatus = versionCli.parseArgs(2, const_cast<char **>(versionArgs));
     if (!expect(versionStatus == 0, "--version parses"))
         return EXIT_FAILURE;
@@ -41,7 +41,7 @@ int main() {
         return EXIT_FAILURE;
 
     generated_cli::Cli commandCli;
-    const char *commandArgs[] = {"turvc", "deps", "add", "pkg"};
+    const char *commandArgs[] = {"zithc", "deps", "add", "pkg"};
     const int commandStatus = commandCli.parseArgs(4, const_cast<char **>(commandArgs));
     if (!expect(commandStatus == 0, "deps add parses"))
         return EXIT_FAILURE;

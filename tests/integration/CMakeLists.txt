@@ -1,7 +1,7 @@
 add_test(
     NAME cli-no-args-help
     COMMAND "${CMAKE_COMMAND}"
-            -DPROGRAM=$<TARGET_FILE:turvc>
+            -DPROGRAM=$<TARGET_FILE:zithc>
             -DEXPECTED_EXIT=0
             -DEXPECT_STDOUT=Usage
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-cli-check.cmake"
@@ -10,7 +10,7 @@ add_test(
 add_test(
     NAME cli-unknown-command-suggestion
     COMMAND "${CMAKE_COMMAND}"
-            -DPROGRAM=$<TARGET_FILE:turvc>
+            -DPROGRAM=$<TARGET_FILE:zithc>
             -DARGS=bulid
             -DEXPECTED_EXIT=2
             -DEXPECT_STDERR_1=unknown\ command\ 'bulid'
@@ -21,7 +21,7 @@ add_test(
 add_test(
     NAME cli-unknown-subcommand-suggestion
     COMMAND "${CMAKE_COMMAND}"
-            -DPROGRAM=$<TARGET_FILE:turvc>
+            -DPROGRAM=$<TARGET_FILE:zithc>
             -DARGS=deps\;chekc
             -DEXPECTED_EXIT=2
             -DEXPECT_STDERR_1=unknown\ subcommand\ for\ deps:\ chekc
@@ -32,7 +32,7 @@ add_test(
 add_test(
     NAME cli-unknown-global-flag
     COMMAND "${CMAKE_COMMAND}"
-            -DPROGRAM=$<TARGET_FILE:turvc>
+            -DPROGRAM=$<TARGET_FILE:zithc>
             -DARGS=--verbsoe
             -DEXPECTED_EXIT=2
             -DEXPECT_STDERR_1=unknown\ flag\ '--verbsoe'
@@ -43,7 +43,7 @@ add_test(
 add_test(
     NAME cli-unknown-command-flag-suggestion
     COMMAND "${CMAKE_COMMAND}"
-            -DPROGRAM=$<TARGET_FILE:turvc>
+            -DPROGRAM=$<TARGET_FILE:zithc>
             -DARGS=fmt\;--colro
             -DEXPECTED_EXIT=2
             -DEXPECT_STDERR_1=unknown\ flag\ '--colro'
@@ -54,7 +54,7 @@ add_test(
 add_test(
     NAME cli-unknown-subcommand-flag-suggestion
     COMMAND "${CMAKE_COMMAND}"
-            -DPROGRAM=$<TARGET_FILE:turvc>
+            -DPROGRAM=$<TARGET_FILE:zithc>
             -DARGS=deps\;add\;--froce
             -DEXPECTED_EXIT=2
             -DEXPECT_STDERR_1=unknown\ flag\ '--froce'
@@ -65,7 +65,7 @@ add_test(
 add_test(
     NAME cli-valid-dispatch-path
     COMMAND "${CMAKE_COMMAND}"
-            -DPROGRAM=$<TARGET_FILE:turvc>
+            -DPROGRAM=$<TARGET_FILE:zithc>
             -DARGS=deps\;add\;pkg
             -DEXPECTED_EXIT=0
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-cli-check.cmake"
@@ -74,17 +74,17 @@ add_test(
 add_test(
     NAME cli-help-dispatch-output
     COMMAND "${CMAKE_COMMAND}"
-            -DPROGRAM=$<TARGET_FILE:turvc>
+            -DPROGRAM=$<TARGET_FILE:zithc>
             -DARGS=--help
             -DEXPECTED_EXIT=0
-            -DEXPECT_STDOUT=turv\ build\ tool
+            -DEXPECT_STDOUT=zith\ build\ tool
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-cli-check.cmake"
 )
 
 add_test(
     NAME cli-version
     COMMAND "${CMAKE_COMMAND}"
-            -DPROGRAM=$<TARGET_FILE:turvc>
+            -DPROGRAM=$<TARGET_FILE:zithc>
             -DARGS=--version
             -DEXPECTED_EXIT=0
             -DEXPECT_STDOUT=0.1.0
@@ -94,8 +94,8 @@ add_test(
 add_test(
     NAME cli-check-missing-file
     COMMAND "${CMAKE_COMMAND}"
-            -DPROGRAM=$<TARGET_FILE:turvc>
-            -DARGS=check\;errors.turv
+            -DPROGRAM=$<TARGET_FILE:zithc>
+            -DARGS=check\;errors.zith
             -DEXPECTED_EXIT=1
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-cli-check.cmake"
 )

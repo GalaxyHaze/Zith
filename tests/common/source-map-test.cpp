@@ -33,7 +33,7 @@ int main() {
     bool ok = true;
 
     SourceMap map;
-    const auto add = map.addFile("test.turv", "hello\nworld");
+    const auto add = map.addFile("test.zith", "hello\nworld");
     ok &= check(add.isOk(), "addFile returns ok");
     if (!add.isOk())
         return EXIT_FAILURE;
@@ -52,11 +52,11 @@ int main() {
     ok &= check_loc(map.loc(SourceSpan{id, {6, 6}}), 2, 1, "offset 6 is line 2 col 1");
     ok &= check_loc(map.loc(SourceSpan{id, {7, 7}}), 2, 2, "offset 7 is line 2 col 2");
 
-    const auto same = map.addFile("other.turv", "aaa");
+    const auto same = map.addFile("other.zith", "aaa");
     ok &= check(same.isOk() && same.value() != id, "distinct path yields distinct id");
     ok &= check_loc(map.loc(SourceSpan{UINT32_MAX, {0, 0}}), 0, 0, "invalid file yields zero loc");
 
-    const auto missing = map.loadFile("/nonexistent/turv/source.turv");
+    const auto missing = map.loadFile("/nonexistent/zith/source.zith");
     ok &= check(missing.isError(), "missing file returns error");
 
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;

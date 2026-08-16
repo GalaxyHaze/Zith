@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(TurvFacts LANGUAGES CXX)
+project(ZithFacts LANGUAGES CXX)
 
 set(_zct_facts_generated
     "${CMAKE_BINARY_DIR}/src/facts/facts.hpp"
@@ -29,7 +29,7 @@ add_custom_target(zct_facts_generated
 
 add_executable(facts-v2-test
     ${CMAKE_SOURCE_DIR}/tests/facts/facts-v2-test.cpp
-    ${_turv_facts_generated}
+    ${_zct_facts_generated}
 )
 target_link_libraries(facts-v2-test PRIVATE
     zct_common
@@ -40,7 +40,7 @@ add_test(NAME facts-v2-intensive COMMAND facts-v2-test --intensive)
 
 add_executable(facts-v2-demo
     ${CMAKE_SOURCE_DIR}/tests/facts/facts-v2-demo.cpp
-    ${_turv_facts_generated}
+    ${_zct_facts_generated}
 )
 target_link_libraries(facts-v2-demo PRIVATE
     zct_common

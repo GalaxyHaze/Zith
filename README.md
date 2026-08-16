@@ -2,9 +2,8 @@
 
 > **Status: Experimental tooling repository.**
 > Zith Compiler's Toolkit (ZCT) is a declarative compiler toolchain. The default showcase is
-> Turv, a toy language that is intentionally minimal; the toolchain exists to show how
-> repetitive compiler and tooling code can be kept small through generators and declarative
-> inputs.
+> Zith, a deliberately small language; the toolchain exists to show how repetitive compiler
+> and tooling code can be kept small through generators and declarative inputs.
 
 A large part of compiler and tooling code is repetitive: command-line parsing, token tables,
 configuration defaults, typed config loading, and error-prone glue code. ZCT moves those
@@ -23,7 +22,7 @@ The result is a repository that aims to be:
 
 ## What This Repository Contains
 
-The toolkit today includes several concrete helpers, the default Turv toy-language grammar used
+The toolkit today includes several concrete helpers, the default Zith grammar used
 by demos, and an experimental VM backend for the planned codegen roadmap:
 
 | Helper | Purpose | Source of truth |
@@ -37,7 +36,7 @@ by demos, and an experimental VM backend for the planned codegen roadmap:
 | Diagnostic helper | Generate the error catalogue consumed by the common renderer | `src/diagnostic/README.md` |
 | Symbol helper | Generate symbol kinds, symbol data layout, and basic helpers | `src/symbols/symbols.rules` |
 
-The default Turv showcase grammar covers functions (`fn`), variables (`let`), `print`, boolean
+The default Zith showcase grammar covers functions (`fn`), variables (`let`), `print`, boolean
 literals, `if`/`else`, `while`, `return`, integer/float/string literals, arithmetic and
 comparison operators, brackets, and `//` and `/* */` comments. The current demos exercise the
 lexer, session pipeline, cache configuration, and the scratch VM without promising a complete
@@ -56,9 +55,9 @@ Generated files in `build/` are not source and must never be edited by hand.
 generator regression test relies on. It is protected code and should only change with explicit
 approval.
 
-### Agent Contract
+### Declarative Development Contract
 
-Agents and contributors should treat this repository as **declarative-first**:
+Contributors should treat this repository as **declarative-first**:
 
 - Normal changes edit a `.rules`/TOML file and, when behavior is needed, the documented
   handwritten `actions.cpp`, `handlers.cpp`, `dispatch.cpp`, or types header.
@@ -140,7 +139,7 @@ require explicit user approval before code changes.
 ```bash
 cmake -S . -B build
 cmake --build build -j
-./build/turvc --help
+./build/zithc --help
 ```
 
 Requires:
@@ -171,21 +170,21 @@ That gives a few concrete benefits:
 
 ## Current Surface
 
-The current executable is `turvc`, with a generated CLI surface that already exposes:
+The current executable is `zithc`, with a generated CLI surface that already exposes:
 
 - global flags such as `--help`, `--version`, `--verbose`, `--strict`, `--opt-level`, `--include`, `--jobs`
 - commands such as `check`, `fmt`, `run`, `build`, and `deps`
 - subcommands such as `deps add`, `deps check`, and `deps remove`
 - typo suggestions for commands, subcommands, and flags
 
-`turvc check`, `turvc run`, and `turvc build` now create a `toolkit::session::CompilationSession`,
+`zithc check`, `zithc run`, and `zithc build` now create a `toolkit::session::CompilationSession`,
 load the selected source file, and run the pipeline through the `Lexed` stage.
 
 Example:
 
 ```bash
-./build/turvc --help
-./build/turvc --version
+./build/zithc --help
+./build/zithc --version
 ```
 
 ## Codegen Roadmap
@@ -529,16 +528,16 @@ python3 src/config/project/generate.py src/config/flags/default.toml --out build
 
 ```toml
 [project]
-name = "turv"
+name = "zith"
 version = "0.1.0"
 description = "A toy language and compiler tooling project"
-authors = ["Turv Authors"]
+authors = ["Zith Authors"]
 license = "MIT"
 homepage = ""
 
 [build]
-entry = "src/main.turv"
-output = "out/turv"
+entry = "src/main.zith"
+output = "out/zith"
 mode = "debug"
 opt_level = 0
 debug_level = 1
@@ -737,7 +736,7 @@ The intended workflow is:
 2. generate the repetitive C++ layer
 3. keep handwritten code focused on behavior, not plumbing
 
-In other words, Turv treats generators as maintainability tools, not as one-off scripts.
+In other words, Zith treats generators as maintainability tools, not as one-off scripts.
 
 ---
 
@@ -790,7 +789,7 @@ ctest --test-dir build --output-on-failure
 
 ## Positioning
 
-ZCT is the compiler toolkit; Turv is its toy-language showcase. The public `turvc` entry point
-remains Turv-branded, while the internal libraries and build options use the `zct_*`/`ZCT_*`
-prefix. The public roadmap is the five backend names above; everything else is maintained
-declaratively so the handwritten compiler code can stay small, clear, and easier to evolve.
+ZCT is the compiler toolkit; Zith is its showcase language. The public `zithc` entry point is
+Zith-branded, while the internal libraries and build options use the `zct_*`/`ZCT_*` prefix.
+The public roadmap is the five backend names above; everything else is maintained declaratively
+so the handwritten compiler code can stay small, clear, and easier to evolve.

@@ -16,7 +16,7 @@ using toolkit::cache::Store;
 
 Artifact makeArtifact() {
     Artifact artifact;
-    artifact.canonical_path = "/demo/main.turv";
+    artifact.canonical_path = "/demo/main.zith";
     artifact.module_name = "main";
     artifact.cache_key_hash = static_cast<std::uint32_t>(toolkit::cache::fnv1a64("demo"));
     artifact.source_fp_hi = 0xD00D0000;
@@ -34,7 +34,7 @@ bool expect(bool condition, std::string_view message) {
 }
 
 int main() {
-    const auto root = std::filesystem::temp_directory_path() / "turv-cache-demo";
+    const auto root = std::filesystem::temp_directory_path() / "zith-cache-demo";
     std::filesystem::remove_all(root);
 
     CacheKey key;

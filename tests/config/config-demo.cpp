@@ -18,7 +18,7 @@ version = "0.2.0"
 authors = ["Demo Authors"]
 
 [build]
-entry = "src/demo.turv"
+entry = "src/demo.zith"
 mode = "release"
 opt_level = 2
 verbose = true

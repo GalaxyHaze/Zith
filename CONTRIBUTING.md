@@ -67,7 +67,7 @@ Configure and build from a fresh checkout:
 ```bash
 cmake -S . -B build
 cmake --build build -j
-./build/turvc --help
+./build/zithc --help
 ```
 
 Generators run automatically during the build and place generated files in the build tree.

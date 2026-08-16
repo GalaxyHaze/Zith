@@ -11,6 +11,20 @@ target_link_libraries(zct_sir PUBLIC
     zct_common
 )
 
+add_library(zct_sir_flat STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/flat/flat.cpp"
+)
+
+target_include_directories(zct_sir_flat PUBLIC
+    "${PROJECT_SOURCE_DIR}/src"
+    "${PROJECT_BINARY_DIR}/src"
+)
+
+target_link_libraries(zct_sir_flat PUBLIC
+    zct_sir
+    zct_cache
+)
+
 add_executable(sir-demo
     "${PROJECT_SOURCE_DIR}/tests/common/sir/sir-demo.cpp"
 )

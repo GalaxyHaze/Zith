@@ -84,7 +84,7 @@ if (failed)
 
 ```cpp
 common::memory::SourceMap sourceMap;
-const auto id = sourceMap.loadFile("src/main.turv");
+const auto id = sourceMap.loadFile("src/main.zith");
 if (!id)
     return id.error();
 

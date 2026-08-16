@@ -11,18 +11,18 @@
 
 using toolkit::session::CompilationSession;
 using toolkit::session::Stage;
-using toolkit::session::TurvSessionContext;
+using toolkit::session::ZithSessionContext;
 
 int main() {
     const std::filesystem::path dir = std::filesystem::temp_directory_path();
-    const std::filesystem::path path = dir / "turv-session-demo.turv";
+    const std::filesystem::path path = dir / "zith-session-demo.zith";
 
     {
         std::ofstream out(path);
         out << "fn main(x) { return 42; }\n";
     }
 
-    TurvSessionContext context;
+    ZithSessionContext context;
     {
         const std::string filePath = path.string();
         context.filePath = filePath;

@@ -10,13 +10,13 @@ int show_help() {
     const generated_cli::term::Terminal terminal = generated_cli::term::init();
     generated_cli::term::UsagePrinter out{stdout, terminal.stdoutColor};
 
-    out.bold("turv build tool");
+    out.bold("zith build tool");
     std::fputc('\n', stdout);
     std::fputc('\n', stdout);
 
     out.section("Usage");
-    std::fprintf(stdout, "  turvc [options] [input] [output]\n");
-    std::fprintf(stdout, "  turvc <command> [command-options] [arguments]\n\n");
+    std::fprintf(stdout, "  zithc [options] [input] [output]\n");
+    std::fprintf(stdout, "  zithc <command> [command-options] [arguments]\n\n");
 
     out.section("Options");
     out.flag("-h, --help", "Show this help message");
@@ -52,7 +52,7 @@ int show_help() {
 int show_version() {
     const generated_cli::term::Terminal terminal = generated_cli::term::init();
     generated_cli::term::UsagePrinter out{stdout, terminal.stdoutColor};
-    out.bold("turv 0.1.0");
+    out.bold("zith 0.1.0");
     std::fputc('\n', stdout);
     return 0;
 }
@@ -87,7 +87,7 @@ int apply(const generated_cli::Options &opts, std::string_view inputPath,
     if (inputPath.empty())
         return 1;
 
-    toolkit::session::TurvSessionContext context;
+    toolkit::session::ZithSessionContext context;
     context.filePath = inputPath;
     context.projectRoot = ".";
     context.options = const_cast<generated_cli::Options *>(&opts);

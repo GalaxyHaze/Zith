@@ -1,4 +1,4 @@
-# Turv facts v2
+# Zith facts v2
 
 `facts` is a small constraint/state store for compiler logic and tooling. The v2
 surface is a header-only API (`fact-v2.hpp` plus `fact-v2.tpp`) and does not use

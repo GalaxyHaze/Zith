@@ -183,7 +183,7 @@ ctest --test-dir build -R session --output-on-failure
 
 ## Tests
 
-- `session-generated-basics` constructs a `TurvSessionContext`, applies the generated pipeline, and
+- `session-generated-basics` constructs a `ZithSessionContext`, applies the generated pipeline, and
   checks `runTo`, failure, and `resume()` behavior.
 - `session-generator-regression` verifies the generator accepts one `[context]`, rejects missing or
   duplicate contexts, rejects invalid type syntax, and compiles a smoke consumer with custom
@@ -198,7 +198,7 @@ modify `generate.py` or shared generator rules without explicit user approval.
 ## Demo
 
 `tests/session/session-demo.cpp` writes a real `fn main(x) { return 42; }` source file under the
-system temp directory, creates a `TurvSessionContext` whose `filePath` is kept alive for the
+system temp directory, creates a `ZithSessionContext` whose `filePath` is kept alive for the
 session scope, runs `CompilationSession::runTo(Stage::Lexed)`, and prints the `stageLabel` plus
 the number of tokens.
 

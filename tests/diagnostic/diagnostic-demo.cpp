@@ -38,7 +38,7 @@ int main() {
               << ErrorTemplate{&lookup}.render("", "missing_name") << "\n";
 
     SourceMap map;
-    const auto file = map.addFile("demo.turv", "let x = missing_name + 0;\n");
+    const auto file = map.addFile("demo.zith", "let x = missing_name + 0;\n");
     if (!expect(file.isOk(), "source file added"))
         return EXIT_FAILURE;
 

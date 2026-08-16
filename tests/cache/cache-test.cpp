@@ -21,7 +21,7 @@ bool check(bool ok, std::string_view message) {
 
 toolkit::cache::Artifact makeArtifact() {
     toolkit::cache::Artifact artifact;
-    artifact.canonical_path = "/test/main.turv";
+    artifact.canonical_path = "/test/main.zith";
     artifact.module_name = "main";
     artifact.cache_key_hash = static_cast<std::uint32_t>(
         toolkit::cache::fnv1a64("test"));
@@ -33,7 +33,7 @@ toolkit::cache::Artifact makeArtifact() {
     artifact.module_id_lo = artifact.public_abi_lo ^ 0x66BB;
     artifact.strings = {"main", "println", "i32"};
     artifact.paths = {artifact.canonical_path};
-    artifact.deps.push_back({"/test/dep.turv", "dep", 1, 2});
+    artifact.deps.push_back({"/test/dep.zith", "dep", 1, 2});
     toolkit::cache::DeclRecord decl;
     decl.name = "main";
     decl.kind = toolkit::cache::DeclKind::Fn;
@@ -73,7 +73,7 @@ void roundTrip() {
     check(art.canonical_path == original.canonical_path, "round-trip path");
     check(art.strings == original.strings, "round-trip strings");
     check(art.deps.size() == original.deps.size(), "round-trip deps count");
-    check(art.deps[0].canonical_path == "/test/dep.turv", "round-trip dep path");
+    check(art.deps[0].canonical_path == "/test/dep.zith", "round-trip dep path");
     check(art.decls.size() == 1 && art.decls[0].name == "main", "round-trip decls");
     check(art.functions.size() == 1 && art.functions[0].exprs.size() == 1,
           "round-trip functions");
@@ -135,7 +135,7 @@ void validationErrors() {
     if (!validBytes.isOk())
         return;
     auto withInvalidDeclKind = validBytes.value();
-    const auto declStart = withInvalidDeclKind.find("/test/main.turv");
+    const auto declStart = withInvalidDeclKind.find("/test/main.zith");
     if (declStart != std::string::npos) {
         std::size_t pos = declStart;
         while (pos < withInvalidDeclKind.size() && withInvalidDeclKind[pos] != '\0')
@@ -178,7 +178,7 @@ void validationErrors() {
 }
 
 void storeBehavior() {
-    const auto root = fs::temp_directory_path() / "turv-cache-test-store";
+    const auto root = fs::temp_directory_path() / "zith-cache-test-store";
     fs::remove_all(root);
     toolkit::cache::CacheKey key;
     key.compilerVersion = "test";
@@ -190,35 +190,35 @@ void storeBehavior() {
                  artifact.source_fp_lo;
     store.store(artifact);
 
-    auto loaded = store.load("/test/main.turv", fp);
+    auto loaded = store.load("/test/main.zith", fp);
     check(loaded.has_value(), "stored artifact loads");
     check(store.metrics().hits == 1, "hit metric");
 
     toolkit::cache::ContentFingerprint wrong;
     wrong.primary = 123;
-    check(!store.load("/test/main.turv", wrong).has_value(), "fingerprint mismatch misses");
+    check(!store.load("/test/main.zith", wrong).has_value(), "fingerprint mismatch misses");
     check(store.metrics().invalid > 0, "invalid metric");
-    check(!store.load("/test/absent.turv", fp).has_value(), "missing path misses");
+    check(!store.load("/test/absent.zith", fp).has_value(), "missing path misses");
     check(store.metrics().misses > 0, "miss metric");
 
-    auto entry = store.loadEntry("/test/main.turv", fp);
+    auto entry = store.loadEntry("/test/main.zith", fp);
     check(entry.has_value() && entry->state == toolkit::cache::CacheEntryState::Hydrated,
           "loadEntry hydrates");
     fs::remove_all(root);
 }
 
 void manifestBehavior() {
-    const auto root = fs::temp_directory_path() / "turv-cache-test-manifest";
+    const auto root = fs::temp_directory_path() / "zith-cache-test-manifest";
     fs::remove_all(root);
     toolkit::cache::Manifest manifest(root.string());
     toolkit::cache::ManifestEntry a;
-    a.canonical_path = "/test/a.turv";
+    a.canonical_path = "/test/a.zith";
     a.artifact_path = (root / "a.zgc").string();
     toolkit::cache::ManifestEntry b;
-    b.canonical_path = "/test/b.turv";
+    b.canonical_path = "/test/b.zith";
     b.dependencies = {a.canonical_path};
     toolkit::cache::ManifestEntry c;
-    c.canonical_path = "/test/c.turv";
+    c.canonical_path = "/test/c.zith";
     c.dependencies = {b.canonical_path};
     manifest.upsert(a);
     manifest.upsert(b);
@@ -245,17 +245,17 @@ void manifestBehavior() {
 }
 
 void transitiveStoreInvalidation() {
-    const auto root = fs::temp_directory_path() / "turv-cache-test-invalidate";
+    const auto root = fs::temp_directory_path() / "zith-cache-test-invalidate";
     fs::remove_all(root);
     toolkit::cache::CacheKey key;
     key.compilerVersion = "test";
     toolkit::cache::Store store(root.string(), key);
 
     auto dep = makeArtifact();
-    dep.canonical_path = "/test/dep.turv";
+    dep.canonical_path = "/test/dep.zith";
     dep.module_name = "dep";
     auto main = makeArtifact();
-    main.canonical_path = "/test/main.turv";
+    main.canonical_path = "/test/main.zith";
     main.module_name = "main";
     main.deps.clear();
     main.deps.push_back({dep.canonical_path, "dep", dep.public_abi_hi, dep.public_abi_lo});

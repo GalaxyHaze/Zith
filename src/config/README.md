@@ -23,11 +23,11 @@ The TOML file uses sections and key/value entries:
 
 ```toml
 [project]
-name = "turv"
+name = "zith"
 version = "0.1.0"
 
 [build]
-entry = "src/main.turv"
+entry = "src/main.zith"
 opt_level = 0
 verbose = false
 lto = false

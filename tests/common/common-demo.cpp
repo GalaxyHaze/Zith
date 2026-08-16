@@ -43,7 +43,7 @@ int main() {
     const auto bad = checkedValue(-1);
 
     SourceMap map;
-    const auto file = map.addFile("common-demo.turv", "let x = 0;\n");
+    const auto file = map.addFile("common-demo.zith", "let x = 0;\n");
     if (!file.isOk() || !ok.isOk() || bad.isOk()) {
         std::cerr << "common-demo: API validation failed\n";
         return EXIT_FAILURE;

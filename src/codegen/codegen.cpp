@@ -159,7 +159,25 @@ private:
         case Opcode::Add:
         case Opcode::Sub:
         case Opcode::Mul:
+        case Opcode::Div:
+        case Opcode::Rem:
+        case Opcode::BitAnd:
+        case Opcode::BitOr:
+        case Opcode::BitXor:
+        case Opcode::Shl:
+        case Opcode::Shr:
+        case Opcode::Eq:
+        case Opcode::Ne:
+        case Opcode::Lt:
+        case Opcode::Le:
+        case Opcode::Gt:
+        case Opcode::Ge:
             return validateBinary(function, value);
+        case Opcode::Load:
+        case Opcode::Call:
+        case Opcode::Branch:
+        case Opcode::CondBranch:
+            return flattenError("codegen does not lower this SIR opcode yet");
         case Opcode::Store:
         case Opcode::Return:
             return flattenError("value stream contains a non-value opcode");
@@ -276,7 +294,25 @@ private:
         case Opcode::Add:
         case Opcode::Sub:
         case Opcode::Mul:
+        case Opcode::Div:
+        case Opcode::Rem:
+        case Opcode::BitAnd:
+        case Opcode::BitOr:
+        case Opcode::BitXor:
+        case Opcode::Shl:
+        case Opcode::Shr:
+        case Opcode::Eq:
+        case Opcode::Ne:
+        case Opcode::Lt:
+        case Opcode::Le:
+        case Opcode::Gt:
+        case Opcode::Ge:
             reg = emitBinary(value);
+            break;
+        case Opcode::Load:
+        case Opcode::Call:
+        case Opcode::Branch:
+        case Opcode::CondBranch:
             break;
         case Opcode::Store:
         case Opcode::Return:
@@ -336,7 +372,7 @@ private:
         case TypeKind::I32:
             op = value.opcode == Opcode::Add   ? Op::AddI32
                  : value.opcode == Opcode::Sub ? Op::SubI32
-                                                : Op::MulI32;
+                                                 : Op::MulI32;
             break;
         case TypeKind::I64:
             op = value.opcode == Opcode::Add   ? Op::AddI64

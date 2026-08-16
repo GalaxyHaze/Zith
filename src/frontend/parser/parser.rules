@@ -1,4 +1,4 @@
-# ZCT generic parser helper rules for the Turv showcase.
+# ZCT generic parser helper rules for the Zith showcase.
 #
 # [parser] declares the user-owned input/output/diagnostic/token types used by
 # the generated `Parser<Output>` template. `tokenStream` must name the
