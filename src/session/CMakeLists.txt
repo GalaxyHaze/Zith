@@ -33,6 +33,10 @@ target_include_directories(zct_session_core_objects PUBLIC
     "${PROJECT_BINARY_DIR}/src"
     "${PROJECT_SOURCE_DIR}/src/frontend/lexer"
     "${PROJECT_BINARY_DIR}/src/frontend/lexer"
+    "${PROJECT_SOURCE_DIR}/src/frontend/parser"
+    "${PROJECT_BINARY_DIR}/src/frontend/parser"
+    "${PROJECT_SOURCE_DIR}/src/frontend/ast"
+    "${PROJECT_BINARY_DIR}/src/frontend/ast"
 )
 
 target_link_libraries(zct_session_core_objects PUBLIC
@@ -52,6 +56,10 @@ target_include_directories(zct_session_core PUBLIC
     "${PROJECT_BINARY_DIR}/src"
     "${PROJECT_SOURCE_DIR}/src/frontend/lexer"
     "${PROJECT_BINARY_DIR}/src/frontend/lexer"
+    "${PROJECT_SOURCE_DIR}/src/frontend/parser"
+    "${PROJECT_BINARY_DIR}/src/frontend/parser"
+    "${PROJECT_SOURCE_DIR}/src/frontend/ast"
+    "${PROJECT_BINARY_DIR}/src/frontend/ast"
 )
 
 add_library(zct_session STATIC
@@ -64,7 +72,8 @@ target_link_libraries(zct_session PUBLIC
 )
 
 target_link_libraries(zct_session PRIVATE
-    zct_frontend_lexer
+    zct_frontend_parser
+    zct_frontend_ast
 )
 
 target_include_directories(zct_session PUBLIC
@@ -72,6 +81,10 @@ target_include_directories(zct_session PUBLIC
     "${PROJECT_BINARY_DIR}/src"
     "${PROJECT_SOURCE_DIR}/src/frontend/lexer"
     "${PROJECT_BINARY_DIR}/src/frontend/lexer"
+    "${PROJECT_SOURCE_DIR}/src/frontend/parser"
+    "${PROJECT_BINARY_DIR}/src/frontend/parser"
+    "${PROJECT_SOURCE_DIR}/src/frontend/ast"
+    "${PROJECT_BINARY_DIR}/src/frontend/ast"
 )
 
 if(ZCT_HAS_MIO)

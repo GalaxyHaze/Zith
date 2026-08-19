@@ -29,8 +29,9 @@ The frontend is intentionally a thin index for three generated helpers:
 - The lexer consumes `lexer.rules` and emits a `Lexer`, `Token`, `TokenKind`, and `TokenStream`.
 - The AST helper consumes `ast.rules` and emits `AstRoot`, node types, allocation helpers, walking,
   cloning, and printing.
-- The parser helper consumes `parser.rules` and emits `Parser<Output>`, context rules, recovery,
-  and hook declarations.
+- The parser helper consumes `parser.rules` and emits `Parser<Output>`, context
+  rules, recovery, and hook declarations. The showcase parser implementation
+  lives in `frontend/parser/actions.cpp`.
 
 Generated output lives under `build/src/frontend/*`; handwritten behavior belongs in each helper's
 `types.hpp` or `actions.cpp`. There is no standalone frontend demo target because each helper has
@@ -43,8 +44,8 @@ Each frontend helper has a small executable that exercises its public API:
 | Demo target | CTest | Demonstrates |
 |---|---|---|
 | `lexer-demo` | `lexer-demo` | Tokenizing keywords, identifiers, punctuation, operators, strings, and numeric literals. |
-| `ast-demo` | `ast-demo` | Allocating and printing `Program -> CallExpr -> LiteralExpr`. |
-| `parser-demo` | `parser-demo` | Parsing small supported snippets and inspecting output/context. |
+| `ast-demo` | `ast-demo` | Allocating and printing a `Program -> Expr` tree. |
+| `parser-demo` | `parser-demo` | Parsing showcase snippets and inspecting declarations/imports. |
 
 ```bash
 cmake --build build --target lexer-demo ast-demo parser-demo -j

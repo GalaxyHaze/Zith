@@ -2,9 +2,11 @@
 
 ## Purpose
 
-The AST helper generates node structs, allocation helpers, a DFS walker, and a tree printer from
-`ast.rules`. It keeps AST node wiring declarative instead of hand-writing repetitive struct and
-traversal code.
+The AST helper generates node structs, allocation helpers, a DFS walker, and a
+tree printer from `ast.rules`. It keeps AST node wiring declarative instead of
+hand-writing repetitive struct and traversal code. The current Zith showcase
+uses the generic `Program`, `Declaration`, `TypeExpr`, `Expr`, `Stmt`, and
+`Binding` nodes from this helper.
 
 The generated files are build output. Edit `ast.rules` or `generate.py`, then regenerate.
 
@@ -31,15 +33,19 @@ body: common::memory::DynArray<Expr> = children
 [Expr]
 span: Span
 
-[LiteralExpr]
+[Declaration]
 span: Span
-valueText: std::string_view
-
-[CallExpr]
-span: Span
-callee: Expr = child
+kind: int
 name: std::string_view
-arguments: common::memory::DynArray<Expr> = children
+parameters: common::memory::DynArray<Parameter> = children
+body: Expr = child
+
+[Expr]
+span: Span
+kind: int
+op: std::string_view
+text: std::string_view
+operands: common::memory::DynArray<Expr> = children
 ```
 
 Supported tags:
@@ -76,10 +82,10 @@ without explicit user approval.
 
 ## Demo
 
-`tests/frontend/ast-demo.cpp` allocates a `Program`, a `CallExpr`, an `Expr`, and a
-`LiteralExpr`, links them through child and children fields, sets `ast.root`, and prints the tree
-with `generated_ast::print`. The constructor leaves `root` null, so callers must assign the root
-before printing or walking.
+`tests/frontend/ast-demo.cpp` allocates a `Program` root with three generic
+`Expr` nodes linked through children, sets `ast.root`, and prints the tree with
+`generated_ast::print`. `AstRoot` starts with a null root, so callers must
+assign it before printing or walking.
 
 ```bash
 cmake --build build --target ast-demo -j

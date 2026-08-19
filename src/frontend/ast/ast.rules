@@ -1,25 +1,113 @@
-# ZCT generic AST helper rules for the Zith showcase.
+# Generated AST for the Zith frontend parser migration.
 #
-# Each section is one node type. Field syntax:
-#   Name: Type
-# or, for optional validation or clarity, `Name: Type = string|value`.
+# Field syntax:
+#   Name: Type                  leaf data (std::string_view or supported scalar)
+#   Name: Type = child          one generated node
+#   Name: Type = children       common::memory::DynArray<DeclaredNode>
 #
-# `child` and `children` fields must reference declared node names or
-# `common::memory::DynArray<NodeName>` respectively. Untagged string and value fields
-# are leaf data and are never traversed by `walk`.
+# Only the tags/types supported by the unchanged AST generator are used.
 
 [Program]
-body: common::memory::DynArray<Expr> = children
+span: Span
+body: common::memory::DynArray<Declaration> = children
+
+[Declaration]
+span: Span
+kind: int
+visibility: int
+functionKind: int
+name: std::string_view
+ownerName: std::string_view
+traitName: std::string_view
+isExtern: bool
+isNominalType: bool
+isTagMacro: bool
+isRawMacro: bool
+hasAttributesParam: bool
+isVariadic: bool
+isStackful: bool
+genericParams: common::memory::DynArray<GenericParam> = children
+parameters: common::memory::DynArray<Parameter> = children
+declaredType: TypeExpr = child
+initializer: Expr = child
+body: Expr = child
+
+[GenericParam]
+span: Span
+name: std::string_view
+constraint: TypeExpr = child
+
+[Parameter]
+span: Span
+name: std::string_view
+type: TypeExpr = child
+defaultValue: Expr = child
+
+[ImportDecl]
+span: Span
+pathSpan: Span
+aliasSpan: Span
+rawPath: std::string_view
+headerPath: std::string_view
+alias: std::string_view
+isFrom: bool
+isExport: bool
+isAsset: bool
+isHeader: bool
+depth: int
+path: common::memory::DynArray<ImportPathSegment> = children
+selectors: common::memory::DynArray<ImportSelector> = children
+
+[ImportPathSegment]
+span: Span
+value: std::string_view
+
+[ImportSelector]
+span: Span
+aliasSpan: Span
+name: std::string_view
+alias: std::string_view
+
+[TypeExpr]
+span: Span
+kind: int
+ownership: int
+name: std::string_view
+arrayLength: uint64_t
+isMut: bool
+hasMutKeyword: bool
+arguments: common::memory::DynArray<TypeExpr> = children
 
 [Expr]
 span: Span
+kind: int
+op: std::string_view
+text: std::string_view
+fieldNames: common::memory::DynArray<ExprField> = children
+operands: common::memory::DynArray<Expr> = children
+statements: common::memory::DynArray<Stmt> = children
+conditions: common::memory::DynArray<Expr> = children
+genericArgs: common::memory::DynArray<TypeExpr> = children
+castType: TypeExpr = child
 
-[LiteralExpr]
+[ExprField]
 span: Span
-valueText: std::string_view
-
-[CallExpr]
-span: Span
-callee: Expr = child
 name: std::string_view
+value: Expr = child
+
+[Stmt]
+span: Span
+kind: int
+label: std::string_view
+isStackful: bool
+expression: Expr = child
+binding: Binding = child
+parameters: common::memory::DynArray<Parameter> = children
 arguments: common::memory::DynArray<Expr> = children
+
+[Binding]
+span: Span
+name: std::string_view
+isMutable: bool
+type: TypeExpr = child
+initializer: Expr = child

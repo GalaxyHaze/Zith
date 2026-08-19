@@ -1,44 +1,93 @@
-# Comentários começam com #
+# Comments start with #
 [default]
 -> show_help()
 
 [flags]
-h | help                -> show_help()            # ação especial
+help                    = false                   # no command -> show_help()
+h                       = false
 version                 -> show_version()         # --version
 v | verbose             = false                   # bool
 s | strict              = false
-opt-level               = 0..3                   # inteiro com range
-I | include             = []  / ,                # lista de strings, sep=','
-j | jobs                = 1   # inteiro positivo
+opt-level               = 0..3                   # integer with range
+I | include             = []  / ,                # list of strings, sep=','
+j | jobs                = 1   # positive integer
 
 [commands]
-# opts é um caso especial para o Options gerado
-check   -> cmd::check(opts)
-fmt     -> cmd::fmt(opts)
-run     -> cmd::run(opts)
-build   -> cmd::build(opts)
-deps                        # sem ação, apenas contentor
+# opts is a special case for the generated Options
+check       -> cmd::check(opts)
+fmt         -> cmd::fmt(opts)
+run         -> cmd::run(opts)
+build       -> cmd::build(opts)
+deps        -> cmd::deps(opts)
+execute     -> cmd::execute(opts)
+test        -> cmd::test(opts)
+docs        -> cmd::docs(opts)
+repl        -> cmd::repl(opts)
+create      -> cmd::create(opts)
+clean       -> cmd::clean(opts)
+completion  -> cmd::completion(opts)
+compile     -> cmd::compile(opts)
 
 [args]
-input       : string
-output      : string = "out.txt"
+input       : string = ""
 
 [command-args]
-build.input      : path
+build.input      : path = ""
 build.output     : path = "a.out"
-run.script       : string
+run.script       : string = ""
 run.args         : string...
-check.input      : path
-deps.add.package : string
+check.input      : path = ""
+execute.input    : path = ""
+create.name      : string = ""
+clean.path       : path = "."
+completion.shell : string = ""
+compile.sir      : path = ""
+compile.outputPath : path = "a.out"
+
+[sub-flags]
+compile: o | output = "a.out"
 
 [sub-flags]
 fmt: color = auto | off | on
 
 [sub-commands]
-deps: add    -> cmd::depsAdd()
-      check  -> cmd::depsCheck()
-      remove -> cmd::depsRemove()
+deps: add       -> cmd::depsAdd(opts)
+      check     -> cmd::depsCheck(opts)
+      remove    -> cmd::depsRemove(opts)
+      list      -> cmd::depsList(opts)
+      publish   -> cmd::depsPublish(opts)
+      unpublish -> cmd::depsUnpublish(opts)
+      update    -> cmd::depsUpdate(opts)
 
 [sub-flags]
-fmt: check = false       # flag --check para o comando fmt
-deps: add: force = false  # sub-flag do subcomando 'add' dentro de 'deps'
+check: h | help = false
+build: h | help = false
+run: h | help = false
+execute: h | help = false
+test: h | help = false
+docs: h | help = false
+repl: h | help = false
+create: h | help = false
+clean: h | help = false
+completion: h | help = false
+compile: h | help = false
+fmt: help = false
+fmt: check = false
+deps: h | help = false
+deps: add: h | help = false
+deps: add: force = false
+deps: check: h | help = false
+deps: remove: h | help = false
+deps: list: h | help = false
+deps: publish: h | help = false
+deps: unpublish: h | help = false
+deps: update: h | help = false
+
+[command-args]
+deps.add.package      : string = ""
+deps.check.package    : string = ""
+deps.remove.package   : string = ""
+deps.list.package     : string = ""
+deps.publish.package  : string = ""
+deps.unpublish.package: string = ""
+deps.update.package   : string = ""

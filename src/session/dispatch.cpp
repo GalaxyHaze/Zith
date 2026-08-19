@@ -1,4 +1,5 @@
 #include "frontend/lexer/lexer.hpp"
+#include "frontend/parser/parse.hpp"
 #include "session/dispatch.hpp"
 #include "session/session.hpp"
 
@@ -33,6 +34,33 @@ common::memory::Result<LexedResult> dispatch<Stage::Lexed>(CompilationSession &s
     }
 
     return generated_lexer::tokenize(loc->get().slice(), context.interner);
+}
+
+template <>
+common::memory::Result<ParsedResult> dispatch<Stage::Parsed>(CompilationSession &session) {
+    auto &context = session.context();
+    if (!session.hasStageResult<Stage::Lexed>())
+        return common::memory::Error{"Parsed: missing Lexed result"};
+    if (!context.sourceMap.exists(context.fileId))
+        return common::memory::Error{"Parsed: missing source"};
+
+    const auto loc = context.sourceMap.get(context.fileId);
+    if (!loc)
+        return common::memory::Error{"Parsed: missing source"};
+
+    auto tokens = generated_lexer::tokenize(loc->get().slice(), context.interner);
+
+    generated_parser::Parser<sample::ParseOutput> parser(context.arena);
+    sample::ParseOutput output =
+        hooks::parser::parseSource(parser, tokens, loc->get().slice());
+
+    for (const auto &diagnostic : output.diagnostics) {
+        session.diags().push(Diagnostic{
+            .span = common::memory::SourceSpan{context.fileId, diagnostic.span},
+            .message = diagnostic.message,
+        });
+    }
+    return common::memory::Result<ParsedResult>{std::move(output)};
 }
 
 template <>

@@ -71,6 +71,7 @@ add_executable(parser-test
 
 target_link_libraries(parser-test PRIVATE
     zct_frontend_parser
+    zct_frontend_ast
     zct_frontend_lexer
     zct_common
 )

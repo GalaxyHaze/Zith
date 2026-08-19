@@ -2,10 +2,29 @@
 
 ## Purpose
 
-The parser helper generates a declarative token-driven parser from `parser.rules`.
-The generated `Parser<Output>` owns cursor navigation, context-stack handling, rule
-matching, diagnostics, and action dispatch while handwritten hooks implement syntax
-behavior in `actions.cpp`.
+The parser helper generates a stable token-cursor and recovery surface from
+`parser.rules`. The generated `Parser<Output>` owns cursor navigation,
+diagnostics, and the `TopLevel` dispatch loop. Zith's recursive grammar lives in
+handwritten `actions.cpp`; `hooks::parser::parseSource()` drives the parsed
+surface directly and builds generated AST nodes instead of relying on generated
+rule-by-rule reductions.
+
+The showcase parser recognizes source-located import declarations:
+
+```text
+import parent/sample;
+import parent/sample/ as Dir;
+from parent/sample { render as draw, log };
+export parent/sample(2);
+import "stdio.h" { printf };
+import assets/dat.json as Json;
+import asset assets/dat.json as Json;
+```
+
+Import parsing records the raw path, path segments/spans, selector aliases, form flags,
+asset/header classification, depth, and declaration span in `sample::ParseOutput.imports`.
+It only performs syntax validation; filesystem and `parent/sample`
+file-vs-folder decisions remain resolver-owned.
 
 ## Files
 
@@ -21,10 +40,11 @@ behavior in `actions.cpp`.
 
 ## Rules Syntax
 
-`[contexts]` declares every valid context and derives `ParserState` from it. `TopLevel` is required.
-`[parser]` declares the C++ types visible to generated code and used by `types.hpp`. Each
-`[context Name parent=...]` section contains token rules; `parent=` names the exact stack chain
-under which that context applies.
+`[parser]` declares the C++ types visible to generated code and used by
+`types.hpp`. `[contexts]` currently declares the single stable `TopLevel`
+context; every input token kind routes to `hooks::parser::top()`, which is a
+no-op. The recursive parse is initiated inline by `parseSource()` and consumes
+`parser.tokenStream()` directly.
 
 ```text
 [parser]
@@ -33,62 +53,18 @@ output: sample::ParseOutput
 diagnostic: sample::ParserDiagnostic
 tokenStream: generated_lexer::TokenStream
 end: Token::End
-onError: hooks::parser::recover()
 
 [contexts]
 TopLevel
-Module
-
-[context TopLevel]
-Fn lexeme="fn" push=Module action=hooks::parser::beginModule()
-
-[context Module parent=TopLevel]
-Identifier lexeme="name"
 ```
 
-Rule syntax is `kind[, kind...] [lexeme="..."] [punc="..."] [push=Context] [pop=Context]
-[action=hooks::parser::foo()]`.
+The generator still supports the declarative rule forms (`kind`,
+`lexeme=`, `punc=`, `push=`, `pop=`, `action=`, context parents, builders, and
+`onError`) for smaller parsers. Zith uses only the `TopLevel` dispatch surface
+by design; grammar behavior is in `actions.cpp`.
 
-- `kind` may be one or more token kinds separated by commas.
-- `lexeme=` and `punc=` filter on the current token when present.
-- `push=` and `pop=` change the context stack after a successful action. `TopLevel` is never
-  removed, and `pop=` only applies when the current top equals the listed state.
-- `action=` names a hook declared in `actions.hpp` and implemented in `actions.cpp`.
-- `builder=true` on a context enables the parser's `OutputBuilder` for hooks attached to that
-  context and requires every enabled context to have at least one rule action.
-
-Context declarations:
-
-- `[parser] end: Token::End` makes `End` terminate the stream silently in every context before local
-  rules run. Omitting it keeps the previous per-context `End` rules.
-- `[parser] onError: hooks::parser::recover()` installs a `Recovery recover(Parser &, const Token &)`
-  hook. `Recovery::Skip` advances the token without adding the automatic `unexpected token`
-  diagnostic; `Recovery::Abort` stops the parse. If `Parser::abort()` was called by a hook, parse
-  stops even when recovery returns `Skip`.
-- `[context Name parent=A,B]` matches only when the current stack is `Name,A,B` from top to bottom.
-  Parent chains are explicit, may only name contexts declared in `[contexts]`, and may not overlap
-  with another section of the same child.
-- `[parser] builder: CustomBuilder<Output>` selects a custom builder type when at least one context
-  uses `builder=true`. Without it, the generated parser uses
-  `common::parser::OutputBuilder<Output>`.
-
-`OutputBuilder` owns a stack of `Output` values. Hooks can build a tree by pushing values, then
-calling `builder().attach()` or `builder().close(N)`. `attach(parent, child)` is found by ADL in
-the user's output type namespace and must be available whenever the builder is enabled:
-
-```cpp
-namespace sample {
-struct ParseOutput {
-    int count = 0;
-};
-
-void attach(ParseOutput &parent, ParseOutput child) {
-    parent.count += child.count;
-}
-} // namespace sample
-```
-
-Generated action signatures use concrete aliases plus the configured output type:
+Generated action signatures use concrete aliases plus the configured output
+type:
 
 ```cpp
 using Parser = generated_parser::Parser<sample::ParseOutput>;
@@ -111,6 +87,11 @@ The generated `Parser<Output>` exposes:
 - diagnostics and output: `diag`, `diagnostics`, `error`, `output`, `setOutput`.
 - builder state: `builder()` returning the configured `BuilderAlias` when `builder=true` is used.
 - `parse(TokenStream &, Input source = {})` returning `common::memory::Result<Output, Diagnostic>`.
+
+`hooks::parser::parseSource(parser, tokens, source)` is the showcase entry point:
+it resets the parser on the given token stream, builds `Program` nodes, records
+recoverable diagnostics in `sample::ParseOutput`, and leaves the generated loop
+untouched.
 
 ## Regenerate
 
@@ -135,9 +116,8 @@ modify `generate.py` or shared generator rules without explicit user approval.
 
 ## Demo
 
-`tests/frontend/parser-demo.cpp` defines local `hooks::parser` action/recovery implementations for
-the current generated rules and parses three supported snippets: `alpha`, `module alpha ;`, and
-`fn def [ * ] ;`. It prints the parse status, output count, and context stack size.
+`tests/frontend/parser-demo.cpp` parses the base showcase grammar and the import
+forms, then prints the parse status, declaration count, and import count.
 
 ```bash
 cmake --build build --target parser-demo -j

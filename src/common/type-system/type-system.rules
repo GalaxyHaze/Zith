@@ -1,0 +1,73 @@
+# ZCT type-system helper declarative structure.
+#
+# [types] declares the builtin type catalogue. [coercions], [casts] and
+# [common] declare static tables for well-known builtin rows. Behavior for
+# custom and operator rows stays in the handwritten TypeContext registry.
+
+[metadata]
+name = "toolkit-types"
+version = 1
+
+[types]
+void    : primitive
+bool    : primitive
+char    : primitive
+i1      : integer bits=1 signed
+i8      : integer bits=8 signed
+i16     : integer bits=16 signed
+i32     : integer bits=32 signed
+i64     : integer bits=64 signed
+u8      : integer bits=8
+u16     : integer bits=16
+u32     : integer bits=32
+u64     : integer bits=64
+f32     : float bits=32
+f64     : float bits=64
+string  : opaque
+ptr     : pointer
+array   : array
+slice   : slice
+fn      : function
+opt     : optional
+struct  : nominal
+enum    : nominal
+union   : nominal
+userdef : userdef
+
+[coercions]
+i8  -> i16 = implicit
+i16 -> i32 = implicit
+i32 -> i64 = implicit
+i8  -> i32 = implicit
+i8  -> i64 = implicit
+i16 -> i64 = implicit
+bool -> i8 = implicit
+bool -> i32 = implicit
+char -> i32 = implicit
+char -> i64 = implicit
+f32 -> f64 = implicit
+i8  -> f32 = implicit
+i16 -> f32 = implicit
+i32 -> f64 = implicit
+i64 -> f64 = explicit
+i32 -> f32 = explicit
+
+[casts]
+i32 -> i8  = trunc
+i64 -> i32 = trunc
+i32 -> f32 = round
+f64 -> i32 = trunc
+u32 -> u64 = zero_extend
+
+[common]
+i8   , i16 = i16
+i16  , i32 = i32
+i32  , i64 = i64
+i8   , i32 = i32
+i8   , f32 = f32
+i16  , f32 = f32
+i32  , f64 = f64
+bool , i64 = i64
+char , i32 = i32
+char , i64 = i64
+f32  , f64 = f64

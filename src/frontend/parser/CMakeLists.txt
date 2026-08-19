@@ -28,6 +28,7 @@ add_custom_target(zct_frontend_parser_generated DEPENDS ${_zct_parser_generated}
 
 add_library(zct_frontend_parser STATIC
     "${CMAKE_BINARY_DIR}/src/frontend/parser/parser.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/actions.cpp"
 )
 
 target_include_directories(zct_frontend_parser PUBLIC
@@ -49,6 +50,7 @@ add_executable(parser-demo
 
 target_link_libraries(parser-demo PRIVATE
     zct_frontend_parser
+    zct_frontend_ast
     zct_frontend_lexer
     zct_common
 )

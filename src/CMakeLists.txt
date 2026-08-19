@@ -24,6 +24,7 @@ add_custom_target(zct_generate_sources
         zct_cache_generated
         zct_session_generated
         zct_facts_generated
+        zct_type_system_generated
 )
 
 add_subdirectory(app)

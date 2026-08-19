@@ -50,6 +50,16 @@ toolkit::session::dispatch<Stage::Lexed>(CompilationSession &session) {
 }
 
 template <>
+common::memory::Result<toolkit::session::ParsedResult>
+toolkit::session::dispatch<Stage::Parsed>(CompilationSession &session) {
+    if (!session.hasStageResult<Stage::Lexed>()) {
+        return common::memory::Error{"parser ran without a Lexed result"};
+    }
+    record(Stage::Parsed);
+    return sample::ParseOutput{};
+}
+
+template <>
 common::memory::Result<toolkit::session::ScannedResult>
 toolkit::session::dispatch<Stage::Scanned>(CompilationSession &session) {
     if (!session.hasStageResult<Stage::Lexed>()) {
@@ -125,6 +135,7 @@ int main() {
     Stage stages[] = {
         Stage::Source,
         Stage::Lexed,
+        Stage::Parsed,
         Stage::Scanned,
         Stage::Imported,
         Stage::Resolved,
@@ -135,7 +146,7 @@ int main() {
         Stage::CodegenReady,
         Stage::Cached,
     };
-    constexpr size_t stageCount = 11;
+    constexpr size_t stageCount = 12;
 
     PipelinePlan plan;
     ok &= check(plan.current == Stage::Source, "default current stage is Source");
@@ -193,6 +204,14 @@ int main() {
     ok &= check(
         session.stageResult<Stage::Lexed>().value().empty() == false,
         "Scanned stage sees the token stream produced by Lexed"
+    );
+    ok &= check(
+        session.hasStageResult<Stage::Parsed>(),
+        "Parsed stage result is stored"
+    );
+    ok &= check(
+        session.stageResult<Stage::Parsed>().isOk(),
+        "Parsed stage result accessor returns success"
     );
 
     toolkit::session::ZithSessionContext failedContext;

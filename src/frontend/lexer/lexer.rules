@@ -6,21 +6,48 @@
     hexadecimal = true
     binary = true
     octal = true
-    punc = "{}()[]:;,"
-    operators = "+-*/%<>=!&|^"
-    compound = ["==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", ">>=", "<<="]
+    punc = "{}()[]:;,.@`"
+    operators = "+-*/%=<>!&|^~?$"
+    compound = ["->", "..", "==", "!=", "<=", ">=", "<<=", ">>=",
+                "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=",
+                "&.", "|.", "^.", "&&", "||", "~>", ":=", "..."]
     comments = [single = "//", multi = ["/*", "*/"] ]
 
 [keywords]
+    As = "as"
+    Using = ["use", "import", "from", "export", "asset"]
+    Type = ["type", "alias", "auto", "dyn", "i8", "i16", "i32", "i64", "i128",
+            "u8", "u16", "u32", "u64", "u128", "f32", "f64", "bool", "char", "void"]
+    Struct = ["struct", "component"]
+    Typedef = ["enum", "union", "typedef", "true", "false", "null",
+               "unknown", "invalid", "never", "unsafe", "extends"]
     Fn = "fn"
-    Variable = "let"
-    Implement = "print"
-    Is = "true"
-    Word = "false"
+    Module = "mod"
+    Extern = "extern"
+    Macro = "macro"
+    Context = ["context", "with", "catch", "spawn", "await", "async"]
+    Variable = ["let", "var", "const", "global"]
+    Ownership = ["lend", "share", "view", "unique", "belong"]
+    Yield = ["return", "break", "continue", "yield"]
+    Label = ["marker", "stackful", "dock", "jump", "tag"]
+    Visibility = "pub"
     If = "if"
     Else = "else"
-    Control = "while"
-    Yield = "return"
+    For = ["for", "in"]
+    When = ["when", "match"]
+    Control = ["while", "flow"]
+    Error = ["throw", "fail"]
+    Drop = "drop"
+    Require = "require"
+    Must = "must"
+    Is = "is"
+    Raw = "raw"
+    Mutable = "mut"
+    Trait = "trait"
+    Interface = "interface"
+    Implement = ["implement", "impl"]
+    Word = ["word", "prefix", "suffix", "infix", "nop"]
+    Logical = ["and", "or", "not", "xor"]
 #lexer -> add methods & fields
 [lexer]
 [hooks] #onLexer offLexer, onToken

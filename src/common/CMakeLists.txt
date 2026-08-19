@@ -15,6 +15,8 @@ add_subdirectory(import)
 
 add_subdirectory(sir)
 
+add_subdirectory(type-system)
+
 target_link_libraries(zct_common PUBLIC
     zct_diagnostic
 )

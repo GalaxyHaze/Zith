@@ -5,6 +5,8 @@ add_executable(session-test
 target_link_libraries(session-test PRIVATE
     zct_session_core
     zct_frontend_lexer
+    zct_frontend_ast
+    zct_frontend_parser
     zct_common
 )
 

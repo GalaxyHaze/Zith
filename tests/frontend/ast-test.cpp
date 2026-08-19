@@ -8,9 +8,7 @@
 
 using generated_ast::AstNode;
 using generated_ast::AstRoot;
-using generated_ast::CallExpr;
 using generated_ast::Expr;
-using generated_ast::LiteralExpr;
 using generated_ast::Program;
 
 namespace {
@@ -36,18 +34,20 @@ int main() {
     common::memory::Arena arena;
     AstRoot ast(arena);
 
-    Expr *callee = generated_ast::make<Expr>(ast, Span{6, 7});
-    LiteralExpr *literal =
-        generated_ast::make<LiteralExpr>(ast, Span{1, 2}, "answer");
-    CallExpr *call =
-        generated_ast::make<CallExpr>(ast, Span{0, 6}, literal, "call");
+    Expr *callee = generated_ast::make<Expr>(
+        ast, Span{6, 7}, 0, "", "callee", nullptr);
+    Expr *literal = generated_ast::make<Expr>(
+        ast, Span{1, 2}, 0, "", "answer", nullptr);
+    Expr *call = generated_ast::make<Expr>(
+        ast, Span{0, 6}, 0, "", "call", nullptr);
 
     if (callee == nullptr || literal == nullptr || call == nullptr)
         return EXIT_FAILURE;
 
-    call->arguments.push(static_cast<AstNode *>(callee));
+    call->operands.push(static_cast<AstNode *>(literal));
+    call->operands.push(static_cast<AstNode *>(callee));
 
-    Program *program = generated_ast::make<Program>(ast);
+    Program *program = generated_ast::make<Program>(ast, Span{0, 7});
     if (program == nullptr)
         return EXIT_FAILURE;
     program->body.push(static_cast<AstNode *>(call));
@@ -82,10 +82,9 @@ int main() {
 
     const std::string text = capture_print(ast);
     if (text.find("Program") == std::string::npos ||
-        text.find("CallExpr") == std::string::npos ||
-        text.find("LiteralExpr") == std::string::npos ||
-        text.find("name=call") == std::string::npos ||
-        text.find("valueText=answer") == std::string::npos)
+        text.find("text=callee") == std::string::npos ||
+        text.find("text=call") == std::string::npos ||
+        text.find("text=answer") == std::string::npos)
         return EXIT_FAILURE;
 
     AstRoot moved{std::move(ast)};

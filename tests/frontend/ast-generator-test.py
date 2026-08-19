@@ -39,20 +39,15 @@ def compile_ast_smoke(repo_root: Path, compiler: str, include_root: Path) -> Non
 
 VALID_RULES = """\
 [Program]
+span: Span
 body: common::memory::DynArray<Expr> = children
 
 [Expr]
 span: Span
-
-[LiteralExpr]
-span: Span
-valueText: std::string_view
-
-[CallExpr]
-span: Span
-callee: Expr = child
-name: std::string_view
-arguments: common::memory::DynArray<Expr> = children
+kind: int
+op: std::string_view
+text: std::string_view
+operands: common::memory::DynArray<Expr> = children
 """
 
 UNKNOWN_SECTION = """\
@@ -125,12 +120,18 @@ int main() {
     common::memory::Arena arena;
     generated_ast::AstRoot ast(arena);
     generated_ast::Expr *callee =
-        generated_ast::make<generated_ast::Expr>(ast, Span{0, 0});
-    generated_ast::CallExpr *call = generated_ast::make<generated_ast::CallExpr>(
-        ast, Span{0, 1}, callee, "f");
-    generated_ast::Program *program = generated_ast::make<generated_ast::Program>(ast);
+        generated_ast::make<generated_ast::Expr>(
+            ast, Span{0, 0}, 0, "", "callee");
+    generated_ast::Expr *literal = generated_ast::make<generated_ast::Expr>(
+        ast, Span{0, 1}, 0, "", "42");
+    generated_ast::Expr *call = generated_ast::make<generated_ast::Expr>(
+        ast, Span{0, 1}, 0, "", "f");
+    generated_ast::Program *program =
+        generated_ast::make<generated_ast::Program>(ast, Span{0, 1});
     if (call == nullptr || program == nullptr)
         return 1;
+    call->operands.push(callee);
+    call->operands.push(literal);
     program->body.push(static_cast<generated_ast::AstNode *>(call));
     ast.root = program;
 
@@ -177,8 +178,8 @@ int main() {
     char buffer[512];
     const size_t n = std::fread(buffer, 1, sizeof(buffer), out);
     std::fclose(out);
-    if (std::strstr(buffer, "CallExpr") == nullptr ||
-        std::strstr(buffer, "Program") == nullptr)
+    if (std::strstr(buffer, "Program") == nullptr ||
+        std::strstr(buffer, "text=f") == nullptr)
         return 4;
 
     generated_ast::AstRoot moved(std::move(ast));

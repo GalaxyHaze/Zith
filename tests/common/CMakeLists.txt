@@ -99,3 +99,5 @@ add_test(
 )
 
 add_subdirectory(sir)
+
+add_subdirectory(type-system)

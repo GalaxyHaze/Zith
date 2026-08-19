@@ -67,7 +67,8 @@ add_test(
     COMMAND "${CMAKE_COMMAND}"
             -DPROGRAM=$<TARGET_FILE:zithc>
             -DARGS=deps\;add\;pkg
-            -DEXPECTED_EXIT=0
+            -DEXPECTED_EXIT=1
+            -DEXPECT_STDERR_1=deps\ add:\ this\ command\ is\ not\ wired
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-cli-check.cmake"
 )
 

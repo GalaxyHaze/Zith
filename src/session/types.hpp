@@ -4,6 +4,7 @@
 #include "common/memory/source-map.hpp"
 #include "common/memory/string-interner.hpp"
 #include "frontend/lexer/lexer.hpp"
+#include "frontend/parser/types.hpp"
 
 #include <string_view>
 

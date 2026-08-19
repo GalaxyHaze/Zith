@@ -314,8 +314,7 @@ int main() {
     });
 
     ok &= expect_tokens("arrow-from-rules", "->", {
-        {TokenKind::Operators, "-", '-'},
-        {TokenKind::Operators, ">", '>'},
+        {TokenKind::Operators, "->"},
         {TokenKind::End, ""},
     });
     ok &= expect_tokens("compound-operators", "+= >>= <<=", {
@@ -324,9 +323,42 @@ int main() {
         {TokenKind::Operators, "<<="},
         {TokenKind::End, ""},
     });
+    ok &= expect_tokens("compound-assign-all", "+= -= *= /= %= <<= >>= &= |= ^=", {
+        {TokenKind::Operators, "+="},
+        {TokenKind::Operators, "-="},
+        {TokenKind::Operators, "*="},
+        {TokenKind::Operators, "/="},
+        {TokenKind::Operators, "%="},
+        {TokenKind::Operators, "<<="},
+        {TokenKind::Operators, ">>="},
+        {TokenKind::Operators, "&="},
+        {TokenKind::Operators, "|="},
+        {TokenKind::Operators, "^="},
+        {TokenKind::End, ""},
+    });
+    ok &= expect_tokens("bitwise-compound-maximal-munch", "&=", {
+        {TokenKind::Operators, "&="},
+        {TokenKind::End, ""},
+    });
+    ok &= expect_tokens("arrow-maximal-munch", "->", {
+        {TokenKind::Operators, "->"},
+        {TokenKind::End, ""},
+    });
     ok &= expect_tokens("single-char-punc", "+;", {
         {TokenKind::Operators, "+", '+'},
         {TokenKind::Punctuation, ";", ';'},
+        {TokenKind::End, ""},
+    });
+    ok &= expect_tokens("import-keywords", "import from export asset as", {
+        {TokenKind::Using, "import"},
+        {TokenKind::Using, "from"},
+        {TokenKind::Using, "export"},
+        {TokenKind::Using, "asset"},
+        {TokenKind::As, "as"},
+        {TokenKind::End, ""},
+    });
+    ok &= expect_tokens("dotdot-operator", "..", {
+        {TokenKind::Operators, ".."},
         {TokenKind::End, ""},
     });
 

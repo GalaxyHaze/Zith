@@ -37,6 +37,7 @@ target_include_directories(zct_cli PUBLIC
 
 target_link_libraries(zct_cli PRIVATE
     zct_session
+    zct_sir_flat
 )
 
 add_dependencies(zct_cli zct_cli_generated)

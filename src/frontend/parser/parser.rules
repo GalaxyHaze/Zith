@@ -1,17 +1,10 @@
 # ZCT generic parser helper rules for the Zith showcase.
 #
 # [parser] declares the user-owned input/output/diagnostic/token types used by
-# the generated `Parser<Output>` template. `tokenStream` must name the
-# generated lexer `TokenStream` type. `end` names the token that terminates the
-# stream in every context; `onError` optionally installs a recovery hook.
-# `builder:` optionally selects a custom builder type when a `[context]`
-# declares `builder=true`.
-# [contexts] lists every valid parser context; `TopLevel` is required and is
-# the initial stack value.
-# A `[context Name parent=Other,...]` section lists rules matched in
-# declaration order:
-#   kind[, kind...] [lexeme="..."] [punc="..."]
-#       [push=Context] [pop=Context] [action=hooks::parser::foo()]
+# the generated `Parser<Output>` template. The generated loop remains the token
+# cursor and context driver. All recursive Zith grammar lives in handwritten
+# `src/frontend/parser/actions.cpp`; this file only keeps a stable TopLevel
+# dispatch surface and parser state for recovery runs.
 
 [parser]
 input: std::string_view
@@ -19,44 +12,58 @@ output: sample::ParseOutput
 diagnostic: sample::ParserDiagnostic
 tokenStream: generated_lexer::TokenStream
 end: Token::End
-onError: hooks::parser::recover()
 
 [contexts]
 TopLevel
-Module
-Expr
-Type
 
-[state Module]
-name: std::string_view
-nested: int
+[state TopLevel]
+garbageStart: int
+garbageEnd: int
+garbageActive: bool
+isExternPending: bool
 
 [context TopLevel]
-Fn lexeme="fn" push=Module action=hooks::parser::beginModule()
-Identifier action=hooks::parser::sawTopIdentifier()
-Punctuation punc=";" action=hooks::parser::sawSemi()
-Punctuation punc="(" push=Type action=hooks::parser::enterType()
-
-[context Module parent=TopLevel]
-Identifier lexeme="module" action=hooks::parser::moduleName()
-Fn, Identifier lexeme="def"
-Identifier action=hooks::parser::globalName()
-Punctuation punc=":"
-Punctuation punc="[" push=Expr
-Punctuation punc=";" pop=Module
-
-[context Expr parent=TopLevel]
-Identifier action=hooks::parser::leafExpr()
-LitVal action=hooks::parser::leafExpr()
-Operators punc="+" action=hooks::parser::binaryExpr()
-Operators punc="-" action=hooks::parser::unaryExpr()
-Punctuation punc=")" pop=Expr
-
-[context Expr parent=Module,TopLevel]
-Operators punc="*"
-Punctuation punc="]" pop=Expr
-
-[context Type parent=TopLevel]
-Identifier action=hooks::parser::typeName()
-Punctuation punc="["
-Punctuation punc="]" pop=Type
+Identifier action=hooks::parser::top()
+LitVal action=hooks::parser::top()
+Operators action=hooks::parser::top()
+Punctuation action=hooks::parser::top()
+As action=hooks::parser::top()
+Using action=hooks::parser::top()
+Type action=hooks::parser::top()
+Struct action=hooks::parser::top()
+Raw action=hooks::parser::top()
+Must action=hooks::parser::top()
+Mutable action=hooks::parser::top()
+Trait action=hooks::parser::top()
+Interface action=hooks::parser::top()
+Typedef action=hooks::parser::top()
+Implement action=hooks::parser::top()
+Fn action=hooks::parser::top()
+Module action=hooks::parser::top()
+Extern action=hooks::parser::top()
+Macro action=hooks::parser::top()
+Context action=hooks::parser::top()
+Variable action=hooks::parser::top()
+Ownership action=hooks::parser::top()
+Yield action=hooks::parser::top()
+Label action=hooks::parser::top()
+Visibility action=hooks::parser::top()
+If action=hooks::parser::top()
+Else action=hooks::parser::top()
+For action=hooks::parser::top()
+In action=hooks::parser::top()
+When action=hooks::parser::top()
+Match action=hooks::parser::top()
+Control action=hooks::parser::top()
+Thread action=hooks::parser::top()
+Error action=hooks::parser::top()
+Drop action=hooks::parser::top()
+Require action=hooks::parser::top()
+Is action=hooks::parser::top()
+Word action=hooks::parser::top()
+Logical action=hooks::parser::top()
+Comparison action=hooks::parser::top()
+Comments action=hooks::parser::top()
+Docs action=hooks::parser::top()
+Annotation action=hooks::parser::top()
+Unknown action=hooks::parser::top()
