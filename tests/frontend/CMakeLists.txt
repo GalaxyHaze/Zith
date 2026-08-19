@@ -37,6 +37,13 @@ target_link_libraries(lexer-perf-smoke PRIVATE
 
 add_dependencies(lexer-perf-smoke zct_frontend_lexer_generated)
 
+add_test(
+    NAME lexer-perf-smoke-quick
+    COMMAND lexer-perf-smoke --quick
+)
+
+set_tests_properties(lexer-perf-smoke-quick PROPERTIES LABELS "benchmark")
+
 add_executable(ast-test
     ast-test.cpp
 )

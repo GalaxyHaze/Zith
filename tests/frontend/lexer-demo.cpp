@@ -1,14 +1,9 @@
 #include "frontend/lexer/lexer.hpp"
 
-#include "common/memory/arena.hpp"
-#include "common/memory/string-interner.hpp"
-
 #include <cstdlib>
 #include <iostream>
 #include <string_view>
 
-using common::memory::Arena;
-using common::memory::StringInterner;
 using generated_lexer::Lexer;
 using generated_lexer::Token;
 using generated_lexer::TokenKind;
@@ -27,18 +22,17 @@ void printToken(std::string_view lexeme, const Token &token) {
 } // namespace
 
 int main() {
-    constexpr std::string_view source =
+    const std::string_view source =
         "fn main(x) { return \"hi\"; }\n0x2A else -> if";
 
-    Arena arena;
-    StringInterner interner(arena);
     Lexer lexer;
-    const TokenStream tokens = lexer.run(source, interner);
+    const TokenStream tokens = lexer.run(source);
 
     std::size_t count = 0;
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         const Token &token = tokens[index];
-        const std::string_view lexeme = tokens.lexeme(token);
+        const std::string_view lexeme =
+            source.substr(token.span.start, token.span.end - token.span.start);
         printToken(lexeme, token);
         ++count;
     }

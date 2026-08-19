@@ -17,11 +17,11 @@ int main() {
     auto *program = generated_ast::make<generated_ast::Program>(
         ast, Span{0, 8});
     auto *literal = generated_ast::make<generated_ast::Expr>(
-        ast, Span{0, 1}, 0, "", "42", nullptr);
+        ast, Span{0, 1}, 0, "", "42", nullptr, nullptr);
     auto *expr = generated_ast::make<generated_ast::Expr>(
-        ast, Span{0, 1}, 0, "", "answer", nullptr);
+        ast, Span{0, 1}, 0, "", "answer", nullptr, nullptr);
     auto *call = generated_ast::make<generated_ast::Expr>(
-        ast, Span{0, 8}, 0, "", "answer", nullptr);
+        ast, Span{0, 8}, 0, "", "answer", nullptr, nullptr);
 
     call->operands.push(expr);
     call->operands.push(literal);

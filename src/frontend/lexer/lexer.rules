@@ -29,7 +29,7 @@
     Variable = ["let", "var", "const", "global"]
     Ownership = ["lend", "share", "view", "unique", "belong"]
     Yield = ["return", "break", "continue", "yield"]
-    Label = ["marker", "stackful", "dock", "jump", "tag"]
+    Label = ["marker", "stackful", "dock", "jump", "tag", "state", "enter", "leave"]
     Visibility = "pub"
     If = "if"
     Else = "else"

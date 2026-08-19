@@ -84,6 +84,9 @@ TOKEN_KINDS = [
     "End",
 ]
 
+# Map TokenKind name -> ordinal position in the TOKEN_KINDS list.
+_TOKEN_ORDINAL = {name: i for i, name in enumerate(TOKEN_KINDS)}
+
 PREFIX_DEFAULTS = {
     "hexadecimal": "0x",
     "binary": "0b",
@@ -147,6 +150,15 @@ class TokenSpec:
         return parse_quoted(value, line_no)
 
 
+
+@dataclass
+class KeywordEntry:
+    kind: str
+    word: str
+    length: int
+    packed: int          # LE uint64_t
+    tail: int            # 9th byte (0 for len <= 8)
+    token_ordinal: int   # position in TOKEN_KINDS
 @dataclass
 class Member:
     name: str
@@ -180,6 +192,7 @@ class Hook:
 class LexerConfig:
     tokens: dict[str, TokenSpec]
     keywords: list[tuple[str, str]]
+    keyword_entries: list[KeywordEntry]
     lexer_members: list[Member]
     token_members: list[Member]
     on_lex: Hook | None
@@ -264,7 +277,7 @@ def parse_rules(text: str, path: Path) -> LexerConfig:
             if "=" not in line:
                 raise RuleError(line_no, f"keyword invalida: {line!r}")
             kind, rhs = (part.strip() for part in line.split("=", 1))
-            if kind not in TOKEN_KINDS:
+            if kind not in _TOKEN_ORDINAL:
                 raise RuleError(line_no, f"TokenKind desconhecido: {kind!r}")
             if rhs.startswith("[") and rhs.endswith("]"):
                 values = parse_string_list(rhs[1:-1], line_no)
@@ -305,17 +318,51 @@ def parse_rules(text: str, path: Path) -> LexerConfig:
     if identifier is None or identifier.kind != "bool" or not identifier.enabled:
         raise RuleError(1, "token 'identifier' tem de estar habilitado")
 
+    # --- Validation: duplicates and ASCII ---
+    seen: dict[str, tuple[str, int]] = {}
+    for kind, word in keywords:
+        if word in seen:
+            prev_kind, prev_line = seen[word]
+            raise RuleError(
+                line_no,
+                f"keyword duplicada {word!r}: "
+                f"primeiro uso como {prev_kind!r} (linha {prev_line}), "
+                f"agora como {kind!r}",
+            )
+        seen[word] = (kind, line_no)
+        for ch in word:
+            if ord(ch) >= 128:
+                raise RuleError(
+                    line_no,
+                    f"keyword {word!r} contem caractere nao-ASCII {ch!r}",
+                )
+
+    # --- Build keyword entries (pre-compute packed values) ---
+    keyword_entries: list[KeywordEntry] = []
+    for kind, word in keywords:
+        raw = word.encode("ascii")
+        length = len(word)
+        packed = 0
+        for i_b, b in enumerate(raw[:8]):
+            packed |= b << (i_b * 8)
+        tail = raw[8] if length >= 9 else 0
+        keyword_entries.append(
+            KeywordEntry(
+                kind=kind, word=word, length=length, packed=packed,
+                tail=tail, token_ordinal=_TOKEN_ORDINAL[kind],
+            )
+        )
+
     return LexerConfig(
         tokens=tokens,
         keywords=keywords,
+        keyword_entries=keyword_entries,
         lexer_members=lexer_members,
         token_members=token_members,
         on_lex=hooks.get("onLex"),
         off_lex=hooks.get("offLex"),
         on_token=hooks.get("onToken"),
     )
-
-
 def build_perfect_hash(keywords: list[tuple[str, str]]) -> tuple[list[int], list[int]]:
     words = [word for _, word in keywords]
     buckets: list[list[int]] = [[] for _ in range(BUCKET_COUNT)]
@@ -324,15 +371,21 @@ def build_perfect_hash(keywords: list[tuple[str, str]]) -> tuple[list[int], list
 
     for bucket in buckets:
         if len(bucket) > MAX_BUCKET_ITEMS:
-            raise ValueError("perfect hash bucket overflow")
+            raise RuleError(1, "perfect hash bucket overflow (>16 keywords per bucket)")
 
     seeds = [0] * BUCKET_COUNT
     table = [-1] * TABLE_SIZE
-    for bucket_index, bucket in enumerate(buckets):
+    # Sort buckets: largest first, tie-break on lowest bucket index for determinism.
+    bucket_order = sorted(
+        range(BUCKET_COUNT), key=lambda bi: (-len(buckets[bi]), bi)
+    )
+
+    for bucket_index in bucket_order:
+        bucket = buckets[bucket_index]
         if not bucket:
             continue
         placed = False
-        for seed in range(255):
+        for seed in range(256):
             slots: dict[int, int] = {}
             ok = True
             for keyword_index in bucket:
@@ -349,7 +402,7 @@ def build_perfect_hash(keywords: list[tuple[str, str]]) -> tuple[list[int], list
                 placed = True
                 break
         if not placed:
-            raise ValueError("perfect hash placement failed; increase TableSize")
+            raise RuleError(1, "perfect hash placement failed; increase TableSize")
     return seeds, table
 
 
@@ -364,11 +417,10 @@ def make_bool_table(enabled: set[int]) -> list[int]:
     return [1 if index in enabled else 0 for index in range(256)]
 
 
-def make_keyword_header(keywords: list[tuple[str, str]]) -> str:
+def make_keyword_header(
+    keywords: list[tuple[str, str]], entries: list[KeywordEntry],
+) -> str:
     seeds, table = build_perfect_hash(keywords)
-    table_entries = ", ".join(
-        f'{{"{word}", TokenKind::{kind}}}' for kind, word in keywords
-    )
     lines = [
         "#pragma once",
         '#include "lexer.hpp"',
@@ -377,7 +429,6 @@ def make_keyword_header(keywords: list[tuple[str, str]]) -> str:
         "#include <cstddef>",
         "#include <cstdint>",
         "#include <string_view>",
-        "#include <utility>",
         "",
         "namespace generated_lexer {",
         "namespace detail {",
@@ -398,64 +449,94 @@ def make_keyword_header(keywords: list[tuple[str, str]]) -> str:
         "    return x;",
         "}",
         "",
-        f"constexpr std::array<std::pair<std::string_view, TokenKind>, {len(keywords)}>",
-        f"    keyword_table = {{{{{table_entries}}}}};",
+        f"constexpr size_t BUCKET_COUNT = {BUCKET_COUNT};",
+        f"constexpr size_t TABLE_SIZE = {TABLE_SIZE};",
         "",
-        f"constexpr std::array<int16_t, {TABLE_SIZE}> hash_table = {{",
+        "struct KeywordMeta {",
+        "    uint8_t length;",
+        "    uint8_t token_kind;",
+        "    uint64_t packed;",
+        "    uint8_t tail;",
+        "};",
+        "",
+        f"constexpr std::array<KeywordMeta, {len(entries)}> keyword_meta = {{{{",
     ]
-    lines.extend(f"    {line}," for line in format_int_array(table))
-    lines.append(f"}};")
+    for entry in entries:
+        lines.append(
+            f"    {{{entry.length}, {entry.token_ordinal}, "
+            f"UINT64_C({entry.packed:#018x}), {entry.tail}}},"
+        )
+    lines.append("}};")
     lines.append("")
+
+    lines.append(f"constexpr std::array<int16_t, {TABLE_SIZE}> hash_table = {{")
+    lines.extend(f"    {line}," for line in format_int_array(table))
+    lines.append("};")
+    lines.append("")
+
     lines.append(f"constexpr std::array<uint8_t, {BUCKET_COUNT}> bucket_seed = {{")
     lines.extend(f"    {line}," for line in format_int_array(seeds))
-    lines.append(f"}};")
+    lines.append("};")
     lines.append("")
+
+    # Static verification that all keywords are placed correctly.
     lines.extend(
         [
-            "constexpr bool hasDuplicateKeywords() noexcept {",
-            "    for (size_t i = 0; i < keyword_table.size(); ++i)",
-            "        for (size_t j = i + 1; j < keyword_table.size(); ++j)",
-            "            if (keyword_table[i].first == keyword_table[j].first)",
-            "                return true;",
-            "    return false;",
-            "}",
-            "static_assert(!hasDuplicateKeywords(), \"keyword_table contains duplicate keywords\");",
-            "",
-            f"constexpr bool hasBucketOverflow() noexcept {{",
-            f"    std::array<uint8_t, {BUCKET_COUNT}> counts{{}};",
-            "    for (const auto &entry : keyword_table) {",
-            f"        const size_t b = hash64(entry.first) % {BUCKET_COUNT};",
-            f"        if (++counts[b] > {MAX_BUCKET_ITEMS})",
-            "            return true;",
-            "    }",
-            "    return false;",
-            "}",
-            'static_assert(!hasBucketOverflow(), "bucket overflow (>16 keywords per bucket)");',
-            "",
             "constexpr bool allKeywordsPlaced() noexcept {",
-            "    for (const auto &entry : keyword_table) {",
-            f"        const size_t b = hash64(entry.first) % {BUCKET_COUNT};",
-            f"        const size_t slot = mix64(hash64(entry.first) ^ bucket_seed[b]) % {TABLE_SIZE};",
+            f"    constexpr std::string_view spellings[{len(entries)}] = {{",
+        ]
+    )
+    for entry in entries:
+        lines.append(f'        "{entry.word}",')
+    lines.extend(
+        [
+            "    };",
+            "    for (size_t i = 0; i < keyword_meta.size(); ++i) {",
+            "        const uint64_t h = hash64(spellings[i]);",
+            "        const size_t b = h % BUCKET_COUNT;",
+            "        const size_t slot = mix64(h ^ bucket_seed[b]) % TABLE_SIZE;",
             "        const int16_t id = hash_table[slot];",
-            "        if (id < 0 || keyword_table[static_cast<size_t>(id)].first != entry.first)",
+            "        if (id < 0 || static_cast<size_t>(id) != i)",
             "            return false;",
             "    }",
             "    return true;",
             "}",
-            "static_assert(allKeywordsPlaced(), \"not all keywords placed in perfect hash\");",
+            'static_assert(allKeywordsPlaced(), "not all keywords placed in perfect hash");',
             "",
             "} // namespace detail",
             "",
             "inline TokenKind lookupKeyword(std::string_view sv) noexcept {",
+            "    using namespace detail;",
             "    if (sv.empty()) return TokenKind::Identifier;",
-            f"    const size_t b = detail::hash64(sv) % {BUCKET_COUNT};",
-            f"    const size_t slot =",
-            f"        detail::mix64(detail::hash64(sv) ^ detail::bucket_seed[b]) % {TABLE_SIZE};",
-            "    const int16_t id = detail::hash_table[slot];",
+            "    const uint64_t h = hash64(sv);",
+            "    const size_t b = h % BUCKET_COUNT;",
+            "    const size_t slot = mix64(h ^ bucket_seed[b]) % TABLE_SIZE;",
+            "    const int16_t id = hash_table[slot];",
             "    if (id < 0) return TokenKind::Identifier;",
-            "    return (detail::keyword_table[static_cast<size_t>(id)].first == sv)",
-            "               ? detail::keyword_table[static_cast<size_t>(id)].second",
-            "               : TokenKind::Identifier;",
+            "    const auto &m = keyword_meta[static_cast<size_t>(id)];",
+            "    if (m.length != sv.size()) return TokenKind::Identifier;",
+            "    if (m.length < 8) {",
+            "        // Copy exactly m.length bytes into a zeroed uint64_t.",
+            "        // m.length is [1,7]; sv.data() has >= m.length bytes",
+            "        // because sv.size() == m.length.",
+            "        uint64_t word = 0;",
+            "        __builtin_memcpy(&word, sv.data(), m.length);",
+            "        if (word == m.packed)",
+            "            return static_cast<TokenKind>(m.token_kind);",
+            "    } else if (m.length == 8) {",
+            "        uint64_t word = 0;",
+            "        __builtin_memcpy(&word, sv.data(), sizeof(word));",
+            "        if (word == m.packed)",
+            "            return static_cast<TokenKind>(m.token_kind);",
+            "    } else {",
+            "        // length == 9: load first 8 bytes + compare 9th byte.",
+            "        uint64_t word = 0;",
+            "        __builtin_memcpy(&word, sv.data(), sizeof(word));",
+            "        if (word == m.packed",
+            "            && static_cast<unsigned char>(sv[8]) == m.tail)",
+            "            return static_cast<TokenKind>(m.token_kind);",
+            "    }",
+            "    return TokenKind::Identifier;",
             "}",
             "",
             "} // namespace generated_lexer",
@@ -464,12 +545,10 @@ def make_keyword_header(keywords: list[tuple[str, str]]) -> str:
     )
     return "\n".join(lines)
 
-
 def make_lexer_header(config: LexerConfig) -> str:
     lines = [
         "#pragma once",
         '#include "types.hpp"',
-        '#include "common/memory/string-interner.hpp"',
         "",
         "#include <cstddef>",
         "#include <cstdint>",
@@ -479,9 +558,6 @@ def make_lexer_header(config: LexerConfig) -> str:
         "#include <vector>",
         "",
         "namespace generated_lexer {",
-        "",
-        "using InternedId = common::memory::InternedId;",
-        "using StringInterner = common::memory::StringInterner;",
         "",
         "enum class TokenKind : uint8_t {",
     ]
@@ -494,7 +570,6 @@ def make_lexer_header(config: LexerConfig) -> str:
             "    Span span = Span(0, 0);",
             "    TokenKind kind = TokenKind::Unknown;",
             "    char punc = 0;",
-            "    InternedId lexemeId = 0;",
         ]
     )
     for member in config.token_members:
@@ -521,18 +596,16 @@ def make_lexer_header(config: LexerConfig) -> str:
             "",
             "struct TokenStream {",
             "    std::vector<Token> tokens;",
-            "    const common::memory::StringInterner *strings = nullptr;",
             "    const Token *src = nullptr;",
             "    uint32_t len = 0;",
             "    uint32_t offset = 0;",
             "",
             "    TokenStream() = default;",
-            "    TokenStream(std::vector<Token> tokens_, const StringInterner &strings_)",
-            "        : tokens(std::move(tokens_)), strings(&strings_),",
+            "    explicit TokenStream(std::vector<Token> tokens_)",
+            "        : tokens(std::move(tokens_)),",
             "          src(tokens.data()), len(static_cast<uint32_t>(tokens.size())) {}",
-            "    explicit TokenStream(",
-            "        std::span<const Token> tokens_, const StringInterner &strings_)",
-            "        : tokens(tokens_.begin(), tokens_.end()), strings(&strings_),",
+            "    explicit TokenStream(std::span<const Token> tokens_)",
+            "        : tokens(tokens_.begin(), tokens_.end()),",
             "          src(tokens.data()), len(static_cast<uint32_t>(tokens.size())) {}",
             "",
             "    [[nodiscard]] size_t size() const noexcept { return len; }",
@@ -560,14 +633,6 @@ def make_lexer_header(config: LexerConfig) -> str:
             "        return absoluteSlice(offset + start, offset + start + count);",
             "    }",
             "",
-            "    [[nodiscard]] std::string_view lexeme(const Token &t) const noexcept {",
-            "        return lexeme(t.lexemeId);",
-            "    }",
-            "    [[nodiscard]] std::string_view lexeme(InternedId id) const noexcept {",
-            "        if (strings == nullptr)",
-            "            return {};",
-            "        return strings->lookup(id);",
-            "    }",
             "    [[nodiscard]] const Token &peek() const noexcept;",
             "    void advance() noexcept;",
             "    bool match(TokenKind kind) noexcept {",
@@ -581,22 +646,10 @@ def make_lexer_header(config: LexerConfig) -> str:
             "        if (!match(rest...)) return false;",
             "        return true;",
             "    }",
-            "    bool matchLexeme(std::string_view lexeme) noexcept {",
-            "        if (!hasNext() || this->lexeme(current()) != lexeme) return false;",
-            "        advance();",
-            "        return true;",
-            "    }",
             "    template <typename... Args>",
             "    bool matchAll(Args... args) noexcept {",
             "        const size_t saved = offset;",
             "        if ((match(args) && ...)) return true;",
-            "        offset = saved;",
-            "        return false;",
-            "    }",
-            "    template <typename... Args>",
-            "    bool matchAllLexeme(Args... args) noexcept {",
-            "        const size_t saved = offset;",
-            "        if ((matchLexeme(args) && ...)) return true;",
             "        offset = saved;",
             "        return false;",
             "    }",
@@ -607,7 +660,7 @@ def make_lexer_header(config: LexerConfig) -> str:
             "public:",
             "    Lexer();",
             "    [[nodiscard]] TokenStream run(",
-            "        std::string_view source, common::memory::StringInterner &strings",
+            "        std::string_view source",
             "    );",
             "    [[nodiscard]] std::string_view span_slice(",
             "        std::string_view source, const Span &span) const noexcept;",
@@ -626,27 +679,9 @@ def make_lexer_header(config: LexerConfig) -> str:
             "};",
             "",
             "[[nodiscard]] TokenStream tokenize(",
-            "    std::string_view source, common::memory::StringInterner &strings",
+            "    std::string_view source",
             ");",
             "const char *tokenKindName(TokenKind kind) noexcept;",
-            "struct FormattedToken {",
-            "    InternedId kindId = 0;",
-            "    InternedId lexemeId = 0;",
-            "    Span span = Span(0, 0);",
-            "};",
-            "FormattedToken formatToken(",
-            "    const Token &token, common::memory::StringInterner &strings",
-            ");",
-            "FormattedToken formatToken(",
-            "    const TokenStream &stream, size_t index",
-            ");",
-            "void printToken(",
-            "    FILE *out, const FormattedToken &formatted, const StringInterner &strings",
-            ");",
-            "void printToken(FILE *out, const TokenStream &stream);",
-            "void printToken(",
-            "    FILE *out, std::string_view source, common::memory::StringInterner &strings",
-            ");",
             "",
             "} // namespace generated_lexer",
             "",
@@ -721,29 +756,6 @@ def make_lexer_source(config: LexerConfig) -> str:
     op_bytes = {ord(ch) for ch in op_chars}
     punc_bytes = {ord(ch) for ch in punc_chars}
 
-    complex_bytes = {ord('"'), ord("'"), ord("_")}
-    complex_bytes.update(range(ord("0"), ord("9") + 1))
-    complex_bytes.update(range(ord("a"), ord("z") + 1))
-    complex_bytes.update(range(ord("A"), ord("Z") + 1))
-    complex_bytes.update(ord(op[0]) for op in compound if op)
-    if single_comment:
-        complex_bytes.add(ord(single_comment[0]))
-    if multi_open:
-        complex_bytes.add(ord(multi_open[0]))
-
-    simple_tag_table = [0] * 256
-    for index in range(128):
-        if index in complex_bytes:
-            simple_tag_table[index] = 0
-        elif index in skip_bytes:
-            simple_tag_table[index] = 1
-        elif index in op_bytes:
-            simple_tag_table[index] = 2
-        elif index in punc_bytes:
-            simple_tag_table[index] = 3
-        else:
-            simple_tag_table[index] = 4
-
     identifier_tail = set(range(ord("a"), ord("z") + 1))
     identifier_tail.update(range(ord("A"), ord("Z") + 1))
     identifier_tail.update(range(ord("0"), ord("9") + 1))
@@ -763,29 +775,13 @@ def make_lexer_source(config: LexerConfig) -> str:
         "#include <cstddef>",
         "#include <cstdint>",
         "#include <cstdio>",
-        "#include <string>",
+        "#include <cstring>",
         "#include <utility>",
         "",
         "namespace generated_lexer {",
         "",
         "namespace detail {",
         "",
-        "enum class SimpleTag : uint8_t {",
-        "    Complex = 0,",
-        "    Skip = 1,",
-        "    Operator = 2,",
-        "    Punctuation = 3,",
-        "    Unknown = 4,",
-        "};",
-        "",
-        "struct PendingToken {",
-        "    uint32_t start = 0;",
-        "    uint32_t end = 0;",
-        "    TokenKind kind = TokenKind::Unknown;",
-        "    char punc = 0;",
-        "};",
-        "",
-        "constexpr size_t kFastChunkBytes = 64;",
         "constexpr size_t kRunChunkBytes = 16;",
         "",
         "constexpr std::array<uint8_t, 256> space_table = {",
@@ -847,49 +843,41 @@ def make_lexer_source(config: LexerConfig) -> str:
         [
             "};",
             "",
-            "constexpr std::array<uint8_t, 256> simple_tag_table = {",
-        ]
-    )
-    lines.extend(f"    {line}," for line in format_int_array(simple_tag_table))
-    lines.extend(
-        [
-            "};",
-            "",
             "inline bool table_contains(",
             "    const std::array<uint8_t, 256> &table, unsigned char ch",
             ") noexcept {",
             "    return table[ch] != 0;",
             "}",
             "",
-            "inline bool block_matches(",
-            "    const char *text, size_t offset, const std::array<uint8_t, 256> &table",
-            ") noexcept {",
-            "    return table_contains(table, static_cast<unsigned char>(text[offset + 0])) &&",
-            "           table_contains(table, static_cast<unsigned char>(text[offset + 1])) &&",
-            "           table_contains(table, static_cast<unsigned char>(text[offset + 2])) &&",
-            "           table_contains(table, static_cast<unsigned char>(text[offset + 3])) &&",
-            "           table_contains(table, static_cast<unsigned char>(text[offset + 4])) &&",
-            "           table_contains(table, static_cast<unsigned char>(text[offset + 5])) &&",
-            "           table_contains(table, static_cast<unsigned char>(text[offset + 6])) &&",
-            "           table_contains(table, static_cast<unsigned char>(text[offset + 7])) &&",
-            "           table_contains(table, static_cast<unsigned char>(text[offset + 8])) &&",
-            "           table_contains(table, static_cast<unsigned char>(text[offset + 9])) &&",
-            "           table_contains(table, static_cast<unsigned char>(text[offset + 10])) &&",
-            "           table_contains(table, static_cast<unsigned char>(text[offset + 11])) &&",
-            "           table_contains(table, static_cast<unsigned char>(text[offset + 12])) &&",
-            "           table_contains(table, static_cast<unsigned char>(text[offset + 13])) &&",
-            "           table_contains(table, static_cast<unsigned char>(text[offset + 14])) &&",
-            "           table_contains(table, static_cast<unsigned char>(text[offset + 15]));",
-            "}",
-            "",
             "inline size_t consume_table_run(",
             "    const char *text, size_t size, size_t offset,",
             "    const std::array<uint8_t, 256> &table",
             ") noexcept {",
-            "    while (offset + kRunChunkBytes <= size && block_matches(text, offset, table))",
-            "        offset += kRunChunkBytes;",
-            "    while (offset < size && table_contains(table, static_cast<unsigned char>(text[offset])))",
+            "    if (table_contains(table, static_cast<unsigned char>(text[offset])))",
             "        ++offset;",
+            "    while (offset < size &&",
+            "           table_contains(table, static_cast<unsigned char>(text[offset]))) {",
+            "        if (offset + kRunChunkBytes <= size &&",
+            "            table_contains(table, static_cast<unsigned char>(text[offset + 1])) &&",
+            "            table_contains(table, static_cast<unsigned char>(text[offset + 2])) &&",
+            "            table_contains(table, static_cast<unsigned char>(text[offset + 3])) &&",
+            "            table_contains(table, static_cast<unsigned char>(text[offset + 4])) &&",
+            "            table_contains(table, static_cast<unsigned char>(text[offset + 5])) &&",
+            "            table_contains(table, static_cast<unsigned char>(text[offset + 6])) &&",
+            "            table_contains(table, static_cast<unsigned char>(text[offset + 7])) &&",
+            "            table_contains(table, static_cast<unsigned char>(text[offset + 8])) &&",
+            "            table_contains(table, static_cast<unsigned char>(text[offset + 9])) &&",
+            "            table_contains(table, static_cast<unsigned char>(text[offset + 10])) &&",
+            "            table_contains(table, static_cast<unsigned char>(text[offset + 11])) &&",
+            "            table_contains(table, static_cast<unsigned char>(text[offset + 12])) &&",
+            "            table_contains(table, static_cast<unsigned char>(text[offset + 13])) &&",
+            "            table_contains(table, static_cast<unsigned char>(text[offset + 14])) &&",
+            "            table_contains(table, static_cast<unsigned char>(text[offset + 15]))) {",
+            "            offset += kRunChunkBytes;",
+            "        } else {",
+            "            ++offset;",
+            "        }",
+            "    }",
             "    return offset;",
             "}",
             "",
@@ -905,65 +893,6 @@ def make_lexer_source(config: LexerConfig) -> str:
             "    return consume_table_run(text, size, offset, identifier_tail_table);",
             "}",
             "",
-            "template <typename Emit>",
-            "inline void flush_pending(",
-            "    const PendingToken *pending, size_t count, Emit &&emit",
-            ") {",
-            "    for (size_t index = 0; index < count; ++index) {",
-            "        const PendingToken &item = pending[index];",
-            "        emit(item.kind, Span{item.start, item.end}, item.punc);",
-            "    }",
-            "}",
-            "",
-            "inline size_t scan_simple_chunk(",
-            "    const char *text, size_t size, size_t offset, PendingToken *pending, size_t &count",
-            ") noexcept {",
-            "    const size_t start = offset;",
-            "    const size_t limit = offset + kFastChunkBytes < size ? offset + kFastChunkBytes : size;",
-            "    while (offset < limit) {",
-            "        const unsigned char ch = static_cast<unsigned char>(text[offset]);",
-            "        if (ch >= 128)",
-            "            break;",
-            "        const SimpleTag tag = static_cast<SimpleTag>(simple_tag_table[ch]);",
-            "        switch (tag) {",
-            "        case SimpleTag::Skip:",
-            "            ++offset;",
-            "            continue;",
-            "        case SimpleTag::Operator:",
-            "            pending[count++] = PendingToken{",
-            "                static_cast<uint32_t>(offset),",
-            "                static_cast<uint32_t>(offset + 1),",
-            "                TokenKind::Operators,",
-            "                static_cast<char>(ch),",
-            "            };",
-            "            ++offset;",
-            "            continue;",
-            "        case SimpleTag::Punctuation:",
-            "            pending[count++] = PendingToken{",
-            "                static_cast<uint32_t>(offset),",
-            "                static_cast<uint32_t>(offset + 1),",
-            "                TokenKind::Punctuation,",
-            "                static_cast<char>(ch),",
-            "            };",
-            "            ++offset;",
-            "            continue;",
-            "        case SimpleTag::Unknown:",
-            "            pending[count++] = PendingToken{",
-            "                static_cast<uint32_t>(offset),",
-            "                static_cast<uint32_t>(offset + 1),",
-            "                TokenKind::Unknown,",
-            "                0,",
-            "            };",
-            "            ++offset;",
-            "            continue;",
-            "        case SimpleTag::Complex:",
-            "            break;",
-            "        }",
-            "        break;",
-            "    }",
-            "    return offset == start ? start : offset;",
-            "}",
-            "",
             "inline bool is_ascii_alpha(unsigned char c) noexcept {",
             "    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');",
             "}",
@@ -972,25 +901,79 @@ def make_lexer_source(config: LexerConfig) -> str:
             "    return is_ascii_alpha(c) || c == '_';",
             "}",
             "",
-            "inline bool prefix_matches(std::string_view rest, std::string_view prefix) noexcept {",
-            "    return rest.size() >= prefix.size() && rest.substr(0, prefix.size()) == prefix;",
+            "inline size_t consume_decimal_run(",
+            "    const char *text, size_t size, size_t offset",
+            ") noexcept {",
+            "    while (offset < size) {",
+            "        const unsigned char c = static_cast<unsigned char>(text[offset]);",
+            "        if (c < '0' || c > '9')",
+            "            return offset;",
+            "        if (offset + kRunChunkBytes <= size) {",
+            "            bool chunk = true;",
+            "            for (size_t i = 1; i < kRunChunkBytes; ++i) {",
+            "                const unsigned char d =",
+            "                    static_cast<unsigned char>(text[offset + i]);",
+            "                chunk &= d >= '0' && d <= '9';",
+            "            }",
+            "            if (chunk) {",
+            "                offset += kRunChunkBytes;",
+            "                continue;",
+            "            }",
+            "        }",
+            "        ++offset;",
+            "    }",
+            "    return offset;",
             "}",
             "",
-            "template <typename Table>",
-            "inline bool consume_digit_run(",
-            "    const char *text, size_t size, size_t &offset, bool allow_underscore,",
-            "    const Table &digits",
+            "inline bool consume_decimal_digit_run(",
+            "    const char *text, size_t size, size_t &offset, bool allow_underscore",
             ") noexcept {",
-            "    bool saw_digit = false;",
+            "    const size_t start = offset;",
+            "    offset = consume_decimal_run(text, size, offset);",
+            "    bool saw_digit = offset > start;",
             "    bool prev_underscore = false;",
             "    bool valid = true;",
             "    while (offset < size) {",
-            "        if (!prev_underscore && offset + kRunChunkBytes <= size &&",
-            "            block_matches(text, offset, digits)) {",
+            "        const unsigned char ch = static_cast<unsigned char>(text[offset]);",
+            "        if (ch >= '0' && ch <= '9') {",
             "            saw_digit = true;",
-            "            offset += kRunChunkBytes;",
+            "            prev_underscore = false;",
+            "            ++offset;",
             "            continue;",
             "        }",
+            "        if (allow_underscore && ch == '_') {",
+            "            if (!saw_digit || prev_underscore) {",
+            "                valid = false;",
+            "                while (offset < size) {",
+            "                    const unsigned char tail = static_cast<unsigned char>(text[offset]);",
+            "                    if (!(tail >= '0' && tail <= '9') && tail != '_')",
+            "                        break;",
+            "                    ++offset;",
+            "                }",
+            "                break;",
+            "            }",
+            "            prev_underscore = true;",
+            "            ++offset;",
+            "            continue;",
+            "        }",
+            "        break;",
+            "    }",
+            "    if (valid && offset > start)",
+            "        saw_digit = true;",
+            "    return valid && saw_digit && !prev_underscore;",
+            "}",
+            "",
+            "template <typename Table>",
+            "inline bool consume_number_digit_run(",
+            "    const char *text, size_t size, size_t &offset, bool allow_underscore,",
+            "    const Table &digits",
+            ") noexcept {",
+            "    const size_t start = offset;",
+            "    offset = consume_table_run(text, size, offset, digits);",
+            "    bool saw_digit = offset > start;",
+            "    bool prev_underscore = false;",
+            "    bool valid = true;",
+            "    while (offset < size) {",
             "        const unsigned char ch = static_cast<unsigned char>(text[offset]);",
             "        if (table_contains(digits, ch)) {",
             "            saw_digit = true;",
@@ -999,17 +982,26 @@ def make_lexer_source(config: LexerConfig) -> str:
             "            continue;",
             "        }",
             "        if (allow_underscore && ch == '_') {",
-            "            if (!saw_digit || prev_underscore)",
+            "            if (!saw_digit || prev_underscore) {",
             "                valid = false;",
+            "                while (offset < size) {",
+            "                    const unsigned char tail = static_cast<unsigned char>(text[offset]);",
+            "                    const bool tail_digit = table_contains(digits, tail);",
+            "                    if (!tail_digit && tail != '_')",
+            "                        break;",
+            "                    ++offset;",
+            "                }",
+            "                break;",
+            "            }",
             "            prev_underscore = true;",
             "            ++offset;",
             "            continue;",
             "        }",
             "        break;",
             "    }",
-            "    if (!saw_digit || prev_underscore)",
-            "        valid = false;",
-            "    return valid;",
+            "    if (valid && offset > start)",
+            "        saw_digit = true;",
+            "    return valid && saw_digit && !prev_underscore;",
             "}",
             "",
             "} // namespace detail",
@@ -1019,16 +1011,6 @@ def make_lexer_source(config: LexerConfig) -> str:
     if config.on_lex or config.off_lex or config.on_token:
         lines.insert(2, '#include "actions.hpp"')
         lines.insert(3, "")
-
-    if compound:
-        lines.extend(
-            [
-                f"constexpr std::array<std::string_view, {len(compound)}> compound_set = {{",
-                f"    {', '.join(cpp_string(item) for item in compound)},",
-                "};",
-                "",
-            ]
-        )
 
     lines.extend(
         [
@@ -1063,11 +1045,11 @@ def make_lexer_source(config: LexerConfig) -> str:
             "    return generated_lexer::lookupKeyword(word);",
             "}",
             "",
-            "TokenStream Lexer::run(",
-            "    std::string_view source, common::memory::StringInterner &strings",
-            ") {",
-            "    source_ = source;",
-            "    offset_ = 0;",
+            "namespace detail {",
+            "",
+            "template <typename LexerT>",
+            "inline TokenStream run_lexer(LexerT &lexer, std::string_view source)",
+            "{",
             "    std::vector<Token> tokens;",
             "    tokens.reserve(source.size() / 4 + 8);",
             "",
@@ -1077,17 +1059,15 @@ def make_lexer_source(config: LexerConfig) -> str:
             "    const auto span = [](size_t start, size_t end) {",
             "        return Span{static_cast<uint32_t>(start), static_cast<uint32_t>(end)};",
             "    };",
+            "    size_t offset = 0;",
         ]
     )
     if config.on_token:
         lines.extend(
             [
                 "    const auto emit = [&](TokenKind kind, Span s, char punc = 0) {",
-                "        Token token(s, kind, punc);",
-                "        const std::string_view lexeme = span_slice(source, s);",
-                "        token.lexemeId = strings.intern(lexeme);",
-                f"        {config.on_token.call('*this, std::as_const(token), lexeme')}",
-                "        tokens.push_back(token);",
+                "        tokens.emplace_back(s, kind, punc);",
+                f"        {config.on_token.call('lexer, std::as_const(tokens.back()), source.substr(s.start, s.end - s.start)')}",
                 "    };",
             ]
         )
@@ -1095,36 +1075,22 @@ def make_lexer_source(config: LexerConfig) -> str:
         lines.extend(
             [
                 "    const auto emit = [&](TokenKind kind, Span s, char punc = 0) {",
-                "        Token token(s, kind, punc);",
-                "        token.lexemeId = strings.intern(span_slice(source, s));",
-                "        tokens.push_back(token);",
+                "        tokens.emplace_back(s, kind, punc);",
                 "    };",
             ]
         )
     if config.on_lex:
-        lines.extend(["", f"    {config.on_lex.call('*this, source')}"])
+        lines.extend(["", f"    {config.on_lex.call('lexer, source')}"])
     lines.extend(
         [
             "",
-            "    while (offset_ < size) {",
-            "        offset_ = detail::consume_ascii_space(text, size, offset_);",
-            "        if (offset_ >= size)",
+            "    while (offset < size) {",
+            "        offset = detail::consume_ascii_space(text, size, offset);",
+            "        if (offset >= size)",
             "            break;",
             "",
-            "        detail::PendingToken pending[detail::kFastChunkBytes];",
-            "        size_t pending_count = 0;",
-            "        const size_t fast_end = detail::scan_simple_chunk(",
-            "            text, size, offset_, pending, pending_count",
-            "        );",
-            "        if (fast_end != offset_) {",
-            "            detail::flush_pending(pending, pending_count, emit);",
-            "            offset_ = fast_end;",
-            "            continue;",
-            "        }",
-            "",
-            "        const size_t before = offset_;",
-            "        const char c = text[offset_];",
-            "        const std::string_view rest(text + offset_, size - offset_);",
+            "        const size_t before = offset;",
+            "        const char c = text[offset];",
             "",
         ]
     )
@@ -1132,27 +1098,46 @@ def make_lexer_source(config: LexerConfig) -> str:
     if single_comment:
         lines.extend(
             [
-                f"        if (detail::prefix_matches(rest, {cpp_string(single_comment)})) {{",
-                f"            offset_ += {len(single_comment)};",
-                "            while (offset_ < size && text[offset_] != '\\n')",
-                "                ++offset_;",
-                "            emit(TokenKind::Comments, span(before, offset_));",
+                f"        if ({' && '.join(f'offset + {index + 1} <= size && text[offset + {index}] == {cpp_char(ch)}' for index, ch in enumerate(single_comment))}) {{",
+                f"            offset += {len(single_comment)};",
+                "            while (offset < size && text[offset] != '\\n')",
+                "                ++offset;",
+                "            emit(TokenKind::Comments, span(before, offset));",
                 "            continue;",
                 "        }",
                 "",
             ]
         )
     if multi_open and multi_close:
+        iter_item = iter(multi_close)
+        first_close = next(iter_item, "")
+        rest_close = list(iter_item)
         lines.extend(
             [
-                f"        if (detail::prefix_matches(rest, {cpp_string(multi_open)})) {{",
-                f"            offset_ += {len(multi_open)};",
-                f"            const size_t close_at = rest.find({cpp_string(multi_close)}, {len(multi_open)});",
-                "            if (close_at == std::string_view::npos)",
-                "                offset_ = size;",
-                "            else",
-                f"                offset_ = before + close_at + {len(multi_close)};",
-                "            emit(TokenKind::Comments, span(before, offset_));",
+                f"        if ({' && '.join(f'offset + {index + 1} <= size && text[offset + {index}] == {cpp_char(ch)}' for index, ch in enumerate(multi_open))}) {{",
+                f"            offset += {len(multi_open)};",
+                "            bool closed = false;",
+                f"            const void *search = text + offset;",
+                f"            size_t search_size = size - offset;",
+                "            while (search_size > 0) {",
+                f"                const void *hit = std::memchr(search, {cpp_char(first_close)}, search_size);",
+                "                if (hit == nullptr)",
+                "                    break;",
+                f"                const size_t found = static_cast<size_t>(static_cast<const char *>(hit) - text);",
+                f"                const bool full = {'true' if len(rest_close) == 0 else 'false'}",
+                f"                    ? true",
+                f"                    : {' && '.join(f'found + {index + 1} < size && text[found + {index + 1}] == {cpp_char(ch)}' for index, ch in enumerate(rest_close))};",
+                "                if (full) {",
+                f"                    offset = found + {len(multi_close)};",
+                "                    closed = true;",
+                "                    break;",
+                "                }",
+                f"                search = static_cast<const char *>(hit) + 1;",
+                f"                search_size = size - found - 1;",
+                "            }",
+                "            if (!closed)",
+                "                offset = size;",
+                "            emit(TokenKind::Comments, span(before, offset));",
                 "            continue;",
                 "        }",
                 "",
@@ -1164,24 +1149,40 @@ def make_lexer_source(config: LexerConfig) -> str:
             "        if (c == '\"' || c == '\\'') {",
             "            bool valid = true;",
             "            bool terminated = false;",
-            "            ++offset_;",
+            "            ++offset;",
         ]
     )
     if escape_sequences:
         lines.extend(
             [
-                "            while (offset_ < size) {",
-                "                if (text[offset_] == '\\n' || text[offset_] == '\\r') {",
+                "            while (offset + 8 <= size) {",
+                "                uint64_t chunk = 0;",
+                "                std::memcpy(&chunk, text + offset, 8);",
+                "                const uint8_t q = static_cast<uint8_t>(c);",
+                "                const uint64_t quote_diff = chunk ^ "
+                "                    (static_cast<uint64_t>(q) * UINT64_C(0x0101010101010101));",
+                "                const uint64_t slash_diff = chunk ^ UINT64_C(0x5c5c5c5c5c5c5c5c);",
+                "                const uint64_t quote_hit = (quote_diff - UINT64_C(0x0101010101010101)) & (~quote_diff) & UINT64_C(0x8080808080808080);",
+                "                const uint64_t slash_hit = (slash_diff - UINT64_C(0x0101010101010101)) & (~slash_diff) & UINT64_C(0x8080808080808080);",
+                "                const uint64_t control_hit = (chunk - UINT64_C(0x2020202020202020)) & UINT64_C(0x8080808080808080);",
+                "                const uint64_t non_ascii = chunk & UINT64_C(0x8080808080808080);",
+                "                const uint64_t special = quote_hit | slash_hit | control_hit | non_ascii;",
+                "                if (special != 0)",
+                "                    break;",
+                "                offset += 8;",
+                "            }",
+                "            while (offset < size) {",
+                "                if (text[offset] == '\\n' || text[offset] == '\\r') {",
                 "                    valid = false;",
                 "                    break;",
                 "                }",
-                "                if (text[offset_] == '\\\\') {",
-                "                    if (offset_ + 1 >= size) {",
-                "                        ++offset_;",
+                "                if (text[offset] == '\\\\') {",
+                "                    if (offset + 1 >= size) {",
+                "                        ++offset;",
                 "                        valid = false;",
                 "                        break;",
                 "                    }",
-                "                    switch (text[offset_ + 1]) {",
+                "                    switch (text[offset + 1]) {",
                 "                    case '\\\\':",
                 "                    case '\"':",
                 "                    case '\\'':",
@@ -1189,37 +1190,37 @@ def make_lexer_source(config: LexerConfig) -> str:
                 "                    case 'r':",
                 "                    case 't':",
                 "                    case '0':",
-                "                        offset_ += 2;",
+                "                        offset += 2;",
                 "                        continue;",
                 "                    default:",
                 "                        valid = false;",
-                "                        offset_ += 2;",
+                "                        offset += 2;",
                 "                        continue;",
                 "                    }",
                 "                }",
-                "                if (text[offset_] == c) {",
-                "                    ++offset_;",
+                "                if (text[offset] == c) {",
+                "                    ++offset;",
                 "                    terminated = true;",
                 "                    break;",
                 "                }",
-                "                ++offset_;",
+                "                ++offset;",
                 "            }",
             ]
         )
     else:
         lines.extend(
             [
-                "            while (offset_ < size) {",
-                "                if (text[offset_] == '\\n' || text[offset_] == '\\r') {",
+                "            while (offset < size) {",
+                "                if (text[offset] == '\\n' || text[offset] == '\\r') {",
                 "                    valid = false;",
                 "                    break;",
                 "                }",
-                "                if (text[offset_] == c) {",
-                "                    ++offset_;",
+                "                if (text[offset] == c) {",
+                "                    ++offset;",
                 "                    terminated = true;",
                 "                    break;",
                 "                }",
-                "                ++offset_;",
+                "                ++offset;",
                 "            }",
             ]
         )
@@ -1228,7 +1229,7 @@ def make_lexer_source(config: LexerConfig) -> str:
             "            if (!terminated)",
             "                valid = false;",
             "            emit(valid ? TokenKind::LitVal : TokenKind::Unknown,",
-            "                 span(before, offset_));",
+            "                 span(before, offset));",
             "            continue;",
             "        }",
             "",
@@ -1236,80 +1237,90 @@ def make_lexer_source(config: LexerConfig) -> str:
         ]
     )
     for prefix, table_name in number_prefixes:
+        prefix_checks = " && ".join(
+            f"offset + {index + 1} <= size && text[offset + {index}] == {cpp_char(ch)}"
+            for index, ch in enumerate(prefix)
+        )
         lines.extend(
             [
-                f"            if (detail::prefix_matches(rest, {cpp_string(prefix)})) {{",
-                f"                offset_ += {len(prefix)};",
-                f"                const bool valid = detail::consume_digit_run(",
-                f"                    text, size, offset_, true, detail::{table_name}",
+                f"            if ({prefix_checks}) {{",
+            f"                offset += {len(prefix)};",
+                f"                const bool valid = detail::consume_number_digit_run(",
+                f"                    text, size, offset, true, detail::{table_name}",
                 "                );",
                 "                emit(valid ? TokenKind::LitVal : TokenKind::Unknown,",
-                "                     span(before, offset_));",
+                "                     span(before, offset));",
                 "                continue;",
                 "            }",
             ]
         )
     lines.extend(
         [
-            "            const bool integer_valid = detail::consume_digit_run(",
-            f"                text, size, offset_, {'true' if decimal_underscore else 'false'}, detail::decimal_digit_table",
+            "            const bool integer_valid = detail::consume_decimal_digit_run(",
+            f"                text, size, offset, {'true' if decimal_underscore else 'false'}",
             "            );",
-            "            if (offset_ < size && text[offset_] == '.' &&",
-            "                offset_ + 1 < size &&",
+            "            if (offset < size && text[offset] == '.' &&",
+            "                offset + 1 < size &&",
             "                detail::table_contains(",
             "                    detail::decimal_digit_table,",
-            "                    static_cast<unsigned char>(text[offset_ + 1])",
+            "                    static_cast<unsigned char>(text[offset + 1])",
             "                )) {",
-            "                ++offset_;",
-            "                const bool fraction_valid = detail::consume_digit_run(",
-            f"                    text, size, offset_, {'true' if decimal_underscore else 'false'}, detail::decimal_digit_table",
+            "                ++offset;",
+            "                const bool fraction_valid = detail::consume_decimal_digit_run(",
+            f"                    text, size, offset, {'true' if decimal_underscore else 'false'}",
             "                );",
             "                emit(integer_valid && fraction_valid ? TokenKind::LitVal",
             "                                                  : TokenKind::Unknown,",
-            "                     span(before, offset_));",
+            "                     span(before, offset));",
             "                continue;",
             "            }",
             "            emit(integer_valid ? TokenKind::LitVal : TokenKind::Unknown,",
-            "                 span(before, offset_));",
+            "                 span(before, offset));",
             "            continue;",
             "        }",
             "",
             "        if (detail::is_identifier_start(static_cast<unsigned char>(c))) {",
-            "            ++offset_;",
-            "            offset_ = detail::consume_identifier_tail(text, size, offset_);",
-            "            const std::string_view word(text + before, offset_ - before);",
-            "            emit(lookupKeyword(word), span(before, offset_));",
+            "            ++offset;",
+            "            offset = detail::consume_identifier_tail(text, size, offset);",
+            "            const std::string_view word(text + before, offset - before);",
+            "            emit(lookupKeyword(word), span(before, offset));",
             "            continue;",
             "        }",
             "",
         ]
     )
     if compound:
-        lines.extend(
-            [
-                "        bool matched_compound = false;",
-                "        for (const std::string_view op : compound_set) {",
-                "            if (detail::prefix_matches(rest, op)) {",
-                "                offset_ += op.size();",
-                "                emit(TokenKind::Operators, span(before, offset_));",
-                "                matched_compound = true;",
-                "                break;",
-                "            }",
-                "        }",
-                "        if (matched_compound)",
-                "            continue;",
-                "",
-            ]
-        )
+        grouped: dict[str, list[tuple[int, str]]] = {}
+        for index, op in enumerate(compound):
+            grouped.setdefault(op[0], []).append((index, op))
+        lines.append("        switch (static_cast<unsigned char>(c)) {")
+        for first_char, ops in grouped.items():
+            lines.append(f"        case {cpp_char(first_char)}:")
+            for index, op in ops:
+                op_checks = " && ".join(
+                    f"offset + {i + 1} <= size && text[offset + {i}] == {cpp_char(ch)}"
+                    for i, ch in enumerate(op)
+                )
+                lines.extend(
+                    [
+                        f"            if ({op_checks}) {{",
+                        f"                offset += {len(op)};",
+                        "                emit(TokenKind::Operators, span(before, offset));",
+                        "                continue;",
+                        "            }",
+                    ]
+                )
+            lines.append("            break;")
+        lines.extend(["        }", ""])
 
     if op_chars:
-        lines.extend(["        switch (c) {"])
+        lines.extend(["        switch (static_cast<unsigned char>(c)) {"])
         for ch in dedupe_preserve_order(list(op_chars)):
             lines.append(f"        case {cpp_char(ch)}:")
         lines.extend(
             [
-                "            ++offset_;",
-                "            emit(TokenKind::Operators, span(before, offset_), c);",
+            "            ++offset;",
+            "            emit(TokenKind::Operators, span(before, offset), c);",
                 "            continue;",
                 "        default:",
                 "            break;",
@@ -1319,13 +1330,13 @@ def make_lexer_source(config: LexerConfig) -> str:
         )
 
     if punc_chars:
-        lines.extend(["        switch (c) {"])
+        lines.extend(["        switch (static_cast<unsigned char>(c)) {"])
         for ch in dedupe_preserve_order(list(punc_chars)):
             lines.append(f"        case {cpp_char(ch)}:")
         lines.extend(
             [
-                "            ++offset_;",
-                "            emit(TokenKind::Punctuation, span(before, offset_), c);",
+            "            ++offset;",
+            "            emit(TokenKind::Punctuation, span(before, offset), c);",
                 "            continue;",
                 "        default:",
                 "            break;",
@@ -1336,25 +1347,30 @@ def make_lexer_source(config: LexerConfig) -> str:
 
     lines.extend(
         [
-            "        ++offset_;",
-            "        emit(TokenKind::Unknown, span(before, offset_));",
+            "        ++offset;",
+            "        emit(TokenKind::Unknown, span(before, offset));",
             "    }",
             "",
             "    emit(TokenKind::End, span(size, size));",
         ]
     )
     if config.off_lex:
-        lines.append(f"    {config.off_lex.call('*this, source, tokens')}")
+        lines.append(f"    {config.off_lex.call('lexer, source, tokens')}")
     lines.extend(
         [
-            "    return TokenStream(std::move(tokens), strings);",
+            "    return TokenStream(std::move(tokens));",
             "}",
             "",
-            "TokenStream tokenize(",
-            "    std::string_view source, common::memory::StringInterner &strings",
-            ") {",
-            "    Lexer lexer;",
-            "    return lexer.run(source, strings);",
+            "} // namespace detail",
+            "",
+            "TokenStream Lexer::run(std::string_view source) {",
+            "    source_ = source;",
+            "    offset_ = 0;",
+            "    return detail::run_lexer(*this, source);",
+            "}",
+            "",
+            "TokenStream tokenize(std::string_view source) {",
+            "    return Lexer().run(source);",
             "}",
             "",
             "const char *tokenKindName(TokenKind kind) noexcept {",
@@ -1369,63 +1385,6 @@ def make_lexer_source(config: LexerConfig) -> str:
             '                  "tokenKindName array must match TokenKind enum");',
             "    const size_t index = static_cast<size_t>(kind);",
             "    return index < std::size(names) ? names[index] : \"???\";",
-            "}",
-            "",
-            "FormattedToken formatToken(",
-            "    const Token &token, common::memory::StringInterner &strings",
-            ") {",
-            "    return FormattedToken{",
-            "        strings.intern(tokenKindName(token.kind)), token.lexemeId, token.span,",
-            "    };",
-            "}",
-            "",
-            "FormattedToken formatToken(",
-            "    const TokenStream &stream, size_t index",
-            ") {",
-            "    const Token &token = stream.at(index);",
-            "    if (stream.strings != nullptr) {",
-            "        common::memory::StringInterner *strings =",
-            "            const_cast<common::memory::StringInterner *>(stream.strings);",
-            "        return formatToken(token, *strings);",
-            "    }",
-            "    return FormattedToken{0, 0, {0, 0}};",
-            "}",
-            "",
-            "void printToken(",
-            "    FILE *out, const FormattedToken &formatted, const StringInterner &strings",
-            ") {",
-            "    const std::string_view kind = strings.lookup(formatted.kindId);",
-            "    const std::string_view lexeme = strings.lookup(formatted.lexemeId);",
-            "    std::fwrite(kind.data(), 1, kind.size(), out);",
-            "    std::fputc('(', out);",
-            "    std::fwrite(lexeme.data(), 1, lexeme.size(), out);",
-            "    std::fprintf(out, \"): [%u,%u]\\n\",",
-            "                 formatted.span.start, formatted.span.end);",
-            "}",
-            "",
-            "void printToken(FILE *out, const TokenStream &stream) {",
-            "    if (stream.strings != nullptr) {",
-            "        common::memory::StringInterner *strings =",
-            "            const_cast<common::memory::StringInterner *>(stream.strings);",
-            "        for (size_t i = 0; i < stream.size(); ++i)",
-            "            printToken(out, formatToken(stream, i), *strings);",
-            "        return;",
-            "    }",
-            "    for (const Token &token : stream.absoluteSlice(0, stream.size())) {",
-            "        const std::string_view lexeme = stream.lexeme(token);",
-            "        std::fputs(tokenKindName(token.kind), out);",
-            "        std::fputc('(', out);",
-            "        std::fwrite(lexeme.data(), 1, lexeme.size(), out);",
-            "        std::fprintf(out, \"): [%u,%u)\\n\",",
-            "                     token.span.start, token.span.end);",
-            "    }",
-            "}",
-            "",
-            "void printToken(",
-            "    FILE *out, std::string_view source, common::memory::StringInterner &strings",
-            ") {",
-            "    TokenStream stream = tokenize(source, strings);",
-            "    printToken(out, stream);",
             "}",
             "",
             "} // namespace generated_lexer",
@@ -1495,7 +1454,8 @@ def generated_files(config: LexerConfig) -> list[tuple[str, str]]:
         ("lexer.hpp", make_lexer_header(config)),
         ("lexer.cpp", make_lexer_source(config)),
         ("actions.hpp", make_actions_header(config)),
-        ("keyword-table.hpp", make_keyword_header(config.keywords)),
+        ("keyword-table.hpp",
+         make_keyword_header(config.keywords, config.keyword_entries)),
         (".gitignore", make_gitignore()),
     ]
 

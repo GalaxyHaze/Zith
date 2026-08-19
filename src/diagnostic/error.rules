@@ -23,3 +23,73 @@ category = name
 title = "name lookup"
 template = "unknown {lexeme}"
 note = "check the spelling"
+
+E2001: UndefinedIdent
+severity = Error
+category = semantic
+title = "undefined identifier"
+template = "undefined identifier '{lexeme}'"
+note = "bind the name with let or pass it as a parameter"
+
+E2002: DuplicateDecl
+severity = Error
+category = semantic
+title = "duplicate declaration"
+template = "{message}"
+note = "rename one of the declarations or remove the duplicate"
+
+E2006: NoMember
+severity = Error
+category = semantic
+title = "no such member"
+template = "{message}"
+note = "check the spelling or visibility of the member in the parent"
+
+E2007: NoMatchingFn
+severity = Error
+category = semantic
+title = "no matching function"
+template = "{message}"
+note = "no function with the provided arguments exists; check argument types and arity"
+
+E2008: AmbiguousCall
+severity = Error
+category = semantic
+title = "ambiguous call"
+template = "{message}"
+note = "multiple functions match; add explicit annotations"
+
+E2010: UnsupportedSyntax
+severity = Error
+category = semantic
+title = "unsupported syntax"
+template = "{message}"
+note = "this syntax is parsed but has no semantic behavior in this version"
+
+E3001: TypeMismatch
+severity = Error
+category = types
+title = "type mismatch"
+template = "{message}"
+note = "convert the value to the expected type or change the expression"
+
+E3002: CannotInfer
+severity = Error
+category = types
+title = "cannot infer type"
+template = "{message}"
+note = "add an explicit type annotation"
+
+E3003: InvalidCast
+severity = Error
+category = types
+title = "invalid cast"
+template = "{message}"
+note = "the source and target types are not compatible for casting"
+
+E4004: WriteThroughView
+severity = Error
+category = ownership
+title = "write through a view"
+template = "{message}"
+note = "a 'view' binding is read-only; take 'lend' to mutate it"

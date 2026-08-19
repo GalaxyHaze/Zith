@@ -86,6 +86,13 @@ struct Cursor {
     [[nodiscard]] bool atOp(std::string_view op) const noexcept {
         return has() && cur().kind == TokenKind::Operators && text() == op;
     }
+    [[nodiscard]] bool peekAtOp(std::string_view op,
+                                std::size_t distance = 1) const noexcept {
+        if (!has())
+            return false;
+        const Token &next = peek(distance);
+        return next.kind == TokenKind::Operators && textOf(next) == op;
+    }
 
     bool eatPunc(char punctuation) noexcept {
         if (!atPunc(punctuation))
@@ -120,6 +127,7 @@ struct Cursor {
             "component", "enum", "union", "type", "alias", "trait",
             "interface", "marker", "stackful", "macro", "context",
             "implement", "impl", "prefix", "suffix", "infix", "nop",
+            "state", "enter", "leave",
         };
         const std::string_view word = textOf(token);
         for (const auto candidate : identifiers)
@@ -155,6 +163,8 @@ T *make(Cursor &cursor, Args &&...args) {
 Node parseExpression(Cursor &cursor, int minPrecedence = 0);
 Node parsePrimary(Cursor &cursor);
 Node parseType(Cursor &cursor);
+Node parseBinding(Cursor &cursor, bool mutable_, Span start,
+                  bool keepSemicolon);
 Node parseStatement(Cursor &cursor);
 Node parseBlock(Cursor &cursor, Span &span);
 
@@ -199,7 +209,7 @@ Node parseBlock(Cursor &cursor, Span &span);
            word == "flow" || word == "let" || word == "var" || word == "global" ||
            word == "struct" || word == "component" || word == "enum" ||
            word == "union" || word == "type" || word == "alias" ||
-           word == "trait" || word == "interface" || word == "marker" ||
+           word == "trait" || word == "interface" || word == "state" ||
            word == "macro" || word == "context" || word == "implement" ||
            word == "impl" || word == "prefix" || word == "suffix" ||
            word == "infix" || word == "nop" || word == "pub" || word == "mod" ||
@@ -270,8 +280,9 @@ Node parseBlock(Cursor &cursor, Span &span);
 
 [[nodiscard]] Expr *makeExpr(Cursor &cursor, Span span, int kind,
                              std::string_view op, std::string_view text,
-                             Node castType = nullptr) {
-    return make<Expr>(cursor, span, kind, op, text, castType);
+                             Node castType = nullptr,
+                             Node alternate = nullptr) {
+    return make<Expr>(cursor, span, kind, op, text, castType, alternate);
 }
 
 [[nodiscard]] TypeExpr *makeType(Cursor &cursor, Span span, int kind,
@@ -283,8 +294,10 @@ Node parseBlock(Cursor &cursor, Span &span);
 
 [[nodiscard]] Stmt *makeStatement(Cursor &cursor, Span span, int kind,
                                   std::string_view label, bool stackful,
-                                  Node expression, Node binding) {
-    return make<Stmt>(cursor, span, kind, label, stackful, expression, binding);
+                                  Node expression, Node binding,
+                                  Node returnValue = nullptr) {
+    return make<Stmt>(cursor, span, kind, label, stackful, expression,
+                      returnValue, binding);
 }
 
 [[nodiscard]] Binding *makeBinding(Cursor &cursor, Span span,
@@ -505,7 +518,8 @@ Node parseParenthesized(Cursor &cursor, Span start) {
 Node parseIf(Cursor &cursor, Span start) {
     cursor.advance();
     Expr *ifExpr = makeExpr(cursor, start,
-                            static_cast<int>(sample::ExprKind::If), "", "");
+                            static_cast<int>(sample::ExprKind::If), "", "",
+                            nullptr, nullptr);
     if (cursor.atPunc('(')) {
         cursor.advance();
         ifExpr->conditions.push(parseExpression(cursor));
@@ -522,10 +536,10 @@ Node parseIf(Cursor &cursor, Span start) {
     }
     if (cursor.eatLexeme("else")) {
         if (cursor.atLexeme("if")) {
-            ifExpr->operands.push(parseIf(cursor, cursor.cur().span));
+            ifExpr->alternate = parseIf(cursor, cursor.cur().span);
         } else if (cursor.atPunc('{')) {
             Span blockSpan;
-            ifExpr->operands.push(parseBlock(cursor, blockSpan));
+            ifExpr->alternate = parseBlock(cursor, blockSpan);
         } else {
             cursor.diagnose(cursor.cur().span, "expected block after 'else'");
         }
@@ -534,45 +548,93 @@ Node parseIf(Cursor &cursor, Span start) {
     return ifExpr;
 }
 
-Node parseWhile(Cursor &cursor, Span start) {
-    cursor.advance();
-    Expr *loop = makeExpr(cursor, start,
-                          static_cast<int>(sample::ExprKind::While), "", "");
-    if (cursor.atPunc('(')) {
-        cursor.advance();
-        loop->conditions.push(parseExpression(cursor));
-        if (!cursor.eatPunc(')'))
-            cursor.diagnose(cursor.cur().span, "expected ')' after while condition");
-    } else {
-        loop->conditions.push(parseExpression(cursor));
-    }
-    if (cursor.atPunc('{')) {
-        Span blockSpan;
-        loop->statements.push(parseBlock(cursor, blockSpan));
-    } else {
-        cursor.diagnose(cursor.cur().span, "expected '{' after while condition");
-    }
-    loop->span = rangeSpan(start, cursor.curSpan());
-    return loop;
-}
-
 Node parseFor(Cursor &cursor, Span start) {
     cursor.advance();
     Expr *loop = makeExpr(cursor, start,
-                          static_cast<int>(sample::ExprKind::For), "", "");
+                          static_cast<int>(sample::ExprKind::For), "", "",
+                          nullptr, nullptr);
     if (cursor.atPunc('{')) {
         Span blockSpan;
         loop->statements.push(parseBlock(cursor, blockSpan));
     } else if (cursor.atPunc('(')) {
         cursor.advance();
-        loop->conditions.push(parseExpression(cursor));
-        if (!cursor.eatPunc(')'))
-            cursor.diagnose(cursor.cur().span, "expected ')' after for condition");
-        if (!cursor.atPunc('{')) {
-            cursor.diagnose(cursor.cur().span, "expected '{' after for condition");
+        const Span clauseStart = cursor.curSpan();
+        Node init = nullptr;
+        if (!cursor.atPunc(';')) {
+            if (cursor.atLexeme("var") || cursor.atLexeme("let") ||
+                cursor.atLexeme("const")) {
+                const bool mutable_ = cursor.atLexeme("var");
+                cursor.advance();
+                init = parseBinding(cursor, mutable_, clauseStart, true);
+            } else {
+                init = parseExpression(cursor);
+            }
+        }
+        if (cursor.atPunc(';')) {
+            cursor.advance();
+            Node condition = nullptr;
+            if (!cursor.atPunc(';'))
+                condition = parseExpression(cursor);
+            if (!cursor.eatPunc(';'))
+                cursor.diagnose(cursor.cur().span,
+                                "expected ';' after for condition");
+            Node step = nullptr;
+            if (!cursor.atPunc(')'))
+                step = parseExpression(cursor);
+            if (!cursor.eatPunc(')'))
+                cursor.diagnose(cursor.cur().span,
+                                "expected ')' after for clauses");
+            if (!cursor.atPunc('{')) {
+                cursor.diagnose(cursor.cur().span,
+                                "expected '{' after for clauses");
+            } else {
+                Span blockSpan;
+                loop->statements.push(parseBlock(cursor, blockSpan));
+            }
+            if (init != nullptr) {
+                Stmt *initStatement = makeStatement(
+                    cursor, nodeSpan(init),
+                    static_cast<int>(sample::StmtKind::Expression), "", false,
+                    init, nullptr);
+                loop->operands.push(initStatement);
+            }
+            if (condition == nullptr) {
+                condition =
+                    makeExpr(cursor, rangeSpan(start, cursor.curSpan()),
+                             static_cast<int>(sample::ExprKind::Literal), "",
+                             "true", nullptr, nullptr);
+            }
+            loop->conditions.push(condition);
+            if (step != nullptr)
+                loop->operands.push(step);
+        } else if (cursor.atLexeme("in") || cursor.atOp("in")) {
+            cursor.advance();
+            cursor.diagnose(rangeSpan(clauseStart, cursor.curSpan()),
+                            "unsupported iterator 'for ... in ...' form");
+            parseExpression(cursor);
+            if (!cursor.eatPunc(')'))
+                cursor.diagnose(cursor.cur().span,
+                                "expected ')' after for iterator target");
+            if (cursor.atPunc('{')) {
+                Span blockSpan;
+                parseBlock(cursor, blockSpan);
+            } else {
+                cursor.diagnose(cursor.cur().span,
+                                "expected '{' after for iterator form");
+            }
         } else {
-            Span blockSpan;
-            loop->statements.push(parseBlock(cursor, blockSpan));
+            if (init != nullptr)
+                loop->conditions.push(init);
+            if (!cursor.eatPunc(')'))
+                cursor.diagnose(cursor.cur().span,
+                                "expected ')' after for condition");
+            if (cursor.atPunc('{')) {
+                Span blockSpan;
+                loop->statements.push(parseBlock(cursor, blockSpan));
+            } else {
+                cursor.diagnose(cursor.cur().span,
+                                "expected '{' after for condition");
+            }
         }
     } else if (cursor.isIdentifier(cursor.cur())) {
         const Span iteratorStart = cursor.cur().span;
@@ -599,26 +661,67 @@ Node parseFor(Cursor &cursor, Span start) {
 Node parseWhen(Cursor &cursor, Span start) {
     cursor.advance();
     Expr *whenExpr = makeExpr(cursor, start,
-                              static_cast<int>(sample::ExprKind::When), "", "");
-    whenExpr->conditions.push(parseExpression(cursor));
-    if (!cursor.atPunc('{'))
-        cursor.diagnose(cursor.cur().span, "expected '{' after when/match subject");
-    else
+                              static_cast<int>(sample::ExprKind::When), "", "",
+                              nullptr, nullptr);
+    Node subject = nullptr;
+    if (cursor.atPunc('(')) {
         cursor.advance();
+        subject = parseExpression(cursor);
+        if (!cursor.eatPunc(')'))
+            cursor.diagnose(cursor.cur().span,
+                            "expected ')' after when/match subject");
+    } else {
+        subject = parseExpression(cursor);
+    }
+    whenExpr->conditions.push(subject);
+    if (!cursor.eatPunc('{'))
+        cursor.diagnose(cursor.cur().span,
+                        "expected '{' after when/match subject");
     while (cursor.has() && !cursor.atPunc('}')) {
         if (cursor.atPunc(',')) {
             cursor.advance();
             continue;
         }
-        Node pattern = parseExpression(cursor);
+        Node pattern = nullptr;
+        const bool parenthesizedPattern = cursor.atPunc('(');
+        if (parenthesizedPattern)
+            cursor.advance();
+        const bool underscorePattern =
+            cursor.atLexeme("_") &&
+            (cursor.peekAtPunc(')') || cursor.peekAtOp("~>"));
+        if (underscorePattern) {
+            pattern = makeExpr(cursor, cursor.cur().span,
+                               static_cast<int>(sample::ExprKind::Placeholder),
+                               "", "_", nullptr, nullptr);
+            cursor.advance();
+        } else {
+            pattern = parseExpression(cursor);
+        }
+        if (parenthesizedPattern) {
+            if (!cursor.eatPunc(')'))
+                cursor.diagnose(cursor.cur().span,
+                                "expected ')' after 'when' case pattern");
+        }
         if (cursor.atOp("~>")) {
             cursor.advance();
             Node body = parseBlockOrExpression(cursor);
-            whenExpr->operands.push(pattern);
-            whenExpr->operands.push(body);
+            if (pattern != nullptr &&
+                pattern->kind == generated_ast::NodeKind::Expr &&
+                static_cast<Expr *>(pattern)->kind ==
+                    static_cast<int>(sample::ExprKind::Placeholder)) {
+                if (whenExpr->alternate == nullptr)
+                    whenExpr->alternate = body;
+                else
+                    cursor.diagnose(cursor.cur().span,
+                                    "multiple default cases in when/match");
+            } else {
+                whenExpr->cases.push(pattern);
+                whenExpr->cases.push(body);
+            }
         } else {
             cursor.diagnose(cursor.cur().span, "expected '~>' in when case");
-            whenExpr->operands.push(pattern);
+            if (!underscorePattern)
+                whenExpr->cases.push(pattern);
         }
         if (cursor.atPunc(','))
             cursor.advance();
@@ -634,7 +737,6 @@ Node parsePrimary(Cursor &cursor) {
         return makeExpr(cursor, Span{0, 0},
                         static_cast<int>(sample::ExprKind::Error), "", "");
     const Span start = cursor.cur().span;
-    const std::string_view word = cursor.text();
 
     if (cursor.atPunc('{'))
         return parseBlock(cursor, const_cast<Span &>(start));
@@ -644,8 +746,27 @@ Node parsePrimary(Cursor &cursor) {
         return parseArrayLiteral(cursor, start);
     if (cursor.atLexeme("if"))
         return parseIf(cursor, start);
-    if (cursor.atLexeme("while"))
-        return parseWhile(cursor, start);
+    if (cursor.atLexeme("while")) {
+        const Span span = cursor.cur().span;
+        cursor.advance();
+        if (cursor.atPunc('(')) {
+            cursor.advance();
+            (void)parseExpression(cursor);
+            if (!cursor.eatPunc(')'))
+                cursor.diagnose(cursor.cur().span,
+                                "expected ')' after while condition");
+        }
+        if (cursor.atPunc('{')) {
+            Span blockSpan;
+            (void)parseBlock(cursor, blockSpan);
+        } else {
+            cursor.diagnose(cursor.cur().span,
+                            "expected '{' after while condition");
+        }
+        cursor.diagnose(span, "while is no longer supported");
+        return makeExpr(cursor, rangeSpan(span, cursor.curSpan()),
+                        static_cast<int>(sample::ExprKind::Error), "", "");
+    }
     if (cursor.atLexeme("for"))
         return parseFor(cursor, start);
     if (cursor.atLexeme("when") || cursor.atLexeme("match"))
@@ -913,7 +1034,8 @@ Node parseType(Cursor &cursor) {
     return type;
 }
 
-Node parseBinding(Cursor &cursor, bool mutable_, Span start) {
+Node parseBinding(Cursor &cursor, bool mutable_, Span start,
+                  bool keepSemicolon = false) {
     if (!cursor.has() || !cursor.isIdentifier(cursor.cur())) {
         cursor.diagnose(cursor.cur().span, "expected binding name");
         const Span bad = cursor.curSpan();
@@ -932,7 +1054,7 @@ Node parseBinding(Cursor &cursor, bool mutable_, Span start) {
         cursor.advance();
         initializer = parseExpression(cursor, 1);
     }
-    if (cursor.atPunc(';'))
+    if (cursor.atPunc(';') && !keepSemicolon)
         cursor.advance();
     return makeBinding(cursor, rangeSpan(start, cursor.curSpan()), name,
                        mutable_, type, initializer);
@@ -962,24 +1084,63 @@ Node parseStatement(Cursor &cursor) {
                                    : static_cast<int>(sample::StmtKind::Continue);
         cursor.advance();
         Node value = nullptr;
-        if (word == "return" && !cursor.atPunc(';') && !cursor.atPunc('}'))
+        if (word == "return" && !cursor.atPunc(';') && !cursor.atPunc('}')) {
             value = parseExpression(cursor);
+            if ((cursor.cur().kind == TokenKind::Operators &&
+                 (cursor.text() == "?" || cursor.text() == "!"))) {
+                const Span markerSpan = cursor.cur().span;
+                const std::string_view marker = cursor.text();
+                cursor.advance();
+                if (value != nullptr &&
+                    value->kind == generated_ast::NodeKind::Expr) {
+                    Expr *valueExpr = static_cast<Expr *>(value);
+                    valueExpr->text = cursor.storeString(
+                        std::string(valueExpr->text) + std::string(marker));
+                    valueExpr->span =
+                        rangeSpan(nodeSpan(valueExpr), markerSpan);
+                }
+            }
+        }
         if (cursor.atPunc(';'))
             cursor.advance();
         return makeStatement(cursor, rangeSpan(start, cursor.curSpan()), kind,
-                             "", false, value, nullptr);
+                             "", false, value, nullptr, value);
     }
-    if (word == "dock" || word == "jump") {
-        const int kind = word == "dock"
-                             ? static_cast<int>(sample::StmtKind::Dock)
+    if (word == "dock" || word == "marker" || word == "stackful") {
+        cursor.diagnose(start,
+                        std::string(word) +
+                            " is no longer the flow syntax; use state/enter/leave/jump");
+        while (cursor.has() && !cursor.atPunc(';')) {
+            if (cursor.atPunc('{') || cursor.atPunc('(') ||
+                cursor.atPunc(')') || cursor.atPunc('}'))
+                cursor.advance();
+            else
+                parseExpression(cursor);
+        }
+        if (cursor.atPunc(';'))
+            cursor.advance();
+        return makeStatement(cursor, rangeSpan(start, cursor.curSpan()),
+                             static_cast<int>(sample::StmtKind::Expression), "",
+                             false, nullptr, nullptr);
+    }
+    if (word == "enter" || word == "jump") {
+        const int kind = word == "enter"
+                             ? static_cast<int>(sample::StmtKind::Enter)
                              : static_cast<int>(sample::StmtKind::Jump);
         cursor.advance();
-        if (cursor.isIdentifier(cursor.cur()))
-            parsePrimary(cursor);
+        std::string_view target;
+        if (cursor.isIdentifier(cursor.cur())) {
+            target = cursor.text();
+            cursor.advance();
+        }
+        Node targetExpr = makeExpr(cursor, rangeSpan(start, cursor.curSpan()),
+                                   static_cast<int>(sample::ExprKind::Name), "",
+                                   target, nullptr);
+        Stmt *statement = makeStatement(cursor, start, kind,
+                                        target, false, targetExpr, nullptr);
         if (!cursor.atPunc('('))
             cursor.diagnose(cursor.cur().span,
-                            std::string(word) +
-                                " target requires '('");
+                            std::string(word) + " target requires '('");
         else {
             cursor.advance();
             while (cursor.has() && !cursor.atPunc(')')) {
@@ -987,7 +1148,7 @@ Node parseStatement(Cursor &cursor) {
                     cursor.advance();
                     continue;
                 }
-                parseExpression(cursor);
+                statement->arguments.push(parseExpression(cursor));
                 if (cursor.atPunc(','))
                     cursor.advance();
             }
@@ -998,62 +1159,19 @@ Node parseStatement(Cursor &cursor) {
         }
         if (cursor.atPunc(';'))
             cursor.advance();
-        return makeStatement(cursor, rangeSpan(start, cursor.curSpan()), kind,
-                             "", false, nullptr, nullptr);
-    }
-    if (word == "marker" || (word == "stackful" &&
-                             cursor.peekAtLexeme("marker"))) {
-        const bool stackful = word == "stackful";
-        if (stackful)
-            cursor.advance();
-        cursor.advance();
-        std::string_view label;
-        if (cursor.isIdentifier(cursor.cur())) {
-            label = cursor.text();
-            cursor.advance();
-        }
-        Stmt *statement = makeStatement(cursor, start,
-                                        static_cast<int>(sample::StmtKind::Marker),
-                                        label, stackful, nullptr, nullptr);
-        if (!cursor.atPunc('(')) {
-            cursor.diagnose(cursor.cur().span, "expected '(' after marker name");
-        } else {
-            cursor.advance();
-            while (cursor.has() && !cursor.atPunc(')')) {
-                if (cursor.atPunc(',')) {
-                    cursor.advance();
-                    continue;
-                }
-                if (cursor.isIdentifier(cursor.cur()) &&
-                    cursor.peekAtPunc(':')) {
-                    const Span paramSpan = cursor.cur().span;
-                    const std::string_view paramName = cursor.text();
-                    cursor.advance();
-                    cursor.advance();
-                    Node paramType = parseType(cursor);
-                    statement->parameters.push(make<Parameter>(
-                        cursor, rangeSpan(paramSpan, cursor.curSpan()), paramName,
-                        paramType, nullptr));
-                } else {
-                    cursor.diagnose(cursor.cur().span,
-                                    "expected typed marker parameter");
-                    parseExpression(cursor);
-                }
-                if (cursor.atPunc(','))
-                    cursor.advance();
-            }
-            if (!cursor.eatPunc(')'))
-                cursor.diagnose(cursor.cur().span,
-                                "expected ')' after marker parameters");
-        }
-        if (cursor.atPunc('{')) {
-            Span blockSpan;
-            statement->expression = parseBlock(cursor, blockSpan);
-        } else {
-            cursor.diagnose(cursor.cur().span,
-                            "expected '{' after marker declaration");
-        }
         statement->span = rangeSpan(start, cursor.curSpan());
+        return statement;
+    }
+    if (word == "leave") {
+        cursor.advance();
+        Node value = nullptr;
+        if (!cursor.atPunc(';') && !cursor.atPunc('}'))
+            value = parseExpression(cursor);
+        if (cursor.atPunc(';'))
+            cursor.advance();
+        Stmt *statement = makeStatement(cursor, rangeSpan(start, cursor.curSpan()),
+                                        static_cast<int>(sample::StmtKind::Leave),
+                                        "", false, value, nullptr);
         return statement;
     }
     if (word == "use") {
@@ -1159,8 +1277,8 @@ void parseGenericParams(Cursor &cursor, Declaration *declaration) {
 }
 
 int declarationKindFromWord(const std::string_view word) {
-    if (word == "marker")
-        return static_cast<int>(sample::DeclKind::Marker);
+    if (word == "state")
+        return static_cast<int>(sample::DeclKind::State);
     if (word == "type" || word == "alias")
         return static_cast<int>(sample::DeclKind::TypeAlias);
     if (word == "struct" || word == "component")
@@ -1222,7 +1340,7 @@ bool maybeFunctionKind(Cursor &cursor, int &functionKind, bool &isExtern) {
         functionKind = static_cast<int>(sample::FunctionKind::Standard);
         return true;
     }
-    const std::string_view prefixes[] = {"const", "raw", "extern", "flow"};
+    const std::string_view prefixes[] = {"const", "raw", "extern"};
     for (const auto prefix : prefixes) {
         if (!cursor.atLexeme(prefix) || !cursor.peekAtLexeme("fn"))
             continue;
@@ -1230,9 +1348,7 @@ bool maybeFunctionKind(Cursor &cursor, int &functionKind, bool &isExtern) {
                            ? static_cast<int>(sample::FunctionKind::Const)
                        : prefix == "raw"
                            ? static_cast<int>(sample::FunctionKind::Raw)
-                       : prefix == "extern"
-                           ? static_cast<int>(sample::FunctionKind::Extern)
-                           : static_cast<int>(sample::FunctionKind::Flow);
+                           : static_cast<int>(sample::FunctionKind::Extern);
         if (prefix == "extern")
             isExtern = true;
         cursor.advance();
@@ -1409,7 +1525,9 @@ Node lowerImport(Cursor &cursor, Span start, bool isFrom, bool isExport) {
     return node;
 }
 
-Node parseDeclaration(Cursor &cursor, int visibility, bool externPending) {
+Node parseDeclaration(Cursor &cursor, int visibility,
+                      int visibilityAncestors, int visibilityDescendants,
+                      bool externPending) {
     if (!cursor.has())
         return nullptr;
     const Span start = cursor.cur().span;
@@ -1433,6 +1551,7 @@ Node parseDeclaration(Cursor &cursor, int visibility, bool externPending) {
         Declaration *declaration = make<Declaration>(
             cursor, start,
             static_cast<int>(sample::DeclKind::Function), visibility,
+            visibilityAncestors, visibilityDescendants,
             functionKind, name, "", "", isExtern, false, false, false, false,
             false, false, nullptr, nullptr, nullptr);
         parseGenericParams(cursor, declaration);
@@ -1458,6 +1577,7 @@ Node parseDeclaration(Cursor &cursor, int visibility, bool externPending) {
         Declaration *declaration = make<Declaration>(
             cursor, rangeSpan(start, cursor.curSpan()),
             static_cast<int>(sample::DeclKind::Variable), visibility,
+            visibilityAncestors, visibilityDescendants,
             static_cast<int>(sample::FunctionKind::Standard),
             static_cast<Binding *>(binding)->name, "", "", false, false, false,
             false, false, false, false, nullptr, nullptr, nullptr);
@@ -1467,7 +1587,7 @@ Node parseDeclaration(Cursor &cursor, int visibility, bool externPending) {
 
     const int kind = declarationKindFromWord(word);
     if (word != "const" &&
-        (word == "marker" || word == "type" || word == "alias" ||
+        (word == "state" || word == "type" || word == "alias" ||
          word == "struct" || word == "component" || word == "enum" ||
          word == "union" || word == "trait" || word == "interface" ||
          word == "context" || word == "prefix" || word == "suffix" ||
@@ -1480,10 +1600,11 @@ Node parseDeclaration(Cursor &cursor, int visibility, bool externPending) {
         }
         Declaration *declaration = make<Declaration>(
             cursor, start, kind, visibility,
+            visibilityAncestors, visibilityDescendants,
             static_cast<int>(sample::FunctionKind::Standard), name, "", "",
-            false, word == "type", word == "marker", false, false, false, false,
+            false, word == "type", false, false, false, false, false,
             nullptr, nullptr, nullptr);
-        if (word == "marker") {
+        if (word == "state") {
             parseParameterList(cursor, declaration);
             if (cursor.atPunc('{')) {
                 Span blockSpan;
@@ -1513,6 +1634,7 @@ Node parseDeclaration(Cursor &cursor, int visibility, bool externPending) {
         Declaration *declaration = make<Declaration>(
             cursor, start,
             static_cast<int>(sample::DeclKind::Macro), visibility,
+            visibilityAncestors, visibilityDescendants,
             static_cast<int>(sample::FunctionKind::Standard), name, "", "",
             false, false, false, false, false, false, false, nullptr, nullptr,
             nullptr);
@@ -1535,6 +1657,7 @@ Node parseDeclaration(Cursor &cursor, int visibility, bool externPending) {
         Declaration *declaration = make<Declaration>(
             cursor, start,
             static_cast<int>(sample::DeclKind::TypeAlias), visibility,
+            visibilityAncestors, visibilityDescendants,
             static_cast<int>(sample::FunctionKind::Standard), "", name, "",
             false, false, false, false, false, false, false, nullptr, nullptr,
             nullptr);
@@ -1556,6 +1679,108 @@ Node parseDeclaration(Cursor &cursor, int visibility, bool externPending) {
     return nullptr;
 }
 
+[[nodiscard]] int parseVisibilityBound(std::string_view text) {
+    if (text == "0" || text == "=")
+        return 0;
+    if (text.empty())
+        return -1;
+    char *end = nullptr;
+    const long value = std::strtol(std::string(text).c_str(), &end, 10);
+    if (end == nullptr || end != std::string(text).c_str() + text.size() ||
+        value < 0 || value > 1024)
+        return -2;
+    return static_cast<int>(value);
+}
+
+bool parseVisibilityArgs(Cursor &cursor, int &visibility, int &ancestors,
+                         int &descendants) {
+    const Span start = cursor.cur().span;
+    cursor.advance();
+    if (!cursor.atPunc('(')) {
+        visibility = static_cast<int>(sample::VisibilityKind::Public);
+        ancestors = -1;
+        descendants = -1;
+        return true;
+    }
+
+    cursor.advance();
+    const Span innerStart = cursor.curSpan();
+    while (cursor.has() && cursor.cur().kind != TokenKind::End &&
+           !cursor.atPunc(')'))
+        cursor.advance();
+
+    if (!cursor.atPunc(')')) {
+        cursor.diagnose(start, "expected ')' after visibility range");
+        return false;
+    }
+    const Span innerEnd = cursor.cur().span;
+    cursor.advance();
+
+    std::string_view raw =
+        cursor.slice(Span{innerStart.start, innerEnd.start});
+    while (!raw.empty() &&
+           (raw.front() == ' ' || raw.front() == '\t' ||
+            raw.front() == '\n' || raw.front() == '\r'))
+        raw.remove_prefix(1);
+    while (!raw.empty() &&
+           (raw.back() == ' ' || raw.back() == '\t' ||
+            raw.back() == '\n' || raw.back() == '\r'))
+        raw.remove_suffix(1);
+
+    visibility = static_cast<int>(sample::VisibilityKind::Module);
+    ancestors = -1;
+    descendants = -1;
+
+    if (raw == "..") {
+        visibility = static_cast<int>(sample::VisibilityKind::Public);
+        return true;
+    }
+    if (raw == "siblings" || raw == "neighbors") {
+        ancestors = 0;
+        descendants = 0;
+        return true;
+    }
+    if (raw == "0..") {
+        ancestors = 0;
+        descendants = -1;
+        return true;
+    }
+    if (raw == "0..=" || raw == "0..0" || raw == "=..") {
+        ancestors = 0;
+        descendants = 0;
+        return true;
+    }
+    if (raw == "=..0") {
+        ancestors = 1;
+        descendants = 0;
+        return true;
+    }
+    if (raw == "=..=") {
+        ancestors = 0;
+        descendants = 1;
+        return true;
+    }
+
+    const std::size_t dots = raw.find("..");
+    if (dots == std::string_view::npos ||
+        raw.find("..", dots + 2) != std::string_view::npos) {
+        cursor.diagnose(start, "malformed visibility range '" +
+                                   std::string(raw) + "'");
+        return false;
+    }
+
+    const std::string_view left = raw.substr(0, dots);
+    const std::string_view right = raw.substr(dots + 2);
+    ancestors = parseVisibilityBound(left);
+    descendants = parseVisibilityBound(right);
+    if (ancestors < 0 || descendants < 0) {
+        cursor.diagnose(start, "malformed visibility range '" +
+                                   std::string(raw) + "'");
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 namespace hooks::parser {
@@ -1573,6 +1798,8 @@ namespace hooks::parser {
 
     Cursor cursor{parser.tokenStream(), source, output};
     int visibility = static_cast<int>(sample::VisibilityKind::Private);
+    int visibilityAncestors = -1;
+    int visibilityDescendants = -1;
     bool externPending = false;
     Span garbageStart{0, 0};
     bool garbageActive = false;
@@ -1582,7 +1809,15 @@ namespace hooks::parser {
             if (garbageActive)
                 coalesceGarbage(cursor, garbageStart);
             garbageActive = false;
-            visibility = static_cast<int>(sample::VisibilityKind::Public);
+            if (!parseVisibilityArgs(cursor, visibility, visibilityAncestors,
+                                     visibilityDescendants))
+                cursor.diagnose(cursor.cur().span,
+                                "malformed visibility declaration");
+            continue;
+        }
+        if (cursor.atLexeme("priv")) {
+            cursor.diagnose(cursor.cur().span,
+                            "private is the default; 'priv' keyword is not supported");
             cursor.advance();
             continue;
         }
@@ -1591,6 +1826,8 @@ namespace hooks::parser {
                 coalesceGarbage(cursor, garbageStart);
             garbageActive = false;
             visibility = static_cast<int>(sample::VisibilityKind::Module);
+            visibilityAncestors = -1;
+            visibilityDescendants = -1;
             cursor.advance();
             continue;
         }
@@ -1619,10 +1856,15 @@ namespace hooks::parser {
             garbageActive = false;
             if (cursor.cur().kind == TokenKind::End)
                 continue;
-            Node declaration = parseDeclaration(cursor, visibility, externPending);
+            Node declaration = parseDeclaration(cursor, visibility,
+                                                visibilityAncestors,
+                                                visibilityDescendants,
+                                                externPending);
             if (declaration != nullptr)
                 output.ast.root->body.push(declaration);
             visibility = static_cast<int>(sample::VisibilityKind::Private);
+            visibilityAncestors = -1;
+            visibilityDescendants = -1;
             externPending = false;
             continue;
         }

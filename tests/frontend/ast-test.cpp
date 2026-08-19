@@ -35,11 +35,11 @@ int main() {
     AstRoot ast(arena);
 
     Expr *callee = generated_ast::make<Expr>(
-        ast, Span{6, 7}, 0, "", "callee", nullptr);
+        ast, Span{6, 7}, 0, "", "callee", nullptr, nullptr);
     Expr *literal = generated_ast::make<Expr>(
-        ast, Span{1, 2}, 0, "", "answer", nullptr);
+        ast, Span{1, 2}, 0, "", "answer", nullptr, nullptr);
     Expr *call = generated_ast::make<Expr>(
-        ast, Span{0, 6}, 0, "", "call", nullptr);
+        ast, Span{0, 6}, 0, "", "call", nullptr, nullptr);
 
     if (callee == nullptr || literal == nullptr || call == nullptr)
         return EXIT_FAILURE;

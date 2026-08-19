@@ -25,7 +25,7 @@ enum class DeclKind : int {
     TypeAlias = 7,
     Trait = 8,
     Interface = 9,
-    Marker = 10,
+    State = 10,
     Macro = 11,
     Word = 12,
     Context = 13,
@@ -69,14 +69,13 @@ enum class ExprKind : int {
     ArrayLiteral = 13,
     Block = 14,
     If = 15,
-    While = 16,
-    For = 17,
-    When = 18,
-    Range = 19,
-    Placeholder = 20,
-    MacroCall = 21,
-    LayoutIntrinsic = 22,
-    IsNull = 23,
+    For = 16,
+    When = 17,
+    Range = 18,
+    Placeholder = 19,
+    MacroCall = 20,
+    LayoutIntrinsic = 21,
+    IsNull = 22,
 };
 
 enum class StmtKind : int {
@@ -85,8 +84,8 @@ enum class StmtKind : int {
     Return = 2,
     Break = 3,
     Continue = 4,
-    Dock = 5,
-    Marker = 6,
+    Enter = 5,
+    Leave = 6,
     Jump = 7,
 };
 

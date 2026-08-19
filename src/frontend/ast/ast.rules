@@ -15,6 +15,8 @@ body: common::memory::DynArray<Declaration> = children
 span: Span
 kind: int
 visibility: int
+visibilityAncestors: int
+visibilityDescendants: int
 functionKind: int
 name: std::string_view
 ownerName: std::string_view
@@ -89,6 +91,8 @@ statements: common::memory::DynArray<Stmt> = children
 conditions: common::memory::DynArray<Expr> = children
 genericArgs: common::memory::DynArray<TypeExpr> = children
 castType: TypeExpr = child
+cases: common::memory::DynArray<Expr> = children
+alternate: Expr = child
 
 [ExprField]
 span: Span
@@ -101,6 +105,7 @@ kind: int
 label: std::string_view
 isStackful: bool
 expression: Expr = child
+returnValue: Expr = child
 binding: Binding = child
 parameters: common::memory::DynArray<Parameter> = children
 arguments: common::memory::DynArray<Expr> = children

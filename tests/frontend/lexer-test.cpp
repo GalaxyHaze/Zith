@@ -1,28 +1,19 @@
 #include "frontend/lexer/lexer.hpp"
-#include "common/memory/arena.hpp"
-#include "common/memory/string-interner.hpp"
-
+#include "frontend/lexer/keyword-table.hpp"
 #include <array>
-#include <cstdio>
 #include <cstdlib>
-#include <cstring>
-#include <initializer_list>
 #include <iostream>
-#include <string>
 #include <string_view>
-#include <vector>
+#include <initializer_list>
 
-using generated_lexer::FormattedToken;
-using generated_lexer::formatToken;
 using generated_lexer::Lexer;
-using generated_lexer::printToken;
 using generated_lexer::Token;
 using generated_lexer::TokenStream;
 using generated_lexer::TokenKind;
 using generated_lexer::tokenKindName;
 using generated_lexer::terminalToken;
-using common::memory::Arena;
-using common::memory::StringInterner;
+using generated_lexer::lookupKeyword;
+using generated_lexer::detail::keyword_meta;
 
 namespace {
 
@@ -38,9 +29,7 @@ bool expect_tokens(
     std::initializer_list<ExpectedToken> expected
 ) {
     Lexer lexer;
-    Arena arena;
-    StringInterner strings(arena);
-    const TokenStream tokens = lexer.run(source, strings);
+    const TokenStream tokens = lexer.run(source);
     if (tokens.size() != expected.size()) {
         std::cerr << label << ": expected " << expected.size() << " tokens, got "
                   << tokens.size() << "\n";
@@ -50,7 +39,8 @@ bool expect_tokens(
     size_t index = 0;
     for (const ExpectedToken &want : expected) {
         const Token &got = tokens[index];
-        const std::string_view lexeme = tokens.lexeme(got);
+        const std::string_view lexeme =
+            source.substr(got.span.start, got.span.end - got.span.start);
         if (got.kind != want.kind || lexeme != want.lexeme || got.punc != want.punc) {
             std::cerr << label << ": token " << index << " mismatch\n"
                       << "  expected kind=" << tokenKindName(want.kind)
@@ -67,65 +57,10 @@ bool expect_tokens(
     return true;
 }
 
-bool expect_format(
-    std::string_view label,
-    std::string_view source,
-    Span span,
-    TokenKind kind,
-    std::string_view expected
-) {
-    Arena arena;
-    StringInterner strings(arena);
-    const Token token(span, kind);
-    Token token_with_lexeme = token;
-    const std::string_view lexeme_source =
-        span.end <= source.size()
-            ? source.substr(span.start, span.end - span.start)
-            : std::string_view{};
-    token_with_lexeme.lexemeId = strings.intern(lexeme_source);
-    const FormattedToken formatted = formatToken(token_with_lexeme, strings);
-    const std::string actual =
-        std::string(strings.lookup(formatted.kindId)) + "(" +
-        std::string(strings.lookup(formatted.lexemeId)) + "): [" +
-        std::to_string(formatted.span.start) + "," +
-        std::to_string(formatted.span.end) + "]";
-    if (actual != expected) {
-        std::cerr << label << ": format mismatch\n"
-                  << "  expected='" << expected << "'\n"
-                  << "  got     ='" << actual << "'\n";
-        return false;
-    }
-
-    FILE *file = tmpfile();
-    if (file == nullptr) {
-        std::cerr << label << ": tmpfile failed\n";
-        return false;
-    }
-    printToken(file, formatted, strings);
-    rewind(file);
-    char buffer[512];
-    const size_t n = fread(buffer, 1, sizeof(buffer), file);
-    fclose(file);
-    if (n >= sizeof(buffer)) {
-        std::cerr << label << ": print output too large\n";
-        return false;
-    }
-    buffer[n] = '\0';
-    const std::string_view print_output(buffer, n);
-    if (print_output != std::string(expected) + "\n") {
-        std::cerr << label << ": print mismatch\n"
-                  << "  expected='" << expected << "\\n'\n"
-                  << "  got     ='" << print_output << "'\n";
-        return false;
-    }
-    return true;
-}
-
 bool expect_stream_helpers() {
     Lexer lexer;
-    Arena arena;
-    StringInterner strings(arena);
-    TokenStream tokens = lexer.run("if + ;", strings);
+    constexpr std::string_view source = "if + ;";
+    TokenStream tokens = lexer.run(source);
     bool ok = tokens.size() == 4 && !tokens.empty();
     ok &= tokens[0].kind == TokenKind::If && tokens[1].kind == TokenKind::Operators &&
           tokens[2].kind == TokenKind::Punctuation && tokens[3].kind == TokenKind::End;
@@ -166,99 +101,90 @@ bool expect_stream_helpers() {
     const size_t before_fail = tokens.offset;
     ok &= !tokens.matchAll(TokenKind::Punctuation, TokenKind::End, TokenKind::If);
     ok &= tokens.offset == before_fail;
-    ok &= tokens.matchAllLexeme(";", "");
-
-    tokens.reset();
-    ok &= tokens.match(TokenKind::If);
-    ok &= tokens.matchLexeme("+");
-    ok &= tokens.matchLexeme(";");
-    ok &= tokens.matchLexeme("");
-    ok &= tokens.offset == 4;
-
     return ok;
 }
 
-bool expect_constructor_and_print() {
+bool expect_constructor() {
     const TokenStream empty;
     bool ok = empty.empty();
     ok &= empty.at(0).kind == TokenKind::Unknown;
     ok &= empty.absoluteSlice(0, 1).empty();
     ok &= empty.slice(0, 1).empty();
-    ok &= empty.lexeme(empty.at(0)).empty();
-    ok &= empty.lexeme(0).empty();
 
     const std::vector<Token> manual = {
         Token({0, 3}, TokenKind::LitVal),
         Token({4, 5}, TokenKind::Operators),
     };
-    Arena manual_arena;
-    StringInterner manual_strings(manual_arena);
-    std::vector<Token> manual_mutable = manual;
-    manual_mutable[0].lexemeId = manual_strings.intern("123");
-    manual_mutable[1].lexemeId = manual_strings.intern("+");
-    const TokenStream owned(std::move(manual_mutable), manual_strings);
+    const TokenStream owned(std::move(manual));
     ok &= owned.size() == 2;
-    ok &= owned.lexeme(owned[1]) == "+";
-    ok &= owned.lexeme(owned[1].lexemeId) == "+";
-    if (owned.size() != 2 ||
-        owned.lexeme(owned[1]) != "+" ||
-        owned.lexeme(owned[1].lexemeId) != "+")
-        std::cerr << "owned lexeme/state mismatch\n";
-    ok &= owned[1].lexemeId != 0;
 
     const std::array<Token, 2> manual_array = {
         Token({0, 1}, TokenKind::LitVal),
         Token({1, 2}, TokenKind::Operators),
     };
     const std::span<const Token> manual_span(manual_array);
-    Arena span_arena;
-    StringInterner span_strings(span_arena);
-    Token span_tokens[2];
-    span_tokens[0] = Token({0, 1}, TokenKind::LitVal);
-    span_tokens[1] = Token({1, 2}, TokenKind::Operators);
-    span_tokens[0].lexemeId = span_strings.intern("1");
-    span_tokens[1].lexemeId = span_strings.intern("+");
-    const std::span<const Token> span_span(span_tokens);
-    const TokenStream from_span(span_span, span_strings);
+    const TokenStream from_span(manual_span);
     ok &= from_span.size() == 2;
-    ok &= from_span.lexeme(from_span[1]) == "+";
-    ok &= from_span.lexeme(from_span[1].lexemeId) == "+";
-    ok &= from_span.lexeme(12345).empty();
-    if (from_span.lexeme(from_span[1]) != "+" ||
-        from_span.lexeme(from_span[1].lexemeId) != "+")
-        std::cerr << "span lexeme mismatch\n";
+    return ok;
+}
 
-    const FormattedToken stream_formatted = formatToken(from_span, 1);
-    ok &= span_strings.lookup(stream_formatted.kindId) == "Operators";
-    ok &= span_strings.lookup(stream_formatted.lexemeId) == "+";
-    if (span_strings.lookup(stream_formatted.kindId) != "Operators" ||
-        span_strings.lookup(stream_formatted.lexemeId) != "+")
-        std::cerr << "stream formatted token mismatch\n";
+bool expect_all_keywords() {
+    bool ok = true;
+    constexpr std::string_view spellings[] = {
+        "as", "use", "import", "from", "export", "asset",
+        "type", "alias", "auto", "dyn", "i8", "i16", "i32", "i64", "i128",
+        "u8", "u16", "u32", "u64", "u128", "f32", "f64", "bool", "char", "void",
+        "struct", "component", "enum", "union", "typedef", "true", "false",
+        "null", "unknown", "invalid", "never", "unsafe", "extends",
+        "fn", "mod", "extern", "macro", "context", "with", "catch", "spawn",
+        "await", "async",
+        "let", "var", "const", "global", "lend", "share", "view", "unique",
+        "belong", "return", "break", "continue", "yield",
+        "marker", "stackful", "dock", "jump", "tag", "state", "enter", "leave",
+        "pub", "if", "else", "for", "in", "when", "match", "while", "flow",
+        "throw", "fail", "drop", "require", "must", "is", "raw", "mut",
+        "trait", "interface", "implement", "impl", "word", "prefix", "suffix",
+        "infix", "nop", "and", "or", "not", "xor",
+    };
+    if (std::size(spellings) != keyword_meta.size()) {
+        std::cerr << "all-keywords: expected " << keyword_meta.size()
+                  << " spellings, got " << std::size(spellings) << "\n";
+        return false;
+    }
+    for (size_t i = 0; i < std::size(spellings); ++i) {
+        std::string_view word = spellings[i];
+        const auto &meta = keyword_meta[i];
+        if (lookupKeyword(word) != static_cast<TokenKind>(meta.token_kind)) {
+            std::cerr << "all-keywords: " << word
+                      << " expected kind="
+                      << static_cast<int>(meta.token_kind)
+                      << " got=" << static_cast<int>(lookupKeyword(word)) << "\n";
+            ok = false;
+        }
 
-    FILE *file = tmpfile();
-    if (file == nullptr) return false;
-    printToken(file, owned);
-    rewind(file);
-    char buffer[512];
-    const size_t n1 = fread(buffer, 1, sizeof(buffer), file);
-    fclose(file);
-    const std::string_view out(buffer, n1);
-    ok &= out == "LitVal(123): [0,3]\nOperators(+): [4,5]\n";
-    if (out != "LitVal(123): [0,3]\nOperators(+): [4,5]\n")
-        std::cerr << "owned print mismatch: '" << out << "'\n";
+        char prefix_buf[10 + 1];
+        char suffix_buf[1 + 9];
+        std::string_view prefix;
+        std::string_view suffix;
+        const size_t len = word.size();
+        for (size_t k = 0; k < len; ++k) prefix_buf[k] = word[k];
+        prefix_buf[len] = '@';
+        prefix = std::string_view(prefix_buf, len + 1);
 
-    Arena print_arena;
-    StringInterner print_strings(print_arena);
-    file = tmpfile();
-    if (file == nullptr) return false;
-    printToken(file, "fn x", print_strings);
-    rewind(file);
-    const size_t n2 = fread(buffer, 1, sizeof(buffer), file);
-    fclose(file);
-    const std::string_view out2(buffer, n2);
-    ok &= out2 == "Fn(fn): [0,2]\nIdentifier(x): [3,4]\nEnd(): [4,4]\n";
-    if (out2 != "Fn(fn): [0,2]\nIdentifier(x): [3,4]\nEnd(): [4,4]\n")
-        std::cerr << "source print mismatch: '" << out2 << "'\n";
+        suffix_buf[0] = '@';
+        for (size_t k = 0; k < len; ++k) suffix_buf[k + 1] = word[k];
+        suffix = std::string_view(suffix_buf, len + 1);
+        if (lookupKeyword(prefix) != TokenKind::Identifier) {
+            std::cerr << "all-keywords: " << word
+                      << " prefix-miss returned keyword\n";
+            ok = false;
+        }
+        if (lookupKeyword(suffix) != TokenKind::Identifier) {
+            std::cerr << "all-keywords: " << word
+                      << " suffix-miss returned keyword\n";
+            ok = false;
+        }
+    }
     return ok;
 }
 } // namespace
@@ -376,21 +302,8 @@ int main() {
     });
 
     ok &= expect_stream_helpers();
-    ok &= expect_constructor_and_print();
-
-    ok &= expect_format("print-keyword", "fn", {0, 2}, TokenKind::Fn, "Fn(fn): [0,2]");
-    ok &= expect_format(
-        "print-compound", "one += two", {4, 6}, TokenKind::Operators, "Operators(+=): [4,6]"
-    );
-    ok &= expect_format(
-        "print-punc", "{;}", {1, 2}, TokenKind::Punctuation, "Punctuation(;): [1,2]"
-    );
-    ok &= expect_format(
-        "print-eof", "abc", {3, 3}, TokenKind::End, "End(): [3,3]"
-    );
-    ok &= expect_format(
-        "print-out-of-range", "abc", {3, 4}, TokenKind::Unknown, "Unknown(): [3,4]"
-    );
+    ok &= expect_all_keywords();
+    ok &= expect_constructor();
 
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

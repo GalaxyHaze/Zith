@@ -1,6 +1,8 @@
 #include "session/dispatch.hpp"
 #include "session/session.hpp"
+#include "support/resource-discovery.hpp"
 
+#include <filesystem>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -46,7 +48,7 @@ toolkit::session::dispatch<Stage::Lexed>(CompilationSession &session) {
             generated_lexer::TokenKind::End,
         },
     };
-    return generated_lexer::TokenStream{std::move(tokens), session.context().interner};
+    return generated_lexer::TokenStream{std::move(tokens)};
 }
 
 template <>
@@ -131,6 +133,31 @@ toolkit::session::dispatch<Stage::Cached>(CompilationSession &) {
 
 int main() {
     bool ok = true;
+
+    {
+        const std::string overrideDir =
+            std::filesystem::temp_directory_path().string();
+#ifdef _WIN32
+        const int setEnv = _putenv_s("ZITH_STDLIB", overrideDir.c_str());
+#else
+        const int setEnv = ::setenv("ZITH_STDLIB", overrideDir.c_str(), 1);
+#endif
+        ok &= check(setEnv == 0, "setting ZITH_STDLIB test override");
+        const auto stdlibRoots = toolkit::support::findStdlibRoots();
+        ok &= check(stdlibRoots.size() == 1 &&
+                        stdlibRoots[0] == overrideDir,
+                    "ZITH_STDLIB override appears in stdlib roots");
+        toolkit::session::ZithSessionContext context;
+        context.stdlibRoots = toolkit::support::findStdlibRoots();
+        ok &= check(context.stdlibRoots.size() == 1 &&
+                        context.stdlibRoots[0] == overrideDir,
+                    "session context receives ZITH_STDLIB override");
+#ifdef _WIN32
+        (void)_putenv_s("ZITH_STDLIB", "");
+#else
+        (void)::unsetenv("ZITH_STDLIB");
+#endif
+    }
 
     Stage stages[] = {
         Stage::Source,

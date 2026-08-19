@@ -68,12 +68,17 @@ add_library(zct_session STATIC
 )
 
 target_link_libraries(zct_session PUBLIC
+    zct_support
+    zct_sema
+    zct_resolution
     zct_common
 )
 
 target_link_libraries(zct_session PRIVATE
     zct_frontend_parser
     zct_frontend_ast
+    zct_resolution
+    zct_sema
 )
 
 target_include_directories(zct_session PUBLIC

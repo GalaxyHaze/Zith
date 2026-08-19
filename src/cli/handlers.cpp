@@ -5,11 +5,15 @@
 #include "common/sir/flat/flat.hpp"
 #include "session/dispatch.hpp"
 #include "session/session.hpp"
+#include "support/resource-discovery.hpp"
 
+#include <filesystem>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <vector>
 
 int show_help() {
     const generated_cli::term::Terminal terminal = generated_cli::term::init();
@@ -90,7 +94,35 @@ std::string_view chooseInput(const generated_cli::Options &opts) {
         firstNonEmpty(firstNonEmpty(internedPath(opts, opts.check.input),
                                     internedPath(opts, opts.run.script)),
                       internedPath(opts, opts.build.input)),
-        internedPath(opts, opts.input));
+                        internedPath(opts, opts.input));
+}
+
+std::string absoluteRoot(std::string_view path) {
+    std::error_code error;
+    const auto absolute = std::filesystem::absolute(path, error);
+    if (error)
+        return std::string(path);
+    return absolute.lexically_normal().string();
+}
+
+void populateResourceRoots(const generated_cli::Options &opts,
+                           toolkit::session::ZithSessionContext &context) {
+    context.stdlibRoots = toolkit::support::findStdlibRoots();
+
+    if (opts.stringPool != nullptr) {
+        for (const auto id : opts.includeDirs) {
+            const std::string_view include = opts.stringPool->lookup(id);
+            if (!include.empty())
+                context.includeRoots.push_back(absoluteRoot(include));
+        }
+    }
+    context.systemIncludeRoots = context.includeRoots;
+
+    if (!context.projectRoot.empty()) {
+        const std::string assets =
+            absoluteRoot(std::string(context.projectRoot) + "/assets");
+        context.assetRoots.push_back(assets);
+    }
 }
 
 int checkHelp(const generated_cli::Options &opts);
@@ -148,6 +180,7 @@ int runPipeline(const generated_cli::Options &opts, std::string_view inputPath,
     context.filePath = inputPath;
     context.projectRoot = ".";
     context.options = const_cast<generated_cli::Options *>(&opts);
+    populateResourceRoots(opts, context);
 
     toolkit::session::CompilationSession session(context);
     const auto result = session.runTo(target);

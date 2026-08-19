@@ -6,6 +6,7 @@ target_link_libraries(zithc PRIVATE
     zct_cli
     zct_frontend_lexer
     zct_flags
+    zct_support
     zct_common
     zct_session
 )

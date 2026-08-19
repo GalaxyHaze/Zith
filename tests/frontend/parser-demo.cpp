@@ -25,9 +25,8 @@ bool expect(bool condition, std::string_view message, std::string_view source) {
 
 bool parseOne(std::string_view source, bool expectError = false) {
     Arena arena;
-    StringInterner interner(arena);
     Lexer lexer;
-    TokenStream tokens = lexer.run(source, interner);
+    TokenStream tokens = lexer.run(source);
     Parser parser(arena);
     sample::ParseOutput output =
         hooks::parser::parseSource(parser, tokens, source);

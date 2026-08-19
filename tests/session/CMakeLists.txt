@@ -4,6 +4,11 @@ add_executable(session-test
 
 target_link_libraries(session-test PRIVATE
     zct_session_core
+    zct_support
+    zct_resolution
+    zct_import
+    zct_symbols
+    zct_sema
     zct_frontend_lexer
     zct_frontend_ast
     zct_frontend_parser

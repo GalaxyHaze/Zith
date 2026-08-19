@@ -9,10 +9,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <string_view>
-#if !defined(ZCT_IS_WASM)
-#include <mutex>
-#include <shared_mutex>
-#endif
 
 namespace common::memory {
 
@@ -21,10 +17,6 @@ StringInterner::StringInterner(Arena &arena) : allocator_(&arena) {
 }
 
 InternedId StringInterner::intern(std::string_view str) {
-#if !defined(ZCT_IS_WASM)
-    std::unique_lock<std::shared_mutex> lock(rwMutex_);
-#endif
-
     auto *existing = map->get(str);
     if (existing)
         return *existing;
@@ -38,20 +30,12 @@ InternedId StringInterner::intern(std::string_view str) {
 }
 
 std::string_view StringInterner::lookup(InternedId id) const {
-#if !defined(ZCT_IS_WASM)
-    std::shared_lock<std::shared_mutex> lock(rwMutex_);
-#endif
-
     if (id >= pool->size())
         return {};
     return (*pool)[id];
 }
 
 Optional<InternedId> StringInterner::findId(std::string_view str) const {
-#if !defined(ZCT_IS_WASM)
-    std::shared_lock<std::shared_mutex> lock(rwMutex_);
-#endif
-
     const auto *value = map->get(str);
     if (!value)
         return {};

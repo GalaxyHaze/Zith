@@ -5,9 +5,6 @@
 #include "support/macros.hpp"
 
 #include <cstdint>
-#if !defined(ZCT_IS_WASM)
-#include <shared_mutex>
-#endif
 #include <string_view>
 
 #include "common/memory/optional.hpp"
@@ -34,9 +31,6 @@ private:
     Arena *allocator_                        = nullptr;
     FlatMap<std::string_view, InternedId> *map = nullptr;
     DynArray<std::string_view> *pool   = nullptr;
-#if !defined(ZCT_IS_WASM)
-    mutable std::shared_mutex rwMutex_;
-#endif
 
     void init();
 };

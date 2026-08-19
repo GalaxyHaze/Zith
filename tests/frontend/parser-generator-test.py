@@ -146,8 +146,7 @@ void semi(Parser &, const Token &) {}
 int main() {
     common::memory::Arena arena;
     generated_lexer::Lexer lexer;
-    common::memory::StringInterner strings(arena);
-    generated_lexer::TokenStream tokens = lexer.run("x;", strings);
+    generated_lexer::TokenStream tokens = lexer.run("x;");
     generated_parser::Parser<sample::ParseOutput> parser(arena);
     const auto result = parser.parse(tokens, std::string_view("x;"));
     return result.isOk() ? 0 : 1;
