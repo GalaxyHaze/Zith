@@ -24,7 +24,7 @@ _zithc() {
 
     cmds="build run execute check fmt create deps test docs repl clean completion"
 
-    opts="-h --help --version -m --mode -o --output -I --include -L -l -D -A --assets --check -i --in-place --emit --target --sysroot --no-system-includes --emit-tokens --emit-ast --emit-hir --emit-ir --emit-asm --emit-all --interpreted --opt-level --debug-level -s --strict --lto --strip-debug -c --color -v --verbose"
+    opts="-h --help --version -m --mode -o --output -I --include --c-source-dir -L -l -D -A --assets --check -i --in-place --emit --target --sysroot --no-system-includes --emit-tokens --emit-ast --emit-hir --emit-ir --emit-asm --emit-all --interpreted --opt-level --debug-level -s --strict --lto --strip-debug -c --color -v --verbose"
 
     # Specific option completions
     case "$prev" in
@@ -40,7 +40,7 @@ _zithc() {
             COMPREPLY=( $(compgen -W "auto on off" -- "$cur") )
             return 0
             ;;
-        -o|--output|--sysroot|-I|--include|-L|-A|--assets)
+        -o|--output|--sysroot|-I|--include|--c-source-dir|-L|-A|--assets)
             if declare -F _filedir &>/dev/null; then
                 _filedir
             else
@@ -95,7 +95,7 @@ _zithc() {
 
     cmds="build run execute check fmt create deps test docs repl clean completion"
 
-    opts="-h --help --version -m --mode -o --output -I --include -L -l -D -A --assets --check -i --in-place --emit --target --sysroot --no-system-includes --emit-tokens --emit-ast --emit-hir --emit-ir --emit-asm --emit-all --interpreted --opt-level --debug-level -s --strict --lto --strip-debug -c --color -v --verbose"
+    opts="-h --help --version -m --mode -o --output -I --include --c-source-dir -L -l -D -A --assets --check -i --in-place --emit --target --sysroot --no-system-includes --emit-tokens --emit-ast --emit-hir --emit-ir --emit-asm --emit-all --interpreted --opt-level --debug-level -s --strict --lto --strip-debug -c --color -v --verbose"
 
     case "$prev" in
         -m|--mode)
@@ -110,7 +110,7 @@ _zithc() {
             COMPREPLY=( $(compgen -W "auto on off" -- "$cur") )
             return 0
             ;;
-        -o|--output|--sysroot|-I|--include|-L|-A|--assets)
+        -o|--output|--sysroot|-I|--include|--c-source-dir|-L|-A|--assets)
             COMPREPLY=( $(compgen -f -- "$cur") )
             return 0
             ;;
@@ -168,6 +168,7 @@ complete -c zithc -l version -d "Show version"
 complete -c zithc -s m -l mode -r -f -a "debug dev release fast small" -d "Build mode"
 complete -c zithc -s o -l output -r -g -d "Output file path"
 complete -c zithc -s I -l include -r -d "Add include directory"
+complete -c zithc -l c-source-dir -r -d "Add a root for recursive .c discovery"
 complete -c zithc -s A -l assets -r -d "Add asset directory"
 complete -c zithc -l check -d "Check formatting without modifying"
 complete -c zithc -s i -l in-place -d "Format files in-place"

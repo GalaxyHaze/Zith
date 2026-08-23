@@ -740,6 +740,42 @@ private:
                    snapshot_.tokens_[index_].kind == TokenKind::Keyword) {
             type.kind = TypeExprKind::Name;
             type.name = std::string(text(index_++));
+            // Generic applications in type position: `Pair<T, U>`, `Node<i32>`.
+            // The parser accepts a balanced `<...>` after a type name; sema reports
+            // unresolved generic templates when they cannot be monomorphized.
+            if (isOperatorToken("<")) {
+                int depth     = 0;
+                bool balanced = true;
+                for (uint32_t i = index_; i < token_count_; ++i) {
+                    const auto &token = snapshot_.tokens_[i];
+                    if (token.kind == TokenKind::Operator) {
+                        if (text(i) == "<")
+                            ++depth;
+                        else if (text(i) == ">") {
+                            --depth;
+                            if (depth == 0)
+                                break;
+                        }
+                    } else if (token.kind == TokenKind::End) {
+                        balanced = false;
+                        break;
+                    }
+                }
+                if (balanced) {
+                    ++index_; // '<'
+                    while (index_ < token_count_ && !isOperatorToken(">")) {
+                        type.arguments.push_back(parseType());
+                        if (!punctuation(index_, ','))
+                            break;
+                        ++index_;
+                    }
+                    if (isOperatorToken(">"))
+                        ++index_;
+                    else
+                        snapshot_.diagnostics_.push_back(
+                            {range(start, index_), "expected '>' after generic type arguments"});
+                }
+            }
         } else {
             snapshot_.diagnostics_.push_back({tokenSpan(index_), "expected a type"});
             ++index_;
@@ -812,6 +848,17 @@ private:
             if (index_ < token_count_ && (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
                                           snapshot_.tokens_[index_].kind == TokenKind::Keyword)) {
                 const auto name = std::string(text(index_++));
+                // Qualified macro names: `@ns.macro`. The expander resolves the
+                // full dotted name, which lets `import path as ns` expose public
+                // macros under the module namespace.
+                std::string qualified = name;
+                while (punctuation(index_, '.') && index_ + 1U < token_count_ &&
+                       (snapshot_.tokens_[index_ + 1U].kind == TokenKind::Identifier ||
+                        snapshot_.tokens_[index_ + 1U].kind == TokenKind::Keyword)) {
+                    ++index_; // '.'
+                    qualified += ".";
+                    qualified += std::string(text(index_++));
+                }
                 Expression expr;
                 expr.scope = current_scope_;
                 if (isIntrinsicName(name)) {
@@ -842,7 +889,7 @@ private:
                 } else {
                     // User macro call @name(|attrs|)(args) or @name(args).
                     expr.kind = ExprKind::MacroCall;
-                    expr.text = name;
+                    expr.text = qualified;
                     // Optional `|attributes|` before arguments. An empty list is written
                     // `||`, which the lexer munches as one token, so accept it directly.
                     if (text(index_) == "||") {
@@ -1032,9 +1079,11 @@ private:
                text(index_) == op;
     }
 
-    /// True when the current `<` opens a generic application `name<A, B>(...)`:
-    /// the matching `>` (counting nested `<`/`>`) must be immediately followed by `(`.
-    /// Plain comparisons like `a < b` do not match because `>` is not followed by `(`.
+    /// True when the current `<` opens a generic application `name<A, B>(...)`
+    /// or a generic struct literal `name<A, B>{ ... }`: the matching `>`
+    /// (counting nested `<`/`>`) must be immediately followed by `(` or `{`.
+    /// Plain comparisons like `a < b` do not match because they are not followed
+    /// by a call or literal brace.
     [[nodiscard]] bool isGenericApplication() const {
         if (!isOperatorToken("<"))
             return false;
@@ -1046,10 +1095,13 @@ private:
                     ++depth;
                 else if (text(i) == ">") {
                     --depth;
-                    if (depth == 0)
-                        return i + 1U < token_count_ &&
-                               snapshot_.tokens_[i + 1U].kind == TokenKind::Punctuation &&
-                               text(i + 1U) == "(";
+                    if (depth == 0) {
+                        if (i + 1U >= token_count_ ||
+                            snapshot_.tokens_[i + 1U].kind != TokenKind::Punctuation)
+                            return false;
+                        const auto next = text(i + 1U);
+                        return next == "(" || next == "{";
+                    }
                 }
             } else if (token.kind == TokenKind::Punctuation && text(i) == "(") {
                 // Nested calls/grouping inside the args would break the heuristic; only
@@ -1141,8 +1193,8 @@ private:
                 continue;
             }
             // Generic application `name<A, B>(args)`: the angle-bracket list holds type
-            // expressions recorded on the Call node; sema reports that instantiation is
-            // not implemented yet.
+            // expressions recorded on the Call node. The same list on a `{ ... }`
+            // literal is carried by StructLiteral for sema and HIR.
             if (isGenericApplication()) {
                 const uint32_t gen_start = start;
                 ++index_; // '<'
@@ -1161,7 +1213,54 @@ private:
                 else
                     snapshot_.diagnostics_.push_back(
                         {range(gen_start, index_), "expected '>' after generic arguments"});
-                if (punctuation(index_, '(')) {
+                const bool generic_struct_literal = result && punctuation(index_, '{');
+                if (generic_struct_literal) {
+                    // Generic struct literal: `Pair<i32, f64>{ left: 1, right: 2.0 }`
+                    // keeps the generic type arguments on a StructLiteral node.
+                    const std::string struct_name =
+                        result.value <= snapshot_.expressions_.size()
+                            ? snapshot_.expressions_[result.value - 1U].text
+                            : std::string{};
+                    Expression struct_lit;
+                    struct_lit.kind             = ExprKind::StructLiteral;
+                    struct_lit.scope            = current_scope_;
+                    struct_lit.text             = struct_name;
+                    struct_lit.genericArgs      = std::move(call.genericArgs);
+                    const uint32_t struct_start = index_;
+                    ++index_; // '{'
+                    while (index_ < token_count_ && !punctuation(index_, '}')) {
+                        if (punctuation(index_, ',')) {
+                            ++index_;
+                            continue;
+                        }
+                        const bool is_named =
+                            (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
+                             snapshot_.tokens_[index_].kind == TokenKind::Keyword) &&
+                            punctuation(index_ + 1U, ':');
+                        if (is_named) {
+                            const std::string field_name = std::string(text(index_++));
+                            ++index_; // ':'
+                            struct_lit.field_names.push_back(field_name);
+                            struct_lit.operands.push_back(text(index_) == "_" ? parsePrimary()
+                                                                              : parseExpression());
+                        } else {
+                            struct_lit.operands.push_back(parseExpression());
+                        }
+                        if (punctuation(index_, ','))
+                            ++index_;
+                        else if (!punctuation(index_, '}'))
+                            break;
+                    }
+                    if (punctuation(index_, '}'))
+                        ++index_;
+                    else
+                        snapshot_.diagnostics_.push_back(
+                            {range(struct_start, index_),
+                             "expected '}' after generic struct literal fields"});
+                    struct_lit.span = range(gen_start, index_);
+                    result          = addExpression(std::move(struct_lit));
+                    continue;
+                } else if (punctuation(index_, '(')) {
                     ++index_;
                     while (index_ < token_count_ && !punctuation(index_, ')')) {
                         call.operands.push_back(parseExpression());
@@ -2328,7 +2427,56 @@ private:
                 {tokenSpan(index_), "expected a type name after 'implement'"});
             return;
         }
-        const std::string owner_name = std::string(text(index_++));
+        std::string owner_name = std::string(text(index_++));
+        // An implementation can target the generic template (`implement Box`).
+        // The method's receiver type then instantiates it; ownerName stays the
+        // template name so owner lookup works for both Box and Box<T>.
+        while (index_ < token_count_ &&
+               (snapshot_.tokens_[index_].kind == TokenKind::Operator ||
+                snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
+                snapshot_.tokens_[index_].kind == TokenKind::Literal) &&
+               !isOperatorToken("as") && !isKeywordToken("for") && !punctuation(index_, '{')) {
+            if (text(index_) == "<")
+                break;
+            if (isOperatorToken(">"))
+                break;
+            owner_name += text(index_);
+            ++index_;
+        }
+        // `implement Box<T>` is accepted but methods still attach to the template
+        // name; concrete instances are resolved through explicit receiver types.
+        std::vector<GenericParam> ownerGenericParams;
+        if (isOperatorToken("<")) {
+            int depth                  = 0;
+            std::string generic_suffix = "<";
+            ++index_;
+            while (index_ < token_count_) {
+                if (isOperatorToken("<")) {
+                    ++depth;
+                } else if (snapshot_.tokens_[index_].kind == TokenKind::Identifier && depth == 0) {
+                    GenericParam param;
+                    param.name = std::string(text(index_));
+                    param.span = tokenSpan(index_);
+                    ownerGenericParams.push_back(std::move(param));
+                    ++index_;
+                    continue;
+                } else if (isOperatorToken(">")) {
+                    if (depth == 0) {
+                        generic_suffix += ">";
+                        ++index_;
+                        break;
+                    }
+                    --depth;
+                }
+                if (index_ < token_count_) {
+                    generic_suffix += text(index_);
+                    ++index_;
+                }
+            }
+            // The owner template keeps its base name; concrete receiver types on
+            // methods drive monomorphization.
+            (void)generic_suffix;
+        }
 
         std::string trait_name;
         // Optional `as TraitName` or `for TraitName` — parsed but not enforced.
@@ -2340,6 +2488,29 @@ private:
             } else {
                 snapshot_.diagnostics_.push_back(
                     {tokenSpan(index_), "expected a trait name after 'as'/'for'"});
+            }
+        }
+
+        if (!trait_name.empty()) {
+            bool name_exists = false;
+            bool is_trait    = false;
+            for (const auto &known : snapshot_.declarations_) {
+                if (known.name != trait_name)
+                    continue;
+                name_exists = true;
+                if (known.kind == DeclKind::Trait)
+                    is_trait = true;
+            }
+            if (!name_exists) {
+                snapshot_.diagnostics_.push_back({range(start, index_),
+                                                  "trait conformance is not implemented yet: '" +
+                                                      trait_name +
+                                                      "' is not declared in this module",
+                                                  true, diagnostics::err::NotImplemented});
+            } else if (!is_trait) {
+                snapshot_.diagnostics_.push_back({range(start, index_),
+                                                  "'" + trait_name + "' is not a trait", false,
+                                                  diagnostics::err::NotATrait});
             }
         }
 
@@ -2357,7 +2528,7 @@ private:
             if (const auto function_kind = functionKindPrefix()) {
                 const auto method_start = index_;
                 lowerDeclaration(method_start, DeclKind::Function, visibility, owner_name,
-                                 trait_name, false, *function_kind);
+                                 trait_name, false, *function_kind, ownerGenericParams);
                 continue;
             }
             snapshot_.diagnostics_.push_back(
@@ -2397,8 +2568,9 @@ private:
 
     void lowerDeclaration(const uint32_t start, const DeclKind kind, const Visibility visibility,
                           std::string ownerName = {}, std::string traitName = {},
-                          const bool isExtern             = false,
-                          const FunctionKind functionKind = FunctionKind::Standard) {
+                          const bool isExtern                              = false,
+                          const FunctionKind functionKind                  = FunctionKind::Standard,
+                          const std::vector<GenericParam> &inheritedParams = {}) {
         Declaration declaration;
         declaration.id         = DeclId{static_cast<uint32_t>(snapshot_.declarations_.size() + 1U)};
         declaration.kind       = kind;
@@ -2444,6 +2616,8 @@ private:
                 ++index_;
             else
                 snapshot_.diagnostics_.push_back({range(start, index_), "expected '>'"});
+        } else if (!inheritedParams.empty()) {
+            declaration.genericParams = inheritedParams;
         }
 
         if (kind == DeclKind::Function && punctuation(index_, '(')) {
@@ -2496,9 +2670,42 @@ private:
         } else if (kind == DeclKind::Variable && index_ < token_count_ && text(index_) == "=") {
             ++index_;
             declaration.initializer = parseExpression();
-        } else if (kind == DeclKind::Struct &&
-                   punctuation(index_,
-                               '{')) { // Parse struct field declarations: { name: Type, ... }
+        } else if ((kind == DeclKind::Struct || kind == DeclKind::Interface) &&
+                   punctuation(index_, '{')) {
+            // Struct bodies also contain methods; interface bodies only contain fields.
+            ++index_;
+            while (index_ < token_count_ && !punctuation(index_, '}')) {
+                if (punctuation(index_, ',')) {
+                    ++index_;
+                    continue;
+                }
+                if (const auto function_kind = functionKindPrefix()) {
+                    if (kind == DeclKind::Interface) {
+                        const auto method_start = index_;
+                        skipDelimitedBracedMethod();
+                        snapshot_.diagnostics_.push_back(
+                            {range(method_start, index_), "interfaces declare fields, not methods",
+                             false, diagnostics::err::InterfaceMethodNotAllowed});
+                        continue;
+                    }
+                    const auto method_start = index_;
+                    lowerDeclaration(method_start, DeclKind::Function, Visibility::Private,
+                                     declaration.name, {}, false, *function_kind,
+                                     declaration.genericParams);
+                    continue;
+                }
+                if (kind == DeclKind::Interface) {
+                    if (!parseInterfaceField(declaration.parameters))
+                        break;
+                } else if (!parseStructField(declaration.parameters))
+                    break;
+            }
+            if (punctuation(index_, '}'))
+                ++index_;
+            else
+                snapshot_.diagnostics_.push_back(
+                    {range(start, index_), "expected '}' after struct fields"});
+        } else if (kind == DeclKind::Trait && punctuation(index_, '{')) {
             ++index_;
             while (index_ < token_count_ && !punctuation(index_, '}')) {
                 if (punctuation(index_, ',')) {
@@ -2508,121 +2715,19 @@ private:
                 if (const auto function_kind = functionKindPrefix()) {
                     const auto method_start = index_;
                     lowerDeclaration(method_start, DeclKind::Function, Visibility::Private,
-                                     declaration.name, {}, false, *function_kind);
+                                     declaration.name, {}, false, *function_kind,
+                                     declaration.genericParams);
                     continue;
                 }
-                // Grouped field syntax: `{ [x, y, z]: Type, ... }`. Expanding the
-                // list into one Parameter per name keeps sema, HIR and codegen on
-                // the existing per-field path.
-                if (punctuation(index_, '[')) {
-                    const auto group_start = index_++;
-                    std::vector<Parameter> grouped;
-                    while (index_ < token_count_ && !punctuation(index_, '[') &&
-                           !punctuation(index_, ']') && !punctuation(index_, '}')) {
-                        if (punctuation(index_, ',')) {
-                            ++index_;
-                            continue;
-                        }
-                        if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
-                            snapshot_.diagnostics_.push_back(
-                                {tokenSpan(index_), "expected a field name in grouped field list"});
-                            ++index_;
-                            continue;
-                        }
-                        Parameter field;
-                        field.id   = LocalId{statementCountLocals_++};
-                        field.name = std::string(text(index_));
-                        field.span = tokenSpan(index_++);
-                        grouped.push_back(std::move(field));
-                    }
-                    if (!punctuation(index_, ']')) {
-                        snapshot_.diagnostics_.push_back(
-                            {range(group_start, index_),
-                             "expected ']' after grouped struct field names"});
-                        while (index_ < token_count_ && !punctuation(index_, '}') &&
-                               !punctuation(index_, ',')) {
-                            if (punctuation(index_, ']'))
-                                break;
-                            ++index_;
-                        }
-                    } else {
-                        ++index_; // consume ']'
-                    }
-                    if (!punctuation(index_, ':')) {
-                        snapshot_.diagnostics_.push_back(
-                            {range(group_start, index_), "expected ':' after grouped field names",
-                             false, diagnostics::err::UnsupportedSyntax});
-                    } else {
-                        ++index_;
-                        const auto type_id = parseType();
-                        ExprId default_value;
-                        if (index_ < token_count_ && text(index_) == "=") {
-                            ++index_;
-                            default_value = parseExpression();
-                        }
-                        for (auto &field : grouped) {
-                            field.type = type_id;
-                            if (default_value)
-                                field.defaultValue = default_value;
-                            declaration.parameters.push_back(std::move(field));
-                        }
-                    }
-                    if (!punctuation(index_, ',') && !punctuation(index_, '}')) {
-                        snapshot_.diagnostics_.push_back(
-                            {range(group_start, index_),
-                             "expected ',' after grouped struct fields"});
-                        ++index_;
-                    }
-                    continue;
-                }
-                if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
-                    snapshot_.diagnostics_.push_back({tokenSpan(index_), "expected a field name"});
-                    ++index_;
-                    continue;
-                }
-                Parameter field;
-                field.name = std::string(text(index_));
-                field.span = tokenSpan(index_++);
-                if (punctuation(index_, ':')) {
-                    ++index_;
-                    field.type = parseType();
-                    if (index_ < token_count_ && text(index_) == "=") {
-                        ++index_;
-                        field.defaultValue = parseExpression();
-                    }
-                } else if (index_ < token_count_ && text(index_) == "=") {
-                    // This is a rejected field syntax, not a field type: consume the
-                    // expression so we do not also leave its tokens for top-level recovery.
-                    ++index_;
-                    (void)parseExpression();
-                    snapshot_.diagnostics_.push_back(
-                        {TextSpan{field.span.start,
-                                  index_ > 0U ? tokenSpan(index_ - 1U).end : field.span.end},
-                         "unsupported: field '" + field.name +
-                             " = <expr>'; use 'name: Type' or 'name: Type = default'",
-                         false, diagnostics::err::UnsupportedSyntax});
-                    declaration.parameters.push_back(std::move(field));
-                    if (punctuation(index_, ','))
-                        ++index_;
-                    else if (!punctuation(index_, '}'))
-                        break;
-                    continue;
-                } else if (index_ < token_count_ && !punctuation(index_, ',')) {
-                    snapshot_.diagnostics_.push_back(
-                        {field.span, "expected ':' after field name '" + field.name + "'", false,
-                         diagnostics::err::UnsupportedSyntax});
-                }
-                declaration.parameters.push_back(std::move(field));
-                if (punctuation(index_, ','))
-                    ++index_;
-                else if (!punctuation(index_, '}'))
-                    break;
+                snapshot_.diagnostics_.push_back(
+                    {tokenSpan(index_), "expected a trait method declaration or '}'"});
+                ++index_;
             }
             if (punctuation(index_, '}'))
                 ++index_;
             else
                 snapshot_.diagnostics_.push_back(
-                    {range(start, index_), "expected '}' after struct fields"});
+                    {range(start, index_), "expected '}' after trait methods"});
         } else if (kind == DeclKind::Enum && punctuation(index_, '{')) {
             // C-style enum body: `enum Name[: IntType] { Variant [= <int literal>], ... }`.
             // Each variant is stored as a Parameter; an explicit `= N` becomes its defaultValue.
@@ -2683,6 +2788,213 @@ private:
         snapshot_.declarations_.push_back(std::move(declaration));
     }
 
+    /// Parse one struct field (regular or grouped `[x, y]: T`). Returns false when
+    /// the malformed field cannot be recovered inline and the body should stop.
+    bool parseStructField(std::vector<Parameter> &out) {
+        // Grouped field syntax: `{ [x, y, z]: Type, ... }`. Expanding the
+        // list into one Parameter per name keeps sema, HIR and codegen on
+        // the existing per-field path.
+        if (punctuation(index_, '[')) {
+            const auto group_start = index_++;
+            std::vector<Parameter> grouped;
+            while (index_ < token_count_ && !punctuation(index_, '[') &&
+                   !punctuation(index_, ']') && !punctuation(index_, '}')) {
+                if (punctuation(index_, ',')) {
+                    ++index_;
+                    continue;
+                }
+                if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
+                    snapshot_.diagnostics_.push_back(
+                        {tokenSpan(index_), "expected a field name in grouped field list"});
+                    ++index_;
+                    continue;
+                }
+                Parameter field;
+                field.id   = LocalId{statementCountLocals_++};
+                field.name = std::string(text(index_));
+                field.span = tokenSpan(index_++);
+                grouped.push_back(std::move(field));
+            }
+            if (!punctuation(index_, ']')) {
+                snapshot_.diagnostics_.push_back(
+                    {range(group_start, index_), "expected ']' after grouped field names"});
+                while (index_ < token_count_ && !punctuation(index_, '}') &&
+                       !punctuation(index_, ',')) {
+                    if (punctuation(index_, ']'))
+                        break;
+                    ++index_;
+                }
+            } else {
+                ++index_; // consume ']'
+            }
+            if (!punctuation(index_, ':')) {
+                snapshot_.diagnostics_.push_back({range(group_start, index_),
+                                                  "expected ':' after grouped field names", false,
+                                                  diagnostics::err::UnsupportedSyntax});
+            } else {
+                ++index_;
+                const auto type_id = parseType();
+                ExprId default_value;
+                if (index_ < token_count_ && text(index_) == "=") {
+                    ++index_;
+                    default_value = parseExpression();
+                }
+                for (auto &field : grouped) {
+                    field.type = type_id;
+                    if (default_value)
+                        field.defaultValue = default_value;
+                    out.push_back(std::move(field));
+                }
+            }
+            if (!punctuation(index_, ',') && !punctuation(index_, '}')) {
+                snapshot_.diagnostics_.push_back(
+                    {range(group_start, index_), "expected ',' after grouped fields"});
+                ++index_;
+            }
+            return true;
+        }
+
+        if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
+            snapshot_.diagnostics_.push_back({tokenSpan(index_), "expected a field name"});
+            ++index_;
+            return false;
+        }
+        Parameter field;
+        field.name = std::string(text(index_));
+        field.span = tokenSpan(index_++);
+        if (punctuation(index_, ':')) {
+            ++index_;
+            field.type = parseType();
+            if (index_ < token_count_ && text(index_) == "=") {
+                ++index_;
+                field.defaultValue = parseExpression();
+            }
+        } else if (index_ < token_count_ && text(index_) == "=") {
+            // This is a rejected field syntax, not a field type: consume the
+            // expression so we do not also leave its tokens for top-level recovery.
+            ++index_;
+            (void)parseExpression();
+            snapshot_.diagnostics_.push_back(
+                {TextSpan{field.span.start,
+                          index_ > 0U ? tokenSpan(index_ - 1U).end : field.span.end},
+                 "unsupported: field '" + field.name +
+                     " = <expr>'; use 'name: Type' or 'name: Type = default'",
+                 false, diagnostics::err::UnsupportedSyntax});
+            out.push_back(std::move(field));
+            if (punctuation(index_, ','))
+                ++index_;
+            else if (!punctuation(index_, '}'))
+                return false;
+            return true;
+        } else if (index_ < token_count_ && !punctuation(index_, ',')) {
+            snapshot_.diagnostics_.push_back({field.span,
+                                              "expected ':' after field name '" + field.name + "'",
+                                              false, diagnostics::err::UnsupportedSyntax});
+        }
+        out.push_back(std::move(field));
+        if (punctuation(index_, ','))
+            ++index_;
+        else if (!punctuation(index_, '}'))
+            return false;
+        return true;
+    }
+
+    /// Parse one interface field. Interfaces accept only grouped declarations.
+    /// Returns false when the malformed field cannot be recovered inline and the
+    /// body should stop.
+    bool parseInterfaceField(std::vector<Parameter> &out) {
+        if (!punctuation(index_, '[')) {
+            const uint32_t start = index_;
+            if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+                ++index_;
+                while (index_ < token_count_ && !punctuation(index_, ':') &&
+                       !punctuation(index_, ',') && !punctuation(index_, '}'))
+                    ++index_;
+            }
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_),
+                 "interfaces allow only grouped fields like '[name, ...]: Type'", false,
+                 diagnostics::err::UnsupportedSyntax});
+            if (punctuation(index_, ','))
+                ++index_;
+            return false;
+        }
+        const auto group_start = index_++;
+        std::vector<Parameter> grouped;
+        while (index_ < token_count_ && !punctuation(index_, '[') && !punctuation(index_, ']') &&
+               !punctuation(index_, '}')) {
+            if (punctuation(index_, ',')) {
+                ++index_;
+                continue;
+            }
+            if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
+                snapshot_.diagnostics_.push_back(
+                    {tokenSpan(index_), "expected a field name in grouped interface field list"});
+                ++index_;
+                continue;
+            }
+            Parameter field;
+            field.id   = LocalId{statementCountLocals_++};
+            field.name = std::string(text(index_));
+            field.span = tokenSpan(index_++);
+            grouped.push_back(std::move(field));
+        }
+        if (!punctuation(index_, ']')) {
+            snapshot_.diagnostics_.push_back(
+                {range(group_start, index_), "expected ']' after grouped interface field names"});
+            while (index_ < token_count_ && !punctuation(index_, '}') &&
+                   !punctuation(index_, ',')) {
+                if (punctuation(index_, ']'))
+                    break;
+                ++index_;
+            }
+        } else {
+            ++index_; // consume ']'
+        }
+        if (!punctuation(index_, ':')) {
+            snapshot_.diagnostics_.push_back({range(group_start, index_),
+                                              "expected ':' after grouped interface field names",
+                                              false, diagnostics::err::UnsupportedSyntax});
+        } else {
+            ++index_;
+            const auto type_id = parseType();
+            for (auto &field : grouped) {
+                field.type = type_id;
+                out.push_back(std::move(field));
+            }
+        }
+        if (!punctuation(index_, ',') && !punctuation(index_, '}')) {
+            snapshot_.diagnostics_.push_back(
+                {range(group_start, index_), "expected ',' after grouped interface fields"});
+            ++index_;
+        }
+        return true;
+    }
+
+    /// Consume an interface `fn` declaration without creating a declaration. This
+    /// keeps the diagnostic focused and prevents the method body from being
+    /// re-parsed as top-level code.
+    void skipDelimitedBracedMethod() {
+        if (index_ >= token_count_)
+            return;
+        ++index_; // `fn` or kind prefix
+        while (index_ < token_count_ && !punctuation(index_, ';') && !punctuation(index_, '{'))
+            ++index_;
+        if (punctuation(index_, ';')) {
+            ++index_;
+        } else if (punctuation(index_, '{')) {
+            ++index_;
+            uint32_t depth = 1;
+            while (index_ < token_count_ && depth != 0U) {
+                if (punctuation(index_, '{'))
+                    ++depth;
+                else if (punctuation(index_, '}'))
+                    --depth;
+                ++index_;
+            }
+        }
+    }
+
     void skipDelimited(const char open, const char close) {
         if (!punctuation(index_, open))
             return;
@@ -2741,7 +3053,8 @@ std::string FrontendSnapshot::reconstruct() const {
     return result;
 }
 
-FrontendSnapshot parse(std::string source) {
+FrontendSnapshot parseWithImports(std::string source,
+                                  const std::vector<ImportedMacroRecord> &imported) {
     FrontendSnapshot snapshot(std::move(source));
     lex(snapshot);
     parseCst(snapshot);
@@ -2750,11 +3063,15 @@ FrontendSnapshot parse(std::string source) {
     // nodes are inert and their clones stay analysable.
     markMacroTemplates(snapshot);
     const auto expand_start = std::chrono::steady_clock::now();
-    expandMacros(snapshot);
+    expandMacros(snapshot, imported);
     snapshot.expandMs_ =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - expand_start)
             .count();
     return snapshot;
+}
+
+FrontendSnapshot parse(std::string source) {
+    return parseWithImports(std::move(source), {});
 }
 
 std::string canonicalTypeString(const FrontendSnapshot &snapshot, const TypeExprId id) {
@@ -2767,7 +3084,18 @@ std::string canonicalTypeString(const FrontendSnapshot &snapshot, const TypeExpr
     };
     switch (type.kind) {
     case TypeExprKind::Name:
-        return type.name;
+        if (type.arguments.empty())
+            return type.name;
+        {
+            std::string result = type.name + "<";
+            for (size_t index = 0; index < type.arguments.size(); ++index) {
+                if (index != 0)
+                    result += ",";
+                result += canonicalTypeString(snapshot, type.arguments[index]);
+            }
+            result += ">";
+            return result;
+        }
     case TypeExprKind::Pointer:
         return "*" + nested(0);
     case TypeExprKind::Optional:
@@ -2822,6 +3150,24 @@ std::string functionSignature(const FrontendSnapshot &snapshot, const Declaratio
         if (!first)
             result += ",";
         result += "...";
+    }
+    if (!decl.ownerName.empty() && decl.genericParams.empty()) {
+        for (const auto &generic_decl : snapshot.declarations()) {
+            if (generic_decl.name != decl.ownerName || generic_decl.genericParams.empty())
+                continue;
+            if (!first)
+                result += ",";
+            std::string owner_args = "<";
+            for (size_t index = 0; index < generic_decl.genericParams.size(); ++index) {
+                if (index != 0)
+                    owner_args += ",";
+                owner_args += generic_decl.genericParams[index].name;
+            }
+            owner_args += ">";
+            result += owner_args;
+            first = false;
+            break;
+        }
     }
     result += ")";
     return result;

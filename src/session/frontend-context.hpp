@@ -182,6 +182,22 @@ struct ImportSelectorRequest {
     frontend::TextSpan aliasSpan{};
 };
 
+/// A macro declaration imported into a module's frontend snapshot.  The macro
+/// expander runs per file today, so imported macros are transferred before that
+/// file's declarations are lowered so their bodies remain in scope for
+/// expansion.
+struct ImportedMacro {
+    std::string name;
+    std::string alias;
+    bool isRawMacro         = false;
+    bool isTagMacro         = false;
+    bool hasAttributesParam = false;
+    frontend::TextSpan span{};
+    frontend::TextSpan aliasSpan{};
+    std::vector<frontend::Parameter> parameters;
+    frontend::ExprId body;
+};
+
 struct ImportRequest {
     std::vector<std::string> path;
     std::vector<frontend::TextSpan> pathSpans;
@@ -498,7 +514,13 @@ private:
     [[nodiscard]] memory::Result<SourceCatalog::SourcePtr> sourceForPath(std::string_view path);
     [[nodiscard]] memory::Result<std::shared_ptr<const CompilationSnapshot>>
     analyze(SourceCatalog::SourcePtr root_source);
-    [[nodiscard]] ModuleArtifactPtr buildModule(SourceCatalog::SourcePtr source) const;
+    static std::vector<frontend::ImportedMacroRecord>
+    importedMacrosFor(const ModuleArtifact &module,
+                      const std::vector<ModuleArtifactPtr> &modules,
+                      const std::vector<ImportEdge> &import_graph);
+    [[nodiscard]] ModuleArtifactPtr
+    buildModule(SourceCatalog::SourcePtr source,
+                const std::vector<frontend::ImportedMacroRecord> &imported_macros = {}) const;
     [[nodiscard]] std::vector<std::string> visibleRootsFor(std::string_view root_path) const;
     [[nodiscard]] ResolvedImport resolveImport(const ModuleArtifact &artifact,
                                                const ImportRequest &request,

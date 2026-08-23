@@ -490,6 +490,87 @@ void FmtVisitor::emitNominalDecl(const frontend::Declaration &decl) {
         emit(";");
 }
 
+void FmtVisitor::emitTraitOrInterfaceDecl(const frontend::Declaration &decl) {
+    if (containsComment(decl.span)) {
+        emitDeclPrefix(decl.span);
+        emitOriginal(decl.span);
+        return;
+    }
+
+    emitDeclPrefix(decl.span);
+    emit(decl.kind == frontend::DeclKind::Trait ? "trait " : "interface ");
+    emit(decl.name);
+    if (!decl.genericParams.empty()) {
+        emit("<");
+        for (std::size_t index = 0; index < decl.genericParams.size(); ++index) {
+            if (index != 0U)
+                emit(", ");
+            emit(decl.genericParams[index].name);
+            if (decl.genericParams[index].constraint) {
+                emit(": ");
+                emitType(decl.genericParams[index].constraint);
+            }
+        }
+        emit(">");
+    }
+
+    const bool is_trait = decl.kind == frontend::DeclKind::Trait;
+    if (is_trait && decl.body) {
+        emit(" ");
+        visitExpr(decl.body);
+        return;
+    }
+
+    if (!is_trait && decl.parameters.empty()) {
+        if (sourceText(decl.span).find(';') != std::string_view::npos)
+            emit(";");
+        return;
+    }
+
+    emit(" {");
+    newline();
+    ++indent_;
+    for (const auto &member : snapshot_.declarations()) {
+        if (is_trait) {
+            if (member.kind != frontend::DeclKind::Function || member.ownerName != decl.name)
+                continue;
+            if (member.span.start < decl.span.start || member.span.end > decl.span.end)
+                continue;
+            emitFunctionDecl(member);
+        } else {
+            if (member.kind != frontend::DeclKind::Interface || member.name != decl.name ||
+                member.span.start < decl.span.start || member.span.end > decl.span.end)
+                continue;
+            emitInterfaceFields(member);
+        }
+        newline();
+    }
+    --indent_;
+    emit("}");
+}
+
+void FmtVisitor::emitInterfaceFields(const frontend::Declaration &decl) {
+    std::size_t index = 0;
+    while (index < decl.parameters.size()) {
+        if (index != 0U)
+            emit(", ");
+        const frontend::TypeExprId type = decl.parameters[index].type;
+        std::size_t next                = index;
+        while (next < decl.parameters.size() && decl.parameters[next].type == type) {
+            ++next;
+        }
+        emit("[");
+        for (std::size_t field = index; field < next; ++field) {
+            if (field != index)
+                emit(", ");
+            emit(decl.parameters[field].name);
+        }
+        emit("]: ");
+        emitType(type);
+        index = next;
+    }
+}
+
 void FmtVisitor::visitDecl(const frontend::DeclId id) {
     const auto *decl = declaration(id);
     if (decl == nullptr)
@@ -513,9 +594,11 @@ void FmtVisitor::visitDecl(const frontend::DeclId id) {
     case frontend::DeclKind::Union:
         emitNominalDecl(*decl);
         break;
-    case frontend::DeclKind::TypeAlias:
     case frontend::DeclKind::Trait:
     case frontend::DeclKind::Interface:
+        emitTraitOrInterfaceDecl(*decl);
+        break;
+    case frontend::DeclKind::TypeAlias:
     case frontend::DeclKind::Context:
     case frontend::DeclKind::Word:
     case frontend::DeclKind::Macro:

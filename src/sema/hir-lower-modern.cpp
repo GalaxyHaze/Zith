@@ -146,6 +146,8 @@ bool HirLowerModern::predeclareFunctions() {
         for (const auto &decl : module.frontend->declarations()) {
             if (decl.kind != frontend::DeclKind::Function || decl.name.empty())
                 continue;
+            if (!decl.genericParams.empty())
+                continue;
 
             // Linkage name: `<namespace>.<Owner>.<name>(<param types>)`.  `extern fn`
             // (fixed C ABI) and `main` (needed verbatim by the linker) keep the
@@ -192,8 +194,15 @@ bool HirLowerModern::predeclareFunctions() {
 
             const auto key = internFunctionKey(interner_, module.key, decl.id);
             function_index_by_key_.insert(key, hir_.getFnCount() - 1U);
-            functions_.push_back(
-                {key, module_ptr.get(), &decl, nullptr, hir_fn.sym_id, hir_.getFnCount() - 1U});
+            functions_.push_back({key, module_ptr.get(), &decl, nullptr, nullptr, hir_fn.sym_id,
+                                  hir_.getFnCount() - 1U});
+        }
+    }
+    if (const auto *instantiations = sema_.instantiations(); instantiations != nullptr) {
+        for (size_t index = 0; index < instantiations->instanceCount(); ++index) {
+            const auto *instance = instantiations->at(index);
+            if (instance != nullptr)
+                predeclareInstantiation(instance->module, *instance);
         }
     }
     for (const auto &header : snapshot_.cHeaders()) {
@@ -209,7 +218,7 @@ bool HirLowerModern::predeclareFunctions() {
                 hir_fn.param_names.push({});
             }
             functions_.push_back(
-                {0, nullptr, nullptr, &foreign, hir_fn.sym_id, hir_.getFnCount() - 1U});
+                {0, nullptr, nullptr, &foreign, nullptr, hir_fn.sym_id, hir_.getFnCount() - 1U});
         }
     }
     return true;
@@ -523,6 +532,48 @@ uint32_t HirLowerModern::addMarkerMetadata(const session::ModuleArtifact &module
     return marker_id;
 }
 
+void HirLowerModern::predeclareInstantiation(session::ModuleKey module_key,
+                                             const comptime::InstantiationInstance &instance) {
+    const auto *module      = snapshot_.findModule(module_key);
+    const auto *module_sema = sema_.findModuleSema(module_key);
+    if (module == nullptr)
+        return;
+    const auto *decl = findDecl(*module, instance.decl);
+    if (module_sema == nullptr || decl == nullptr)
+        return;
+
+    auto &hir_fn      = hir_.addFn(interner_.intern(instance.mangled));
+    hir_fn.sym_id     = static_cast<symbols::SymId>(functions_.size() + next_sym_id_);
+    hir_fn.decl_id    = static_cast<ast::DeclId>(decl->id.value);
+    hir_fn.fnSpan     = memory::Span{0, decl->span.start, decl->span.end};
+    hir_fn.isVariadic = decl->isVariadic;
+
+    const auto template_type  = module_sema->typeOfDecl(decl->id);
+    const auto *template_fn   = sema_.typeTable().function(template_type);
+    const auto *instantiation = sema_.instantiations();
+    const auto instance_type  = template_fn != nullptr && instantiation != nullptr
+                                    ? instantiation->substituteFunction(*template_fn, instance.args)
+                                    : kInvalidTypeId;
+    const auto *fn            = sema_.typeTable().function(instance_type);
+    if (fn != nullptr) {
+        hir_fn.return_type = lowerType(fn->result);
+        for (size_t index = 0; index < decl->parameters.size() && index < fn->params.size();
+             ++index) {
+            hir_fn.params.push(lowerType(fn->params[index]));
+            hir_fn.param_names.push(interner_.intern(decl->parameters[index].name));
+        }
+    }
+
+    const auto key = internFunctionKey(interner_, module_key, instance.decl);
+    // The first lowered concrete symbol for a generic decl is the canonical
+    // target; call-site bindings identify the exact instance, so the key also
+    // needs to encode the type-argument tuple when multiple instances exist.
+    if (!function_index_by_key_.contains(key))
+        function_index_by_key_.insert(key, hir_.getFnCount() - 1U);
+    functions_.push_back(
+        {key, module, decl, nullptr, &instance, hir_fn.sym_id, hir_.getFnCount() - 1U});
+}
+
 uint32_t HirLowerModern::resolveMarker(const std::string_view name) const {
     if (const auto *local = marker_decl_stmts_.get(std::string(name))) {
         if (const auto found = markerIdByStmt_.find(*local); found != markerIdByStmt_.end())
@@ -612,7 +663,9 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
         return false;
     }
 
-    current_fn_ = &hir_.getFn(info.hir_index);
+    current_fn_            = &hir_.getFn(info.hir_index);
+    current_instantiation_ = info.instance != nullptr ? sema_.instantiations() : nullptr;
+    current_instance_      = info.instance;
     current_fn_is_flow_ =
         info.decl != nullptr && info.decl->functionKind == frontend::FunctionKind::Flow;
 
@@ -680,11 +733,13 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
 
     lowerMarkerSamples();
 
-    current_module_     = nullptr;
-    current_resolution_ = nullptr;
-    current_types_      = nullptr;
-    current_fn_         = nullptr;
-    current_fn_is_flow_ = false;
+    current_module_        = nullptr;
+    current_resolution_    = nullptr;
+    current_types_         = nullptr;
+    current_instantiation_ = nullptr;
+    current_instance_      = nullptr;
+    current_fn_            = nullptr;
+    current_fn_is_flow_    = false;
     return true;
 }
 
@@ -933,14 +988,37 @@ types::TypeId HirLowerModern::typeOfExpr(frontend::ExprId id) {
     if (!id || current_types_ == nullptr)
         return types::kErrorType;
     const auto *type = current_types_->exprTypes.get(id.value);
-    return type != nullptr ? lowerType(*type) : types::kErrorType;
+    if (type == nullptr)
+        return types::kErrorType;
+    const sema::modern::TypeId sema_type =
+        current_instantiation_ != nullptr && current_instance_ != nullptr
+            ? current_instantiation_->substituteType(*type, current_instance_->args)
+            : *type;
+    return lowerType(sema_type);
 }
 
 types::TypeId HirLowerModern::typeOfLocal(frontend::LocalId id) {
     if (!id || current_types_ == nullptr)
         return types::kErrorType;
     const auto *type = current_types_->localTypes.get(id.value);
-    return type != nullptr ? lowerType(*type) : types::kErrorType;
+    if (type == nullptr)
+        return types::kErrorType;
+    const sema::modern::TypeId sema_type =
+        current_instantiation_ != nullptr && current_instance_ != nullptr
+            ? current_instantiation_->substituteType(*type, current_instance_->args)
+            : *type;
+    return lowerType(sema_type);
+}
+
+sema::modern::TypeId HirLowerModern::semaTypeOfExpr(frontend::ExprId id) {
+    if (!id || current_types_ == nullptr)
+        return kInvalidTypeId;
+    const auto *sema_id_ptr = current_types_->exprTypes.get(id.value);
+    if (!sema_id_ptr)
+        return kInvalidTypeId;
+    return current_instantiation_ != nullptr && current_instance_ != nullptr
+               ? current_instantiation_->substituteType(*sema_id_ptr, current_instance_->args)
+               : *sema_id_ptr;
 }
 
 const frontend::Declaration *HirLowerModern::findDecl(const session::ModuleArtifact &module,
@@ -1104,6 +1182,16 @@ hir::HirExprId HirLowerModern::lowerLiteral(const frontend::Expression &expr,
         break;
     case types::TypeKind::Float:
         literal.f = std::strtod(expr.text.c_str(), nullptr);
+        if (const auto *float_t = std::get_if<types::TypeFloat>(&types_.lookup(type));
+            float_t != nullptr) {
+            switch (float_t->width) {
+            case types::FloatWidth::F32:
+                literal.f = static_cast<double>(static_cast<float>(literal.f));
+                break;
+            default:
+                break;
+            }
+        }
         break;
     case types::TypeKind::Char: {
         if (expr.text.size() < 3U || expr.text.front() != '\'' || expr.text.back() != '\'')
@@ -1323,16 +1411,68 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
             method_decl = findDecl(*current_module_, target->decl);
         }
         const auto key = internFunctionKey(interner_, current_module_->key, method_decl->id);
-        if (const auto *function_index = function_index_by_key_.get(key))
-            call.resolved_fn = functions_[*function_index].sym_id;
+        if (const auto *instantiations = sema_.instantiations(); instantiations != nullptr) {
+            if (const auto *binding =
+                    instantiations->callBinding(current_module_->key, callee_id)) {
+                const auto *instance = instantiations->at(binding->instance);
+                for (const auto &function : functions_) {
+                    if (function.instance != nullptr && function.module != nullptr &&
+                        function.module->key == binding->module &&
+                        function.instance->decl == method_decl->id && instance != nullptr &&
+                        function.instance->args == instance->args) {
+                        call.resolved_fn = function.sym_id;
+                        break;
+                    }
+                }
+            }
+        }
+        if (call.resolved_fn == symbols::kInvalidSym)
+            if (const auto *function_index = function_index_by_key_.get(key))
+                call.resolved_fn = functions_[*function_index].sym_id;
     } else if (const auto *target = overloadTarget(callee_id)) {
         // Sema already picked one declaration out of an overload set; re-resolving
         // here would silently fall back to the first candidate.
         const auto key = internFunctionKey(interner_, target->module, target->decl);
-        if (const auto *function_index = function_index_by_key_.get(key))
-            call.resolved_fn = functions_[*function_index].sym_id;
+        if (const auto *instantiations = sema_.instantiations(); instantiations != nullptr) {
+            if (const auto *binding =
+                    instantiations->callBinding(current_module_->key, callee_id)) {
+                const auto *instance = instantiations->at(binding->instance);
+                for (const auto &function : functions_) {
+                    if (function.instance != nullptr && function.module != nullptr &&
+                        function.module->key == binding->module &&
+                        function.instance->decl == target->decl && instance != nullptr &&
+                        function.instance->args == instance->args) {
+                        call.resolved_fn = function.sym_id;
+                        break;
+                    }
+                }
+            }
+        }
+        if (call.resolved_fn == symbols::kInvalidSym)
+            if (const auto *function_index = function_index_by_key_.get(key))
+                call.resolved_fn = functions_[*function_index].sym_id;
     } else if (const auto *resolved = findResolvedExpr(callee_id)) {
-        call.resolved_fn = resolvedFunctionSym(*resolved);
+        if (const auto *instantiations = sema_.instantiations(); instantiations != nullptr) {
+            if (const auto *binding =
+                    instantiations->callBinding(current_module_->key, callee_id)) {
+                const session::ModuleArtifact *decl_module = nullptr;
+                const auto *decl     = resolvedFunctionDecl(*resolved, &decl_module);
+                const auto *instance = instantiations->at(binding->instance);
+                if (decl != nullptr && decl_module != nullptr && instance != nullptr) {
+                    for (const auto &function : functions_) {
+                        if (function.instance != nullptr && function.module != nullptr &&
+                            function.module->key == decl_module->key &&
+                            function.instance->decl == decl->id &&
+                            function.instance->args == instance->args) {
+                            call.resolved_fn = function.sym_id;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (call.resolved_fn == symbols::kInvalidSym)
+            call.resolved_fn = resolvedFunctionSym(*resolved);
     }
     const hir::HirExprId call_id = addExpr(std::move(call));
     if (nra_ != nullptr) {
@@ -1996,15 +2136,6 @@ hir::HirExprId HirLowerModern::lowerCoerceToOptional(types::TypeId target, hir::
     some.type  = target;
     some.value = value;
     return addExpr(std::move(some));
-}
-
-sema::modern::TypeId HirLowerModern::semaTypeOfExpr(frontend::ExprId id) {
-    if (!id || current_types_ == nullptr)
-        return kInvalidTypeId;
-    const auto *sema_id_ptr = current_types_->exprTypes.get(id.value);
-    if (!sema_id_ptr)
-        return kInvalidTypeId;
-    return *sema_id_ptr;
 }
 
 bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_value) {

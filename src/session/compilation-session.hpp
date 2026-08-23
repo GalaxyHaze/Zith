@@ -22,6 +22,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace zith::session {
 
@@ -71,13 +72,16 @@ class CompilationSession {
 
     memory::FileId mFileId = 0;
     std::unique_ptr<sema::modern::SemaPipeline> mModernSemaPipeline;
+    std::unique_ptr<comptime::GenericInstantiationPass> mGenericInstantiations;
     std::unique_ptr<sema::modern::NraFacts> mNraFacts;
 
     std::string mOutputBuffer;
     std::string mChildOutput;
     std::string mExecutablePath;
-    bool mBufferedOutput   = false;
-    bool mAlwaysEmitObject = false;
+    std::vector<std::string> mExtraObjectPaths;
+    bool mBufferedOutput           = false;
+    bool mAlwaysEmitObject         = false;
+    bool mPreparedNativeLinkInputs = false;
     std::string mContentOverride;
     std::shared_ptr<FrontendContext> mFrontendContext;
     std::shared_ptr<const CompilationSnapshot> mSnapshot;
@@ -92,6 +96,7 @@ class CompilationSession {
     void hydrateFromArtifact(const cache::Artifact &art);
     void ensureFrontendContext();
     bool materializeFrontendSymbols();
+    bool prepareNativeLinkInputs();
     // Derives the executable path and invokes the linker. Shared by link() and
     // linkAndExec() so the link logic is not duplicated.
     bool performLink(std::string &exePath, bool &isWasm);

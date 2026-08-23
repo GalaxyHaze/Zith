@@ -1406,9 +1406,7 @@ static void test_modern_generic_params() {
                                "fn main(): i32 {\n"
                                "    return identity<i32>(42);\n"
                                "}\n");
-    CHECK(!i.ok, "a generic fn instantiation is rejected");
-    CHECK(i.hasMessage("generic parameter T has no concrete type"),
-          "the instantiation reports the comptime solver's message");
+    CHECK(i.ok, "an explicitly typed generic fn call type-checks");
 
     ModernSemaTest inferred_call;
     auto c = inferred_call.run("fn identity<T>(x: T): T {\n"
@@ -1417,9 +1415,44 @@ static void test_modern_generic_params() {
                                "fn main(): i32 {\n"
                                "    return identity(1);\n"
                                "}\n");
-    CHECK(!c.ok, "calling a generic fn without type arguments is rejected too");
-    CHECK(c.hasMessage("generic parameter T has no concrete type"),
-          "the un-instantiated call reports the same message");
+    CHECK(c.ok, "a generic fn call with an inferable argument type-checks");
+
+    ModernSemaTest arity;
+    auto ar = arity.run("fn identity<T>(x: T): T {\n"
+                        "    return x;\n"
+                        "}\n"
+                        "fn main(): i32 {\n"
+                        "    identity<i32, i64>(42);\n"
+                        "    return 0;\n"
+                        "}\n");
+    CHECK(!ar.ok, "a generic fn call with too many type arguments is rejected");
+    CHECK(ar.hasErrorCode(diagnostics::err::GenericArity),
+          "the wrong generic arity reports E3010");
+    CHECK(ar.hasMessage("wrong generic argument count"),
+          "the generic arity diagnostic is actionable");
+
+    ModernSemaTest cannot_infer;
+    auto n = cannot_infer.run("fn needs<T>(x: i32): T {\n"
+                              "    return 0 as T;\n"
+                              "}\n"
+                              "fn main(): i32 {\n"
+                              "    needs(1);\n"
+                              "    return 0;\n"
+                              "}\n");
+    CHECK(!n.ok, "a generic fn call with no inferable parameter is rejected");
+    CHECK(n.hasErrorCode(diagnostics::err::GenericCannotInfer),
+          "the un-inferable generic call reports E3011");
+    CHECK(n.hasMessage("cannot infer generic argument"),
+          "the inference diagnostic asks for explicit type arguments");
+
+    ModernSemaTest struct_literal;
+    auto sl = struct_literal.run("struct Pair<T, U> { left: T, right: U }\n"
+                                 "fn main(): i32 {\n"
+                                 "    let p: Pair<i32, f64> = "
+                                 "Pair<i32, f64>{ left: 1, right: 2.5 };\n"
+                                 "    return p.left;\n"
+                                 "}\n");
+    CHECK(sl.ok, "a generic struct literal type-checks against its concrete instance");
 }
 
 static void test_modern_array_literal() {

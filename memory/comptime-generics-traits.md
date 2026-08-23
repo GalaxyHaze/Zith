@@ -26,12 +26,17 @@ picking a step.
 
 ## Architecture Facts
 
-`PerModuleSema` resolves generic parameter names to `TypeKind::GenericParam`
-entries and stores them in `genericParams_` with declaration id as the key. The
-current `comptime::Solver` runs after HIR lowering in
-`src/session/compilation-session.cpp` and rejects generic calls with `E3001`
-"generic parameter T has no concrete type"; that pass is meant to move before
-`nraStage()`.
+`GenericInstantiationPass` in `src/comptime/generic-instantiate.*` runs in
+`semaStage()` before `nraStage()` and monomorphizes generic functions, structs,
+aliases, methods, and `implement` blocks via
+`src/session/compilation-session.cpp`. The pass owns `E3010` (wrong generic
+arity), `E3011` (uninferable generic parameter), and `E3012` (instantiation
+explosion). Its concrete instances and call-site mappings feed `HirLowerModern`,
+which emits only concrete functions with mangled names such as `id<i32>`.
+Cached artifacts store an `InstantiationRecord` summary plus per-HIR-function
+`instance_index`; cold and warm builds reproduce the same monomorphized HIR.
+The cache `Store` must be created only after `FrontendContext` exists because
+the warm-key identity depends on it.
 
 The parser skips trait/interface bodies with `skipDelimited`, stores generic
 constraints only as `TypeExprId constraint` on `GenericParam`, and

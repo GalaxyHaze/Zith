@@ -92,13 +92,25 @@ The project may configure C parsing and linking in `ZithProject.toml`:
 ```toml
 [ffi]
 include_dirs = ["vendor/include"]
+c_source_dirs = ["vendor/c", "src/native"]
 library_dirs = ["vendor/lib"]
 libraries = ["mylib"]
 defines = ["MYLIB_FEATURE=1"]
 ```
 
-`-I`, `-D`, `-L`, and `-l` add command-line values after project values. Library names are
-validated and linked without passing a shell command string.
+`c_source_dirs` is scanned recursively for `*.c` files and compiles each one into
+`cache/c-obj/<target>/...` before the native link step. Only roots declared there or through the
+repeatable `--c-source-dir <DIR>` flag participate in C compilation; `-I` does not imply source
+discovery.
+
+`-I`, `-D`, `-L`, `-l`, and `--c-source-dir` add command-line values after project values.
+Library names are validated and linked without passing a shell command string.
+
+Native builds compile `*.c` through embedded `libtcc` when it is available. CMake first looks for
+an existing `libtcc.h`/`libtcc.a`, including the `ZITH_TCC_ROOT` prefix. When none is found and
+`ZITH_TCC_FETCH` is enabled, the configuration fetches and builds TinyCC 0.9.27 for the local host
+as a static, PIC library. Disable fetching with `-DZITH_TCC_FETCH=OFF` to keep using the external C
+compiler driver.
 
 #### System C headers
 

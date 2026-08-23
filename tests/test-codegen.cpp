@@ -549,6 +549,40 @@ static void test_struct_field_read_through_parameter() {
           "the accessor function is emitted with a qualified name");
 }
 
+static void test_duplicate_struct_field_names_do_not_collide_globally() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "struct A { value: i32 }\n"
+                         "struct B { value: i32 }\n"
+                         "fn main(): i32 {\n"
+                         "    let a: A = A { value: 1 };\n"
+                         "    let b: B = B { value: 2 };\n"
+                         "    return a.value + b.value;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "homonymous struct fields use the modern frontend pipeline");
+    CHECK(r.ok, "two structs with a field named 'value' compile in one module");
+    CHECK_EQ(r.exitCode, 3, "reading homonymous fields returns the sum of both stored values");
+}
+
+static void test_f32_literal_stores_in_32_width() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "fn main(): i32 {\n"
+                         "    let f: f32 = 1.5;\n"
+                         "    return f as i32;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "f32 literal initialization uses the modern frontend pipeline");
+    CHECK(r.ok, "an f32 literal compiling, links and runs");
+    CHECK_EQ(r.exitCode, 1, "float-to-int truncation of 1.5f32 yields 1");
+    CHECK(r.output.find("alloca float") != std::string::npos,
+          "the f32 binding is allocated as a 32-bit float slot");
+    CHECK(r.output.find("store double") == std::string::npos,
+          "an f32 literal is not stored as a double in the emitting module");
+}
+
 static void test_numeric_cast_codegen() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
@@ -1351,6 +1385,10 @@ static void test_codegen() {
     test_overloaded_functions_link_and_run();
     printf("Running test_struct_field_read_through_parameter\n");
     test_struct_field_read_through_parameter();
+    printf("Running test_duplicate_struct_field_names_do_not_collide_globally\n");
+    test_duplicate_struct_field_names_do_not_collide_globally();
+    printf("Running test_f32_literal_stores_in_32_width\n");
+    test_f32_literal_stores_in_32_width();
     printf("Running test_numeric_cast_codegen\n");
     test_numeric_cast_codegen();
     printf("Running test_marker_jump_loop_executes\n");

@@ -235,6 +235,8 @@ void printDeclarations(const FrontendSnapshot &snapshot) {
                     visibilityName(decl.visibility));
         if (!decl.ownerName.empty())
             std::printf(" owner='%s'", decl.ownerName.c_str());
+        if (!decl.traitName.empty())
+            std::printf(" trait='%s'", decl.traitName.c_str());
         if (decl.kind == DeclKind::Import) {
             std::printf(" path='%s'", decl.import.rawPath.c_str());
             if (!decl.import.alias.empty())
@@ -257,6 +259,33 @@ void printDeclarations(const FrontendSnapshot &snapshot) {
                     std::printf(" : %s", type_exprs[ti].name.c_str());
             }
             std::printf(" [%u..%u]\n", param.span.start, param.span.end);
+        }
+
+        // Nested members are stored as separate declarations for traits, so make
+        // them visible as children of the enum-like owner instead of only as
+        // standalone declarations at module depth.
+        if (decl.kind == DeclKind::Trait) {
+            for (const auto &member : decls) {
+                if (member.kind != DeclKind::Function || member.ownerName != decl.name)
+                    continue;
+                if (member.span.start < decl.span.start || member.span.end > decl.span.end)
+                    continue;
+                std::printf("    Method '%s' owner='%s'", member.name.c_str(),
+                            member.ownerName.c_str());
+                for (const auto &param : member.parameters)
+                    std::printf(" %s", param.name.c_str());
+                if (member.body)
+                    std::printf(" (default body)");
+                std::printf(" [%u..%u]\n", member.span.start, member.span.end);
+            }
+        } else if (decl.kind == DeclKind::Interface) {
+            std::printf("    Fields: ");
+            for (size_t index = 0; index < decl.parameters.size(); ++index) {
+                if (index != 0U)
+                    std::fputs(", ", stdout);
+                std::fputs(decl.parameters[index].name.c_str(), stdout);
+            }
+            std::fputs("\n", stdout);
         }
 
         // Declared type

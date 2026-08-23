@@ -7,6 +7,7 @@
 #include "zirl/zirl-debug-section.hpp"
 #include "zirl/zirl-decl-section.hpp"
 #include "zirl/zirl-header.hpp"
+#include "zirl/zirl-instantiation-section.hpp"
 #include "zirl/zirl-reader.hpp"
 #include "zirl/zirl-type-section.hpp"
 #include "zirl/zirl-writer.hpp"
@@ -157,6 +158,24 @@ void addAttrs(Artifact &art) {
     art.attrs_fns.push_back(fn);
 }
 
+void addInstantiations(Artifact &art) {
+    InstantiationRecord first;
+    first.module        = "main";
+    first.mangled       = "main.id<i32>";
+    first.template_name = "id";
+    first.decl_id       = 1;
+    first.arg_types     = {"i32"};
+    art.instantiations.push_back(first);
+
+    InstantiationRecord second;
+    second.module        = "main";
+    second.mangled       = "main.pair<i32,f64>";
+    second.template_name = "pair";
+    second.decl_id       = 2;
+    second.arg_types     = {"i32", "f64"};
+    art.instantiations.push_back(second);
+}
+
 // ── Type/Metadata section round-trip ──────────────────────────────
 
 static void test_type_section_round_trip() {
@@ -211,6 +230,7 @@ static void test_code_section_round_trip() {
           "decodeCode preserves function count");
     if (decoded.functions.size() == 1u) {
         CHECK(decoded.functions[0].is_variadic, "decodeCode preserves the variadic flag");
+        CHECK(decoded.functions[0].name_id == 0, "decodeCode preserves the function name id");
     }
 }
 
@@ -289,6 +309,30 @@ static void test_attrs_section_round_trip() {
         CHECK_EQ(decoded.attrs_calls[0].arg_escapes.size(), 2u, "call escape count preserved");
 }
 
+static void test_instantiation_section_round_trip() {
+    Artifact original = makeMinimalArtifact();
+    addInstantiations(original);
+
+    ByteWriter w;
+    CHECK(encodeInstantiations(original, w), "encodeInstantiations succeeds");
+    CHECK(w.size() > 0, "encodeInstantiations produces non-empty output");
+
+    Artifact decoded;
+    ByteReader r(w.ptr(), w.size());
+    CHECK(decodeInstantiations(r, decoded), "decodeInstantiations succeeds after encode");
+    CHECK_EQ(decoded.instantiations.size(), 2u, "instance count preserved");
+    CHECK_EQ(decoded.instantiations[0].mangled, std::string("main.id<i32>"),
+             "first mangled instance name preserved");
+    CHECK_EQ(decoded.instantiations[0].arg_types.size(), 1u,
+             "first instance type-argument count preserved");
+    CHECK_EQ(decoded.instantiations[0].arg_types[0], std::string("i32"),
+             "first instance type argument preserved");
+    CHECK_EQ(decoded.instantiations[1].arg_types.size(), 2u,
+             "second instance type-argument count preserved");
+    CHECK_EQ(decoded.instantiations[1].arg_types[1], std::string("f64"),
+             "second instance second type argument preserved");
+}
+
 // ── Debug section round-trip (payload empty, reader ignores) ──────
 
 static void test_debug_section_round_trip() {
@@ -324,6 +368,9 @@ static void test_full_artifact_round_trip() {
     CHECK(round->decls.size() == original.decls.size(), "Reader::read preserves decl count");
     CHECK(round->functions.size() == original.functions.size(),
           "Reader::read preserves function count");
+    if (round->functions.size() == 1u)
+        CHECK(round->functions[0].name == "main",
+              "reader restores the function name from the string table");
 
     // deterministic: same input → same output
     ByteWriter w2;
@@ -416,6 +463,7 @@ static void test_zirl_sections() {
     test_modern_code_section_round_trip();
     test_marker_code_section_round_trip();
     test_attrs_section_round_trip();
+    test_instantiation_section_round_trip();
     test_debug_section_round_trip();
     test_full_artifact_round_trip();
     test_truncated_artifact_rejected();

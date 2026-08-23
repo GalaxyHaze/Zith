@@ -1,5 +1,6 @@
 #include "diagnostics/error-codes.hpp"
 #include "frontend/frontend.hpp"
+#include "frontend/macro-expand.hpp"
 #include "test-common.hpp"
 
 #include <string>
@@ -383,6 +384,38 @@ static void test_macro() {
                 foundTag = true;
         CHECK(!foundTag, "comparison/generic angle brackets are not tag calls");
         CHECK(snap.diagnostics().empty(), "non-tag expression source parses cleanly");
+    }
+    // 31. macro body with dock/jump arguments does not diagnose arguments as code
+    {
+        auto snap = frontend::parse(
+            "marker target(v: i32) { v }\n"
+            "macro jump_to(v: expr) { jump target(v); }\n"
+            "macro dock_to(v: expr) { dock target(v); }\n"
+            "fn main() { @jump_to(1); @dock_to(2); }");
+        bool macro_unknown    = false;
+        bool template_unknown = false;
+        for (const auto &d : snap.diagnostics()) {
+            if (d.code == diagnostics::err::MacroUnknown)
+                macro_unknown = true;
+            if (d.message.find("unknown identifier 'v'") != std::string::npos)
+                template_unknown = true;
+        }
+        CHECK(!macro_unknown, "docked/jumped macros expand without unknown-macro errors");
+        CHECK(!template_unknown, "dock/jump macro arguments are template material");
+    }
+    // 32. macros imported into a snapshot expand by name and alias
+    {
+        auto dep = frontend::parse("pub macro twice(v: expr) { v + v }\n"
+                                   "pub macro greet() { @println(\"hi\"); }\n");
+        frontend::ImportedMacroRecord imported;
+        imported.name               = "twice";
+        imported.span               = dep.declarations()[0].span;
+        imported.parameters         = dep.declarations()[0].parameters;
+        imported.body               = dep.declarations()[0].body;
+        imported.source             = &dep;
+
+        auto snap = frontend::parseWithImports("fn main(): i32 { @twice(21) }", {imported});
+        CHECK(snap.diagnostics().empty(), "imported macro expansion produces no diagnostics");
     }
 }
 

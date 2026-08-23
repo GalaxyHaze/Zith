@@ -35,12 +35,13 @@
 | F-26 | `::` scope resolution | 2 | Spec only (normal/raw macro scope diversification is complete; `::` remains a separate wave) |
 | F-27 | Binding destructuring (`[]`) and pack literals | 6 | Spec only |
 | F-28 | `@pack` / `@toStruct` / `@toPack` | 11 | Spec only |
-| F-29 | Generic trait constraints (`T: Trait`) | 4 | Spec only |
+| F-29 | Generic trait constraints (`T: Trait`) | 4 | Pending step-05; generic monomorphization (F-38) is implemented |
 | F-30 | Standard library (beyond io) | 20 | Spec only |
 | F-31 | `union` runtime semantics | 3 | Spec only |
 | F-32 | C header import completion (macros, variadics, callbacks) | 18 | Working (common C); macros/globals/bitfields remain |
 | F-33 | Function overloading (selection by arity and parameter types) | 5 | Working |
 | F-34 | Memory qualifier parsing and typing (`mut`, `lend`, `view`, `unique`, `share`, `belong`) | 7 | Working |
+| F-35 | Trait and interface bodies as real declarations | 4 | Parser half complete; semantic conformance half pending step-03 |
 
 ## Dependency Graph
 
@@ -112,7 +113,7 @@ F-33 (function overloading) and F-34 (memory qualifier parsing and typing) are i
 ### Wave 06 — Dynamic Dispatch
 F-07 (`dyn Trait`), F-29 (trait constraints `T: Trait`).
 
-Dependencies: needs working generic instantiation (already partial).  Max parallelism: 1 agent.
+Dependencies: needs working generic instantiation (F-38, step-04).  Max parallelism: 1 agent.
 
 ### Wave 07 — Macros, Words & Contexts
 F-08 (`@macro` calls) and F-24 (tag macros) are implemented. Normal macros keep hygiene for template bindings and resolve other names through the call-site scope; raw macros splice literally into the call-site scope with module/global fallback. Remaining work in this wave: F-09 (word call/sequence expressions), F-21 (context semantics), F-22 (`use` semantics), F-23 (word decl semantics), F-26 (`::` scope resolution).

@@ -329,6 +329,12 @@ void Cli::parseArgs(int argc, char **argv) {
             continue;
         }
 
+        if (std::strcmp(argv[i], "--c-source-dir") == 0) {
+            requireValue(i, "--c-source-dir");
+            opts.cSourceDirs.push(std::string(argv[++i]));
+            continue;
+        }
+
         if (std::strcmp(argv[i], "-L") == 0) {
             requireValue(i, "-L");
             opts.libraryDirs.push(std::string(argv[++i]));
@@ -677,6 +683,7 @@ void Cli::loadProject() {
                                     destination.push(*text);
                     };
                     loadArray(*ffi, "include_dirs", config.includeDirs);
+                    loadArray(*ffi, "c_source_dirs", config.cSourceDirs);
                     loadArray(*ffi, "library_dirs", config.libraryDirs);
                     loadArray(*ffi, "libraries", config.libraries);
                     loadArray(*ffi, "defines", config.defines);

@@ -22,6 +22,7 @@ struct ProjectConfig {
 
     // [ffi]
     memory::DynArray<std::string> includeDirs;
+    memory::DynArray<std::string> cSourceDirs;
     memory::DynArray<std::string> libraryDirs;
     memory::DynArray<std::string> libraries;
     memory::DynArray<std::string> defines;
@@ -37,8 +38,8 @@ struct ProjectConfig {
     std::string homepage;
 
     explicit ProjectConfig(memory::Arena &arena)
-        : srcDirs(arena), includeDirs(arena), libraryDirs(arena), libraries(arena), defines(arena) {
-    }
+        : srcDirs(arena), includeDirs(arena), cSourceDirs(arena), libraryDirs(arena),
+          libraries(arena), defines(arena) {}
 };
 
 } // namespace zith

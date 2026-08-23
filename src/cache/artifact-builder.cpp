@@ -10,6 +10,32 @@ namespace zith::cache {
 
 namespace {
 
+std::vector<std::string> genericArgsFromName(std::string_view mangled) {
+    std::vector<std::string> args;
+    const auto open = mangled.find('<');
+    if (open == std::string_view::npos || mangled.empty() || mangled.back() != '>')
+        return args;
+
+    size_t start      = open + 1U;
+    size_t depth      = 0;
+    const size_t last = mangled.size() - 1U;
+    for (size_t i = start; i < last; ++i) {
+        const char current = mangled[i];
+        if (current == '<') {
+            ++depth;
+        } else if (current == '>') {
+            if (depth > 0)
+                --depth;
+        } else if (current == ',' && depth == 0) {
+            args.emplace_back(mangled.substr(start, i - start));
+            start = i + 1U;
+        }
+    }
+    if (start < last)
+        args.emplace_back(mangled.substr(start, last - start));
+    return args;
+}
+
 CompactSymKind mapSymKind(symbols::SymKind k) {
     switch (k) {
     case symbols::SymKind::Fn:
@@ -506,6 +532,17 @@ Artifact ArtifactBuilder::build(std::string_view canonical_path, std::string_vie
         cfn.is_extern      = fn.blocks.empty();
         cfn.is_variadic    = fn.isVariadic;
         cfn.return_type_id = internType(fn.return_type);
+        const auto angle   = cfn.name.find('<');
+        if (angle != std::string::npos) {
+            InstantiationRecord rec;
+            rec.module         = std::string(module_name);
+            rec.mangled        = cfn.name;
+            rec.template_name  = cfn.name.substr(0, angle);
+            rec.decl_id        = static_cast<uint32_t>(fn.decl_id);
+            rec.arg_types      = genericArgsFromName(cfn.name);
+            cfn.instance_index = static_cast<uint32_t>(art.instantiations.size());
+            art.instantiations.push_back(std::move(rec));
+        }
         for (size_t pi = 0; pi < fn.params.size(); ++pi) {
             cfn.param_type_ids.push_back(internType(fn.params[pi]));
             cfn.param_name_ids.push_back(internString(interner_.lookup(fn.param_names[pi])));

@@ -420,7 +420,10 @@ llvm::Value *CodeGenEmit::emitLiteral(const hir::HirLiteral &lit) {
             [&](const types::TypeBool &) -> llvm::Value * {
                 return llvm::ConstantInt::get(builder_.getContext(), llvm::APInt(1, lit.b ? 1 : 0));
             },
-            [&](const types::TypeFloat &) -> llvm::Value * {
+            [&](const types::TypeFloat &float_t) -> llvm::Value * {
+                if (float_t.width == types::FloatWidth::F32)
+                    return llvm::ConstantFP::get(builder_.getContext(),
+                                                 llvm::APFloat(static_cast<float>(lit.f)));
                 return llvm::ConstantFP::get(builder_.getContext(), llvm::APFloat(lit.f));
             },
             [&](const types::TypeChar &) -> llvm::Value * {

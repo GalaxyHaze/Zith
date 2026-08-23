@@ -50,6 +50,8 @@ struct TemplateMarker {
         expr(s.expression);
         if (s.kind == StmtKind::Binding)
             expr(s.binding.initializer);
+        for (const auto argument : s.arguments)
+            expr(argument);
     }
 };
 
@@ -65,9 +67,10 @@ void markMacroTemplates(FrontendSnapshot &snapshot) {
     }
 }
 
-void expandMacros(FrontendSnapshot &snapshot) {
+void expandMacros(FrontendSnapshot &snapshot,
+                  const std::vector<ImportedMacroRecord> &imported) {
     MacroExpander expander(snapshot);
-    expander.run();
+    expander.run(imported);
 }
 
 MacroExpander::MacroExpander(FrontendSnapshot &snapshot) : snapshot_(snapshot) {}
@@ -106,7 +109,7 @@ static void prependTrace(std::string &msg, const std::vector<std::string> &stack
     }
 }
 
-void MacroExpander::run() {
+void MacroExpander::run(const std::vector<ImportedMacroRecord> &imported) {
     std::vector<MacroInfo> macros;
     for (const auto &decl : snapshot_.declarations_) {
         if (decl.kind != DeclKind::Macro)
@@ -138,9 +141,46 @@ void MacroExpander::run() {
                 info.paramNames.push_back(p.name);
             }
             info.body = decl.body;
+            info.span = decl.span;
+            info.source = &snapshot_;
             macros.push_back(std::move(info));
         }
     next_decl:;
+    }
+
+    for (const auto &record : imported) {
+        bool duplicate = false;
+        for (const auto &existing : macros) {
+            if (existing.name == record.name) {
+                duplicate = true;
+                snapshot_.diagnostics_.push_back(
+                    Diagnostic{record.aliasSpan.size() != 0U ? record.aliasSpan : record.span,
+                               "duplicate macro '" + record.name + "'", false,
+                               diagnostics::err::MacroDuplicate});
+                break;
+            }
+        }
+        if (duplicate)
+            continue;
+        MacroInfo info;
+        info.name          = record.name;
+        info.isRaw         = record.isRawMacro;
+        info.isTag         = record.isTagMacro;
+        info.hasAttributes = record.hasAttributesParam;
+        info.span          = record.span;
+        info.source        = record.source;
+        for (const auto &parameter : record.parameters) {
+            if (parameter.type && record.source &&
+                parameter.type.value <= record.source->typeExpressions().size()) {
+                info.paramMetaTypes.push_back(
+                    record.source->typeExpressions()[parameter.type.value - 1U].name);
+            } else {
+                info.paramMetaTypes.push_back("expr");
+            }
+            info.paramNames.push_back(parameter.name);
+        }
+        info.body = record.body;
+        macros.push_back(std::move(info));
     }
 
     std::vector<std::string> stack;
@@ -267,8 +307,9 @@ void MacroExpander::expandExpr(ExprId id, const std::vector<MacroInfo> &macros,
 
         // Collect hygiene names (raw macros skip hygiene).
         std::vector<std::string> hygieneNames;
+        const FrontendSnapshot *source = macro->source != nullptr ? macro->source : &snapshot_;
         if (!macro->isRaw)
-            collectHygieneNames(macro->body, hygieneNames);
+            collectHygieneNames(macro->body, hygieneNames, *source);
 
         std::unordered_map<std::string, std::string> hygieneMap;
         for (const auto &name : hygieneNames)
@@ -287,7 +328,8 @@ void MacroExpander::expandExpr(ExprId id, const std::vector<MacroInfo> &macros,
         // Copy operands: expr is a reference into snapshot_.expressions_,
         // and addExpression push_back can reallocate and invalidate it.
         const std::vector<ExprId> args = expr.operands;
-        ExprId expandedBody = cloneExpr(macro->body, args, expr.span, expr.scope, macro, exprMap);
+        ExprId expandedBody =
+            cloneExpr(macro->body, args, expr.span, expr.scope, macro, exprMap, *source);
 
         // Apply hygiene renaming to template-derived nodes only.
         for (size_t ei = origExprCount; ei < snapshot_.expressions_.size(); ++ei) {
@@ -377,6 +419,8 @@ void MacroExpander::expandExpr(ExprId id, const std::vector<MacroInfo> &macros,
             expandExpr(stmt.expression, macros, stack);
         if (stmt.kind == StmtKind::Binding && stmt.binding.initializer)
             expandExpr(stmt.binding.initializer, macros, stack);
+        for (const auto argument : stmt.arguments)
+            expandExpr(argument, macros, stack);
     }
 
     for (auto cond : expr.conditions)
@@ -405,17 +449,18 @@ bool MacroExpander::contextIsValue(ExprId eid) {
 }
 
 ExprId MacroExpander::cloneExpr(ExprId src, const std::vector<ExprId> &args, TextSpan callSpan,
-                                ScopeId callScope, const MacroInfo *macro, ExprMap &map) {
-    if (!src || src.value > snapshot_.expressions_.size())
+                                ScopeId callScope, const MacroInfo *macro, ExprMap &map,
+                                const FrontendSnapshot &source) {
+    if (!src || src.value > source.expressions().size())
         return {};
     if (src.value < map.size() && map[src.value])
         return map[src.value];
 
-    const auto &orig = snapshot_.expressions_[src.value - 1U];
+    const auto &orig = source.expressions()[src.value - 1U];
 
     if (orig.kind == ExprKind::Field && macro && macro->hasAttributes) {
         ExprId attrClone;
-        if (substituteAttribute(src, macro, &attrClone)) {
+        if (substituteAttribute(src, macro, &attrClone, source)) {
             if (src.value >= map.size())
                 map.resize(src.value + 1U);
             map[src.value] = attrClone;
@@ -431,7 +476,8 @@ ExprId MacroExpander::cloneExpr(ExprId src, const std::vector<ExprId> &args, Tex
                 // caller, so hygiene must leave those names alone.
                 const size_t firstExpr = snapshot_.expressions_.size();
                 const size_t firstStmt = snapshot_.statements_.size();
-                ExprId result = cloneExpr(args[i], {}, callSpan, callScope, nullptr, dummy);
+                ExprId result =
+                    cloneExpr(args[i], {}, callSpan, callScope, nullptr, dummy, snapshot_);
                 markNonHygienic(firstExpr, firstStmt);
                 if (src.value >= map.size())
                     map.resize(src.value + 1U);
@@ -457,7 +503,7 @@ ExprId MacroExpander::cloneExpr(ExprId src, const std::vector<ExprId> &args, Tex
         Scope newScope;
         // Nest under the cloned parent when there is one, else under the call
         // site: a template scope id means nothing in the caller's chain.
-        newScope.parent = mappedScope(snapshot_.scopes_[orig.scope.value - 1U].parent, callScope);
+        newScope.parent = mappedScope(source.scopes()[orig.scope.value - 1U].parent, callScope);
         newScope.span   = callSpan;
         copy.scope      = addScope(std::move(newScope));
         scopeMap_[orig.scope.value] = copy.scope;
@@ -466,19 +512,22 @@ ExprId MacroExpander::cloneExpr(ExprId src, const std::vector<ExprId> &args, Tex
     }
 
     for (size_t i = 0; i < copy.operands.size(); ++i)
-        copy.operands[i] = cloneExpr(copy.operands[i], args, callSpan, callScope, macro, map);
+        copy.operands[i] =
+            cloneExpr(copy.operands[i], args, callSpan, callScope, macro, map, source);
 
     for (size_t i = 0; i < copy.statements.size(); ++i)
-        copy.statements[i] = cloneStmt(copy.statements[i], args, callSpan, callScope, macro, map);
+        copy.statements[i] =
+            cloneStmt(copy.statements[i], args, callSpan, callScope, macro, map, source);
 
     for (size_t i = 0; i < copy.conditions.size(); ++i)
-        copy.conditions[i] = cloneExpr(copy.conditions[i], args, callSpan, callScope, macro, map);
+        copy.conditions[i] =
+            cloneExpr(copy.conditions[i], args, callSpan, callScope, macro, map, source);
 
     if (copy.cast_type)
-        copy.cast_type = cloneTypeExpr(copy.cast_type);
+        copy.cast_type = cloneTypeExpr(copy.cast_type, source);
 
     for (size_t i = 0; i < copy.genericArgs.size(); ++i)
-        copy.genericArgs[i] = cloneTypeExpr(copy.genericArgs[i]);
+        copy.genericArgs[i] = cloneTypeExpr(copy.genericArgs[i], source);
 
     ExprId result = addExpression(std::move(copy));
     if (src.value >= map.size())
@@ -488,11 +537,12 @@ ExprId MacroExpander::cloneExpr(ExprId src, const std::vector<ExprId> &args, Tex
 }
 
 StmtId MacroExpander::cloneStmt(StmtId src, const std::vector<ExprId> &args, TextSpan callSpan,
-                                ScopeId, const MacroInfo *macro, ExprMap &map) {
-    if (!src || src.value > snapshot_.statements_.size())
+                                ScopeId, const MacroInfo *macro, ExprMap &map,
+                                const FrontendSnapshot &source) {
+    if (!src || src.value > source.statements().size())
         return {};
 
-    const auto &orig = snapshot_.statements_[src.value - 1U];
+    const auto &orig = source.statements()[src.value - 1U];
     Statement copy   = orig;
     copy.id          = {};
     copy.span        = callSpan;
@@ -500,62 +550,73 @@ StmtId MacroExpander::cloneStmt(StmtId src, const std::vector<ExprId> &args, Tex
     if (copy.expression)
         copy.expression = cloneExpr(
             copy.expression, args, callSpan,
-            orig.expression ? snapshot_.expressions_[orig.expression.value - 1U].scope : ScopeId{},
-            macro, map);
+            orig.expression ? source.expressions()[orig.expression.value - 1U].scope : ScopeId{},
+            macro, map, source);
 
     if (copy.kind == StmtKind::Binding) {
         if (copy.binding.initializer)
             copy.binding.initializer =
                 cloneExpr(copy.binding.initializer, args, callSpan,
-                          copy.binding.initializer
-                              ? snapshot_.expressions_[copy.binding.initializer.value - 1U].scope
+                              copy.binding.initializer
+                              ? source.expressions()[copy.binding.initializer.value - 1U].scope
                               : ScopeId{},
-                          macro, map);
+                          macro, map, source);
         if (copy.binding.type)
-            copy.binding.type = cloneTypeExpr(copy.binding.type);
+            copy.binding.type = cloneTypeExpr(copy.binding.type, source);
     }
+
+    for (size_t i = 0; i < copy.arguments.size(); ++i)
+        copy.arguments[i] = cloneExpr(copy.arguments[i], args, callSpan,
+                                      copy.arguments[i]
+                                          ? source.expressions()[copy.arguments[i].value - 1U].scope
+                                          : ScopeId{},
+                                      macro, map, source);
 
     return addStatement(std::move(copy));
 }
 
-TypeExprId MacroExpander::cloneTypeExpr(TypeExprId src) {
-    if (!src || src.value > snapshot_.type_expressions_.size())
+TypeExprId MacroExpander::cloneTypeExpr(TypeExprId src, const FrontendSnapshot &source) {
+    if (!src || src.value > source.typeExpressions().size())
         return {};
 
-    TypeExpression copy = snapshot_.type_expressions_[src.value - 1U];
+    TypeExpression copy = source.typeExpressions()[src.value - 1U];
     copy.id             = {};
     copy.span           = {};
 
     for (size_t i = 0; i < copy.arguments.size(); ++i)
-        copy.arguments[i] = cloneTypeExpr(copy.arguments[i]);
+        copy.arguments[i] = cloneTypeExpr(copy.arguments[i], source);
 
     return addTypeExpression(std::move(copy));
 }
 
-void MacroExpander::collectHygieneNames(ExprId body, std::vector<std::string> &names) {
-    if (!body || body.value > snapshot_.expressions_.size())
+void MacroExpander::collectHygieneNames(ExprId body, std::vector<std::string> &names,
+                                        const FrontendSnapshot &source) {
+    if (!body || body.value > source.expressions().size())
         return;
-    const auto &expr = snapshot_.expressions_[body.value - 1U];
+    const auto &expr = source.expressions()[body.value - 1U];
 
     for (auto sid : expr.statements) {
-        if (!sid || sid.value > snapshot_.statements_.size())
+        if (!sid || sid.value > source.statements().size())
             continue;
-        const auto &stmt = snapshot_.statements_[sid.value - 1U];
+        const auto &stmt = source.statements()[sid.value - 1U];
         if (stmt.kind == StmtKind::Binding)
             names.push_back(stmt.binding.name);
+        for (const auto argument : stmt.arguments)
+            collectHygieneNames(argument, names, source);
     }
     for (auto op : expr.operands)
-        collectHygieneNames(op, names);
+        collectHygieneNames(op, names, source);
 }
 
-ExprId MacroExpander::substituteAttribute(ExprId src, const MacroInfo *macro, ExprId *outClone) {
-    const auto &field = snapshot_.expressions_[src.value - 1U];
+ExprId MacroExpander::substituteAttribute(ExprId src, const MacroInfo *macro, ExprId *outClone,
+                                          const FrontendSnapshot &source) {
+    const auto &field = source.expressions()[src.value - 1U];
     if (field.operands.empty())
         return {};
     const auto baseId = field.operands[0];
-    if (!baseId || baseId.value > snapshot_.expressions_.size())
+    if (!baseId || baseId.value > source.expressions().size())
         return {};
-    const auto &base = snapshot_.expressions_[baseId.value - 1U];
+    const auto &base = source.expressions()[baseId.value - 1U];
     if (base.kind != ExprKind::Name || base.text != "attributes")
         return {};
 
@@ -570,7 +631,8 @@ ExprId MacroExpander::substituteAttribute(ExprId src, const MacroInfo *macro, Ex
             ExprMap dummy(snapshot_.expressions_.size() + 1U);
             const size_t firstExpr = snapshot_.expressions_.size();
             const size_t firstStmt = snapshot_.statements_.size();
-            *outClone = cloneExpr((*exprs)[i], {}, callSpanForAttrs_, base.scope, nullptr, dummy);
+            *outClone =
+                cloneExpr((*exprs)[i], {}, callSpanForAttrs_, base.scope, nullptr, dummy, snapshot_);
             markNonHygienic(firstExpr, firstStmt);
             return *outClone;
         }

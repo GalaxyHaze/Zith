@@ -120,6 +120,17 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
     case err::MacroAttrNotAllowed:
         return ErrorInfo{code, 'E', "macro", "Macro does not accept attributes",
                          "Declare an 'attributes' parameter on the macro to accept them"};
+    case err::NotATrait:
+        return ErrorInfo{
+            code,
+            'E',
+            "semantic",
+            "Not a trait",
+            "The name after 'as'/'for' in an implement block must name a trait declaration",
+            "Trait conformance is checked during a later semantic pass"};
+    case err::InterfaceMethodNotAllowed:
+        return ErrorInfo{code, 'E', "parse", "Interface method not allowed",
+                         "Interfaces declare fields, not methods; use a trait for methods"};
     // Types
     case err::TypeMismatch:
         return ErrorInfo{code, 'E', "types", "Type mismatch",
@@ -152,6 +163,16 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
         return ErrorInfo{code, 'E', "types", "Optional type violation",
                          "A non-optional value is required here, but an optional (?T) was "
                          "provided. Unwrap with a null check or use `!` if safe."};
+    case err::GenericArity:
+        return ErrorInfo{code, 'E', "types", "Wrong generic argument count",
+                         "Provide one concrete type argument for every generic parameter"};
+    case err::GenericCannotInfer:
+        return ErrorInfo{code, 'E', "types", "Cannot infer generic argument",
+                         "Provide the type argument explicitly at the call site"};
+    case err::GenericExplosion:
+        return ErrorInfo{code, 'E', "types", "Too many generic instantiations",
+                         "Reduce the number of distinct type arguments or add an explicit "
+                         "boundary"};
 
     // Ownership
     case err::UseAfterMove:

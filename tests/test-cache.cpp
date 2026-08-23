@@ -419,9 +419,9 @@ static void test_format_version_bump() {
     (void)Writer::write(art, writer);
 
     std::string bytes(reinterpret_cast<const char *>(writer.ptr()), writer.size());
-    CHECK_EQ(kFormatVersion, 5u, "zirl format version is bumped to 5");
+    CHECK_EQ(kFormatVersion, 6u, "zirl format version is bumped to 6");
 
-    // Simulate an old reader by treating the v5 version field as v3.
+    // Simulate an old reader by treating the v6 version field as v3.
     bytes[4]        = 3;
     auto old_reader = Reader::read(bytes);
     CHECK(!old_reader.has_value(), "v5 artifact is rejected by a v3-only reader");

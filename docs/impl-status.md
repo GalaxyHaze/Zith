@@ -33,8 +33,8 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | Import resolution | **Working** | `import`, `from`, `export`, `alias`, `type` |
 | Name resolution | **Working** | Scope-chained `lookupBinding`. Per-scope `DuplicateDecl`. |
 | Type checking | **Working** | All `ExprKind` nodes. Optional/null validation. Index bounds. |
-| Generic instantiation | Partial | `<T, U>` parameter lists parse and type-check on declarations; calling a generic function still fails in the comptime solver with "generic parameter T has no concrete type". `T: Trait` constraints parse but are not enforced |
-| Comptime / Solve | **Reserved** | Generic instantiation and the solved semantic view are planned for 0.7.0 step-04; macro expansion happens in frontend, and the post-lowering pass is a compatibility stub today |
+| Generic instantiation | **Working (step 04)** | Generic `fn`, `struct`, `alias`, `enum`, `union`, and `implement` blocks are monomorphized before HIR. Calls and named types resolve concrete instances; `T: Trait` bounds remain pending step-05 |
+| Comptime / Solve | **Reserved** | Macro expansion happens in frontend; the solver remains a compatibility stub. Generic monomorphization now runs before NRA/HIR in step-04 |
 | NTA / NRA | **In progress** | Pre-HIR residual-fact boundary is implemented: semantic facts are accumulated and consumed before final lowering; the alive/dead/lent state machine and full diagnostics remain |
 | HIR lowering | **Working** | Covers all working features; residual ownership facts attach to side tables without introducing ownership HIR nodes |
 | LLVM codegen | **Working** | x86-64 and WebAssembly targets |
@@ -49,7 +49,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | Feature | Status | Notes |
 |---|---|---|
 | `fn` | **Working** | Parameters, return type, body. The return type is written `fn f(x: T): R` or `fn f(x: T) -> R`; both spellings parse. Overloading by parameter count and types (F-33); linkage names are qualified as `<module>.<Owner>.<name>(<params>)`, except `extern fn` and `main` |
-| generic parameter lists `<T, U>` | **Working (parse + typing)** | Accepted on `fn`, `struct`, `type` alias, `enum`, `union` and `trait` declarations. Inside the declaration each parameter resolves as an opaque type. Instantiation is not solved: both `identity<i32>(42)` and inferred `identity(42)` report `E3001` "generic parameter T has no concrete type". `T: Trait` constraints parse but are not enforced |
+| generic parameter lists `<T, U>` | **Working (step 04)** | Accepted on `fn`, `struct`, `type` alias, `enum`, `union` and `trait` declarations. Generic calls and concrete type uses instantiate monomorphically, including inferred type arguments and generic methods. Cache artifacts carry an instantiation summary. `T: Trait` constraints parse but are not yet enforced |
 | `flow fn` | **Working** | Parsed and lowers; `dock`, `marker`, and `jump target(args)` CFG is tested. Markers have typed parameters, module-scoped globals and per-flow locals are supported, and stackless execution is real. Marker cycle detection and return values remain future work |
 | `raw fn` | **Working** | Parsed and lowers |
 | `const fn` | **Parse-level in progress** | Parsed as a function declaration with `FunctionKind::Const`; compile-time evaluation is not implemented |
@@ -70,7 +70,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `[N]T` (array), `[]T` (slice) | **Working** | Indexing on arrays, slices, and pointers lowers through HIR/LLVM |
 | `dyn Trait` | **Parse error** | Type parser does not handle `dyn` |
 | `struct`, `component`, `enum`, `union` | **Working** | Declarations parse and resolve |
-| `trait`, `interface` | **Working** | Declarations parse and resolve |
+| `trait`, `interface` | **Working (member storage)** | Declaration bodies now store trait method requirements/default methods and interface fields in the frontend snapshot |
 | `implement T as Trait {}` | **Working** | Method bodies lowered |
 | `type` | **Partial** | `type Name = T` creates a nominal one-field wrapper and is not interchangeable with `T`; construction/field access still need an explicit value syntax |
 | `alias` | **Working** | Transparent alias: `alias Name = T` re-exports the same type |
@@ -194,7 +194,7 @@ Codes are grouped by pipeline stage. `E0000` remains the generic user-reported d
 | 0001-0005 | Lexical | `E0001` UnknownToken, `E0002` UnclosedString, `E0003` InvalidEscape, `E0004` InvalidIntLiteral, `E0005` UnclosedComment |
 | 1001-1008 | Parse | `E1001` ExpectedExpr, `E1002` ExpectedSemicolon, `E1003` UnclosedParen, `E1004` ExpectedIdent, `E1005` InvalidImportDepth, `E1006` ImportError, `E1007` TopLevelLetNotAllowed, `W1008` DeprecatedSyntax (`while` -> `for (cond)`) |
 | 2001-2010 | Semantic | `E2001` UndefinedIdent, `E2002` DuplicateDecl, `E2003` WrongArity, `E2004` UnusedDecl, `E2005` NotNamespace, `E2006` NoMember, `E2007` NoMatchingFn, `E2008` AmbiguousCall, `E2009` NotImplemented, `E2010` UnsupportedSyntax |
-| 2011-2020 | Macro | `E2011` MacroUnknown, `E2012` MacroArity, `E2013` MacroArgKind, `E2014` MacroRecursion, `E2015` MacroDuplicate, `E2016` MacroRawValue, `E2017` MacroTagValue, `E2018` MacroTagMismatch, `E2019` MacroAttrUnknown, `E2020` MacroAttrNotAllowed |
+| 2021-2025 | Frontend/interface | `E2023` NotATrait, `E2025` InterfaceMethodNotAllowed |
 | 3001-3008 | Types | `E3001` TypeMismatch, `E3002` CannotInfer, `E3003` InvalidCast, `E3004` CyclicType, `E3005` NullDerefUnproven, `E3006` CoercionFailure, `E3007` WidthMismatch, `E3008` OptionalViolation |
 | 4001-4004 | NRA / ownership | `E4001` UseAfterMove, `E4002` BorrowConflict, `E4003` DoubleBorrow, `E4004` WriteThroughView — only `E4004` is emitted today |
 | 5001-5002 | Lowering | `E5001` InvalidIR, `E5002` Unreachable |

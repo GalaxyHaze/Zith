@@ -21,6 +21,9 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
   recipe for the capability base.
 - [nra-hir-boundary.md](nra-hir-boundary.md): stable ownership/HIR boundary and
   the pitfalls that keep the pre-HIR NRA contract intact.
+- [build-c-compile.md](build-c-compile.md): companion `.c` discovery/link flow,
+  current backend selection rules, and the Clang `-Weverything` gotchas hit
+  while landing the feature.
 - [simd-intrinsics-asm.md](simd-intrinsics-asm.md): decision to prefer LLVM
   intrinsics over assembly for native/SIMD support; vector types come after
   scalar intrinsics.

@@ -1,6 +1,7 @@
 #include "sema/modern-types.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -42,7 +43,7 @@ memory::DynArray<std::string_view> &TypeTable::makeStringStorage() {
 
 TypeId TypeTable::internName(std::string_view name, TypeKind kind) {
     auto &entry         = pushEntry(EntryKind::Name);
-    entry.name_view     = name;
+    entry.name_view     = persistString(name);
     entry.reported_kind = kind;
     return entry.id;
 }
@@ -103,6 +104,7 @@ TypeId TypeTable::internStruct(std::string_view name, memory::DynArray<TypeId> &
                                memory::DynArray<std::string_view> *field_names) {
     auto &entry         = pushEntry(EntryKind::Struct);
     entry.reported_kind = TypeKind::Struct;
+    entry.name_view     = persistString(name);
     auto &storage       = makeStorage();
     for (auto &f : fields)
         storage.push(f);
@@ -111,8 +113,8 @@ TypeId TypeTable::internStruct(std::string_view name, memory::DynArray<TypeId> &
         for (auto &n : *field_names)
             name_storage.push(n);
     }
-    entry.struct_ty    = arena_->make<StructType>(StructType{name, storage, name_storage});
-    entry.storage      = &storage;
+    entry.struct_ty = arena_->make<StructType>(StructType{entry.name_view, storage, name_storage});
+    entry.storage   = &storage;
     entry.name_storage = &name_storage;
     return entry.id;
 }
@@ -241,6 +243,15 @@ TypeId TypeTable::internPack(memory::DynArray<TypeId> &members,
 TypeId TypeTable::internAlias(TypeId target) {
     auto &entry         = pushEntry(EntryKind::Alias);
     entry.reported_kind = TypeKind::Alias;
+    entry.name_view     = {};
+    entry.alias_ty      = arena_->make<AliasType>(AliasType{target});
+    return entry.id;
+}
+
+TypeId TypeTable::internAlias(std::string_view name, TypeId target) {
+    auto &entry         = pushEntry(EntryKind::Alias);
+    entry.reported_kind = TypeKind::Alias;
+    entry.name_view     = persistString(name);
     entry.alias_ty      = arena_->make<AliasType>(AliasType{target});
     return entry.id;
 }
@@ -252,7 +263,8 @@ TypeId TypeTable::internNominal(std::string_view name, TypeId target) {
     const TypeId fields[] = {target};
     for (const auto field : fields)
         storage.push(field);
-    entry.nominal_ty = arena_->make<NominalType>(NominalType{name, target, storage});
+    entry.name_view  = persistString(name);
+    entry.nominal_ty = arena_->make<NominalType>(NominalType{entry.name_view, target, storage});
     entry.storage    = &storage;
     return entry.id;
 }
@@ -516,6 +528,11 @@ TypeId TypeTable::lookupNamed(std::string_view name) const noexcept {
     return value ? *value : kInvalidTypeId;
 }
 
+std::string_view TypeTable::namedTypeName(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry != nullptr ? entry->name_view : std::string_view{};
+}
+
 TypeId TypeTable::canonical(TypeId id) const noexcept {
     for (unsigned guard = 0; guard < 8U; ++guard) {
         const auto *entry = findEntry(id);
@@ -539,7 +556,13 @@ TypeId TypeTable::findOrCreateNamed(std::string_view name, TypeKind kind) {
 }
 
 void TypeTable::registerNamed(std::string_view name, TypeId id) {
-    named_registry_.insert(name, id);
+    named_registry_.insert(persistString(name), id);
+}
+
+std::string_view TypeTable::persistString(std::string_view name) {
+    char *buffer = static_cast<char *>(arena_->alloc(name.size(), 1));
+    std::memcpy(buffer, name.data(), name.size());
+    return std::string_view(buffer, name.size());
 }
 
 types::OwnershipKind mapOwnership(frontend::OwnershipKind kind) noexcept {

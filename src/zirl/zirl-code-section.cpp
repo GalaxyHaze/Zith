@@ -64,9 +64,10 @@ bool encodeCode(const cache::Artifact &artifact, ByteWriter &w) {
         w.writeU32(fn.name_id);
         w.writeU8(fn.is_extern ? 1 : 0);
         w.writeU8(fn.is_variadic ? 1 : 0);
-        w.writeU8(0);
+        w.writeU8(fn.instance_index != ~uint32_t{0} ? 1 : 0);
         w.writeU8(0);
         w.writeU32(fn.return_type_id);
+        w.writeU32(fn.instance_index);
         w.writeU32(static_cast<uint32_t>(fn.param_type_ids.size()));
         for (auto id : fn.param_type_ids)
             w.writeU32(id);
@@ -113,13 +114,13 @@ bool decodeCode(ByteReader &r, cache::Artifact &out) {
     for (auto &fn : out.functions) {
         uint8_t ext = 0, a = 0, b = 0, c = 0;
         if (!r.readU32(fn.name_id) || !r.readU8(ext) || !r.readU8(a) || !r.readU8(b) ||
-            !r.readU8(c))
+            !r.readU8(c) || !r.readU32(fn.return_type_id) || !r.readU32(fn.instance_index))
             return false;
+        if (fn.name_id < out.strings.size())
+            fn.name = out.strings[fn.name_id];
         fn.is_extern   = ext != 0;
         fn.is_variadic = a != 0;
-        if (!r.readU32(fn.return_type_id))
-            return false;
-        uint32_t k = 0;
+        uint32_t k     = 0;
         if (!r.readU32(k))
             return false;
         fn.param_type_ids.resize(k);

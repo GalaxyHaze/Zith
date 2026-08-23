@@ -31,12 +31,13 @@ public:
 
 private:
     struct FunctionInfo {
-        uint64_t key                          = 0;
-        const session::ModuleArtifact *module = nullptr;
-        const frontend::Declaration *decl     = nullptr;
-        const cinterop::Function *foreign     = nullptr;
-        symbols::SymId sym_id                 = symbols::kInvalidSym;
-        size_t hir_index                      = 0;
+        uint64_t key                                    = 0;
+        const session::ModuleArtifact *module           = nullptr;
+        const frontend::Declaration *decl               = nullptr;
+        const cinterop::Function *foreign               = nullptr;
+        const comptime::InstantiationInstance *instance = nullptr;
+        symbols::SymId sym_id                           = symbols::kInvalidSym;
+        size_t hir_index                                = 0;
     };
 
     struct LoopTarget {
@@ -57,17 +58,21 @@ private:
     memory::FlatMap<uint64_t, size_t> function_index_by_key_;
     std::vector<FunctionInfo> functions_;
     std::vector<LoopTarget> loop_stack_;
-    const session::ModuleArtifact *current_module_       = nullptr;
-    const session::ModuleResolution *current_resolution_ = nullptr;
-    const TypedMap *current_types_                       = nullptr;
-    hir::HirFunction *current_fn_                        = nullptr;
-    bool current_fn_is_flow_                             = false;
-    size_t current_block_                                = 0;
-    hir::HirSlotId next_slot_                            = 0;
+    const session::ModuleArtifact *current_module_                   = nullptr;
+    const session::ModuleResolution *current_resolution_             = nullptr;
+    const TypedMap *current_types_                                   = nullptr;
+    const comptime::GenericInstantiationPass *current_instantiation_ = nullptr;
+    const comptime::InstantiationInstance *current_instance_         = nullptr;
+    hir::HirFunction *current_fn_                                    = nullptr;
+    bool current_fn_is_flow_                                         = false;
+    size_t current_block_                                            = 0;
+    hir::HirSlotId next_slot_                                        = 0;
     std::vector<hir::HirSlotId> local_slots_;
     symbols::SymId next_sym_id_ = 1;
 
     bool predeclareFunctions();
+    void predeclareInstantiation(session::ModuleKey module_key,
+                                 const comptime::InstantiationInstance &instance);
     bool lowerFunctionBodies();
     bool lowerFunctionBody(FunctionInfo &info);
 

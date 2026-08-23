@@ -1,4 +1,5 @@
 #include "compilation-session.hpp"
+#include "cc/driver.hpp"
 #include "cli/terminal.hpp"
 #ifdef ZITH_HAS_LLVM
 #include "codegen/codegen.hpp"
@@ -99,6 +100,14 @@ symbols::SymbolVisibility mapFrontendVisibility(const frontend::Visibility visib
         return std::isalnum(character) != 0 || character == '_' || character == '+' ||
                character == '-' || character == '.';
     });
+}
+
+template <typename ArrayT>
+void loadTomlStringArray(const toml::table &table, const char *key, ArrayT &destination) {
+    if (const auto *values = table[key].as_array())
+        for (const auto &value : *values)
+            if (const auto text = value.value<std::string>())
+                destination.push(*text);
 }
 
 [[maybe_unused]] int runProgram(const std::vector<std::string> &arguments) {
@@ -277,17 +286,11 @@ CompilationSession::CompilationSession(const Options &options, std::string fileP
                         mProjectConfig.binDir = *s;
             }
             if (auto *ffi = tbl["ffi"].as_table()) {
-                const auto loadArray = [](const toml::table &table, const char *key,
-                                          memory::DynArray<std::string> &destination) {
-                    if (const auto *values = table[key].as_array())
-                        for (const auto &value : *values)
-                            if (const auto text = value.value<std::string>())
-                                destination.push(*text);
-                };
-                loadArray(*ffi, "include_dirs", mProjectConfig.includeDirs);
-                loadArray(*ffi, "library_dirs", mProjectConfig.libraryDirs);
-                loadArray(*ffi, "libraries", mProjectConfig.libraries);
-                loadArray(*ffi, "defines", mProjectConfig.defines);
+                loadTomlStringArray(*ffi, "include_dirs", mProjectConfig.includeDirs);
+                loadTomlStringArray(*ffi, "c_source_dirs", mProjectConfig.cSourceDirs);
+                loadTomlStringArray(*ffi, "library_dirs", mProjectConfig.libraryDirs);
+                loadTomlStringArray(*ffi, "libraries", mProjectConfig.libraries);
+                loadTomlStringArray(*ffi, "defines", mProjectConfig.defines);
             }
             if (auto *proj = tbl["project"].as_table()) {
                 if (auto v = proj->get("name"))
@@ -313,17 +316,11 @@ CompilationSession::CompilationSession(const Options &options, std::string fileP
                         mProjectConfig.binDir = *s;
             }
             if (auto *ffi = result["ffi"].as_table()) {
-                const auto loadArray = [](const toml::table &table, const char *key,
-                                          memory::DynArray<std::string> &destination) {
-                    if (const auto *values = table[key].as_array())
-                        for (const auto &value : *values)
-                            if (const auto text = value.value<std::string>())
-                                destination.push(*text);
-                };
-                loadArray(*ffi, "include_dirs", mProjectConfig.includeDirs);
-                loadArray(*ffi, "library_dirs", mProjectConfig.libraryDirs);
-                loadArray(*ffi, "libraries", mProjectConfig.libraries);
-                loadArray(*ffi, "defines", mProjectConfig.defines);
+                loadTomlStringArray(*ffi, "include_dirs", mProjectConfig.includeDirs);
+                loadTomlStringArray(*ffi, "c_source_dirs", mProjectConfig.cSourceDirs);
+                loadTomlStringArray(*ffi, "library_dirs", mProjectConfig.libraryDirs);
+                loadTomlStringArray(*ffi, "libraries", mProjectConfig.libraries);
+                loadTomlStringArray(*ffi, "defines", mProjectConfig.defines);
             }
             if (auto *proj = result["project"].as_table()) {
                 if (auto v = proj->get("name"))
@@ -493,12 +490,15 @@ bool CompilationSession::lexStage() {
         }
         mFilePath = (fs::path(mProjectRoot) / mProjectConfig.entry).string();
     }
+#endif
 
+    ensureFrontendContext();
+
+#ifndef ZITH_IS_WASM
     if (!mCacheStore) {
         const auto cache_root = (fs::path(mProjectRoot) / cache::kPersistentCacheDirName).string();
-        mCacheStore           = std::make_unique<cache::Store>(
-            cache_root,
-            mFrontendContext ? mFrontendContext->config().cacheKey() : session::CacheKey{});
+        mCacheStore =
+            std::make_unique<cache::Store>(cache_root, mFrontendContext->config().cacheKey());
     }
     (void)tryLoadPersistentCache();
 
@@ -513,7 +513,6 @@ bool CompilationSession::lexStage() {
     }
 #endif
 
-    ensureFrontendContext();
     if (!mSnapshot) {
         auto snapshot = mContentOverride.empty()
                             ? mFrontendContext->analyzeFile(mFilePath)
@@ -579,9 +578,30 @@ bool CompilationSession::lexStage() {
     if (mOpts.get().flags.emitAst()) {
         writeOutput("--- AST ---\n");
         for (const auto &decl : root->frontend->declarations()) {
-            writeOutput("decl %s (kind=%d, vis=%d, span=%u..%u)\n", decl.name.c_str(),
+            writeOutput("decl %s (kind=%d, vis=%d, span=%u..%u%s%s)\n", decl.name.c_str(),
                         static_cast<int>(decl.kind), static_cast<int>(decl.visibility),
-                        decl.span.start, decl.span.end);
+                        decl.span.start, decl.span.end, decl.ownerName.empty() ? "" : ", owner=",
+                        decl.ownerName.empty() ? "" : decl.ownerName.c_str());
+            if (decl.kind == frontend::DeclKind::Trait) {
+                for (const auto &member : root->frontend->declarations()) {
+                    if (member.kind != frontend::DeclKind::Function ||
+                        member.ownerName != decl.name)
+                        continue;
+                    if (member.span.start < decl.span.start || member.span.end > decl.span.end)
+                        continue;
+                    writeOutput("  method %s%s%s\n", member.name.c_str(),
+                                member.body ? " (default body)" : " (requirement)",
+                                member.declaredType ? "" : "");
+                }
+            } else if (decl.kind == frontend::DeclKind::Interface) {
+                std::string fields;
+                for (std::size_t index = 0; index < decl.parameters.size(); ++index) {
+                    if (index != 0U)
+                        fields += ", ";
+                    fields += decl.parameters[index].name;
+                }
+                writeOutput("  fields %s\n", fields.c_str());
+            }
         }
         writeOutput("--- Symbols ---\n");
         writeOutput("%s",
@@ -679,6 +699,9 @@ bool CompilationSession::semaStage() {
     }
     mModernSemaPipeline =
         std::make_unique<sema::modern::SemaPipeline>(mScratchArena, mDiags, *mSnapshot);
+    mGenericInstantiations = std::make_unique<comptime::GenericInstantiationPass>(
+        *mSnapshot, mModernSemaPipeline->typeTable());
+    mModernSemaPipeline->setInstantiations(mGenericInstantiations.get());
     if (!mModernSemaPipeline->run()) {
         mDiags.emit();
         return false;
@@ -710,8 +733,8 @@ bool CompilationSession::lowerStage() {
     }
 
     mHirModule = lower.takeHir();
-    // Keep the semantic pipeline alive through HIR lowering. The solver still
-    // runs after lowering until generic instantiation moves onto sema/HIR.
+    // The solver only needs to run on cold builds. Warm builds restore the HIR
+    // artifact directly and the generic pass already ran before HIR lowering.
 
     if (mOpts.get().flags.emitHir()) {
         const std::string hir_text =
@@ -736,19 +759,28 @@ bool CompilationSession::lowerStage() {
 
 bool CompilationSession::solveStage() {
     auto t0 = std::chrono::steady_clock::now();
-    // Reserved for 0.7.0 step-04 generic instantiation; the post-lowering
-    // comptime pass runs from lowerStage().
+    if (mDiags.hasErrors()) {
+        mDiags.emit();
+        return false;
+    }
+    (void)mGenericInstantiations;
     auto solveDt =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     mStageDurations[static_cast<size_t>(StageIndex::Solve)] = solveDt;
     if (mOpts.get().flags.verbose()) {
-        writeOutput("  [solve] \xe2\x80\x94 (stub)  (%5.1fms)\n", solveDt);
+        writeOutput("  [solve] %zu generic instantiation(s)  (%5.1fms)\n",
+                    mGenericInstantiations != nullptr ? mGenericInstantiations->instanceCount()
+                                                      : size_t{0},
+                    solveDt);
     }
     return true;
 }
 
 bool CompilationSession::nraStage() {
     auto t0 = std::chrono::steady_clock::now();
+    if (mCacheHydrated)
+        return true;
+
     if (mDiags.hasErrors()) {
         mDiags.emit();
         return false;
@@ -840,7 +872,6 @@ bool CompilationSession::codegenStage() {
     if (mOpts.get().flags.verbose()) {
         writeOutput("  [codegen] %5.1fms\n", codegenDt);
     }
-
     return !mDiags.hasErrors();
 }
 
@@ -879,6 +910,123 @@ ArenaMemoryUsage CompilationSession::getArenaMemoryUsage() const {
         mTypeArena.allocatedBytes(),
         mHirArena.allocatedBytes(),
     };
+}
+
+bool CompilationSession::prepareNativeLinkInputs() {
+#ifndef ZITH_IS_WASM
+    if (mPreparedNativeLinkInputs)
+        return true;
+    mPreparedNativeLinkInputs = true;
+
+    namespace fs = std::filesystem;
+
+    std::vector<std::string> configuredRoots;
+    configuredRoots.reserve(mProjectConfig.cSourceDirs.size() + mOpts.get().cSourceDirs.size());
+    for (const auto &root : mProjectConfig.cSourceDirs)
+        configuredRoots.push_back(root);
+    for (const auto &root : mOpts.get().cSourceDirs)
+        configuredRoots.push_back(root);
+    if (configuredRoots.empty())
+        return true;
+
+    std::vector<std::string> resolvedRoots;
+    std::unordered_set<std::string> seenRoots;
+    for (const auto &root : configuredRoots) {
+        fs::path path(root);
+        if (path.is_relative())
+            path = fs::path(mProjectRoot) / path;
+
+        std::error_code error;
+        if (!fs::exists(path, error) || !fs::is_directory(path, error)) {
+            writeOutput("%s[error]%s C source root does not exist: %s\n", ansicolor("\033[31m"),
+                        ansicolor("\033[0m"), path.lexically_normal().string().c_str());
+            return false;
+        }
+
+        const std::string canonical = fs::weakly_canonical(path).string();
+        if (seenRoots.insert(canonical).second)
+            resolvedRoots.push_back(canonical);
+    }
+
+    const auto discovery = cc::discoverCSources(resolvedRoots);
+    for (const auto &diag : discovery.diagnostics) {
+        writeOutput("%s[error]%s %s\n", ansicolor("\033[31m"), ansicolor("\033[0m"),
+                    diag.message.c_str());
+    }
+    if (!discovery.ok)
+        return false;
+    if (discovery.sourcePaths.empty())
+        return true;
+
+    std::vector<std::string> includeDirs;
+    includeDirs.reserve(mProjectConfig.includeDirs.size() + mOpts.get().includeDirs.size());
+    for (const auto &dir : mProjectConfig.includeDirs) {
+        fs::path path(dir);
+        if (path.is_relative())
+            path = fs::path(mProjectRoot) / path;
+        includeDirs.push_back(path.lexically_normal().string());
+    }
+    for (const auto &dir : mOpts.get().includeDirs) {
+        fs::path path(dir);
+        if (path.is_relative())
+            path = fs::path(mProjectRoot) / path;
+        includeDirs.push_back(path.lexically_normal().string());
+    }
+
+    std::vector<std::string> defines;
+    defines.reserve(mProjectConfig.defines.size() + mOpts.get().defines.size());
+    for (const auto &define : mProjectConfig.defines)
+        defines.push_back(define);
+    for (const auto &define : mOpts.get().defines)
+        defines.push_back(define);
+
+    std::string targetKey = mOpts.get().targetTriple;
+    if (targetKey.empty()) {
+#ifdef ZITH_HAS_LLVM
+        targetKey = llvm::sys::getDefaultTargetTriple();
+#else
+        targetKey = "host";
+#endif
+    }
+    std::replace(targetKey.begin(), targetKey.end(), '/', '_');
+
+    const fs::path objectRoot = fs::path(mProjectRoot) / "cache" / "c-obj" / targetKey;
+    fs::create_directories(objectRoot);
+
+    for (size_t i = 0; i < discovery.sourcePaths.size(); ++i) {
+        const auto &sourcePath = discovery.sourcePaths[i];
+        const fs::path objectPath =
+            objectRoot / (std::to_string(i) + "-" + fs::path(sourcePath).stem().string() + ".o");
+
+        cc::CCompileRequest request;
+        request.inputPath    = sourcePath;
+        request.outputPath   = objectPath.string();
+        request.targetTriple = mOpts.get().targetTriple;
+        request.sysroot      = mOpts.get().sysroot;
+        request.includeDirs  = includeDirs;
+        request.defines      = defines;
+        request.verbose      = mOpts.get().flags.verbose();
+
+        const auto compileResult = cc::compileCSource(request);
+        if (mOpts.get().flags.verbose() && !compileResult.commandDisplay.empty())
+            writeOutput("  [c-compile] %s\n", compileResult.commandDisplay.c_str());
+        if (!compileResult.ok) {
+            for (const auto &diag : compileResult.diagnostics) {
+                writeOutput("%s[error]%s %s\n", ansicolor("\033[31m"), ansicolor("\033[0m"),
+                            diag.message.c_str());
+            }
+            if (!compileResult.toolOutput.empty())
+                writeOutput("%s", compileResult.toolOutput.c_str());
+            return false;
+        }
+
+        mExtraObjectPaths.push_back(objectPath.string());
+    }
+
+    return true;
+#else
+    return true;
+#endif
 }
 
 bool CompilationSession::performLink(std::string &exePath, bool &isWasm) {
@@ -928,52 +1076,61 @@ bool CompilationSession::performLink(std::string &exePath, bool &isWasm) {
     if (mOpts.get().flags.verbose())
         writeOutput("  [link] %s -> %s\n", mObjectPath.c_str(), exePath.c_str());
 
-    std::vector<std::string> link_args;
     if (isWasm) {
+        std::vector<std::string> link_args;
         bool isWasi = triple.find("wasi") != std::string::npos;
         link_args.emplace_back("wasm-ld");
         if (!isWasi)
             link_args.insert(link_args.end(), {"--no-entry", "--export-all"});
         link_args.insert(link_args.end(), {"-o", exePath, mObjectPath});
-    } else {
-        link_args = {"/usr/bin/cc", "-o", exePath, mObjectPath};
-    }
-
-    if (!mOpts.get().sysroot.empty())
-        link_args.push_back("--sysroot=" + mOpts.get().sysroot);
-
-    if (!isWasm) {
-        for (const auto &directory : mProjectConfig.libraryDirs) {
-            const auto path =
-                (std::filesystem::path(mProjectRoot) / directory).lexically_normal().string();
-            link_args.push_back("-L" + path);
-        }
-        for (const auto &directory : mOpts.get().libraryDirs)
-            link_args.push_back("-L" + directory);
-
-        const auto addLibraries = [this, &link_args](const auto &libraries) {
-            for (const auto &library : libraries) {
-                if (!isValidLibraryName(library)) {
-                    writeOutput("%s[error]%s invalid library name '%s'\n", ansicolor("\033[31m"),
-                                ansicolor("\033[0m"), library.c_str());
-                    return false;
-                }
-                link_args.push_back("-l" + library);
-            }
-            return true;
-        };
-        if (!addLibraries(mProjectConfig.libraries) || !addLibraries(mOpts.get().libraries))
+        if (!mOpts.get().sysroot.empty())
+            link_args.push_back("--sysroot=" + mOpts.get().sysroot);
+        if (mOpts.get().flags.verbose())
+            writeOutput("  [link] %s\n", displayCommand(link_args).c_str());
+        const int linkResult = runProgram(link_args);
+        if (linkResult != 0) {
+            writeOutput("%s[error]%s linking failed (exit code %d)\n", ansicolor("\033[31m"),
+                        ansicolor("\033[0m"), linkResult);
             return false;
-    }
+        }
+    } else {
+        if (!prepareNativeLinkInputs())
+            return false;
 
-    if (mOpts.get().flags.verbose())
-        writeOutput("  [link] %s\n", displayCommand(link_args).c_str());
+        cc::LinkRequest request;
+        request.outputPath        = exePath;
+        request.targetTriple      = mOpts.get().targetTriple;
+        request.sysroot           = mOpts.get().sysroot;
+        request.primaryObjectPath = mObjectPath;
+        request.extraObjectPaths  = mExtraObjectPaths;
+        request.verbose           = mOpts.get().flags.verbose();
 
-    const int linkResult = runProgram(link_args);
-    if (linkResult != 0) {
-        writeOutput("%s[error]%s linking failed (exit code %d)\n", ansicolor("\033[31m"),
-                    ansicolor("\033[0m"), linkResult);
-        return false;
+        for (const auto &directory : mProjectConfig.libraryDirs)
+            request.libraryDirs.push_back(
+                (std::filesystem::path(mProjectRoot) / directory).lexically_normal().string());
+        for (const auto &directory : mOpts.get().libraryDirs) {
+            std::filesystem::path path(directory);
+            if (path.is_relative())
+                path = std::filesystem::path(mProjectRoot) / path;
+            request.libraryDirs.push_back(path.lexically_normal().string());
+        }
+        for (const auto &library : mProjectConfig.libraries)
+            request.libraries.push_back(library);
+        for (const auto &library : mOpts.get().libraries)
+            request.libraries.push_back(library);
+
+        const auto linkResult = cc::linkNative(request);
+        if (mOpts.get().flags.verbose() && !linkResult.commandDisplay.empty())
+            writeOutput("  [link] %s\n", linkResult.commandDisplay.c_str());
+        if (!linkResult.ok) {
+            for (const auto &diag : linkResult.diagnostics) {
+                writeOutput("%s[error]%s %s\n", ansicolor("\033[31m"), ansicolor("\033[0m"),
+                            diag.message.c_str());
+            }
+            if (!linkResult.toolOutput.empty())
+                writeOutput("%s", linkResult.toolOutput.c_str());
+            return false;
+        }
     }
 
     mExecutablePath = exePath;
@@ -1595,10 +1752,17 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
         mHirModule.addExpr(std::move(expr));
     }
 
-    for (const auto &cfn : art.functions) {
-        auto &fn       = mHirModule.addFn(mInterner->intern(cfn.name));
-        fn.return_type = compactType(cfn.return_type_id);
-        fn.isVariadic  = cfn.is_variadic;
+    symbols::SymId next_sym = 1;
+    for (size_t fi = 0; fi < art.functions.size(); ++fi) {
+        const auto &cfn = art.functions[fi];
+        const std::string_view cfn_name =
+            cfn.name.empty() && cfn.name_id < art.strings.size()
+                ? art.strings[cfn.name_id]
+                : cfn.name;
+        auto &fn = mHirModule.addFn(mInterner->intern(cfn_name));
+        fn.return_type  = compactType(cfn.return_type_id);
+        fn.isVariadic   = cfn.is_variadic;
+        fn.sym_id       = next_sym++;
         for (size_t pi = 0; pi < cfn.param_type_ids.size() && pi < cfn.param_name_ids.size();
              ++pi) {
             fn.params.push(compactType(cfn.param_type_ids[pi]));

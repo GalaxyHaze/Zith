@@ -1,5 +1,6 @@
 #pragma once
 
+#include "comptime/generic-instantiate.hpp"
 #include "diagnostics/diagnostic-engine.hpp"
 #include "diagnostics/error-codes.hpp"
 #include "frontend/frontend.hpp"
@@ -49,6 +50,7 @@ class SemaPipeline;
 
 struct PerModuleSema {
     session::ModuleKey module;
+    memory::FileId fileId = 0;
     const frontend::FrontendSnapshot &snapshot;
     const session::ModuleResolution &resolution;
     TypeTable &type_table;
@@ -70,7 +72,7 @@ struct PerModuleSema {
 
     PerModuleSema(session::ModuleKey mod, const frontend::FrontendSnapshot &snap,
                   const session::ModuleResolution &res, TypeTable &tt, TypedMap &tm,
-                  memory::Arena &a, SemaPipeline *owner_ = nullptr);
+                  memory::Arena &a, memory::FileId file_id = 0, SemaPipeline *owner_ = nullptr);
 
     bool run();
     bool prepareTypes();
@@ -115,6 +117,10 @@ private:
         TypeId type;
     };
     std::unordered_map<uint32_t, std::vector<GenericBinding>> genericParams_;
+    /// Overrides for the generic parameters of the template currently being
+    /// instantiated in a type expression. `lowerTypeExpr` checks these before
+    /// the declaration bindings so `Pair<i32,f64>` fields see `i32`/`f64`.
+    std::vector<GenericBinding> activeTemplateArgs_;
     /// Decl id of the declaration currently being lowered or inferred (0 = none).
     uint32_t currentDeclId_ = 0;
 
@@ -151,6 +157,10 @@ private:
     TypeId lowerTypeExpr(frontend::TypeExprId id);
     /// Lowers `type` ignoring its own memory qualifier; `lowerTypeExpr` wraps the result.
     TypeId lowerBareTypeExpr(const frontend::TypeExpression &type);
+    /// Builds/returns the named concrete type for a template application. Shared
+    /// by type expressions and generic struct literals.
+    TypeId instantiateTypeExpr(frontend::TextSpan span, std::string_view name,
+                               const std::vector<frontend::TypeExprId> &arguments);
     TypeId lowerForeignType(const cinterop::Type &type);
     TypeId inferExpr(frontend::ExprId id);
     TypeId inferLiteral(frontend::ExprId id, std::string_view text);
@@ -264,6 +274,8 @@ public:
 private:
     void setResolvedCallTarget(frontend::ExprId callee, session::ModuleKey module,
                                frontend::DeclId decl);
+    /// Generic call resolution results, shared with HIR lowering.
+    comptime::GenericInstantiationPass *instantiations = nullptr;
     std::unordered_map<uint32_t, CallTarget> call_targets_;
 };
 
@@ -285,6 +297,12 @@ public:
     [[nodiscard]] sema::modern::TypeTable takeTypeTable() {
         return std::move(type_table_);
     }
+    void setInstantiations(comptime::GenericInstantiationPass *instantiations) {
+        instantiation_pass_ = instantiations;
+    }
+    [[nodiscard]] comptime::GenericInstantiationPass *instantiations() const noexcept {
+        return instantiation_pass_;
+    }
     TypedMap &typedMap(session::ModuleKey module) noexcept;
 
 private:
@@ -294,7 +312,8 @@ private:
     TypeTable type_table_;
     memory::FlatMap<session::ModuleKey, TypedMap *> typed_maps_;
     memory::DynArray<PerModuleSema *> modules_;
-    bool has_errors_ = false;
+    bool has_errors_                                        = false;
+    comptime::GenericInstantiationPass *instantiation_pass_ = nullptr;
 };
 
 } // namespace zith::sema::modern

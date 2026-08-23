@@ -329,6 +329,134 @@ void test_pipeline_tag_macro_expands() {
           "tag macro expansion produces no semantic diagnostics");
 }
 
+void test_pipeline_imported_jump_dock_macro_lowers() {
+    Workspace workspace;
+    workspace.write("helper.zith", "pub macro jump_to(v: expr) { jump target(v); }\n"
+                                   "pub macro dock_to(v: expr) { dock target(v); }\n");
+    workspace.write("main.zith", "from helper\n"
+                                 "flow fn main(): i32 {\n"
+                                 "    var acc: i32 = 0;\n"
+                                 "    @dock_to(0);\n"
+                                 "    marker target(v: i32) {\n"
+                                 "        @jump_to(v + 1);\n"
+                                 "    }\n"
+                                 "    acc\n"
+                                 "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "imported jump/dock macros expand and lower through the modern pipeline");
+    CHECK(session.snapshot() != nullptr && session.snapshot()->diagnostics().empty(),
+          "imported jump/dock macro expansion produces no diagnostics");
+}
+
+void test_pipeline_imported_macro_lowers() {
+    Workspace workspace;
+    workspace.write("helper.zith", "pub macro twice(v: expr) { v + v }\n"
+                                   "pub macro qualify(v: expr) { v }\n");
+    workspace.write("main.zith", "from helper\n"
+                                 "fn main(): i32 { @twice(21) }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "imported public macros expand and lower through the modern pipeline");
+    CHECK(session.snapshot() != nullptr && session.snapshot()->diagnostics().empty(),
+          "imported macro expansion produces no diagnostics");
+}
+
+void test_imported_macro_unknown_without_import() {
+    Workspace workspace;
+    workspace.write("helper.zith", "pub macro twice(v: expr) { v + v }\n");
+    workspace.write("main.zith", "fn main(): i32 { @twice(21) }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::Imported;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    (void)session.runTo(session::Stage::Imported);
+    CHECK(session.snapshot() != nullptr, "macro-unknown snapshot still materializes");
+    if (!session.snapshot())
+        return;
+    bool has_unknown = false;
+    for (const auto &diagnostic : session.snapshot()->diagnostics()) {
+        if (diagnostic.code == diagnostics::err::MacroUnknown)
+            has_unknown = true;
+    }
+    CHECK(has_unknown, "unimported public macro produces MacroUnknown");
+}
+
+void test_imported_macro_selector_alias() {
+    Workspace workspace;
+    workspace.write("helper.zith", "pub macro twice(v: expr) { v + v }\n");
+    workspace.write("main.zith", "from helper { twice as double }\n"
+                                 "fn main(): i32 { @double(10) }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "selective imported macro alias expands and lowers");
+    CHECK(session.snapshot() != nullptr && session.snapshot()->diagnostics().empty(),
+          "selective imported macro alias has no diagnostics");
+}
+
+void test_imported_macro_namespace_alias() {
+    Workspace workspace;
+    workspace.write("helper.zith", "pub macro twice(v: expr) { v + v }\n");
+    workspace.write("main.zith", "import helper as h\n"
+                                 "fn main(): i32 { @h.twice(10) }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "imported macro under namespace alias expands and lowers");
+    CHECK(session.snapshot() != nullptr && session.snapshot()->diagnostics().empty(),
+          "imported namespace macro has no diagnostics");
+}
+
+void test_imported_macro_duplicate_diagnostic() {
+    Workspace workspace;
+    workspace.write("helper.zith", "pub macro twice(v: expr) { v + v }\n");
+    workspace.write("main.zith", "from helper { twice }\n"
+                                 "macro twice(v: expr) { v }\n"
+                                 "fn main(): i32 { @twice(1) }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::Imported;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    (void)session.runTo(session::Stage::Imported);
+    CHECK(session.snapshot() != nullptr, "duplicate-macro snapshot materializes");
+    if (!session.snapshot())
+        return;
+    bool has_duplicate = false;
+    for (const auto &diagnostic : session.snapshot()->diagnostics())
+        if (diagnostic.code == diagnostics::err::MacroDuplicate)
+            has_duplicate = true;
+    CHECK(has_duplicate, "local macro colliding with import reports MacroDuplicate");
+}
+
 } // namespace
 
 static void test_frontend_modern_pipeline() {
@@ -344,6 +472,12 @@ static void test_frontend_modern_pipeline() {
     test_pipeline_normal_macro_hygiene_and_call_site_scope();
     test_pipeline_raw_macro_sees_call_site_then_module();
     test_pipeline_tag_macro_expands();
+    test_pipeline_imported_jump_dock_macro_lowers();
+    test_pipeline_imported_macro_lowers();
+    test_imported_macro_unknown_without_import();
+    test_imported_macro_selector_alias();
+    test_imported_macro_namespace_alias();
+    test_imported_macro_duplicate_diagnostic();
 }
 
 TEST_MAIN(frontend_modern_pipeline)

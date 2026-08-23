@@ -22,6 +22,7 @@ struct Options {
     memory::DynArray<std::string> inputFiles;
     std::string outputFile;
     memory::DynArray<std::string> includeDirs;
+    memory::DynArray<std::string> cSourceDirs;
     memory::DynArray<std::string> assetDirs;
     memory::DynArray<std::string> libraryDirs;
     memory::DynArray<std::string> libraries;
@@ -237,9 +238,9 @@ struct Options {
     std::string subcommandStr; // string copy for command functions
 
     explicit Options(memory::Arena &allocator)
-        : inputFiles(allocator), outputFile(), includeDirs(allocator), assetDirs(allocator),
-          libraryDirs(allocator), libraries(allocator), defines(allocator), targetTriple(),
-          sysroot(), flags() {}
+        : inputFiles(allocator), outputFile(), includeDirs(allocator), cSourceDirs(allocator),
+          assetDirs(allocator), libraryDirs(allocator), libraries(allocator), defines(allocator),
+          targetTriple(), sysroot(), flags() {}
 
     memory::StringInterner *stringPool = nullptr;
 

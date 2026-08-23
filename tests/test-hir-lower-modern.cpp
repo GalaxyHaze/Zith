@@ -82,6 +82,11 @@ size_t countTerminatorKind(const hir::HirModule &hir, const hir::HirFunction &fn
     return count;
 }
 
+std::string_view internedName(const memory::StringInterner &interner, memory::InternedId id) {
+    const auto text = interner.lookup(id);
+    return std::string_view(text.data(), text.size());
+}
+
 session::CompilationSession makeSession(const Workspace &workspace, memory::Arena &arena,
                                         Options &options, std::string_view file_name) {
     options.targetStage = session::Stage::HirLowered;
@@ -902,6 +907,128 @@ void test_global_marker_lowers_into_multiple_flow_fns() {
           "second flow fn stores both marker arguments");
 }
 
+void test_generic_function_lowers_to_concrete_instances() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn identity<T>(x: T): T { return x }\n"
+                                     "fn main(): i32 {\n"
+                                     "    identity<i32>(7);\n"
+                                     "    return identity(9);\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "generic function with explicit and inferred type arguments lowers to HIR");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main is present after generic lowering");
+    if (main == nullptr)
+        return;
+
+    size_t call_count       = 0;
+    symbols::SymId resolved = symbols::kInvalidSym;
+    const auto countCall    = [&](hir::HirExprId id) {
+        if (id == hir::kInvalidHirExpr)
+            return;
+        const auto *call = std::get_if<hir::HirCall>(&hir.getExpr(id));
+        if (call == nullptr)
+            return;
+        ++call_count;
+        resolved = call->resolved_fn;
+        CHECK(call->callee == hir::kInvalidHirExpr || call->resolved_fn != symbols::kInvalidSym,
+                 "generic call has a resolved concrete symbol or a valid callee expr");
+    };
+    for (const auto &block : main->blocks) {
+        for (auto inst : block.insts)
+            countCall(inst);
+        if (block.terminator != hir::kInvalidHirExpr) {
+            if (const auto *ret = std::get_if<hir::HirRet>(&hir.getExpr(block.terminator)))
+                countCall(ret->value);
+        }
+    }
+    CHECK_EQ(call_count, 2u, "both generic calls remain in main");
+    CHECK(resolved != symbols::kInvalidSym, "at least one generic call resolves to the instance");
+
+    const auto *identity = findFunction(hir, session.interner(), "identity<i32>");
+    CHECK(identity != nullptr,
+          "the generic function is monomorphized into an identity<i32> instance");
+    if (identity != nullptr) {
+        // One concrete parameter slot, one return terminator; body return type is the
+        // concrete i32 lowered to the integer type id used by main.
+        CHECK_EQ(allocatedSlots(hir, *identity).size(), 1u,
+                 "identity<i32> allocates only its concrete parameter");
+        CHECK_EQ(countTerminatorKind(hir, *identity, hir::HirExprKind::Ret), 1u,
+                 "identity<i32> returns from its concrete body");
+    }
+}
+
+void test_generic_instance_deduplication() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn same<T>(x: T): T { x }\n"
+                                     "fn main(): i32 {\n"
+                                     "    same<i32>(1);\n"
+                                     "    same(2);\n"
+                                     "    return 0;\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "two equivalent generic calls lower without a sema error");
+
+    size_t same_count = 0;
+    for (size_t i = 0; i < session.hirModule().getFnCount(); ++i) {
+        const auto &fn  = session.hirModule().getFn(i);
+        const auto name = internedName(session.interner(), fn.name);
+        if (name.find("same<i32>") != std::string_view::npos)
+            ++same_count;
+    }
+    CHECK_EQ(same_count, 1u, "the same concrete instance appears only once in HIR");
+}
+
+void test_distinct_generic_instances_have_distinct_symbols() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn pick<T>(x: T): T { x }\n"
+                                     "fn main(): i32 {\n"
+                                     "    pick<i32>(1);\n"
+                                     "    pick<f64>(1.5);\n"
+                                     "    return 0;\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "two generic instances with different type arguments lower to HIR");
+
+    const auto &hir           = session.hirModule();
+    size_t pick_i32           = 0;
+    size_t pick_f64           = 0;
+    symbols::SymId first_sym  = symbols::kInvalidSym;
+    symbols::SymId second_sym = symbols::kInvalidSym;
+    for (size_t i = 0; i < hir.getFnCount(); ++i) {
+        const auto name = internedName(session.interner(), hir.getFn(i).name);
+        if (name.find("pick<i32>") != std::string_view::npos) {
+            ++pick_i32;
+            first_sym = hir.getFn(i).sym_id;
+        } else if (name.find("pick<f64>") != std::string_view::npos) {
+            ++pick_f64;
+            second_sym = hir.getFn(i).sym_id;
+        }
+    }
+    CHECK_EQ(pick_i32, 1u, "one pick<i32> instance is lowered");
+    CHECK_EQ(pick_f64, 1u, "one pick<f64> instance is lowered");
+    CHECK(first_sym != symbols::kInvalidSym && second_sym != symbols::kInvalidSym &&
+              first_sym != second_sym,
+          "distinct type-argument tuples map to distinct HIR symbols");
+}
+
 } // namespace
 
 static void test_hir_lower_modern() {
@@ -931,6 +1058,9 @@ static void test_hir_lower_modern() {
     test_flow_fn_marker_jump_lowers_to_hir();
     test_flow_jump_carries_origin_continuation();
     test_global_marker_lowers_into_multiple_flow_fns();
+    test_generic_function_lowers_to_concrete_instances();
+    test_generic_instance_deduplication();
+    test_distinct_generic_instances_have_distinct_symbols();
 }
 
 TEST_MAIN(hir_lower_modern)

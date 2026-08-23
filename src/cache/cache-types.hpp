@@ -243,8 +243,9 @@ struct CompactFunction {
     uint32_t return_type_id = 0;
     std::vector<CompactBasicBlock> blocks;
     std::vector<CompactExpr> exprs;
-    bool is_extern   = false;
-    bool is_variadic = false;
+    uint32_t instance_index = ~uint32_t{0};
+    bool is_extern          = false;
+    bool is_variadic        = false;
 };
 
 struct CompactMarkerParam {
@@ -285,6 +286,17 @@ struct HirFnAttrsRecord {
     bool noCapture          = false;
 };
 
+// Monomorphized instances produced by the comptime pass. The HIR bodies already
+// carry the concrete names and call targets, so this record is a stable summary
+// for cache inspection and future re-instantiation without rerunning sema.
+struct InstantiationRecord {
+    std::string module;
+    std::string mangled;
+    std::string template_name;
+    uint32_t decl_id = 0;
+    std::vector<std::string> arg_types;
+};
+
 // The full decoded artifact.  Built by the reader and consumed by the hydrator.
 struct Artifact {
     std::string canonical_path;
@@ -313,6 +325,7 @@ struct Artifact {
     std::vector<HirSlotAttrsRecord> attrs_slots;
     std::vector<HirCallAttrsRecord> attrs_calls;
     std::vector<HirFnAttrsRecord> attrs_fns;
+    std::vector<InstantiationRecord> instantiations;
 };
 
 } // namespace zith::cache

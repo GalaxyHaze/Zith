@@ -288,6 +288,85 @@ bool ModuleArtifact::hasErrors() const noexcept {
                        });
 }
 
+std::vector<frontend::ImportedMacroRecord>
+FrontendContext::importedMacrosFor(const ModuleArtifact &module,
+                                   const std::vector<ModuleArtifactPtr> &modules,
+                                   const std::vector<ImportEdge> &import_graph) {
+    std::unordered_map<ModuleKey, const ModuleArtifact *> module_by_key;
+    for (const auto &candidate : modules)
+        module_by_key.emplace(candidate->key, candidate.get());
+
+    std::vector<frontend::ImportedMacroRecord> result;
+
+    auto appendMacros = [&](const ModuleArtifact *target, const ImportRequest &request,
+                            const ImportSelectorRequest *selector,
+                            const std::string &namespace_prefix) {
+        (void)request;
+        if (target->frontend == nullptr)
+            return;
+        for (const auto &decl : target->frontend->declarations()) {
+            if (decl.kind != frontend::DeclKind::Macro)
+                continue;
+            if (selector != nullptr && decl.name != selector->name)
+                continue;
+            if (decl.visibility != frontend::Visibility::Public)
+                continue;
+
+            frontend::ImportedMacroRecord record;
+            if (selector != nullptr) {
+                record.name = selector->alias.empty() ? selector->name : selector->alias;
+            } else if (!namespace_prefix.empty()) {
+                record.name = namespace_prefix + "." + decl.name;
+            } else {
+                record.name = decl.name;
+            }
+            record.span                = decl.span;
+            record.aliasSpan           = selector != nullptr && !selector->alias.empty()
+                                             ? selector->aliasSpan
+                                             : frontend::TextSpan{};
+            record.isRawMacro          = decl.isRawMacro;
+            record.isTagMacro          = decl.isTagMacro;
+            record.hasAttributesParam  = decl.hasAttributesParam;
+            record.parameters         = decl.parameters;
+            record.body               = decl.body;
+            record.source             = target->frontend.get();
+            result.push_back(std::move(record));
+        }
+    };
+
+    for (const auto &edge : import_graph) {
+        if (edge.importer != module.key || !edge.error.empty())
+            continue;
+        if (edge.targetKind != ImportTargetKind::Zith &&
+            edge.targetKind != ImportTargetKind::Directory) {
+            continue;
+        }
+
+        for (const auto &target_key : edge.targets) {
+            const auto target_it = module_by_key.find(target_key);
+            if (target_it == module_by_key.end())
+                continue;
+            const auto *target = target_it->second;
+            if (target->frontend == nullptr)
+                continue;
+
+            if (!edge.request.selectors.empty()) {
+                for (const auto &selector : edge.request.selectors)
+                    appendMacros(target, edge.request, &selector, {});
+                continue;
+            }
+            if (edge.request.isFrom) {
+                appendMacros(target, edge.request, nullptr, {});
+            } else if (!edge.request.alias.empty()) {
+                appendMacros(target, edge.request, nullptr, edge.request.alias);
+            } else if (!edge.request.path.empty()) {
+                appendMacros(target, edge.request, nullptr, edge.request.path.back());
+            }
+        }
+    }
+    return result;
+}
+
 CompilationSnapshot::CompilationSnapshot(
     std::shared_ptr<const SourceCatalog> catalog, CacheKey cache_key,
     std::vector<ModuleArtifactPtr> modules, std::vector<MergedSymbol> merged_symbols,
@@ -662,7 +741,9 @@ FrontendContext::resolveImport(const ModuleArtifact &artifact, const ImportReque
 #endif
 }
 
-ModuleArtifactPtr FrontendContext::buildModule(SourceCatalog::SourcePtr source) const {
+ModuleArtifactPtr FrontendContext::buildModule(
+    SourceCatalog::SourcePtr source,
+    const std::vector<frontend::ImportedMacroRecord> &imported_macros) const {
     auto artifact         = std::make_shared<ModuleArtifact>();
     artifact->key         = source->canonicalPath;
     artifact->fileId      = source->id;
@@ -671,7 +752,8 @@ ModuleArtifactPtr FrontendContext::buildModule(SourceCatalog::SourcePtr source) 
 
     const auto parse_start = std::chrono::steady_clock::now();
     artifact->frontend =
-        std::make_shared<const frontend::FrontendSnapshot>(frontend::parse(source->text));
+        std::make_shared<const frontend::FrontendSnapshot>(
+            frontend::parseWithImports(source->text, imported_macros));
     artifact->timings.lexMs =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - parse_start)
             .count();
@@ -688,8 +770,6 @@ ModuleArtifactPtr FrontendContext::buildModule(SourceCatalog::SourcePtr source) 
         });
     }
     for (const auto &declaration : artifact->frontend->declarations()) {
-        if (declaration.kind == frontend::DeclKind::Macro)
-            continue;
         if (declaration.kind == frontend::DeclKind::Import) {
             ImportRequest request;
             request.path       = declaration.import.path;
@@ -898,15 +978,23 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 parameter_scope =
                     module->frontend->expressions()[declaration.body.value - 1U].scope;
             }
-            for (const auto &parameter : declaration.parameters) {
-                add_binding({parameter.name,
-                             ResolutionKind::Declaration,
-                             parameter.span,
-                             {},
-                             {},
-                             parameter.id,
-                             {}},
-                            parameter_scope);
+            // Struct fields, enum variants, interface members, union fields, and
+            // parameters of other composites live in the type's own lookup table,
+            // not in the module resolution scope.
+            const bool params_are_bindings =
+                declaration.kind == frontend::DeclKind::Function ||
+                declaration.kind == frontend::DeclKind::Marker;
+            if (params_are_bindings) {
+                for (const auto &parameter : declaration.parameters) {
+                    add_binding({parameter.name,
+                                 ResolutionKind::Declaration,
+                                 parameter.span,
+                                 {},
+                                 {},
+                                 parameter.id,
+                                 {}},
+                                parameter_scope);
+                }
             }
         }
         // Local bindings take the scope of the block that contains them; the
@@ -1252,6 +1340,7 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
     std::map<std::string, std::shared_ptr<const cinterop::CHeaderArtifact>> c_headers_by_path;
     std::vector<ImportEdge> import_graph;
     std::vector<ModuleDiagnostic> diagnostics;
+    std::vector<ModuleDiagnostic> module_diagnostics;
     pending.emplace(root_source->canonicalPath, std::move(root_source));
 
     while (!pending.empty()) {
@@ -1267,13 +1356,13 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
 
         std::vector<std::pair<ModuleKey, std::shared_future<ModuleArtifactPtr>>> futures;
         futures.reserve(batch.size());
-        for (const auto &item : batch) {
-            auto source = item.source;
-            futures.emplace_back(item.key, cache_.getOrBuild(cache_key_, source, executor_,
-                                                             [this, worker_source = source]() {
-                                                                 return buildModule(worker_source);
-                                                             }));
-        }
+    for (const auto &item : batch) {
+        auto source = item.source;
+        futures.emplace_back(item.key, cache_.getOrBuild(cache_key_, source, executor_,
+                                                         [this, worker_source = source]() {
+                                                             return buildModule(worker_source);
+                                                         }));
+    }
 
         for (auto &[key, future] : futures) {
             auto module = future.get();
@@ -1284,8 +1373,6 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
 
         for (const auto &item : batch) {
             const auto module = modules.at(item.key);
-            for (const auto &module_diagnostic : module->diagnostics)
-                diagnostics.push_back(module_diagnostic);
 
             std::vector<ModuleKey> dependencies;
             for (const auto &request : module->imports) {
@@ -1371,6 +1458,39 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
     for (const auto &[module, dependencies] : resolved_dependencies)
         cache_.updateDependencies(module, dependencies);
 
+    std::vector<std::pair<ModuleKey, ModuleArtifactPtr>> rebuilt;
+    rebuilt.reserve(modules.size());
+    std::vector<ModuleArtifactPtr> initial_modules;
+    initial_modules.reserve(modules.size());
+    for (const auto &[key, module] : modules)
+        initial_modules.push_back(module);
+    for (const auto &[key, module] : modules) {
+        bool has_failed_import = false;
+        for (const auto &edge : import_graph) {
+            if (edge.importer == key && !edge.error.empty() &&
+                (edge.targetKind == ImportTargetKind::Zith ||
+                 edge.targetKind == ImportTargetKind::Directory)) {
+                has_failed_import = true;
+                break;
+            }
+        }
+        if (has_failed_import) {
+            rebuilt.emplace_back(key, module);
+            continue;
+        }
+        auto imported = importedMacrosFor(*module, initial_modules, import_graph);
+        auto source   = module->source;
+        rebuilt.emplace_back(key, buildModule(std::move(source), imported));
+    }
+    modules.clear();
+    for (auto &[key, module] : rebuilt)
+        modules.emplace(std::move(key), std::move(module));
+    for (const auto &[key, module] : modules) {
+        (void)key;
+        for (const auto &diagnostic : module->diagnostics)
+            module_diagnostics.push_back(diagnostic);
+    }
+
     std::vector<ModuleArtifactPtr> ordered_modules;
     ordered_modules.reserve(modules.size());
     SnapshotMetrics snapshot_metrics;
@@ -1401,6 +1521,8 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
               });
     appendCycleDiagnostics(ordered_modules, resolved_dependencies, import_graph, diagnostics);
     auto resolutions = buildResolutions(ordered_modules, import_graph, diagnostics);
+    for (auto &diagnostic : module_diagnostics)
+        diagnostics.push_back(std::move(diagnostic));
     sortDiagnostics(diagnostics, *catalog_);
     auto merged_symbols = mergeSymbols(ordered_modules);
     std::vector<std::shared_ptr<const cinterop::CHeaderArtifact>> c_headers;

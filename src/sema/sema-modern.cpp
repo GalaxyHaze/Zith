@@ -107,9 +107,9 @@ enum class CastKind : uint8_t {
 
 PerModuleSema::PerModuleSema(session::ModuleKey mod, const frontend::FrontendSnapshot &snap,
                              const session::ModuleResolution &res, TypeTable &tt, TypedMap &tm,
-                             memory::Arena &a, SemaPipeline *owner_)
-    : module(std::move(mod)), snapshot(snap), resolution(res), type_table(tt), typed_map(tm),
-      arena(a), diagnostics(a), owner(owner_), error_type(kInvalidTypeId),
+                             memory::Arena &a, memory::FileId file_id, SemaPipeline *owner_)
+    : module(std::move(mod)), fileId(file_id), snapshot(snap), resolution(res), type_table(tt),
+      typed_map(tm), arena(a), diagnostics(a), owner(owner_), error_type(kInvalidTypeId),
       invalid_type(kInvalidTypeId), void_type(kInvalidTypeId), bool_type(kInvalidTypeId),
       char_type(kInvalidTypeId), i32_type(kInvalidTypeId), i64_type(kInvalidTypeId),
       f32_type(kInvalidTypeId), f64_type(kInvalidTypeId) {}
@@ -280,6 +280,29 @@ void PerModuleSema::lowerDeclarationTypes() {
                 TypeId param_type =
                     type_table.internGenericParam(decl.id.value, static_cast<uint32_t>(i));
                 bindings.push_back(GenericBinding{decl.genericParams[i].name, param_type});
+            }
+            // Methods inside `implement Owner<T>` inherit the owner's generic
+            // parameter names. Reuse the owner's GenericParam TypeId so fields of
+            // `Owner<T>` and the method's own `T` signatures unify before the
+            // monomorphization pass substitutes the concrete arguments.
+            if (!decl.ownerName.empty()) {
+                for (const auto &owner_decl : snapshot.declarations()) {
+                    if (owner_decl.name != decl.ownerName || owner_decl.genericParams.empty())
+                        continue;
+                    if (owner_decl.kind != frontend::DeclKind::Struct &&
+                        owner_decl.kind != frontend::DeclKind::TypeAlias &&
+                        owner_decl.kind != frontend::DeclKind::Enum &&
+                        owner_decl.kind != frontend::DeclKind::Union)
+                        continue;
+                    for (size_t index = 0; index < owner_decl.genericParams.size(); ++index) {
+                        for (auto &binding : bindings) {
+                            if (binding.name == owner_decl.genericParams[index].name)
+                                binding.type = type_table.internGenericParam(
+                                    owner_decl.id.value, static_cast<uint32_t>(index));
+                        }
+                    }
+                    break;
+                }
             }
             genericParams_[decl.id.value] = std::move(bindings);
         }
@@ -605,6 +628,11 @@ TypeId PerModuleSema::lowerTypeExpr(frontend::TypeExprId id) {
 TypeId PerModuleSema::lowerBareTypeExpr(const frontend::TypeExpression &type) {
     switch (type.kind) {
     case frontend::TypeExprKind::Name: {
+        // Generic application `Name<A, B>`: instantiate the template declaration
+        // with the lowered concrete arguments. Function templates are handled by
+        // generic call lowering; this path covers named type templates.
+        if (!type.arguments.empty())
+            return instantiateTypeExpr(type.span, type.name, type.arguments);
         // In implementations (`implement Point as Sample`), `Self` refers to the
         // implemented owner, not to the trait name.
         if (type.name == "Self") {
@@ -632,6 +660,14 @@ TypeId PerModuleSema::lowerBareTypeExpr(const frontend::TypeExpression &type) {
                     if (binding.name == type.name)
                         return binding.type;
                 }
+            }
+        }
+        // When instantiating a template, template parameter names resolve to
+        // the concrete arguments before anything else is considered.
+        if (!activeTemplateArgs_.empty()) {
+            for (const auto &binding : activeTemplateArgs_) {
+                if (binding.name == type.name)
+                    return binding.type;
             }
         }
         // Unknown type names are an error: inventing a placeholder here used to make every
@@ -704,6 +740,98 @@ TypeId PerModuleSema::lowerForeignType(const cinterop::Type &type) {
         return type_table.findOrCreateNamed(type.name, TypeKind::Enum);
     }
     return error_type;
+}
+
+TypeId PerModuleSema::instantiateTypeExpr(frontend::TextSpan span, std::string_view name,
+                                          const std::vector<frontend::TypeExprId> &arguments) {
+    if (name == "Self") {
+        report(span, "'Self' cannot be used with generic type arguments",
+               diagnostics::err::UndefinedIdent);
+        return error_type;
+    }
+    const frontend::Declaration *template_decl = nullptr;
+    for (const auto &decl : snapshot.declarations()) {
+        if (decl.name == name && !decl.genericParams.empty()) {
+            template_decl = &decl;
+            break;
+        }
+    }
+    if (template_decl == nullptr) {
+        report(span, "unknown generic type template '" + std::string(name) + "'",
+               diagnostics::err::UndefinedIdent);
+        return error_type;
+    }
+    const size_t arity = template_decl->genericParams.size();
+    if (arguments.size() != arity) {
+        report(span, "wrong generic argument count for '" + std::string(name) + "'",
+               diagnostics::err::GenericArity);
+        return error_type;
+    }
+    std::vector<TypeId> args;
+    args.reserve(arguments.size());
+    for (const auto arg : arguments) {
+        const TypeId lowered = lowerTypeExpr(arg);
+        if (!lowered) {
+            report(span, "generic argument is not a concrete type",
+                   diagnostics::err::GenericCannotInfer);
+            return error_type;
+        }
+        args.push_back(lowered);
+    }
+    std::string concrete_name = std::string(name) + "<";
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (i != 0)
+            concrete_name += ",";
+        concrete_name += type_table.typeToString(args[i]);
+    }
+    concrete_name += ">";
+    if (const TypeId existing = type_table.lookupNamed(concrete_name))
+        return existing;
+
+    switch (template_decl->kind) {
+    case frontend::DeclKind::Struct: {
+        auto &fields                             = type_table.makeTypeStorage();
+        auto &fld_names                          = type_table.makeStringStorage();
+        std::vector<GenericBinding> saved_active = std::move(activeTemplateArgs_);
+        activeTemplateArgs_.clear();
+        for (size_t i = 0; i < template_decl->genericParams.size(); ++i)
+            activeTemplateArgs_.push_back(
+                GenericBinding{template_decl->genericParams[i].name, args[i]});
+        for (const auto &param : template_decl->parameters) {
+            TypeId ftype = lowerTypeExpr(param.type);
+            fields.push(ftype ? ftype : error_type);
+            char *buf = static_cast<char *>(arena.alloc(param.name.size(), 1));
+            std::memcpy(buf, param.name.data(), param.name.size());
+            fld_names.push(std::string_view(buf, param.name.size()));
+        }
+        activeTemplateArgs_ = std::move(saved_active);
+        TypeId st           = type_table.internStruct(concrete_name, fields, &fld_names);
+        type_table.registerNamed(concrete_name, st);
+        return st;
+    }
+    case frontend::DeclKind::TypeAlias: {
+        std::vector<GenericBinding> saved_active = std::move(activeTemplateArgs_);
+        activeTemplateArgs_.clear();
+        for (size_t i = 0; i < template_decl->genericParams.size(); ++i)
+            activeTemplateArgs_.push_back(
+                GenericBinding{template_decl->genericParams[i].name, args[i]});
+        TypeId target       = lowerTypeExpr(template_decl->declaredType);
+        activeTemplateArgs_ = std::move(saved_active);
+        if (!target)
+            return error_type;
+        const TypeId substituted =
+            instantiations != nullptr ? instantiations->substituteType(target, args) : target;
+        TypeId alias = template_decl->isNominalType
+                           ? type_table.internNominal(concrete_name, substituted)
+                           : type_table.internAlias(concrete_name, substituted);
+        type_table.registerNamed(concrete_name, alias);
+        return alias;
+    }
+    default:
+        report(span, "'" + std::string(name) + "' is not a generic type that can be used here",
+               diagnostics::err::GenericCannotInfer);
+        return error_type;
+    }
 }
 
 TypeId PerModuleSema::inferExpr(frontend::ExprId id) {
@@ -1145,13 +1273,6 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
         report(expr.span, "callee is not a function", diagnostics::err::NoMatchingFn);
         return error_type;
     }
-    // A generic declaration has no instantiated type: calling it is a semantic error
-    // until monomorphization lands. Report the same message the comptime solver uses.
-    if (!expr.genericArgs.empty() || typeContainsGeneric(fn)) {
-        report(expr.span, "generic parameter T has no concrete type",
-               diagnostics::err::TypeMismatch);
-        return error_type;
-    }
     size_t arg_count             = expr.operands.size() - 1;
     const size_t fixed_arg_count = is_variadic ? fn->params.size() : 0;
     if (is_variadic) {
@@ -1164,6 +1285,88 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
         report(expr.span, "function call arity mismatch", diagnostics::err::NoMatchingFn);
         return fn->result;
     }
+
+    if (!expr.genericArgs.empty() || typeContainsGeneric(fn)) {
+        if (instantiations == nullptr) {
+            report(expr.span, "generic function calls require the instantiation pass",
+                   diagnostics::err::GenericCannotInfer);
+            return error_type;
+        }
+
+        frontend::DeclId decl_id{};
+        if (resolved_callee != nullptr) {
+            if (resolved_callee->declaration)
+                decl_id = resolved_callee->declaration;
+            else if (resolved_callee->target.localSymbol)
+                decl_id = frontend::DeclId{resolved_callee->target.localSymbol.value};
+        }
+        const frontend::Declaration *generic_decl = nullptr;
+        if (decl_id && decl_id.value <= snapshot.declarations().size())
+            generic_decl = &snapshot.declarations()[decl_id.value - 1U];
+        session::ModuleKey target_module = module;
+        if (resolved_callee != nullptr && !resolved_callee->target.module.empty())
+            target_module = resolved_callee->target.module;
+
+        std::vector<TypeId> explicit_types;
+        explicit_types.reserve(expr.genericArgs.size());
+        for (const auto generic_arg : expr.genericArgs) {
+            const TypeId lowered = lowerTypeExpr(generic_arg);
+            if (!lowered) {
+                report(expr.span, "generic argument is not a concrete type",
+                       diagnostics::err::GenericCannotInfer);
+                return error_type;
+            }
+            explicit_types.push_back(lowered);
+        }
+
+        std::vector<TypeId> argument_types;
+        argument_types.reserve(fn->params.size());
+        for (size_t index = 0; index < fn->params.size(); ++index)
+            argument_types.push_back(inferExpr(expr.operands[index + 1U]));
+
+        std::vector<TypeId> args;
+        const comptime::GenericResolveStatus resolved = instantiations->resolveArgs(
+            *fn, generic_decl != nullptr ? generic_decl->genericParams.size() : 0U, decl_id.value,
+            explicit_types, argument_types, args);
+        switch (resolved) {
+        case comptime::GenericResolveStatus::Arity:
+            report(expr.span, "wrong generic argument count", diagnostics::err::GenericArity);
+            return error_type;
+        case comptime::GenericResolveStatus::CannotInfer:
+            report(expr.span, "cannot infer generic argument; provide explicit type arguments",
+                   diagnostics::err::GenericCannotInfer);
+            return error_type;
+        case comptime::GenericResolveStatus::Explosion:
+            report(expr.span, "too many generic instantiations",
+                   diagnostics::err::GenericExplosion);
+            return error_type;
+        case comptime::GenericResolveStatus::Ok:
+            break;
+        }
+
+        const size_t instance_index =
+            instantiations->bindCall(module, callee.id, target_module, decl_id, args);
+        if (instance_index == ~size_t{0}) {
+            report(expr.span, "too many generic instantiations",
+                   diagnostics::err::GenericExplosion);
+            return error_type;
+        }
+        const TypeId instance_type = instantiations->substituteFunction(*fn, args);
+        const auto *instance_fn    = type_table.function(instance_type);
+        for (size_t index = 0; index < fn->params.size() && instance_fn != nullptr &&
+                               index < instance_fn->params.size();
+             ++index) {
+            TypeId arg_type = argument_types[index];
+            if (!coerceValue(expr.operands[index + 1U], instance_fn->params[index], arg_type))
+                reportCoercionFailure(expr.span, instance_fn->params[index], arg_type,
+                                      "generic function call argument type mismatch",
+                                      diagnostics::err::NoMatchingFn);
+        }
+        setExprType(callee.id, instance_type);
+        setResolvedCallTarget(callee.id, target_module, decl_id);
+        return instance_fn != nullptr ? instance_fn->result : error_type;
+    }
+
     const size_t checked_params =
         is_variadic ? std::min(fixed_arg_count, fn->params.size()) : fn->params.size();
     for (size_t i = 0; i < checked_params; ++i) {
@@ -1209,16 +1412,112 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
 
     // Collect every method of this owner with the callee's name: methods take part
     // in the same overload resolution as free functions.
+    std::string owner_name(st->name);
+    if (const size_t angle = owner_name.find('<'); angle != std::string::npos)
+        owner_name.resize(angle);
     std::vector<const frontend::Declaration *> method_decls;
     for (const auto &decl : snapshot.declarations()) {
         if (decl.kind != frontend::DeclKind::Function)
             continue;
-        if (decl.ownerName != st->name || decl.name != callee.text)
+        if (decl.ownerName != owner_name || decl.name != callee.text)
             continue;
         method_decls.push_back(&decl);
     }
     if (method_decls.empty())
         return kInvalidTypeId; // no such method: may still be a callable field
+
+    if (method_decls.size() == 1U && !method_decls.front()->genericParams.empty()) {
+        const frontend::Declaration *method_decl = method_decls.front();
+        const auto saved_decl_id                 = currentDeclId_;
+        const auto saved_kind                    = currentFunctionKind_;
+        const size_t provided_args               = call.operands.size() - 1U;
+        const bool has_receiver_entry =
+            !method_decl->parameters.empty() && method_decl->parameters.front().name == "self";
+        const size_t expected_args = has_receiver_entry ? method_decl->parameters.size() - 1U
+                                                        : method_decl->parameters.size();
+        if (provided_args != expected_args) {
+            report(call.span, "method call arity mismatch", diagnostics::err::NoMatchingFn);
+            return error_type;
+        }
+        currentDeclId_       = method_decl->id.value;
+        currentFunctionKind_ = method_decl->kind == frontend::DeclKind::Function
+                                   ? method_decl->functionKind
+                                   : frontend::FunctionKind::Standard;
+
+        std::vector<TypeId> explicit_types;
+        explicit_types.reserve(call.genericArgs.size());
+        for (const auto generic_arg : call.genericArgs) {
+            const TypeId lowered = lowerTypeExpr(generic_arg);
+            if (!lowered) {
+                report(call.span, "generic argument is not a concrete type",
+                       diagnostics::err::GenericCannotInfer);
+                currentDeclId_       = saved_decl_id;
+                currentFunctionKind_ = saved_kind;
+                return error_type;
+            }
+            explicit_types.push_back(lowered);
+        }
+
+        std::vector<TypeId> argument_types;
+        if (has_receiver_entry) {
+            const TypeId self_type =
+                method_decl->parameters.front().type
+                    ? lowerTypeExpr(method_decl->parameters.front().type)
+                    : (is_pointer ? base_type : type_table.internPointer(pointee));
+            argument_types.push_back(self_type);
+        }
+        for (size_t index = has_receiver_entry ? 1U : 0U; index < method_decl->parameters.size();
+             ++index) {
+            if (index + 1U < call.operands.size())
+                argument_types.push_back(inferExpr(call.operands[index + 1U]));
+        }
+
+        const auto *method_fn = type_table.function(typeOfDecl(method_decl->id));
+        std::vector<TypeId> inferred_args;
+        comptime::GenericResolveStatus resolved = comptime::GenericResolveStatus::CannotInfer;
+        if (method_fn != nullptr) {
+            resolved =
+                instantiations != nullptr
+                    ? instantiations->resolveArgs(*method_fn, method_decl->genericParams.size(),
+                                                  method_decl->id.value, explicit_types,
+                                                  argument_types, inferred_args)
+                    : comptime::GenericResolveStatus::CannotInfer;
+        }
+        currentDeclId_       = saved_decl_id;
+        currentFunctionKind_ = saved_kind;
+        switch (resolved) {
+        case comptime::GenericResolveStatus::Arity:
+            report(call.span, "wrong generic argument count", diagnostics::err::GenericArity);
+            return error_type;
+        case comptime::GenericResolveStatus::CannotInfer:
+            report(call.span, "cannot infer generic argument; provide explicit type arguments",
+                   diagnostics::err::GenericCannotInfer);
+            return error_type;
+        case comptime::GenericResolveStatus::Explosion:
+            report(call.span, "too many generic instantiations",
+                   diagnostics::err::GenericExplosion);
+            return error_type;
+        case comptime::GenericResolveStatus::Ok:
+            break;
+        }
+
+        if (method_fn != nullptr) {
+            const size_t instance_index =
+                instantiations->bindCall(module, callee.id, module, method_decl->id, inferred_args);
+            if (instance_index == ~size_t{0}) {
+                report(call.span, "too many generic instantiations",
+                       diagnostics::err::GenericExplosion);
+                return error_type;
+            }
+            const TypeId instance_type =
+                instantiations->substituteFunction(*method_fn, inferred_args);
+            setExprType(callee.id, instance_type);
+            setResolvedCallTarget(callee.id, module, method_decl->id);
+            const auto *instance_fn = type_table.function(instance_type);
+            return instance_fn != nullptr ? instance_fn->result : error_type;
+        }
+        return error_type;
+    }
 
     const frontend::Declaration *method_decl = method_decls.front();
     if (method_decls.size() > 1U) {
@@ -1340,9 +1639,9 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
                 report(stmt.span, "bindings are not allowed in a stackless marker",
                        diagnostics::err::UnsupportedSyntax);
             }
+            TypeId ann_type = lowerTypeExpr(stmt.binding.type);
             TypeId init_type =
                 stmt.binding.initializer ? inferExpr(stmt.binding.initializer) : invalid_type;
-            TypeId ann_type = lowerTypeExpr(stmt.binding.type);
             if (ann_type && stmt.binding.initializer &&
                 !coerceValue(stmt.binding.initializer, ann_type, init_type)) {
                 reportCoercionFailure(stmt.span, ann_type, init_type,
@@ -2030,16 +2329,38 @@ TypeId PerModuleSema::inferArrow(frontend::ExprId id) {
 
 TypeId PerModuleSema::inferStructLiteral(frontend::ExprId id) {
     const auto &expr        = snapshot.expressions()[id.value - 1U];
-    const TypeId struct_tid = type_table.lookupNamed(expr.text);
-    if (!struct_tid) {
-        report(expr.span, "unknown struct type '" + expr.text + "'",
-               diagnostics::err::UndefinedIdent);
-        return error_type;
+    std::string struct_name = expr.text;
+    TypeId struct_tid       = kInvalidTypeId;
+    TypeId resolved         = kInvalidTypeId;
+    const StructType *st    = nullptr;
+    bool from_generic_args  = false;
+    if (!expr.genericArgs.empty()) {
+        from_generic_args         = true;
+        const TypeId instantiated = instantiateTypeExpr(expr.span, expr.text, expr.genericArgs);
+        if (!instantiated) {
+            return error_type;
+        }
+        if (type_table.struct_type(type_table.stripQualifiers(instantiated)) == nullptr) {
+            report(expr.span, "'" + expr.text + "' is not a generic struct type",
+                   diagnostics::err::TypeMismatch);
+            return error_type;
+        }
+        struct_tid = instantiated;
+        resolved   = type_table.stripQualifiers(struct_tid);
+        st         = type_table.struct_type(resolved);
     }
-    const TypeId resolved = resolve(struct_tid);
-    const auto *st        = type_table.struct_type(resolved);
+    if (!from_generic_args) {
+        struct_tid = type_table.lookupNamed(struct_name);
+        if (!struct_tid) {
+            report(expr.span, "unknown struct type '" + struct_name + "'",
+                   diagnostics::err::UndefinedIdent);
+            return error_type;
+        }
+        resolved = resolve(struct_tid);
+        st       = type_table.struct_type(resolved);
+    }
     if (st == nullptr) {
-        report(expr.span, "'" + expr.text + "' is not a struct type");
+        report(expr.span, "'" + struct_name + "' is not a struct type");
         return error_type;
     }
     const size_t field_count = st->fields.size();
@@ -2047,7 +2368,7 @@ TypeId PerModuleSema::inferStructLiteral(frontend::ExprId id) {
     const auto fieldName     = [&](const int index) -> std::string {
         if (index >= 0 && static_cast<size_t>(index) < st->field_names.size())
             return std::string(st->field_names[static_cast<size_t>(index)]);
-        return expr.text;
+        return struct_name;
     };
     std::vector<bool> seen(field_count, false);
     for (size_t i = 0; i < expr.operands.size(); ++i) {
@@ -2056,14 +2377,15 @@ TypeId PerModuleSema::inferStructLiteral(frontend::ExprId id) {
             decl_idx = type_table.fieldIndex(resolved, expr.field_names[i]);
             if (decl_idx < 0) {
                 report(expr.span,
-                       "unknown field '" + expr.field_names[i] + "' in struct '" + expr.text + "'",
+                       "unknown field '" + expr.field_names[i] + "' in struct '" + struct_name +
+                           "'",
                        diagnostics::err::NoMember);
                 continue;
             }
         } else {
             decl_idx = static_cast<int>(i);
             if (i >= field_count) {
-                report(expr.span, "too many fields in struct literal for '" + expr.text + "'",
+                report(expr.span, "too many fields in struct literal for '" + struct_name + "'",
                        diagnostics::err::TypeMismatch);
                 continue;
             }
@@ -2233,6 +2555,18 @@ bool PerModuleSema::sameType(TypeId a, TypeId b) const noexcept {
         const auto *pb = type_table.pointer(resolved_b);
         return pa != nullptr && pb != nullptr && sameType(pa->pointee, pb->pointee);
     }
+    if (ka == TypeKind::GenericParam) {
+        uint32_t da = 0;
+        uint32_t ia = 0;
+        uint32_t db = 0;
+        uint32_t ib = 0;
+        type_table.genericParamOrigin(resolved_a, &da, &ia);
+        type_table.genericParamOrigin(resolved_b, &db, &ib);
+        // An implement-method `T` is the owner's generic parameter. It is
+        // intentionally interned under the owner decl so it unifies with the
+        // field type of `Owner<T>`.
+        return da == db && ia == ib;
+    }
     if (ka == TypeKind::Optional) {
         const auto *oa = type_table.optional(resolved_a);
         const auto *ob = type_table.optional(resolved_b);
@@ -2388,7 +2722,7 @@ std::string_view PerModuleSema::sourceText(frontend::TextSpan span) const noexce
 }
 
 memory::Span PerModuleSema::toMemorySpan(frontend::TextSpan span) const noexcept {
-    return memory::Span{0, span.start, span.end};
+    return memory::Span{fileId, span.start, span.end};
 }
 
 SemaPipeline::SemaPipeline(memory::Arena &arena, diagnostics::DiagnosticEngine &diags,
@@ -2406,8 +2740,10 @@ bool SemaPipeline::run() {
         auto *typed_map = arena_.make<TypedMap>(arena_);
         typed_maps_.insert(artifact.key, typed_map);
 
-        auto *sema = arena_.make<PerModuleSema>(artifact.key, *artifact.frontend, *resolution,
-                                                type_table_, *typed_map, arena_, this);
+        auto *sema =
+            arena_.make<PerModuleSema>(artifact.key, *artifact.frontend, *resolution, type_table_,
+                                       *typed_map, arena_, artifact.fileId, this);
+        sema->instantiations = instantiation_pass_;
         modules_.push(sema);
         if (!sema->prepareTypes())
             has_errors_ = true;

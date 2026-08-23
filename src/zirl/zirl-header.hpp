@@ -26,7 +26,9 @@ inline constexpr uint32_t kMagic = 0x5A49524Cu; // "ZIRL"
 // Bumped to 2 when dependency records were folded into header_size: artifacts
 // written before that are unreadable for any module with imports, so the version
 // check turns stale caches into a clean miss rather than a checksum failure.
-inline constexpr uint32_t kFormatVersion = 5;
+// Bumped to 6 when the persistent artifact gained the monomorphized-instance
+// summary section.
+inline constexpr uint32_t kFormatVersion = 6;
 inline constexpr uint8_t kEndianLittle   = 1;
 
 enum class SectionId : uint8_t {

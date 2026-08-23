@@ -350,6 +350,22 @@ struct Declaration {
     std::string ownerName;
 };
 
+/// A macro visible to an importing module. `source` owns the expression tree
+/// referenced by `body`; the expander clones that body into the importer's
+/// snapshot at expansion time.
+class FrontendSnapshot;
+struct ImportedMacroRecord {
+    std::string name;
+    TextSpan span{};
+    TextSpan aliasSpan{};
+    bool isRawMacro         = false;
+    bool isTagMacro         = false;
+    bool hasAttributesParam = false;
+    std::vector<Parameter> parameters;
+    ExprId body;
+    const FrontendSnapshot *source = nullptr;
+};
+
 struct GreenNode;
 
 struct GreenElement {
@@ -460,6 +476,8 @@ public:
 
 private:
     friend FrontendSnapshot parse(std::string source);
+    friend FrontendSnapshot parseWithImports(std::string source,
+                                             const std::vector<ImportedMacroRecord> &imported);
     friend void lex(FrontendSnapshot &snapshot);
     friend void parseCst(FrontendSnapshot &snapshot);
     friend void lowerAst(FrontendSnapshot &snapshot);
@@ -485,6 +503,12 @@ private:
 };
 
 [[nodiscard]] FrontendSnapshot parse(std::string source);
+
+/// Parses and expands a module together with macros imported from other
+/// modules.  The imported macro records must reference snapshots that outlive
+/// the returned snapshot (the expander clones their template bodies).
+[[nodiscard]] FrontendSnapshot parseWithImports(std::string source,
+                                                const std::vector<ImportedMacroRecord> &imported);
 
 /// Canonical textual form of a type expression with memory qualifiers removed:
 /// `i32`, `f64`, `*T`, `?T`, `[]T`, `[N]T`, or the written type name.  Shared by

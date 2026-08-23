@@ -170,6 +170,7 @@ public:
     [[nodiscard]] TypeId internPack(memory::DynArray<TypeId> &members,
                                     memory::DynArray<std::string_view> &names);
     [[nodiscard]] TypeId internAlias(TypeId target);
+    [[nodiscard]] TypeId internAlias(std::string_view name, TypeId target);
     [[nodiscard]] TypeId internNominal(std::string_view name, TypeId target);
     [[nodiscard]] TypeId internQualified(TypeId inner, types::OwnershipKind ownership, bool is_mut);
 
@@ -207,6 +208,8 @@ public:
     /// completed type registered under the same name. Idempotent for every other type.
     [[nodiscard]] TypeId canonical(TypeId id) const noexcept;
     [[nodiscard]] TypeId lookupNamed(std::string_view name) const noexcept;
+    /// Returns the registered name backing `id` (for named aliases/nominals/structs).
+    [[nodiscard]] std::string_view namedTypeName(TypeId id) const noexcept;
     [[nodiscard]] TypeId findOrCreateNamed(std::string_view name, TypeKind kind);
     void registerNamed(std::string_view name, TypeId id);
 
@@ -291,6 +294,8 @@ private:
     Entry &pushEntry(EntryKind kind);
     memory::DynArray<TypeId> &makeStorage();
     memory::DynArray<std::string_view> &makeNameStorage();
+    /// Copies a name into the arena so type-table/storage views survive the caller.
+    [[nodiscard]] std::string_view persistString(std::string_view name);
     const Entry *findEntry(TypeId id) const noexcept;
 };
 

@@ -10,6 +10,9 @@ option(ZITH_BUILD_BENCHMARKS "Build local benchmark executables" OFF)
 option(ZITH_IS_WASM "Build for WebAssembly target" OFF)
 option(ZITH_HAS_LLVM "Enable LLVM codegen backend" ON)
 option(ZITH_BUILD_LEGACY_LIB "Build the legacy parser/sema compatibility library" ON)
+option(ZITH_ENABLE_C_COMPILE "Enable recursive .c compilation for ffi.c_source_dirs / --c-source-dir" ON)
+set(ZITH_TCC_ROOT "" CACHE PATH "Optional root containing libtcc headers and libraries")
+option(ZITH_TCC_FETCH "Fetch and build TinyCC when libtcc is not found on the system" ON)
 if(ZITH_IS_WASM OR CMAKE_CROSSCOMPILING)
     set(_zith_c_interop_default OFF)
 else()
@@ -73,10 +76,30 @@ if(ZITH_ENABLE_C_INTEROP AND NOT ZITH_IS_WASM AND NOT CMAKE_CROSSCOMPILING)
     endif()
 endif()
 
+set(ZITH_C_COMPILE_AVAILABLE OFF)
+set(ZITH_LLD_AVAILABLE OFF)
+
+if(ZITH_HAS_LLVM AND NOT ZITH_IS_WASM)
+    find_path(ZITH_LLD_INCLUDE_DIR lld/Common/Driver.h
+        HINTS ${LLVM_INCLUDE_DIRS}
+        PATH_SUFFIXES include
+    )
+    find_library(ZITH_LLD_ELF_LIBRARY NAMES lldELF
+        HINTS ${LLVM_LIBRARY_DIRS}
+    )
+    find_library(ZITH_LLD_COMMON_LIBRARY NAMES lldCommon
+        HINTS ${LLVM_LIBRARY_DIRS}
+    )
+    if(ZITH_LLD_INCLUDE_DIR AND ZITH_LLD_ELF_LIBRARY AND ZITH_LLD_COMMON_LIBRARY)
+        set(ZITH_LLD_AVAILABLE ON)
+    endif()
+endif()
+
 set(ZITH_VERSION "v0.0.1" CACHE STRING "Project version")
 
 include(GNUInstallDirs)
 include(FetchContent)
+include(ExternalProject)
 
 if(NOT ZITH_IS_WASM)
     FetchContent_Declare(
@@ -93,6 +116,84 @@ FetchContent_Declare(
     GIT_TAG v3.4.0
 )
 FetchContent_MakeAvailable(tomlplusplus)
+
+if(ZITH_ENABLE_C_COMPILE AND NOT ZITH_IS_WASM)
+    find_path(ZITH_TCC_INCLUDE_DIR libtcc.h
+        HINTS ${ZITH_TCC_ROOT}
+        PATH_SUFFIXES include
+    )
+    find_library(ZITH_TCC_LIBRARY NAMES tcc libtcc
+        HINTS ${ZITH_TCC_ROOT}
+        PATH_SUFFIXES lib lib64
+    )
+    if(NOT (ZITH_TCC_INCLUDE_DIR AND ZITH_TCC_LIBRARY))
+    if(ZITH_TCC_FETCH AND UNIX)
+        message(STATUS "libtcc not found; fetching TinyCC 0.9.27")
+        FetchContent_Declare(
+            tinycc
+            URL https://download.savannah.nongnu.org/releases/tinycc/tcc-0.9.27.tar.bz2
+            URL_HASH SHA256=de23af78fca90ce32dff2dd45b3432b2334740bb9bb7b05bf60fdbfc396ceb9c
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        )
+        if(POLICY CMP0169)
+            cmake_policy(PUSH)
+            cmake_policy(SET CMP0169 OLD)
+        endif()
+        FetchContent_Populate(tinycc)
+        if(POLICY CMP0169)
+            cmake_policy(POP)
+        endif()
+
+        set(_zith_tcc_install_prefix "${CMAKE_CURRENT_BINARY_DIR}/_deps/tinycc-install")
+        set(_zith_tcc_build_dir "${CMAKE_CURRENT_BINARY_DIR}/_deps/tinycc-build")
+        set(_zith_tcc_cflags "-O2 -fPIC")
+
+        # TinyCC uses a classic Makefile; never use the Ninja generator's
+        # CMAKE_MAKE_PROGRAM here.
+        find_program(_zith_tcc_make NAMES gmake make)
+        if(NOT _zith_tcc_make)
+            message(FATAL_ERROR "make/gmake is required to build the bundled TinyCC")
+        endif()
+
+        set(_zith_tcc_sysincludes
+            "${_zith_tcc_install_prefix}/include:/usr/include:/usr/include/x86_64-linux-gnu:{B}/include")
+
+        ExternalProject_Add(
+            tinycc-build
+            SOURCE_DIR "${tinycc_SOURCE_DIR}"
+            BINARY_DIR "${_zith_tcc_build_dir}"
+            CONFIGURE_HANDLED_BY_BUILD TRUE
+            INSTALL_DIR "${_zith_tcc_install_prefix}"
+            CONFIGURE_COMMAND
+                "${CMAKE_COMMAND}" -E make_directory "${_zith_tcc_build_dir}"
+                COMMAND "${CMAKE_COMMAND}" -E env
+                    "CC=${CMAKE_C_COMPILER}"
+                    "CFLAGS=${_zith_tcc_cflags}"
+                    "${tinycc_SOURCE_DIR}/configure"
+                        --source-path=${tinycc_SOURCE_DIR}
+                        --prefix=${_zith_tcc_install_prefix}
+                        --sysincludepaths=${_zith_tcc_sysincludes}
+                        --enable-cross
+            BUILD_COMMAND   "${_zith_tcc_make}" -C "${_zith_tcc_build_dir}" libtcc.a
+            INSTALL_COMMAND "${_zith_tcc_make}" -C "${_zith_tcc_build_dir}"
+                                VPATH=${tinycc_SOURCE_DIR}
+                                install
+            BUILD_BYPRODUCTS "${_zith_tcc_install_prefix}/lib/libtcc.a"
+            LOG_CONFIGURE ON
+            LOG_BUILD ON
+            LOG_INSTALL ON
+        )
+
+        set(ZITH_TCC_INCLUDE_DIR "${_zith_tcc_install_prefix}/include")
+        set(ZITH_TCC_LIBRARY "${_zith_tcc_install_prefix}/lib/libtcc.a")
+        set(ZITH_C_COMPILE_AVAILABLE ON)
+    else()
+        message(STATUS
+            "libtcc not found and TinyCC fetching is unavailable/disabled; "
+            "C source compilation will use the external compiler driver")
+    endif()
+endif()
+endif()
 
 add_subdirectory(src/memory)
 
@@ -215,6 +316,11 @@ if(ZITH_HAS_LLVM AND NOT ZITH_IS_WASM)
     endif()
 endif()
 target_compile_definitions(zithcLib PUBLIC ZITH_VERSION="${ZITH_VERSION}")
+target_compile_definitions(zithcLib PUBLIC
+    ZITH_ENABLE_C_COMPILE=$<BOOL:${ZITH_ENABLE_C_COMPILE}>
+    ZITH_C_COMPILE_AVAILABLE=$<BOOL:${ZITH_C_COMPILE_AVAILABLE}>
+    ZITH_LLD_AVAILABLE=$<BOOL:${ZITH_LLD_AVAILABLE}>
+    ZITH_C_COMPILER_PATH="${CMAKE_C_COMPILER}")
 if(ZITH_HAS_LLVM AND NOT ZITH_IS_WASM AND LLVM_PACKAGE_VERSION)
     target_compile_definitions(zithcLib PUBLIC
         ZITH_LLVM_VERSION="${LLVM_PACKAGE_VERSION}")
@@ -230,6 +336,21 @@ if(ZITH_C_INTEROP_AVAILABLE)
         message(STATUS "Clang resource include dir: ${ZITH_CLANG_RESOURCE_INCLUDE_DIR}")
     endif()
     message(STATUS "C header interop enabled with ${ZITH_LIBCLANG_LIBRARY}")
+endif()
+
+if(ZITH_C_COMPILE_AVAILABLE)
+    target_include_directories(zithcLib SYSTEM PRIVATE ${ZITH_TCC_INCLUDE_DIR})
+    target_link_libraries(zithcLib PRIVATE ${ZITH_TCC_LIBRARY})
+    if(TARGET tinycc-build)
+        add_dependencies(zithcLib tinycc-build)
+    endif()
+    message(STATUS "Embedded C compilation enabled with ${ZITH_TCC_LIBRARY}")
+endif()
+
+if(ZITH_LLD_AVAILABLE)
+    target_include_directories(zithcLib SYSTEM PRIVATE ${ZITH_LLD_INCLUDE_DIR})
+    target_link_libraries(zithcLib PRIVATE ${ZITH_LLD_ELF_LIBRARY} ${ZITH_LLD_COMMON_LIBRARY})
+    message(STATUS "Embedded LLD link API detected")
 endif()
 
 if(ZITH_BUILD_CLI AND NOT ZITH_IS_WASM)
@@ -277,6 +398,7 @@ if(BUILD_TESTING AND NOT ZITH_IS_WASM)
     add_zith_test(test-telemetry tests/test-telemetry.cpp)
     add_zith_test(test-frontend-context tests/test-frontend-context.cpp)
     add_zith_test(test-frontend tests/test-frontend.cpp)
+    add_zith_test(test-trait-parser tests/test-trait-parser.cpp)
     add_zith_test(test-macro tests/test-macro.cpp)
     add_zith_test(test-memory tests/test-memory.cpp)
     add_zith_test(test-parser-expr tests/test-parser-expr.cpp)
@@ -284,7 +406,9 @@ if(BUILD_TESTING AND NOT ZITH_IS_WASM)
     add_zith_test(test-modern-types tests/test-modern-types.cpp)
     add_zith_test(test-frontend-modern-pipeline tests/test-frontend-modern-pipeline.cpp)
     add_zith_test(test-hir-lower-modern tests/test-hir-lower-modern.cpp)
+    add_zith_test(test-generics-mono tests/test-generics-mono.cpp)
     add_zith_test(test-cinterop tests/test-cinterop.cpp)
+    add_zith_test(test-c-compile tests/test-c-compile.cpp)
     add_zith_test(test-optional-slice tests/test-optional-slice.cpp)
     add_zith_test(test-zirl-sections tests/test-zirl-sections.cpp)
     add_zith_test(test-cache-entry tests/test-cache-entry.cpp)

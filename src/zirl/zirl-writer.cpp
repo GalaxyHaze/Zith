@@ -3,22 +3,23 @@
 #include "zirl/zirl-code-section.hpp"
 #include "zirl/zirl-decl-section.hpp"
 #include "zirl/zirl-header.hpp"
+#include "zirl/zirl-instantiation-section.hpp"
 #include "zirl/zirl-type-section.hpp"
 
 namespace zith::zirl {
 
 uint32_t Writer::write(const cache::Artifact &artifact, ByteWriter &out) {
-    ByteWriter meta, decls, templates, code, attrs;
+    ByteWriter meta, decls, templates, code, attrs, instances;
     // Encoders only fail when a buffer cannot grow; never emit a partial artifact.
     if (!encodeTypes(artifact, meta) || !encodeDecls(artifact, decls) ||
         !encodeTemplates(artifact, templates) || !encodeCode(artifact, code) ||
-        !encodeAttrs(artifact, attrs))
+        !encodeAttrs(artifact, attrs) || !encodeInstantiations(artifact, instances))
         return 0;
 
     static_assert(sizeof(FileHeader) == 68,
                   "sizeof(FileHeader) must match the field-by-field header write");
 
-    const uint32_t section_count = 5;
+    const uint32_t section_count = 6;
     const uint32_t path_len      = static_cast<uint32_t>(artifact.canonical_path.size());
 
     uint64_t deps_size = 0;
@@ -53,6 +54,7 @@ uint32_t Writer::write(const cache::Artifact &artifact, ByteWriter &out) {
     checksum          = fnv1a32(templates.ptr(), templates.size()) ^ checksum;
     checksum          = fnv1a32(code.ptr(), code.size()) ^ checksum;
     checksum          = fnv1a32(attrs.ptr(), attrs.size()) ^ checksum;
+    checksum          = fnv1a32(instances.ptr(), instances.size()) ^ checksum;
     for (const auto &dep : artifact.deps) {
         checksum ^= fnv1a32(dep.canonical_path);
         checksum ^= fnv1a32(dep.import_key);
@@ -62,12 +64,14 @@ uint32_t Writer::write(const cache::Artifact &artifact, ByteWriter &out) {
     hdr.checksum = checksum;
 
     uint64_t base = hdr.header_size;
-    SectionEntry entries[5];
+    SectionEntry entries[6];
     entries[0] = {base, meta.size()};
     entries[1] = {base + meta.size(), decls.size()};
     entries[2] = {base + meta.size() + decls.size(), templates.size()};
     entries[3] = {base + meta.size() + decls.size() + templates.size(), code.size()};
     entries[4] = {base + meta.size() + decls.size() + templates.size() + code.size(), attrs.size()};
+    entries[5] = {base + meta.size() + decls.size() + templates.size() + code.size() + attrs.size(),
+                  instances.size()};
 
     out.writeU32(hdr.magic);
     out.writeU32(hdr.format_version);
@@ -108,6 +112,7 @@ uint32_t Writer::write(const cache::Artifact &artifact, ByteWriter &out) {
     out.writeBytes(templates.ptr(), templates.size());
     out.writeBytes(code.ptr(), code.size());
     out.writeBytes(attrs.ptr(), attrs.size());
+    out.writeBytes(instances.ptr(), instances.size());
 
     return checksum;
 }

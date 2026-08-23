@@ -1,8 +1,10 @@
 ## 4. Traits, Interfaces & Capabilities
 
 > **Implementation status:** `trait`, `interface`, and `implement T as Trait {}` declarations are
-> **working** (parsed, resolved, and lowered). Trait dispatch and vtable-based `dyn` dispatch are
-> **spec-only** — `dyn Trait` is a parse error in type position.
+> **working** (parsed, resolved, and lowered). Trait method requirements and default bodies, and
+> interface grouped fields, are stored in the frontend snapshot. Trait conformance and dispatch
+> arrive in a later semantic step; `dyn Trait` remains **spec-only** and is a parse error in type
+> position.
 > See [impl-status.md](impl-status.md).
 
 ### 4.1 Traits vs. Interfaces

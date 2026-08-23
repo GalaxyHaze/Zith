@@ -4,6 +4,7 @@
 #include "zirl/zirl-code-section.hpp"
 #include "zirl/zirl-decl-section.hpp"
 #include "zirl/zirl-header.hpp"
+#include "zirl/zirl-instantiation-section.hpp"
 #include "zirl/zirl-type-section.hpp"
 
 #include <algorithm>
@@ -77,10 +78,10 @@ std::optional<cache::Artifact> Reader::read(std::string_view bytes) {
     if (recomputed_header_end != header_size || r.position() != table_start)
         return std::nullopt;
 
-    if (section_count != 4 && section_count != 5)
+    if (section_count != 4 && section_count != 5 && section_count != 6)
         return std::nullopt;
-    SectionEntry entries[5];
-    const int entry_count = std::min<int>(5, section_count);
+    SectionEntry entries[6];
+    const int entry_count = std::min<int>(6, section_count);
     int i                 = 0;
     for (; i < entry_count; ++i) {
         uint64_t off = 0, sz = 0;
@@ -102,6 +103,8 @@ std::optional<cache::Artifact> Reader::read(std::string_view bytes) {
     calc ^= fnv1a32(base + entries[3].offset, static_cast<size_t>(entries[3].size));
     if (entry_count > 4)
         calc ^= fnv1a32(base + entries[4].offset, static_cast<size_t>(entries[4].size));
+    if (entry_count > 5)
+        calc ^= fnv1a32(base + entries[5].offset, static_cast<size_t>(entries[5].size));
     for (const auto &dep : out.deps) {
         calc ^= fnv1a32(dep.canonical_path);
         calc ^= fnv1a32(dep.import_key);
@@ -131,6 +134,11 @@ std::optional<cache::Artifact> Reader::read(std::string_view bytes) {
     if (entry_count > 4) {
         ByteReader ar(sectionView(4));
         if (!decodeAttrs(ar, out))
+            return std::nullopt;
+    }
+    if (entry_count > 5) {
+        ByteReader ir(sectionView(5));
+        if (!decodeInstantiations(ir, out))
             return std::nullopt;
     }
 

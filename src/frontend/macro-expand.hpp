@@ -11,7 +11,7 @@ namespace zith::frontend {
 class MacroExpander {
 public:
     explicit MacroExpander(FrontendSnapshot &snapshot);
-    void run();
+    void run(const std::vector<ImportedMacroRecord> &imported = {});
 
 private:
     struct MacroInfo {
@@ -23,6 +23,8 @@ private:
         std::vector<std::string> paramNames;
         std::vector<std::string> paramMetaTypes;
         ExprId body;
+        TextSpan span;
+        const FrontendSnapshot *source = nullptr;
     };
 
     using ExprMap = std::vector<ExprId>;
@@ -40,16 +42,20 @@ private:
     [[nodiscard]] bool isNonHygienicStmt(size_t idValue) const;
 
     ExprId cloneExpr(ExprId src, const std::vector<ExprId> &args, TextSpan callSpan,
-                     ScopeId callScope, const MacroInfo *macro, ExprMap &map);
+                     ScopeId callScope, const MacroInfo *macro, ExprMap &map,
+                     const FrontendSnapshot &source);
     /// Resolves `attributes.name` inside a macro body to the call-site
     /// attribute expression, or reports MacroAttrUnknown.  Returns an empty id
     /// when `src` is not an attribute access.
-    ExprId substituteAttribute(ExprId src, const MacroInfo *macro, ExprId *outClone);
+    ExprId substituteAttribute(ExprId src, const MacroInfo *macro, ExprId *outClone,
+                               const FrontendSnapshot &source);
     StmtId cloneStmt(StmtId src, const std::vector<ExprId> &args, TextSpan callSpan,
-                     ScopeId callScope, const MacroInfo *macro, ExprMap &map);
-    TypeExprId cloneTypeExpr(TypeExprId src);
+                     ScopeId callScope, const MacroInfo *macro, ExprMap &map,
+                     const FrontendSnapshot &source);
+    TypeExprId cloneTypeExpr(TypeExprId src, const FrontendSnapshot &source);
 
-    void collectHygieneNames(ExprId body, std::vector<std::string> &names);
+    void collectHygieneNames(ExprId body, std::vector<std::string> &names,
+                             const FrontendSnapshot &source);
     bool contextIsValue(ExprId eid);
     std::string hygieneName(const std::string &original);
 
@@ -80,6 +86,7 @@ private:
 /// as template material, so later phases never analyse it as real code.
 void markMacroTemplates(FrontendSnapshot &snapshot);
 
-void expandMacros(FrontendSnapshot &snapshot);
+void expandMacros(FrontendSnapshot &snapshot,
+                  const std::vector<ImportedMacroRecord> &imported = {});
 
 } // namespace zith::frontend

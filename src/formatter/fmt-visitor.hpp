@@ -60,6 +60,8 @@ private:
     void emitMarkerDecl(const frontend::Declaration &decl);
     void emitVariableDecl(const frontend::Declaration &decl);
     void emitNominalDecl(const frontend::Declaration &decl);
+    void emitTraitOrInterfaceDecl(const frontend::Declaration &decl);
+    void emitInterfaceFields(const frontend::Declaration &decl);
 };
 
 } // namespace zith::formatter
