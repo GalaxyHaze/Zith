@@ -13,6 +13,7 @@ option(ZITH_BUILD_LEGACY_LIB "Build the legacy parser/sema compatibility library
 option(ZITH_ENABLE_C_COMPILE "Enable recursive .c compilation for ffi.c_source_dirs / --c-source-dir" ON)
 set(ZITH_TCC_ROOT "" CACHE PATH "Optional root containing libtcc headers and libraries")
 option(ZITH_TCC_FETCH "Fetch and build TinyCC when libtcc is not found on the system" ON)
+option(ZITH_ENABLE_DEBUG_PRINT "Enable compile-time debug prints in compiler internals" OFF)
 if(ZITH_IS_WASM OR CMAKE_CROSSCOMPILING)
     set(_zith_c_interop_default OFF)
 else()
@@ -320,6 +321,7 @@ target_compile_definitions(zithcLib PUBLIC
     ZITH_ENABLE_C_COMPILE=$<BOOL:${ZITH_ENABLE_C_COMPILE}>
     ZITH_C_COMPILE_AVAILABLE=$<BOOL:${ZITH_C_COMPILE_AVAILABLE}>
     ZITH_LLD_AVAILABLE=$<BOOL:${ZITH_LLD_AVAILABLE}>
+    ZITH_ENABLE_DEBUG_PRINT=$<BOOL:${ZITH_ENABLE_DEBUG_PRINT}>
     ZITH_C_COMPILER_PATH="${CMAKE_C_COMPILER}")
 if(ZITH_HAS_LLVM AND NOT ZITH_IS_WASM AND LLVM_PACKAGE_VERSION)
     target_compile_definitions(zithcLib PUBLIC

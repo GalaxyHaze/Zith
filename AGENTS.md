@@ -26,6 +26,126 @@ LLVM is optional: CMake disables native code generation when it is unavailable.
 Use `cmake --build build --target fmt` to format sources, or
 `cmake --build build --target fmt-check` to verify formatting without edits.
 
+The format and `fmt-check` targets are created only when `clang-format` is found
+on `PATH`; if a local LLVM has a different version, either put `clang-format<N>`
+on `PATH` or re-run CMake after installing it.
+
+## CMake Options & Feature Gate
+
+The root `CMakeLists.txt` exposes several options that change which compiler
+subsystems are built. Configure with
+`cmake -S . -B build -D<OPTION>=ON/OFF` as needed:
+
+```cmake
+option(ZITH_BUILD_CLI "Build the zithc CLI executable" ON)
+option(ZITH_BUILD_CAPI "Build the C ABI library" ON)
+option(ZITH_BUILD_BENCHMARKS "Build local benchmark executables" OFF)
+option(ZITH_IS_WASM "Build for WebAssembly target" OFF)
+option(ZITH_HAS_LLVM "Enable LLVM codegen backend" ON)
+option(ZITH_BUILD_LEGACY_LIB "Build the legacy parser/sema compatibility library" ON)
+option(ZITH_ENABLE_C_COMPILE "Enable recursive .c compilation for ffi.c_source_dirs / --c-source-dir" ON)
+option(ZITH_TCC_FETCH "Fetch and build TinyCC when libtcc is not found on the system" ON)
+option(ZITH_ENABLE_DEBUG_PRINT "Enable compile-time debug prints in compiler internals" OFF)
+option(ZITH_ENABLE_C_INTEROP "Enable automatic C header bindings through libclang" ON)
+```
+
+`ZITH_HAS_LLVM` is auto-disabled when LLVM 18+ is not found, not just when
+`-DZITH_HAS_LLVM=OFF` is passed. `ZITH_ENABLE_C_COMPILE` and
+`ZITH_ENABLE_C_INTEROP` are disabled for WebAssembly and cross-compilation.
+`ZITH_BUILD_BENCHMARKS` requires `ZITH_BUILD_LEGACY_LIB=ON`.
+
+## Debug Prints & Temporary Instrumentation
+
+Do not add raw `std::printf`, `std::cerr`, or `fprintf(stderr, ...)` debug output
+that later has to be removed again. Instead use the project debug print helper:
+
+```cpp
+#include "support/debug-print.hpp"
+
+ZITH_DEBUG_PRINT("lowering function %s\n", name.c_str());
+```
+
+Temporary instrumentation must keep a small footprint in the final diff.
+`ZITH_DEBUG_PRINT(...)` evaluates like a void expression when disabled, so it
+can be left in place without affecting release builds. Build with it enabled
+when diagnosing a subsystem:
+
+```bash
+cmake -S . -B build-debug -DZITH_ENABLE_DEBUG_PRINT=ON
+cmake --build build-debug -j
+```
+
+Print to `stderr` only, and use the `[zith-debug]` prefix already provided by
+the helper so compiler output does not mix with child program stdout. Remove
+instrumentation once the diagnosed code is fixed; keep only the helper itself.
+
+## Project Layout Details
+
+Modern compiler source lives under `src/`; `lib/legacy-zith/` contains the
+legacy parser/sema compatibility library that the modern pipeline still links
+against. The CMake target `legacy-zith` and `zithcLib` reference each other, so
+tests link both with `-Wl,--start-group ... -Wl,--end-group` to allow circular
+archive resolution.
+
+Common language/codebase organization:
+
+- `src/memory/` — arena, `DynArray`, `FlatMap`, `Optional`, `Result`, source files.
+- `src/frontend/` — lexing/parsing glue, frontend printer, macro expansion.
+- `src/symbols/` — imports, symbol tables, resolver.
+- `src/types/` — type intern, lowering, unification.
+- `src/sema/` — semantic analysis, typed AST, modern HIR lowering, NRA facts.
+- `src/comptime/` — generic instantiation, solver, compile-time evaluation.
+- `src/hir/` — high-level IR module and HIR verification.
+- `src/codegen/` — LLVM IR emission; removed from the build without LLVM.
+- `src/session/` — `CompilationSession` pipeline orchestration.
+- `src/cache/` — incremental compilation and artifact storage.
+- `src/capi/` — C ABI wrapper (`zithcLib`).
+- `src/cli/` — CLI entry point and command dispatch.
+- `src/zirl/` — Zith IR library format sections.
+- `src/cc/`, `src/cinterop/` — companion C compilation and C header bindings.
+- `src/wasm/` — WebAssembly playground and WASI stubs.
+
+## Pipeline And Compiler Entry Points
+
+The current documented pipeline is:
+
+```
+Source → Lex → Scan → Import → Resolve → Sema → Comptime/Solve → NTA/NRA → HIR → Codegen → Cache
+```
+
+`CompilationSession` in `src/session/compilation-session.*` orchestrates these
+stages. `src/session/frontend-context.*` prepares parser/frontend state, and
+`src/session/pipeline-plan.*` records the planned stages for a session.
+`GenericInstantiationPass` in `src/comptime/generic-instantiate.*` runs between
+`semaStage()` and `nraStage()`, monomorphizing generic functions, structs,
+aliases, methods, and `implement` blocks.
+
+When reading or modifying a compiler subsystem, start with the corresponding
+`memory/<area>-*.md` file when one exists, then `CompilationSession` to see how
+the subsystem is invoked.
+
+## Testing Details
+
+Tests are standalone executables under `tests/` and are registered through the
+`add_zith_test` helper in the root `CMakeLists.txt`. A few notes:
+
+- Tests build against both `zithcLib` and `legacy-zith` when legacy support is
+  enabled, so expect archive-ordering issues if that linkage changes.
+- The example suite (`test-examples`) drives the real CLI and requires
+  `ZITH_HAS_LLVM` plus the `zithc` target.
+- Benchmarks are opt-in via `ZITH_BUILD_BENCHMARKS=ON`; lexer smoke tests are
+  registered as CTest cases only when the bench target exists.
+- The repository builds with `-Werror` under Clang and uses `-Weverything`
+  with a curated set of suppressions. New code must satisfy that warning set.
+
+Useful focused commands:
+
+```bash
+cmake --build build --target test-sema -j 4
+./build/tests/test-sema
+ctest --test-dir build -R 'lexer' --output-on-failure
+```
+
 ## Coding Style & Naming Conventions
 
 Follow `.clang-format`: four spaces, no tabs, 100-column limit, attached braces,

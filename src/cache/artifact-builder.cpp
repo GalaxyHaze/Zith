@@ -202,6 +202,43 @@ uint32_t ArtifactBuilder::internType(types::TypeId id) {
     const auto it = type_index_.find(id);
     if (it != type_index_.end())
         return it->second;
+
+    // Intern dependencies first. convertType() emits plain CompactTypes whose
+    // refs must point at already-written compact ids; deferring them until the
+    // parent is appended lets a child claim the same compact id and corrupts
+    // the table (a `?*C` is written as `?C` when `*C` itself is being interned).
+    const auto &data = types_.lookup(id);
+    std::visit(common::overloaded{
+                   [&](const types::TypePtr &t) { (void)internType(t.pointee); },
+                   [&](const types::TypeArray &t) { (void)internType(t.elem); },
+                   [&](const types::TypeFn &t) {
+                       (void)internType(t.ret);
+                       for (size_t i = 0; i < t.param_count; ++i)
+                           (void)internType(t.params[i]);
+                   },
+                   [&](const types::TypeOptional &t) { (void)internType(t.inner); },
+                   [&](const types::TypeFailable &t) { (void)internType(t.inner); },
+                   [&](const types::TypeAlias &t) { (void)internType(t.target); },
+                   [&](const types::TypeNominal &t) { (void)internType(t.target); },
+                   [&](const types::TypeQualified &t) { (void)internType(t.inner); },
+                   [&](const types::TypeSlice &t) { (void)internType(t.elem); },
+                   [&](const types::TypePack &t) {
+                       for (size_t i = 0; i < t.count; ++i)
+                           (void)internType(t.members[i]);
+                   },
+                   [&](const types::TypeSum &t) {
+                       for (size_t i = 0; i < t.count; ++i)
+                           (void)internType(t.members[i]);
+                   },
+                   [&](const types::TypeIncomplete &t) {
+                       (void)internType(t.base);
+                       for (size_t i = 0; i < t.arg_count; ++i)
+                           (void)internType(t.args[i]);
+                   },
+                   [](const auto &) {},
+               },
+               data);
+
     const uint32_t compact_id = static_cast<uint32_t>(compact_types_.size());
     compact_types_.push_back(convertType(id));
     type_index_[id] = compact_id;

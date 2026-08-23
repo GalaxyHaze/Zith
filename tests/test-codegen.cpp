@@ -99,6 +99,7 @@ struct ModernFileCodegenTest {
         bool ok           = false;
         bool usedModern   = false;
         size_t errorCount = 0;
+        size_t cacheHits  = 0;
         int exitCode      = 0;
         std::string output;
     };
@@ -123,7 +124,11 @@ struct ModernFileCodegenTest {
 
         std::string output = session.flushOutput();
         output += session.takeChildOutput();
-        return {ok && errs == 0, session.snapshot() != nullptr, errs, session.childExitCode(),
+        return {ok && errs == 0,
+                session.snapshot() != nullptr,
+                errs,
+                session.cacheMetrics().hits,
+                session.childExitCode(),
                 std::move(output)};
     }
 };
@@ -1198,8 +1203,22 @@ static void test_import_stdio_runs() {
 
     auto r = t.run();
     CHECK(r.ok, "import \"stdio.h\" compiles, links and runs");
+    CHECK_EQ(r.cacheHits, 0U, "first stdio.h run misses and writes a cache entry");
     CHECK(r.output.find("declare i32 @printf(ptr, ...)") != std::string::npos,
           "stdio.h's variadic printf is declared in LLVM IR");
+    CHECK(r.output.find("v=42\n") != std::string::npos,
+          "cold stdio.h program prints the expected payload");
+
+    // A second run reuses the persistent artifact. The cache must restore the
+    // foreign C signature exactly: `printf` needs `?*char`, which codegen
+    // lowers to a bare `ptr`, not `{ i8, i1 }`.
+    auto warm = t.run();
+    CHECK(warm.ok, "import \"stdio.h\" reuses the persistent cache without IR errors");
+    CHECK(warm.cacheHits > 0U, "second stdio.h run loads the persistent cache entry");
+    CHECK(warm.output.find("declare i32 @printf(ptr, ...)") != std::string::npos,
+          "warm printf declaration still uses the C pointer ABI");
+    CHECK(warm.output.find("v=42\n") != std::string::npos,
+          "warm stdio.h program prints the expected payload");
 
     CodegenTest plain;
     auto run = plain.run("codegen-import-stdio.zith", "import \"stdio.h\"\n"
