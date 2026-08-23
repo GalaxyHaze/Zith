@@ -394,6 +394,12 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                                  out.type_id = internType(ms.type);
                                  out.ref_a   = ms.value;
                              },
+                             [&](const hir::HirUnionCast &uc) {
+                                 out.kind  = CompactExprKind::Cast;
+                                 out.ref_a = uc.value;
+                                 out.ref_e = internType(uc.from);
+                                 out.ref_b = internType(uc.to);
+                             },
                              [&](const hir::HirCast &cast) {
                                  out.kind  = CompactExprKind::Cast;
                                  out.ref_a = cast.value;

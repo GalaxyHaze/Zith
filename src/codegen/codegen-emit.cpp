@@ -91,9 +91,45 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
             [&](const hir::HirSlotStore &s) -> llvm::Value * {
                 if (s.slot >= slots_.size())
                     return nullptr;
+                const auto &val_expr       = mod.getExpr(s.value);
+                const auto *union_cast     = std::get_if<hir::HirUnionCast>(&val_expr);
+                llvm::Value *union_storage = nullptr;
+                if (union_cast != nullptr &&
+                    types_.kindOf(union_cast->from) != types::TypeKind::Union &&
+                    types_.kindOf(union_cast->to) == types::TypeKind::Union) {
+                    union_storage = emitAddrOf(s.value, mod);
+                }
                 auto *val = emitExpr(s.value, mod);
                 if (!val)
                     return nullptr;
+                // A member -> union cast writes one member's bytes into union
+                // storage. It is represented by a temporary aggregate load, so
+                // reconstruct the store from the cast's own storage instead of
+                // letting LLVM reload a loaded aggregate.
+                if (union_storage != nullptr) {
+                    llvm::Value *dest = builder_.CreateBitCast(
+                        slots_[s.slot], llvm::PointerType::get(builder_.getContext(), 0));
+                    builder_.CreateStore(
+                        llvm::ConstantAggregateZero::get(typeGen_.lower(union_cast->to)),
+                        slots_[s.slot]);
+                    auto *src_bytes = builder_.CreateStructGEP(
+                        typeGen_.lower(union_cast->to),
+                        builder_.CreateBitCast(union_storage,
+                                               llvm::PointerType::get(builder_.getContext(), 0)),
+                        0U);
+                    builder_.CreateStore(
+                        llvm::ConstantExpr::getBitCast(
+                            llvm::ConstantAggregateZero::get(typeGen_.lower(union_cast->to)),
+                            llvm::ArrayType::get(llvm::Type::getInt8Ty(builder_.getContext()),
+                                                 typeGen_.sizeOf(union_cast->to))),
+                        dest);
+                    builder_.CreateMemCpy(
+                        dest, llvm::MaybeAlign(1),
+                        builder_.CreateBitCast(src_bytes,
+                                               llvm::PointerType::get(builder_.getContext(), 0)),
+                        llvm::MaybeAlign(1), typeGen_.sizeOf(union_cast->from));
+                    return val;
+                }
                 builder_.CreateStore(val, slots_[s.slot]);
                 return val;
             },
@@ -113,6 +149,40 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 if (llvm_type->isPointerTy())
                     return llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(llvm_type));
                 return llvm::ConstantAggregateZero::get(llvm_type);
+            },
+            [&](const hir::HirUnionCast &cast) -> llvm::Value * {
+                auto *value = emitExpr(cast.value, mod);
+                if (!value)
+                    return nullptr;
+                const auto from_kind  = types_.kindOf(cast.from);
+                const auto to_kind    = types_.kindOf(cast.to);
+                const auto union_type = from_kind == types::TypeKind::Union ? cast.from : cast.to;
+                auto *union_ll        = typeGen_.lower(union_type);
+                llvm::Value *storage  = nullptr;
+                if (from_kind == types::TypeKind::Union) {
+                    // Keep the source storage address so member extraction
+                    // never round-trips an aggregate through registers.
+                    storage = emitAddrOf(cast.value, mod);
+                } else {
+                    storage = builder_.CreateAlloca(union_ll);
+                    builder_.CreateStore(llvm::ConstantAggregateZero::get(union_ll), storage);
+                    auto *bytes = builder_.CreateStructGEP(union_ll, storage, 0U);
+                    builder_.CreateStore(
+                        value, builder_.CreateBitCast(
+                                   bytes, llvm::PointerType::get(builder_.getContext(), 0)));
+                }
+                if (storage == nullptr)
+                    return nullptr;
+                if (to_kind == types::TypeKind::Union) {
+                    return builder_.CreateLoad(
+                        union_ll, builder_.CreateBitCast(
+                                      storage, llvm::PointerType::get(builder_.getContext(), 0)));
+                }
+                auto *bytes = builder_.CreateStructGEP(union_ll, storage, 0U);
+                return builder_.CreateLoad(
+                    typeGen_.lower(cast.to),
+                    builder_.CreateBitCast(bytes,
+                                           llvm::PointerType::get(builder_.getContext(), 0)));
             },
             [&](const hir::HirCast &cast) -> llvm::Value * {
                 auto *value = emitExpr(cast.value, mod);
@@ -599,6 +669,25 @@ llvm::Value *CodeGenEmit::emitAddrOf(hir::HirExprId id, const hir::HirModule &mo
     if (auto *unary = std::get_if<hir::HirUnary>(&operandExpr)) {
         if (unary->op == hir::HirUnaryOp::Deref)
             return emitExpr(unary->operand, mod); // `*p` is addressed by the pointer itself
+    }
+    if (auto *union_cast = std::get_if<hir::HirUnionCast>(&operandExpr)) {
+        if (types_.kindOf(union_cast->from) != types::TypeKind::Union &&
+            types_.kindOf(union_cast->to) == types::TypeKind::Union) {
+            auto *storage = builder_.CreateAlloca(typeGen_.lower(union_cast->to));
+            builder_.CreateStore(llvm::ConstantAggregateZero::get(typeGen_.lower(union_cast->to)),
+                                 storage);
+            auto *value = emitExpr(union_cast->value, mod);
+            if (value == nullptr)
+                return nullptr;
+            auto *bytes = builder_.CreateStructGEP(
+                typeGen_.lower(union_cast->to),
+                builder_.CreateBitCast(storage, llvm::PointerType::get(builder_.getContext(), 0)),
+                0U);
+            builder_.CreateStore(
+                value,
+                builder_.CreateBitCast(bytes, llvm::PointerType::get(builder_.getContext(), 0)));
+            return storage;
+        }
     }
     // Not directly addressable (e.g. a call result or literal): spill the value
     // into a temporary so its address can be taken.

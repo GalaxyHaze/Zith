@@ -15,6 +15,19 @@ enum class IntLiteralStatus : std::uint8_t {
     Overflow,
 };
 
+/// Integer type suffixes are accepted by the lexer as part of a literal token and
+/// only affect the literal's type, never its bit pattern.
+[[nodiscard]] constexpr std::string_view integerSuffix(std::string_view text) noexcept {
+    static constexpr std::string_view kSuffixes[] = {
+        "u128", "i128", "u64", "i64", "u32", "i32", "u16", "i16", "u8", "i8", "usize", "isize",
+    };
+    for (const auto suffix : kSuffixes) {
+        if (text.size() >= suffix.size() && text.ends_with(suffix))
+            return suffix;
+    }
+    return {};
+}
+
 namespace detail {
 
 /// Digit value for `c` in `base`, or -1 when `c` is not a digit of that base.
@@ -56,7 +69,10 @@ struct IntLiteralShape {
         if (shape.base != 10U)
             i += 2U;
     }
-    shape.digits = text.substr(i);
+    shape.digits      = text.substr(i);
+    const auto suffix = integerSuffix(shape.digits);
+    if (!suffix.empty())
+        shape.digits.remove_suffix(suffix.size());
     if (shape.digits.empty())
         return false;
     for (char c : shape.digits) {

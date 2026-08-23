@@ -1001,8 +1001,15 @@ TypeId PerModuleSema::inferLiteral(frontend::ExprId id, std::string_view text) {
         return f64_type;
     std::int64_t parsed [[maybe_unused]] = 0;
     switch (support::parseIntegerLiteral(text, parsed)) {
-    case support::IntLiteralStatus::Ok:
+    case support::IntLiteralStatus::Ok: {
+        const auto suffix = support::integerSuffix(text);
+        if (!suffix.empty()) {
+            const TypeId suffix_type = type_table.lookupNamed(suffix);
+            if (suffix_type)
+                return suffix_type;
+        }
         return i32_type;
+    }
     case support::IntLiteralStatus::Overflow:
         // A literal wider than 64 bits has no representable type; diagnose it rather than
         // truncating it during HIR lowering.
@@ -2096,6 +2103,14 @@ bool PerModuleSema::adaptNumericLiteral(frontend::ExprId value, TypeId target) {
         return false;
     if (target_kind != TypeKind::Integer && target_kind != TypeKind::Float)
         return false;
+    if (integer_literal) {
+        const auto suffix = support::integerSuffix(expr.text);
+        if (!suffix.empty()) {
+            const TypeId suffix_type = type_table.lookupNamed(suffix);
+            if (!suffix_type || !sameType(resolve(target), suffix_type))
+                return false;
+        }
+    }
     setExprType(value, target);
     return true;
 }

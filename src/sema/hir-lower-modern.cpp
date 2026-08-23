@@ -855,9 +855,16 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
     }
     case TypeKind::Union: {
         const auto *union_type = sema_.typeTable().union_type(type);
-        lowered                = union_type != nullptr
-                                     ? types_.registerNamedType(union_type->name, types::TypeKind::Union)
-                                     : types::kErrorType;
+        if (union_type == nullptr) {
+            lowered = types::kErrorType;
+            break;
+        }
+        lowered = types_.defineUnion(union_type->name, union_type->is_raw);
+        if (types_.getUnionDef(lowered).members.size() == 0U) {
+            lowered_types_.insert(type.intern_seq, lowered);
+            for (const auto member : union_type->members)
+                types_.addUnionMember(lowered, lowerType(member));
+        }
         break;
     }
     case TypeKind::Trait:
@@ -1396,8 +1403,9 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
 
     for (size_t index = 1; index < expr.operands.size(); ++index) {
         const auto argument = lowerExpr(expr.operands[index]);
-        if (argument != hir::kInvalidHirExpr)
-            args.push(argument);
+        if (argument == hir::kInvalidHirExpr)
+            return hir::kInvalidHirExpr;
+        args.push(argument);
         const auto argument_type = typeOfExpr(expr.operands[index]);
         if (argument_type != types::kInvalidType)
             arg_types.push(argument_type);
@@ -1873,6 +1881,9 @@ hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,
         if (wrapper_count == 1U)
             return addExpr(hir::HirField{value, 0U, type, from});
     }
+    if (types_.kindOf(from) == types::TypeKind::Union ||
+        types_.kindOf(type) == types::TypeKind::Union)
+        return addExpr(hir::HirUnionCast{value, from, type});
     return addExpr(hir::HirCast{value, from, type});
 }
 
@@ -2045,6 +2056,15 @@ hir::HirExprId HirLowerModern::lowerArrow(const frontend::Expression &expr,
 
 hir::HirExprId HirLowerModern::lowerStructLiteral(const frontend::Expression &expr,
                                                   const types::TypeId type) {
+    if (types_.kindOf(type) == types::TypeKind::Union) {
+        if (expr.operands.size() != 1U)
+            return hir::kInvalidHirExpr;
+        const auto value = lowerExpr(expr.operands[0]);
+        if (value == hir::kInvalidHirExpr)
+            return hir::kInvalidHirExpr;
+        const auto from = typeOfExpr(expr.operands[0]);
+        return addExpr(hir::HirUnionCast{value, from, type});
+    }
     hir::HirStructLiteral lit(arena_);
     lit.type = type;
     const size_t field_count =
@@ -2146,9 +2166,19 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
     const auto &statement = current_module_->frontend->statements()[id.value - 1U];
     switch (statement.kind) {
     case frontend::StmtKind::Expression:
-        last_value = lowerExpr(statement.expression);
-        if (last_value != hir::kInvalidHirExpr)
-            current_fn_->blocks[current_block_].insts.push(last_value);
+        if (statement.expression &&
+            statement.expression.value <= current_module_->frontend->expressions().size()) {
+            last_value = lowerExpr(statement.expression);
+            if (last_value == hir::kInvalidHirExpr &&
+                typeOfExpr(statement.expression) != types::kVoidType &&
+                typeOfExpr(statement.expression) != types::kErrorType && !diags_.hasErrors()) {
+                diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                              "expression statement could not be lowered", memory::Span{});
+                return false;
+            }
+            if (last_value != hir::kInvalidHirExpr)
+                current_fn_->blocks[current_block_].insts.push(last_value);
+        }
         return true;
     case frontend::StmtKind::Binding: {
         const auto slot = localSlot(statement.binding.id);

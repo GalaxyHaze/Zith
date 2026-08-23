@@ -432,10 +432,11 @@ static void test_type_alias_and_struct_enum_union() {
     auto snapshot = frontend::parse("type Age = i32;\n"
                                     "struct Point { x: i32, y: i32 }\n"
                                     "enum Color { Red, Green, Blue }\n"
-                                    "union Value { Int: i32, Float: f64 }\n");
+                                    "union Value { i32, f64 }\n"
+                                    "raw union Bits { u8, u32 }\n");
 
     CHECK(snapshot.diagnostics().empty(), "type declarations lower without diagnostics");
-    CHECK_EQ(snapshot.declarations().size(), 4u, "four declarations are lowered");
+    CHECK_EQ(snapshot.declarations().size(), 5u, "five declarations are lowered");
     CHECK_EQ(snapshot.declarations()[0].kind, frontend::DeclKind::TypeAlias,
              "type is lowered as a type alias");
     CHECK_EQ(snapshot.declarations()[0].name, std::string("Age"), "type alias name is preserved");
@@ -448,6 +449,20 @@ static void test_type_alias_and_struct_enum_union() {
     CHECK_EQ(snapshot.declarations()[3].kind, frontend::DeclKind::Union,
              "union is lowered as a union declaration");
     CHECK_EQ(snapshot.declarations()[3].name, std::string("Value"), "union name is preserved");
+    CHECK(!snapshot.declarations()[3].isRawUnion, "plain union is not flagged raw");
+    CHECK_EQ(snapshot.declarations()[3].parameters.size(), 2u,
+             "union member types are retained positionally");
+    CHECK(snapshot.declarations()[3].parameters[0].type,
+          "union member type expression is retained");
+    CHECK(snapshot.declarations()[3].parameters[0].name.empty() &&
+              snapshot.declarations()[3].parameters[1].name.empty(),
+          "positional union members carry no field names");
+    CHECK_EQ(snapshot.declarations()[4].kind, frontend::DeclKind::Union,
+             "raw union is lowered as a union declaration");
+    CHECK_EQ(snapshot.declarations()[4].name, std::string("Bits"), "raw union name is preserved");
+    CHECK(snapshot.declarations()[4].isRawUnion, "raw union is flagged raw");
+    CHECK_EQ(snapshot.declarations()[4].parameters.size(), 2u,
+             "raw union member types are retained");
 }
 
 static void test_unary_and_nested_expressions() {

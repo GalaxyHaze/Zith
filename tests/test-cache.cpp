@@ -657,6 +657,7 @@ static void test_artifact_builder() {
     types.addEnumVariant(private_enum, "Second", 4);
     const auto private_union = types.defineUnion("_CacheUnion", true);
     types.addUnionMember(private_union, i32);
+    types.addUnionMember(private_union, f64);
 
     session::ContentFingerprint fp;
     fp.primary = 0xCAFEBABEu;
@@ -694,6 +695,10 @@ static void test_artifact_builder() {
     CHECK_EQ(art.enum_defs[0].variants.size(), 2u, "enum variants are serialized");
     CHECK_EQ(art.enum_defs[0].variants[0].discriminant, -3, "enum discriminants are not reindexed");
     CHECK_EQ(art.union_defs.size(), 1u, "builder serializes private union defs");
+    CHECK(art.union_defs[0].name_id != 0u, "builder assigns a name_id for the union");
+    CHECK_EQ(art.union_defs[0].is_raw, true, "builder serializes raw union flag");
+    CHECK_EQ(art.union_defs[0].member_type_ids.size(), 2u,
+             "builder serializes every union member type");
     CHECK_EQ(art.markers.size(), 1u, "builder serializes marker metadata");
     CHECK_EQ(art.markers[0].params.size(), 2u, "builder serializes marker parameter metadata");
 
@@ -717,6 +722,12 @@ static void test_artifact_builder() {
     CHECK_EQ(round->enum_defs[0].variants[0].discriminant, -3,
              "round-trip preserves explicit enum discriminants");
     CHECK_EQ(round->union_defs.size(), art.union_defs.size(), "round-trip preserves union defs");
+    CHECK_EQ(round->union_defs[0].is_raw, art.union_defs[0].is_raw,
+             "round-trip preserves union is_raw flag");
+    CHECK_EQ(round->union_defs[0].name_id, art.union_defs[0].name_id,
+             "round-trip preserves union name_id");
+    CHECK_EQ(round->union_defs[0].member_type_ids, art.union_defs[0].member_type_ids,
+             "round-trip preserves union member_type_ids");
     CHECK_EQ(round->markers.size(), 1u, "round-trip preserves marker metadata");
     if (!round->markers.empty()) {
         const auto &marker = round->markers.front();

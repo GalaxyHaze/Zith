@@ -70,6 +70,19 @@ size_t countInstKind(const hir::HirModule &hir, const hir::HirFunction &fn, hir:
     return count;
 }
 
+size_t countUnionCasts(const hir::HirModule &hir, const hir::HirFunction &fn) {
+    (void)fn;
+    size_t count = 0;
+    // Nested operands are not listed as block instructions, so count every
+    // expression created for this function. Test sessions contain only this
+    // function plus externs, which carry no union casts.
+    for (size_t i = 0; i < hir.exprCount(); ++i) {
+        if (std::holds_alternative<hir::HirUnionCast>(hir.getExpr(static_cast<hir::HirExprId>(i))))
+            ++count;
+    }
+    return count;
+}
+
 size_t countTerminatorKind(const hir::HirModule &hir, const hir::HirFunction &fn,
                            hir::HirExprKind kind) {
     size_t count = 0;
@@ -991,6 +1004,52 @@ void test_generic_instance_deduplication() {
     CHECK_EQ(same_count, 1u, "the same concrete instance appears only once in HIR");
 }
 
+void test_call_with_unlowerable_argument_fails_pipeline() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn consume(value: char) {}\n"
+                                     "fn main() {\n"
+                                     "    consume('\\q');\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(!session.runTo(session::Stage::HirLowered),
+          "call with an unlowerable argument fails the pipeline");
+    CHECK(session.hasErrors(), "the failing call records compiler errors");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main == nullptr || countInstKind(hir, *main, hir::HirExprKind::Call) == 0u,
+          "no incomplete HIR call survives the failure");
+}
+
+void test_raw_union_lowers_members_and_casts() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "raw union Bits { u8, u32 }\n"
+                                     "fn main() {\n"
+                                     "    var b: Bits = Bits { 255u8 };\n"
+                                     "    var word: u32 = b as u32;\n"
+                                     "    var byte: u8 = word as Bits as u8;\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "raw union declaration and casts lower to HIR");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main function is present in HIR");
+    if (main != nullptr) {
+        CHECK_EQ(countUnionCasts(hir, *main), 4u,
+                 "union literal and member round-trip emit four HirUnionCast nodes");
+    }
+}
+
 void test_distinct_generic_instances_have_distinct_symbols() {
     Workspace workspace;
     workspace.writeFile("main.zith", "fn pick<T>(x: T): T { x }\n"
@@ -1060,6 +1119,8 @@ static void test_hir_lower_modern() {
     test_global_marker_lowers_into_multiple_flow_fns();
     test_generic_function_lowers_to_concrete_instances();
     test_generic_instance_deduplication();
+    test_call_with_unlowerable_argument_fails_pipeline();
+    test_raw_union_lowers_members_and_casts();
     test_distinct_generic_instances_have_distinct_symbols();
 }
 

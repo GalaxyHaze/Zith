@@ -1697,11 +1697,28 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             break;
         }
         case cache::CompactExprKind::Cast: {
-            hir::HirCast cast;
-            cast.value = ce.ref_a;
-            cast.from  = compactType(ce.ref_e);
-            cast.to    = compactType(ce.ref_b);
-            expr       = cast;
+            const auto to   = compactType(ce.ref_b);
+            const auto from = compactType(ce.ref_e);
+            if (from == types::kInvalidType || to == types::kInvalidType) {
+                hir::HirCast cast;
+                cast.value = ce.ref_a;
+                cast.from  = from;
+                cast.to    = to;
+                expr       = cast;
+            } else if (mTypes.kindOf(from) == types::TypeKind::Union ||
+                       mTypes.kindOf(to) == types::TypeKind::Union) {
+                hir::HirUnionCast cast;
+                cast.value = ce.ref_a;
+                cast.from  = from;
+                cast.to    = to;
+                expr       = cast;
+            } else {
+                hir::HirCast cast;
+                cast.value = ce.ref_a;
+                cast.from  = from;
+                cast.to    = to;
+                expr       = cast;
+            }
             break;
         }
         case cache::CompactExprKind::LayoutIntrinsic: {
@@ -1754,15 +1771,14 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
 
     symbols::SymId next_sym = 1;
     for (size_t fi = 0; fi < art.functions.size(); ++fi) {
-        const auto &cfn = art.functions[fi];
-        const std::string_view cfn_name =
-            cfn.name.empty() && cfn.name_id < art.strings.size()
-                ? art.strings[cfn.name_id]
-                : cfn.name;
-        auto &fn = mHirModule.addFn(mInterner->intern(cfn_name));
-        fn.return_type  = compactType(cfn.return_type_id);
-        fn.isVariadic   = cfn.is_variadic;
-        fn.sym_id       = next_sym++;
+        const auto &cfn                 = art.functions[fi];
+        const std::string_view cfn_name = cfn.name.empty() && cfn.name_id < art.strings.size()
+                                              ? art.strings[cfn.name_id]
+                                              : cfn.name;
+        auto &fn                        = mHirModule.addFn(mInterner->intern(cfn_name));
+        fn.return_type                  = compactType(cfn.return_type_id);
+        fn.isVariadic                   = cfn.is_variadic;
+        fn.sym_id                       = next_sym++;
         for (size_t pi = 0; pi < cfn.param_type_ids.size() && pi < cfn.param_name_ids.size();
              ++pi) {
             fn.params.push(compactType(cfn.param_type_ids[pi]));

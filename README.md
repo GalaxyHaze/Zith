@@ -229,6 +229,17 @@ output identify the operating system, CPU model, logical CPU count, total memory
 Compare results only on the same machine, with the same compiler and build flags. The JSON output
 is intended for local automation and is not a versioned public API.
 
+## ASCII Highlighting
+
+The standalone script `scripts/zith-ascii.py` renders Zith source with visible ASCII markers when
+no plugin highlighter is available. It accepts a file, stdin, or an inline `--string`, and supports
+`markdown`, `tag`, `prefix`, `compact`, `ansi`, and `plain` styles.
+
+```bash
+scripts/zith-ascii.py examples/hello-world.zith
+scripts/zith-ascii.py --style tag --string 'fn main() { printf("oi"); }'
+```
+
 **Homebrew (macOS/Linux):**
 ```bash
 brew tap galaxyhaze/zithc

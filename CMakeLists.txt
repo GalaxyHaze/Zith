@@ -103,11 +103,21 @@ include(FetchContent)
 include(ExternalProject)
 
 if(NOT ZITH_IS_WASM)
-    FetchContent_Declare(
-        mio
-        GIT_REPOSITORY https://github.com/vimpunk/mio.git
-        GIT_TAG 8b6b7d878c89e81614d05edca7936de41ccdd2da
-    )
+    set(ZITH_MIO_SOURCE_DIR "" CACHE FILEPATH "Local mio source tree; skips network fetch")
+    if(ZITH_MIO_SOURCE_DIR)
+        FetchContent_Declare(
+            mio
+            SOURCE_DIR "${ZITH_MIO_SOURCE_DIR}"
+            GIT_REPOSITORY https://github.com/vimpunk/mio.git
+            GIT_TAG 8b6b7d878c89e81614d05edca7936de41ccdd2da
+        )
+    else()
+        FetchContent_Declare(
+            mio
+            GIT_REPOSITORY https://github.com/vimpunk/mio.git
+            GIT_TAG 8b6b7d878c89e81614d05edca7936de41ccdd2da
+        )
+    endif()
     FetchContent_MakeAvailable(mio)
 endif()
 
@@ -495,6 +505,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         -Wno-old-style-cast
         -Wno-format-nonliteral
         -Wno-missing-field-initializers
+        -Wno-nrvo
     )
     target_compile_options(zithcLib PRIVATE ${ZITH_CLANG_WARNINGS})
     if(TARGET zithc)

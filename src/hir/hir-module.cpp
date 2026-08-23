@@ -259,6 +259,14 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                        buffer += " : %t";
                                        buffer += std::to_string(m.type);
                                    },
+                                   [&](const HirUnionCast &c) {
+                                       buffer += "union_cast %e";
+                                       buffer += std::to_string(c.value);
+                                       buffer += " : %t";
+                                       buffer += std::to_string(c.from);
+                                       buffer += " -> %t";
+                                       buffer += std::to_string(c.to);
+                                   },
                                    [&](const HirCast &c) {
                                        buffer += "cast %e";
                                        buffer += std::to_string(c.value);

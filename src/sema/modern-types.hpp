@@ -95,6 +95,7 @@ struct EnumType {
 struct UnionType {
     std::string_view name;
     memory::DynArray<TypeId> &members;
+    bool is_raw = false;
 };
 struct TraitType {
     std::string_view name;
@@ -155,7 +156,8 @@ public:
     [[nodiscard]] TypeId internEnum(std::string_view name, TypeId underlying,
                                     memory::DynArray<std::string_view> &variant_names,
                                     memory::DynArray<int64_t> &discriminants);
-    [[nodiscard]] TypeId internUnion(std::string_view name, memory::DynArray<TypeId> &members);
+    [[nodiscard]] TypeId internUnion(std::string_view name, memory::DynArray<TypeId> &members,
+                                     bool is_raw = false);
     [[nodiscard]] TypeId internTrait(std::string_view name);
     [[nodiscard]] TypeId internTypeVar();
     [[nodiscard]] TypeId internUnknown();

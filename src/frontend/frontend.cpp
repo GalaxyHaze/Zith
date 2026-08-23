@@ -455,6 +455,17 @@ public:
                 continue;
             }
 
+            // `raw union Name { ... }` is an untagged C-style union. Keep the
+            // keyword consumed so the body is parsed by the union branch below.
+            if (word == "raw" && index_ + 1 < token_count_ && text(index_ + 1) == "union") {
+                flushBadRun();
+                ++index_; // consume 'raw'
+                lowerDeclaration(start, DeclKind::Union, visibility, {}, {}, false,
+                                 FunctionKind::Standard, {}, true);
+                visibility = Visibility::Private;
+                continue;
+            }
+
             const auto kind = declarationKind(word);
             if (kind) {
                 flushBadRun();
@@ -2570,7 +2581,8 @@ private:
                           std::string ownerName = {}, std::string traitName = {},
                           const bool isExtern                              = false,
                           const FunctionKind functionKind                  = FunctionKind::Standard,
-                          const std::vector<GenericParam> &inheritedParams = {}) {
+                          const std::vector<GenericParam> &inheritedParams = {},
+                          const bool isRawUnion                            = false) {
         Declaration declaration;
         declaration.id         = DeclId{static_cast<uint32_t>(snapshot_.declarations_.size() + 1U)};
         declaration.kind       = kind;
@@ -2579,6 +2591,7 @@ private:
         declaration.ownerName     = std::move(ownerName);
         declaration.traitName     = std::move(traitName);
         declaration.isExtern      = isExtern;
+        declaration.isRawUnion    = isRawUnion;
         declaration.isNominalType = declaration_is_nominal_;
         if (kind == DeclKind::Function && functionKind == FunctionKind::Extern)
             declaration.isExtern = true;
@@ -2769,6 +2782,30 @@ private:
             else
                 snapshot_.diagnostics_.push_back(
                     {range(start, index_), "expected '}' after enum variants"});
+        } else if (kind == DeclKind::Union && punctuation(index_, '{')) {
+            // Positional union body: `union Name { T, U, ... }`. Each member is
+            // stored as an unnamed Parameter whose `type` names the member type;
+            // named-variant unions remain a future extension.
+            ++index_;
+            while (index_ < token_count_ && !punctuation(index_, '}')) {
+                if (punctuation(index_, ',')) {
+                    ++index_;
+                    continue;
+                }
+                Parameter member;
+                member.span = tokenSpan(index_);
+                member.type = parseType();
+                declaration.parameters.push_back(std::move(member));
+                if (punctuation(index_, ','))
+                    ++index_;
+                else if (!punctuation(index_, '}'))
+                    break;
+            }
+            if (punctuation(index_, '}'))
+                ++index_;
+            else
+                snapshot_.diagnostics_.push_back(
+                    {range(start, index_), "expected '}' after union members"});
         } else if (punctuation(index_, '{')) {
             skipDelimited('{', '}');
         }

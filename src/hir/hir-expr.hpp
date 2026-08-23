@@ -245,6 +245,15 @@ struct HirMakeSome {
     HirExprKind tag = HirExprKind::MakeSome;
 };
 
+/// Reinterpret the bytes of a value through the given union type. Unlike a
+/// numeric `as`, this stores into union storage and never converts the value.
+struct HirUnionCast {
+    HirExprId value;
+    HirTypeId from;
+    HirTypeId to;
+    HirExprKind tag = HirExprKind::Cast;
+};
+
 /// The offsetOf / alignOf / sizeOf layout intrinsics; resolved to a constant at codegen.
 struct HirLayoutIntrinsic {
     enum class Which : uint8_t { OffsetOf, AlignOf, SizeOf };
@@ -295,8 +304,8 @@ using HirExpr =
     std::variant<HirLiteral, HirBinary, HirUnary, HirLet, HirVar, HirCall, HirRet, HirBranch,
                  HirJump, HirPhi, HirAssign, HirIndex, HirField, HirStructLiteral, HirArrayLiteral,
                  HirEnumValue, HirSlotAlloca, HirSlotStore, HirSlotLoad, HirSlotAddr, HirMakeNone,
-                 HirMakeSome, HirCast, HirLayoutIntrinsic, HirMarkerStore, HirMarkerLoad,
-                 HirMarkerDock, HirMarkerJump, HirMarkerRet>;
+                 HirMakeSome, HirCast, HirUnionCast, HirLayoutIntrinsic, HirMarkerStore,
+                 HirMarkerLoad, HirMarkerDock, HirMarkerJump, HirMarkerRet>;
 
 inline HirExprKind exprKind(const HirExpr &expr) {
     return std::visit([](const auto &entry) { return entry.tag; }, expr);

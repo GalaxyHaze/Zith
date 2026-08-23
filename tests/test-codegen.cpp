@@ -919,6 +919,23 @@ static void test_layout_api_matches_llvm() {
              "Raw union size matches its lowered LLVM storage struct");
     CHECK_EQ(type_gen.alignOf(raw_union), layout->getABITypeAlign(union_llvm).value(),
              "Raw union alignment matches its lowered LLVM storage struct");
+    CHECK_EQ(type_gen.alignOf(raw_union), type_gen.alignOf(types.internInt(types::IntWidth::U32)),
+             "Raw union alignment equals its maximum member alignment");
+    CHECK_EQ(type_gen.sizeOf(raw_union), 4u, "Raw union storage size covers its widest member");
+}
+
+static void test_raw_union_runtime_reinterpret() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+                         "raw union Bits { u8, u32 }\n"
+                         "fn main(): u32 {\n"
+                         "    var b: Bits = Bits { 255u8 };\n"
+                         "    return b as u32;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "Raw union construction and member read run successfully");
+    CHECK_EQ(r.exitCode, 255, "Raw union member read reinterprets the stored byte as u32");
 }
 
 /// Builds a tiny C static library that returns a `{ptr, len}` aggregate and
@@ -1461,6 +1478,8 @@ static void test_codegen() {
     test_invalid_ir_refuses_object_emission();
     printf("Running test_layout_api_matches_llvm\n");
     test_layout_api_matches_llvm();
+    printf("Running test_raw_union_runtime_reinterpret\n");
+    test_raw_union_runtime_reinterpret();
     printf("Running test_optional_and_slice_layouts\n");
     test_optional_and_slice_layouts();
     printf("Running test_slice_abi_matches_c_runtime\n");
