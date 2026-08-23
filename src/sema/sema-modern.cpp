@@ -431,7 +431,27 @@ void PerModuleSema::lowerDeclarationTypes() {
         }
         case frontend::DeclKind::Union: {
             auto &members = type_table.makeTypeStorage();
-            TypeId ut     = type_table.internUnion(decl.name, members);
+            for (const auto &member_param : decl.parameters) {
+                TypeId member = lowerTypeExpr(member_param.type);
+                if (!member || member == error_type || member == invalid_type) {
+                    report(member_param.span, "union member must be a concrete type",
+                           diagnostics::err::TypeMismatch);
+                    continue;
+                }
+                const TypeId resolved_member = resolve(member);
+                if (type_table.kindOf(resolved_member) == TypeKind::Void) {
+                    report(member_param.span, "union member cannot be 'void'",
+                           diagnostics::err::TypeMismatch);
+                    continue;
+                }
+                if (type_table.kindOf(resolved_member) == TypeKind::Unknown) {
+                    report(member_param.span, "union member must not be an unknown type",
+                           diagnostics::err::TypeMismatch);
+                    continue;
+                }
+                members.push(member);
+            }
+            TypeId ut = type_table.internUnion(decl.name, members, decl.isRawUnion);
             setDeclType(decl.id, ut);
             type_table.registerNamed(decl.name, ut);
             break;
@@ -832,6 +852,50 @@ TypeId PerModuleSema::instantiateTypeExpr(frontend::TextSpan span, std::string_v
                diagnostics::err::GenericCannotInfer);
         return error_type;
     }
+}
+
+TypeId PerModuleSema::instantiateStructFromArgs(frontend::TextSpan span,
+                                                const frontend::Declaration &template_decl,
+                                                const std::vector<TypeId> &args) {
+    if (template_decl.kind != frontend::DeclKind::Struct)
+        return error_type;
+    const size_t arity = template_decl.genericParams.size();
+    if (args.size() != arity) {
+        report(span, "wrong generic argument count for '" + template_decl.name + "'",
+               diagnostics::err::GenericArity);
+        return error_type;
+    }
+
+    std::string concrete_name = std::string(template_decl.name) + "<";
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (i != 0)
+            concrete_name += ",";
+        concrete_name += type_table.typeToString(args[i]);
+    }
+    if (args.empty())
+        concrete_name += "?";
+    concrete_name += ">";
+    if (const TypeId existing = type_table.lookupNamed(concrete_name))
+        return existing;
+
+    auto &fields                                   = type_table.makeTypeStorage();
+    auto &field_names                              = type_table.makeStringStorage();
+    const std::vector<GenericBinding> saved_active = std::move(activeTemplateArgs_);
+    activeTemplateArgs_.clear();
+    for (size_t i = 0; i < template_decl.genericParams.size(); ++i)
+        activeTemplateArgs_.push_back(GenericBinding{template_decl.genericParams[i].name, args[i]});
+    for (const auto &param : template_decl.parameters) {
+        const TypeId field_type = lowerTypeExpr(param.type);
+        fields.push(field_type ? field_type : error_type);
+        char *buf = static_cast<char *>(arena.alloc(param.name.size(), 1));
+        std::memcpy(buf, param.name.data(), param.name.size());
+        field_names.push(std::string_view(buf, param.name.size()));
+    }
+    activeTemplateArgs_ = saved_active;
+
+    const TypeId st = type_table.internStruct(concrete_name, fields, &field_names);
+    type_table.registerNamed(concrete_name, st);
+    return st;
 }
 
 TypeId PerModuleSema::inferExpr(frontend::ExprId id) {
@@ -1791,6 +1855,23 @@ bool PerModuleSema::isOpaquePointerCast(TypeId from, TypeId to) const {
     return isVoidPointer(from_ptr) || isVoidPointer(to_ptr);
 }
 
+TypeId PerModuleSema::unionMemberType(frontend::TextSpan span, TypeId union_type, TypeId member) {
+    const TypeId resolved  = resolve(union_type);
+    const auto *union_data = type_table.union_type(resolved);
+    if (union_data == nullptr)
+        return error_type;
+    const TypeId member_resolved = resolve(member);
+    for (const auto candidate : union_data->members) {
+        if (sameType(resolve(candidate), member_resolved))
+            return member;
+    }
+    report(span,
+           "'" + type_table.typeToString(member) + "' is not a member of '" +
+               type_table.typeToString(resolved) + "'",
+           diagnostics::err::InvalidCast);
+    return error_type;
+}
+
 TypeId PerModuleSema::inferCast(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     if (expr.operands.empty())
@@ -1826,6 +1907,22 @@ TypeId PerModuleSema::inferCast(frontend::ExprId id) {
         }
         const TypeId from_resolved = resolve(source);
         const TypeId to_resolved   = resolve(target);
+        if (type_table.kindOf(from_resolved) == TypeKind::Union)
+            return unionMemberType(expr.span, from_resolved, to_resolved);
+        if (type_table.kindOf(to_resolved) == TypeKind::Union) {
+            const auto *union_type = type_table.union_type(to_resolved);
+            if (union_type == nullptr)
+                return error_type;
+            for (const auto member : union_type->members) {
+                if (sameType(resolve(member), from_resolved))
+                    return result;
+            }
+            report(expr.span,
+                   "'" + type_table.typeToString(from_resolved) + "' is not a member of union '" +
+                       type_table.typeToString(to_resolved) + "'",
+                   diagnostics::err::InvalidCast);
+            return error_type;
+        }
         CastKind kind =
             classifyCast(type_table.kindOf(from_resolved), type_table.kindOf(to_resolved));
         // `raw opaque as *T` and `*T as raw opaque` are the two supported pointer casts.
@@ -2242,6 +2339,17 @@ TypeId PerModuleSema::inferField(frontend::ExprId id) {
     // not a struct field access.
     if (const auto enum_type = enumVariantType(expr.operands[0], expr.text, expr.span))
         return *enum_type;
+    // A struct name is a type, not a value. Reject `Pair.first` before the base
+    // is treated as an expression that lowerings can silently drop.
+    if (const auto *resolved = findResolvedExpr(expr.operands[0]);
+        resolved != nullptr && resolved->kind == session::ResolutionKind::Declaration &&
+        resolved->declaration && resolved->declKind == frontend::DeclKind::Struct) {
+        report(expr.span,
+               "struct name '" + resolved->name + "' cannot be used as a value in field access;" +
+                   " use a value such as 'p.first'",
+               diagnostics::err::TypeMismatch);
+        return error_type;
+    }
     TypeId object_type = inferExpr(expr.operands[0]);
     TypeId resolved    = resolve(object_type);
     const auto *st     = type_table.struct_type(resolved);
@@ -2327,6 +2435,159 @@ TypeId PerModuleSema::inferArrow(frontend::ExprId id) {
     return st->fields[static_cast<size_t>(idx)];
 }
 
+TypeId PerModuleSema::resolveGenericStructLiteral(frontend::TextSpan span,
+                                                  const frontend::Expression &expr,
+                                                  const frontend::Declaration &template_decl,
+                                                  const bool named,
+                                                  std::vector<TypeId> explicit_args) {
+    const size_t field_count = template_decl.parameters.size();
+    std::vector<TypeId> template_field_types;
+    template_field_types.reserve(field_count);
+    {
+        const uint32_t saved_decl_id            = currentDeclId_;
+        const frontend::FunctionKind saved_kind = currentFunctionKind_;
+        currentDeclId_                          = template_decl.id.value;
+        currentFunctionKind_                    = frontend::FunctionKind::Standard;
+        for (const auto &param : template_decl.parameters) {
+            const TypeId lowered = lowerTypeExpr(param.type);
+            template_field_types.push_back(lowered ? lowered : error_type);
+        }
+        currentDeclId_       = saved_decl_id;
+        currentFunctionKind_ = saved_kind;
+    }
+
+    std::vector<bool> seen(field_count, false);
+    std::vector<size_t> provided_field_indices;
+    std::vector<size_t> provided_operands;
+    std::vector<TypeId> declared_field_types;
+    std::vector<TypeId> argument_types;
+    provided_field_indices.reserve(expr.operands.size());
+    provided_operands.reserve(expr.operands.size());
+    declared_field_types.reserve(expr.operands.size());
+    argument_types.reserve(expr.operands.size());
+
+    for (size_t i = 0; i < expr.operands.size(); ++i) {
+        int decl_idx = -1;
+        if (named) {
+            const std::string_view wanted = i < expr.field_names.size()
+                                                ? std::string_view(expr.field_names[i])
+                                                : std::string_view{};
+            for (size_t index = 0; index < template_decl.parameters.size(); ++index) {
+                if (template_decl.parameters[index].name == wanted) {
+                    decl_idx = static_cast<int>(index);
+                    break;
+                }
+            }
+            if (decl_idx < 0) {
+                report(expr.span,
+                       "unknown field '" + std::string(wanted) + "' in struct '" +
+                           template_decl.name + "'",
+                       diagnostics::err::NoMember);
+                continue;
+            }
+        } else {
+            if (i >= field_count) {
+                report(expr.span,
+                       "too many fields in struct literal for '" + template_decl.name + "'",
+                       diagnostics::err::TypeMismatch);
+                continue;
+            }
+            decl_idx = static_cast<int>(i);
+        }
+
+        if (seen[static_cast<size_t>(decl_idx)]) {
+            report(expr.span,
+                   "duplicate field '" +
+                       template_decl.parameters[static_cast<size_t>(decl_idx)].name +
+                       "' in struct literal",
+                   diagnostics::err::TypeMismatch);
+            continue;
+        }
+        seen[static_cast<size_t>(decl_idx)] = true;
+
+        const auto &operand = snapshot.expressions()[expr.operands[i].value - 1U];
+        if (operand.kind == frontend::ExprKind::Placeholder) {
+            if (!findFieldDefault(template_decl.name, static_cast<size_t>(decl_idx))) {
+                report(expr.span,
+                       "field '" + template_decl.parameters[static_cast<size_t>(decl_idx)].name +
+                           "' has no default value for '_'",
+                       diagnostics::err::TypeMismatch);
+            }
+            continue;
+        }
+
+        const TypeId value_type = inferExpr(expr.operands[i]);
+        if (value_type == error_type)
+            return error_type;
+        provided_field_indices.push_back(static_cast<size_t>(decl_idx));
+        provided_operands.push_back(i);
+        declared_field_types.push_back(template_field_types[static_cast<size_t>(decl_idx)]);
+        argument_types.push_back(value_type);
+    }
+
+    std::vector<TypeId> resolved_args;
+    if (instantiations == nullptr) {
+        report(span, "generic struct literals require the instantiation pass",
+               diagnostics::err::GenericCannotInfer);
+        return error_type;
+    }
+    const comptime::GenericResolveStatus status = instantiations->resolveStruct(
+        template_decl.genericParams.size(), template_decl.id.value, explicit_args,
+        declared_field_types, argument_types, resolved_args);
+    switch (status) {
+    case comptime::GenericResolveStatus::Arity:
+        report(span, "wrong generic argument count for '" + template_decl.name + "'",
+               diagnostics::err::GenericArity);
+        return error_type;
+    case comptime::GenericResolveStatus::CannotInfer:
+        report(span,
+               "cannot infer generic struct literal for '" + template_decl.name +
+                   "'; field types do not uniquely determine all generic parameters",
+               diagnostics::err::GenericStructInfer);
+        return error_type;
+    case comptime::GenericResolveStatus::Explosion:
+        report(span, "too many generic instantiations", diagnostics::err::GenericExplosion);
+        return error_type;
+    case comptime::GenericResolveStatus::Ok:
+        break;
+    }
+
+    const TypeId concrete = instantiateStructFromArgs(span, template_decl, resolved_args);
+    if (!concrete)
+        return error_type;
+    const TypeId concrete_resolved = type_table.stripQualifiers(concrete);
+    const auto *st                 = type_table.struct_type(concrete_resolved);
+    if (st == nullptr) {
+        report(span, "'" + template_decl.name + "' is not a struct type",
+               diagnostics::err::GenericCannotInfer);
+        return error_type;
+    }
+
+    for (size_t i = 0; i < provided_field_indices.size(); ++i) {
+        const size_t field_index = provided_field_indices[i];
+        const TypeId field_type  = st->fields[field_index];
+        const TypeId value_type  = argument_types[i];
+        if (!coerceValue(expr.operands[provided_operands[i]], field_type, value_type)) {
+            reportCoercionFailure(
+                expr.span, field_type, value_type,
+                "struct literal field type mismatch for '" +
+                    (named ? expr.field_names[provided_operands[i]]
+                           : std::string(template_decl.parameters[field_index].name)) +
+                    "'");
+        }
+    }
+
+    for (size_t i = 0; i < field_count; ++i) {
+        if (seen[i] || findFieldDefault(template_decl.name, i))
+            continue;
+        report(expr.span,
+               "missing field '" + template_decl.parameters[i].name +
+                   "' in struct literal; add a value or a field default",
+               diagnostics::err::TypeMismatch);
+    }
+    return TypeId{concrete_resolved.intern_seq};
+}
+
 TypeId PerModuleSema::inferStructLiteral(frontend::ExprId id) {
     const auto &expr        = snapshot.expressions()[id.value - 1U];
     std::string struct_name = expr.text;
@@ -2348,6 +2609,21 @@ TypeId PerModuleSema::inferStructLiteral(frontend::ExprId id) {
         struct_tid = instantiated;
         resolved   = type_table.stripQualifiers(struct_tid);
         st         = type_table.struct_type(resolved);
+    }
+    if (!from_generic_args) {
+        for (const auto &decl : snapshot.declarations()) {
+            if (decl.kind == frontend::DeclKind::Struct && decl.name == expr.text &&
+                !decl.genericParams.empty()) {
+                return resolveGenericStructLiteral(expr.span, expr, decl, !expr.field_names.empty(),
+                                                   {});
+            }
+        }
+        struct_tid = type_table.lookupNamed(struct_name);
+        if (struct_tid && type_table.kindOf(resolve(struct_tid)) == TypeKind::Union) {
+            const auto *union_data = type_table.union_type(resolve(struct_tid));
+            if (union_data != nullptr)
+                return inferUnionLiteral(id, struct_tid, *union_data);
+        }
     }
     if (!from_generic_args) {
         struct_tid = type_table.lookupNamed(struct_name);
@@ -2413,7 +2689,48 @@ TypeId PerModuleSema::inferStructLiteral(frontend::ExprId id) {
                                       (named ? expr.field_names[i] : fieldName(decl_idx)) + "'");
         }
     }
+    for (size_t i = 0; i < field_count; ++i) {
+        if (seen[i] || findFieldDefault(expr.text, i))
+            continue;
+        report(expr.span,
+               "missing field '" + fieldName(static_cast<int>(i)) +
+                   "' in struct literal; add a value or a field default",
+               diagnostics::err::TypeMismatch);
+    }
     return TypeId{resolved.intern_seq};
+}
+
+TypeId PerModuleSema::inferUnionLiteral(frontend::ExprId id, TypeId union_tid,
+                                        const UnionType &union_data) {
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.field_names.size() != 0U) {
+        report(expr.span, "positional raw union literals do not accept named members",
+               diagnostics::err::TypeMismatch);
+        return error_type;
+    }
+    if (expr.operands.size() != 1U) {
+        report(expr.span, "raw union literal requires exactly one member value",
+               diagnostics::err::TypeMismatch);
+        return error_type;
+    }
+    TypeId chosen_member = kInvalidTypeId;
+    for (const auto member : union_data.members) {
+        const TypeId member_type = resolve(member);
+        const TypeId value_type  = inferExpr(expr.operands[0]);
+        if (member_type == error_type || value_type == error_type)
+            return error_type;
+        if (coerceValue(expr.operands[0], member_type, value_type)) {
+            chosen_member = member_type;
+            break;
+        }
+    }
+    if (!chosen_member) {
+        const TypeId value_type = inferExpr(expr.operands[0]);
+        reportCoercionFailure(expr.span, union_data.members[0], value_type,
+                              "raw union member type mismatch");
+        return error_type;
+    }
+    return TypeId{union_tid.intern_seq};
 }
 
 TypeId PerModuleSema::inferArrayLiteral(frontend::ExprId id) {

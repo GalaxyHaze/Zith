@@ -51,6 +51,17 @@ public:
                 const std::vector<sema::modern::TypeId> &argument_types,
                 std::vector<sema::modern::TypeId> &out_args) const;
 
+    /// Deduces struct-literal generic arguments from the declared field types
+    /// that surround each initializer. Unlike function calls, inconsistent
+    /// inferred values are left to the later field coercion so the normal
+    /// TypeMismatch diagnostics win over GenericStructInfer.
+    [[nodiscard]] GenericResolveStatus
+    resolveStruct(size_t degree, uint32_t template_decl_id,
+                  const std::vector<sema::modern::TypeId> &explicit_args,
+                  const std::vector<sema::modern::TypeId> &declared_field_types,
+                  const std::vector<sema::modern::TypeId> &argument_types,
+                  std::vector<sema::modern::TypeId> &out_args) const;
+
     size_t bindCall(const session::ModuleKey &module, frontend::ExprId callee,
                     const session::ModuleKey &target_module, frontend::DeclId decl,
                     std::vector<sema::modern::TypeId> args);
@@ -72,6 +83,16 @@ public:
 private:
     static uint64_t callKey(const session::ModuleKey &module, frontend::ExprId call) noexcept;
     static constexpr size_t kMaxInstances = 1024;
+
+    /// Shared recursive generic unification used by function calls and struct
+    /// literals. `strict` keeps the legacy call behavior: a conflict after a
+    /// generic parameter has been bound is a CannotInfer failure.
+    [[nodiscard]] GenericResolveStatus
+    resolveTypes(size_t degree, uint32_t decl_id,
+                 const std::vector<sema::modern::TypeId> &explicit_args,
+                 const std::vector<sema::modern::TypeId> &declared_types,
+                 const std::vector<sema::modern::TypeId> &argument_types, bool strict,
+                 std::vector<sema::modern::TypeId> &out_args) const;
 
     const session::CompilationSnapshot &snapshot_;
     sema::modern::TypeTable &type_table_;

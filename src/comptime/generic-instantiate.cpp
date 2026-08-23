@@ -120,6 +120,31 @@ GenericInstantiationPass::resolveArgs(const sema::modern::FunctionType &fn, cons
                                       const std::vector<sema::modern::TypeId> &explicit_args,
                                       const std::vector<sema::modern::TypeId> &argument_types,
                                       std::vector<sema::modern::TypeId> &out_args) const {
+    std::vector<sema::modern::TypeId> declared_types;
+    declared_types.reserve(fn.params.size());
+    for (const auto param : fn.params)
+        declared_types.push_back(param);
+    return resolveTypes(degree, decl_id, explicit_args, declared_types, argument_types, true,
+                        out_args);
+}
+
+GenericResolveStatus GenericInstantiationPass::resolveStruct(
+    const size_t degree, const uint32_t template_decl_id,
+    const std::vector<sema::modern::TypeId> &explicit_args,
+    const std::vector<sema::modern::TypeId> &declared_field_types,
+    const std::vector<sema::modern::TypeId> &argument_types,
+    std::vector<sema::modern::TypeId> &out_args) const {
+    return resolveTypes(degree, template_decl_id, explicit_args, declared_field_types,
+                        argument_types, false, out_args);
+}
+
+GenericResolveStatus
+GenericInstantiationPass::resolveTypes(const size_t degree, const uint32_t decl_id,
+                                       const std::vector<sema::modern::TypeId> &explicit_args,
+                                       const std::vector<sema::modern::TypeId> &declared_types,
+                                       const std::vector<sema::modern::TypeId> &argument_types,
+                                       const bool strict,
+                                       std::vector<sema::modern::TypeId> &out_args) const {
     if (degree == 0)
         return GenericResolveStatus::Arity;
     if (!explicit_args.empty() && explicit_args.size() != degree)
@@ -153,7 +178,7 @@ GenericInstantiationPass::resolveArgs(const sema::modern::FunctionType &fn, cons
     bool failed      = false;
     const auto unify = [&](auto &&self, sema::modern::TypeId param,
                            sema::modern::TypeId arg) -> void {
-        if (failed || !param || !arg)
+        if ((strict && failed) || !param || !arg)
             return;
         param = type_table_.stripQualifiers(param);
         arg   = type_table_.stripQualifiers(arg);
@@ -170,7 +195,8 @@ GenericInstantiationPass::resolveArgs(const sema::modern::FunctionType &fn, cons
             if (resolved[target]) {
                 if (resolved[target] != arg && type_table_.stripQualifiers(resolved[target]) !=
                                                    type_table_.stripQualifiers(arg)) {
-                    failed = true;
+                    if (strict)
+                        failed = true;
                 }
                 return;
             }
@@ -197,7 +223,8 @@ GenericInstantiationPass::resolveArgs(const sema::modern::FunctionType &fn, cons
         const sema::modern::TypeKind p_kind = type_table_.kindOf(param);
         const sema::modern::TypeKind a_kind = type_table_.kindOf(arg);
         if (p_kind != a_kind) {
-            failed = true;
+            if (strict)
+                failed = true;
             return;
         }
         switch (p_kind) {
@@ -205,40 +232,41 @@ GenericInstantiationPass::resolveArgs(const sema::modern::FunctionType &fn, cons
             if (const auto *pp = type_table_.pointer(param);
                 pp != nullptr && type_table_.pointer(arg) != nullptr)
                 self(self, pp->pointee, type_table_.pointer(arg)->pointee);
-            else
+            else if (strict)
                 failed = true;
             break;
         case sema::modern::TypeKind::Optional:
             if (const auto *po = type_table_.optional(param);
                 po != nullptr && type_table_.optional(arg) != nullptr)
                 self(self, po->inner, type_table_.optional(arg)->inner);
-            else
+            else if (strict)
                 failed = true;
             break;
         case sema::modern::TypeKind::Array:
             if (const auto *pa = type_table_.array(param);
                 pa != nullptr && type_table_.array(arg) != nullptr) {
                 const auto *aa = type_table_.array(arg);
-                if (pa->size != aa->size)
+                if (pa->size != aa->size && strict)
                     failed = true;
-                else
+                else if (pa->size == aa->size)
                     self(self, pa->element, aa->element);
             } else {
-                failed = true;
+                if (strict)
+                    failed = true;
             }
             break;
         case sema::modern::TypeKind::Slice:
             if (const auto *ps = type_table_.slice(param);
                 ps != nullptr && type_table_.slice(arg) != nullptr)
                 self(self, ps->element, type_table_.slice(arg)->element);
-            else
+            else if (strict)
                 failed = true;
             break;
         case sema::modern::TypeKind::Failable:
             if (const auto *pf = type_table_.failable(param);
                 pf != nullptr && type_table_.failable(arg) != nullptr)
                 self(self, pf->inner, type_table_.failable(arg)->inner);
-            else
+            else if (strict)
                 failed = true;
             break;
         case sema::modern::TypeKind::Function: {
@@ -249,7 +277,8 @@ GenericInstantiationPass::resolveArgs(const sema::modern::FunctionType &fn, cons
                     self(self, pf->params[i], af->params[i]);
                 self(self, pf->result, af->result);
             } else {
-                failed = true;
+                if (strict)
+                    failed = true;
             }
             break;
         }
@@ -260,7 +289,8 @@ GenericInstantiationPass::resolveArgs(const sema::modern::FunctionType &fn, cons
                 for (size_t i = 0; i < ps->members.size(); ++i)
                     self(self, ps->members[i], as_->members[i]);
             } else {
-                failed = true;
+                if (strict)
+                    failed = true;
             }
             break;
         }
@@ -273,7 +303,8 @@ GenericInstantiationPass::resolveArgs(const sema::modern::FunctionType &fn, cons
                 for (size_t i = 0; i < ps->fields.size(); ++i)
                     self(self, ps->fields[i], as_->fields[i]);
             } else {
-                failed = true;
+                if (strict)
+                    failed = true;
             }
             break;
         }
@@ -286,7 +317,8 @@ GenericInstantiationPass::resolveArgs(const sema::modern::FunctionType &fn, cons
                 for (size_t i = 0; i < pu->members.size(); ++i)
                     self(self, pu->members[i], au->members[i]);
             } else {
-                failed = true;
+                if (strict)
+                    failed = true;
             }
             break;
         }
@@ -295,17 +327,19 @@ GenericInstantiationPass::resolveArgs(const sema::modern::FunctionType &fn, cons
         case sema::modern::TypeKind::Nominal:
             // Handled above after stripping; reaching here is an interned shape
             // the concrete pass does not currently match structurally.
-            failed = true;
+            if (strict)
+                failed = true;
             break;
         default:
-            failed = true;
+            if (strict)
+                failed = true;
             break;
         }
     };
 
-    for (size_t p = 0; p < fn.params.size() && p < argument_types.size(); ++p)
-        unify(unify, fn.params[p], argument_types[p]);
-    if (failed)
+    for (size_t p = 0; p < declared_types.size() && p < argument_types.size(); ++p)
+        unify(unify, declared_types[p], argument_types[p]);
+    if (strict && failed)
         return GenericResolveStatus::CannotInfer;
 
     for (const auto arg : resolved) {

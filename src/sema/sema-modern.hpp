@@ -161,6 +161,16 @@ private:
     /// by type expressions and generic struct literals.
     TypeId instantiateTypeExpr(frontend::TextSpan span, std::string_view name,
                                const std::vector<frontend::TypeExprId> &arguments);
+    /// Builds/returns the named concrete struct type when the arguments are already
+    /// lowered, including arguments inferred from a struct literal.
+    TypeId instantiateStructFromArgs(frontend::TextSpan span,
+                                     const frontend::Declaration &template_decl,
+                                     const std::vector<TypeId> &args);
+    /// Deduces missing struct literal generic arguments from provided fields,
+    /// materializes the concrete struct, then validates values and defaults.
+    TypeId resolveGenericStructLiteral(frontend::TextSpan span, const frontend::Expression &expr,
+                                       const frontend::Declaration &template_decl, bool named,
+                                       std::vector<TypeId> explicit_args);
     TypeId lowerForeignType(const cinterop::Type &type);
     TypeId inferExpr(frontend::ExprId id);
     TypeId inferLiteral(frontend::ExprId id, std::string_view text);
@@ -193,10 +203,16 @@ private:
     memory::Optional<TypeId> enumVariantType(frontend::ExprId operand, std::string_view variant,
                                              frontend::TextSpan span);
     TypeId inferStructLiteral(frontend::ExprId id);
+    /// Infers `Union { member }`, the positional construction syntax for a
+    /// raw union's first/selected member storage.
+    TypeId inferUnionLiteral(frontend::ExprId id, TypeId union_tid, const UnionType &union_data);
     TypeId inferArrayLiteral(frontend::ExprId id);
     TypeId inferCast(frontend::ExprId id);
     /// True for the two supported pointer casts: `raw opaque as *T` and `*T as raw opaque`.
     [[nodiscard]] bool isOpaquePointerCast(TypeId from, TypeId to) const;
+    /// Returns the union member when `from` is a union and `to` names one of
+    /// its members; otherwise reports an InvalidCast and returns `error_type`.
+    TypeId unionMemberType(frontend::TextSpan span, TypeId union_type, TypeId member);
     /// The pointer type inside `type`, looking through at most one `Optional` (a C pointer
     /// is `?*T`). Invalid when `type` is not a pointer or nullable pointer.
     [[nodiscard]] TypeId pointerBase(TypeId type) const noexcept;

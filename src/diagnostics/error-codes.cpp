@@ -173,6 +173,9 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
         return ErrorInfo{code, 'E', "types", "Too many generic instantiations",
                          "Reduce the number of distinct type arguments or add an explicit "
                          "boundary"};
+    case err::GenericStructInfer:
+        return ErrorInfo{code, 'E', "types", "Cannot infer generic struct literal",
+                         "Field types do not uniquely determine all generic parameters"};
 
     // Ownership
     case err::UseAfterMove:

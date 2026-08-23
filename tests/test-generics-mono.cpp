@@ -115,6 +115,16 @@ void test_generic_struct_alias_method_and_implement() {
     CHECK(r.ok, "generic structs, aliases, methods and implement blocks lower together");
 }
 
+void test_generic_struct_literal_inference_lowers() {
+    MonoTest t;
+    auto r = t.run("struct Pair<T, U> { first: T, second: U }\n"
+                   "fn main(): i32 {\n"
+                   "    let p = Pair{ first: 1, second: \"hello\" };\n"
+                   "    return p.first;\n"
+                   "}\n");
+    CHECK(r.ok, "an inferred generic struct literal lowers to HIR");
+}
+
 void test_generic_arity_error() {
     MonoTest t;
     auto r = t.run("fn id<T>(x: T): T { return x }\n"
@@ -164,6 +174,7 @@ int main() {
     test_generic_function_inference_and_collapse();
     test_generic_multi_param_function();
     test_generic_struct_alias_method_and_implement();
+    test_generic_struct_literal_inference_lowers();
     test_generic_arity_error();
     test_generic_cannot_infer_error();
     test_generic_explosion_limit();

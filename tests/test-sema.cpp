@@ -813,6 +813,87 @@ static void test_modern_struct_decl() {
     CHECK(r.ok, "Modern sema accepts a struct declaration without errors");
 }
 
+static void test_modern_struct_literal_missing_field_fails() {
+    ModernSemaTest t;
+    auto r = t.run("struct Pair { left: i32, right: i32 }\n"
+                   "fn main() {\n"
+                   "    var p: Pair = Pair{1};\n"
+                   "}\n");
+    CHECK(!r.ok, "Positional struct literals cannot omit fields without defaults");
+    CHECK(r.hasErrorCode(diagnostics::err::TypeMismatch),
+          "Missing struct literal fields report TypeMismatch");
+    CHECK(r.hasMessage("missing field 'right'"),
+          "The missing field diagnostic names the omitted field");
+}
+
+static void test_modern_struct_literal_omitted_default_allowed() {
+    ModernSemaTest t;
+    auto r = t.run("struct Pair { left: i32 = 3, right: i32 = 4 }\n"
+                   "fn main() {\n"
+                   "    var p: Pair = Pair{right: 9};\n"
+                   "}\n");
+    CHECK(r.ok, "Named struct literals may omit fields that have defaults");
+}
+
+static void test_modern_struct_literal_missing_named_field_without_default_fails() {
+    ModernSemaTest t;
+    auto r = t.run("struct Pair { left: i32, right: i32 }\n"
+                   "fn main() {\n"
+                   "    var p: Pair = Pair{right: 9};\n"
+                   "}\n");
+    CHECK(!r.ok, "Named struct literals cannot omit fields without defaults");
+    CHECK(r.hasMessage("missing field 'left'"),
+          "The named-literal diagnostic names the omitted field");
+}
+
+static void test_modern_struct_name_field_access_fails() {
+    ModernSemaTest t;
+    auto r = t.run("struct Pair { first: i32, second: i32 }\n"
+                   "fn take(a: i32, b: i32) {}\n"
+                   "fn main() {\n"
+                   "    take(Pair.first, Pair.second);\n"
+                   "}\n");
+    CHECK(!r.ok, "Using a struct name for field access is rejected");
+    CHECK(r.hasErrorCode(diagnostics::err::TypeMismatch),
+          "Struct name field access reports TypeMismatch");
+    CHECK(r.hasMessage("struct name 'Pair' cannot be used as a value in field access"),
+          "The struct name error points at the type-as-value misuse");
+}
+
+static void test_modern_raw_union_member_cast() {
+    ModernSemaTest t;
+    auto r = t.run("raw union Bits { u8, u32 }\n"
+                   "fn main() {\n"
+                   "    var b: Bits = Bits { 255u8 };\n"
+                   "    var word: u32 = b as u32;\n"
+                   "    var byte: u8 = word as Bits as u8;\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema accepts raw union construction and member casts");
+}
+
+static void test_modern_raw_union_cast_rejects_non_member() {
+    ModernSemaTest t;
+    auto r = t.run("raw union Bits { u8, u32 }\n"
+                   "fn main() {\n"
+                   "    var b: Bits = Bits { 0u8 };\n"
+                   "    var x: f64 = b as f64;\n"
+                   "}\n");
+    CHECK(!r.ok, "Modern sema rejects a cast from a union to a non-member type");
+    CHECK(r.hasErrorCode(diagnostics::err::InvalidCast),
+          "Non-member union cast reports InvalidCast");
+    CHECK(r.hasMessage("'f64' is not a member of 'Bits'"),
+          "The non-member diagnostic names the union member");
+}
+
+static void test_modern_union_parameter_and_return() {
+    ModernSemaTest t;
+    auto r = t.run("raw union Any { i32, f64 }\n"
+                   "fn pick(v: Any): Any {\n"
+                   "    return v;\n"
+                   "}\n");
+    CHECK(r.ok, "Modern sema accepts a raw union as parameter and return type");
+}
+
 static void test_modern_import_call() {
     ModernSemaTest t;
     t.write("dep.zith", "pub fn dep_fn(): i32 { 42 }\n");
@@ -1426,8 +1507,7 @@ static void test_modern_generic_params() {
                         "    return 0;\n"
                         "}\n");
     CHECK(!ar.ok, "a generic fn call with too many type arguments is rejected");
-    CHECK(ar.hasErrorCode(diagnostics::err::GenericArity),
-          "the wrong generic arity reports E3010");
+    CHECK(ar.hasErrorCode(diagnostics::err::GenericArity), "the wrong generic arity reports E3010");
     CHECK(ar.hasMessage("wrong generic argument count"),
           "the generic arity diagnostic is actionable");
 
@@ -1453,6 +1533,66 @@ static void test_modern_generic_params() {
                                  "    return p.left;\n"
                                  "}\n");
     CHECK(sl.ok, "a generic struct literal type-checks against its concrete instance");
+}
+
+static void test_modern_generic_struct_literal_inference() {
+    ModernSemaTest named_inferred;
+    auto named = named_inferred.run("struct Pair<T, U> { left: T, right: U }\n"
+                                    "fn main(): i32 {\n"
+                                    "    let p = Pair{ left: 1, right: \"hello\" };\n"
+                                    "    return p.left;\n"
+                                    "}\n");
+    CHECK(named.ok, "named generic struct literal fields deduce type arguments");
+
+    ModernSemaTest positional_inferred;
+    auto positional = positional_inferred.run("struct Pair<T, U> { left: T, right: U }\n"
+                                              "fn main(): i32 {\n"
+                                              "    let p = Pair{ 1, \"hello\" };\n"
+                                              "    return p.left;\n"
+                                              "}\n");
+    CHECK(positional.ok, "positional generic struct literal fields deduce type arguments");
+
+    ModernSemaTest explicit_still_works;
+    auto explicit_test = explicit_still_works.run("struct Pair<T, U> { left: T, right: U }\n"
+                                                  "fn main(): i32 {\n"
+                                                  "    let p: Pair<i32, f64> = "
+                                                  "Pair<i32, f64>{ left: 1, right: 2.5 };\n"
+                                                  "    return p.left;\n"
+                                                  "}\n");
+    CHECK(explicit_test.ok,
+          "explicit generic struct literal arguments continue to override inference");
+
+    ModernSemaTest cannot_infer;
+    auto cannot = cannot_infer.run("struct Only<T, U> { left: T }\n"
+                                   "fn main(): i32 {\n"
+                                   "    let p = Only{ left: 1 };\n"
+                                   "    return p.left;\n"
+                                   "}\n");
+    CHECK(!cannot.ok, "a generic struct literal cannot leave a fieldless parameter unresolved");
+    CHECK(cannot.hasErrorCode(diagnostics::err::GenericStructInfer),
+          "the unresolved generic struct literal reports E3013");
+
+    ModernSemaTest coercion_mismatch;
+    auto coercion = coercion_mismatch.run("struct Same<T> { left: T, right: T }\n"
+                                          "fn main(): i32 {\n"
+                                          "    let p = Same{ left: 1, right: true };\n"
+                                          "    return p.left;\n"
+                                          "}\n");
+    CHECK(!coercion.ok, "conflicting generic struct literal fields are rejected");
+    CHECK(coercion.hasErrorCode(diagnostics::err::TypeMismatch),
+          "conflicting provided fields report TypeMismatch");
+    CHECK(!coercion.hasErrorCode(diagnostics::err::GenericStructInfer),
+          "conflicting provided fields do not report E3013");
+
+    ModernSemaTest explicit_arity;
+    auto arity = explicit_arity.run("struct Pair<T, U> { left: T, right: U }\n"
+                                    "fn main(): i32 {\n"
+                                    "    let p = Pair<i32>{ left: 1, right: 2 };\n"
+                                    "    return p.left;\n"
+                                    "}\n");
+    CHECK(!arity.ok, "wrong explicit generic struct literal arity is rejected");
+    CHECK(arity.hasErrorCode(diagnostics::err::GenericArity),
+          "wrong explicit generic struct literal arity reports E3010");
 }
 
 static void test_modern_array_literal() {
@@ -1654,6 +1794,13 @@ static void test_sema() {
     test_modern_if_condition();
     test_modern_while_condition();
     test_modern_struct_decl();
+    test_modern_struct_literal_missing_field_fails();
+    test_modern_struct_literal_omitted_default_allowed();
+    test_modern_struct_literal_missing_named_field_without_default_fails();
+    test_modern_struct_name_field_access_fails();
+    test_modern_raw_union_member_cast();
+    test_modern_raw_union_cast_rejects_non_member();
+    test_modern_union_parameter_and_return();
     test_modern_import_call();
     test_modern_void_fn();
     test_modern_binary_arithmetic();
@@ -1699,6 +1846,7 @@ static void test_sema() {
     test_modern_loop_body_infers_locals();
     test_modern_for_three_clause();
     test_modern_generic_params();
+    test_modern_generic_struct_literal_inference();
     test_modern_array_literal();
     test_modern_array_literal_mismatch();
     test_modern_array_literal_empty();
