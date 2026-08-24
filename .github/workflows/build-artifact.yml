@@ -343,8 +343,11 @@ jobs:
             cmake_flags: >-
               -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc
               -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+              -DLLVM_DIR=/usr/lib/llvm-18/lib/cmake/llvm
               -DCMAKE_SYSTEM_NAME=Linux
               -DCMAKE_SYSTEM_PROCESSOR=aarch64
+              -DCMAKE_CROSSCOMPILING=ON
+              -DZITH_HAS_LLVM=ON
 
           - os: macos-14
             target_name: macos-universal
@@ -421,7 +424,8 @@ jobs:
           sudo apt-get install -y ninja-build clang-18 lld-18 llvm-18-dev \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             libc6-dev-arm64-cross libc6-arm64-cross \
-            binutils-aarch64-linux-gnu
+            binutils-aarch64-linux-gnu zlib1g-dev libzstd-dev \
+            libcurl4-openssl-dev libffi-dev libedit-dev libxml2-dev
           sudo ln -sf /usr/bin/clang-18 /usr/bin/clang
           sudo ln -sf /usr/bin/clang++-18 /usr/bin/clang++
           sudo ln -sf /usr/bin/ld.lld-18 /usr/bin/ld.lld
