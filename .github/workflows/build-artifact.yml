@@ -199,7 +199,8 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
-            -DENABLE_WERROR=OFF \
+            -DZITH_ENABLE_STRICT_WARNINGS=OFF \
+            -DZITH_ENABLE_C_COMPILE=OFF \
             -DZITH_VERSION=${{ needs.create-release.outputs.tag || inputs.tag_name }} \
             ${{ matrix.cmake_flags }}
 
@@ -269,7 +270,8 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
-            -DENABLE_WERROR=OFF \
+            -DZITH_ENABLE_STRICT_WARNINGS=OFF \
+            -DZITH_ENABLE_C_COMPILE=OFF \
             -DZITH_VERSION='${{ needs.create-release.outputs.tag || inputs.tag_name }}' \
             -DCMAKE_C_COMPILER="zig;cc" \
             -DCMAKE_CXX_COMPILER="zig;c++" \
@@ -471,6 +473,9 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DZITHC_SOURCE_DIR="${SRC}" \
+            -DZITH_ENABLE_STRICT_WARNINGS=OFF \
+            -DBUILD_TESTING=OFF \
+            -DZITH_ENABLE_C_COMPILE=OFF \
             ${{ matrix.cmake_flags }}
 
       - name: Build zith-lsp
@@ -541,7 +546,8 @@ jobs:
           emcmake cmake -S . -B build-wasm -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
-            -DENABLE_WERROR=OFF \
+            -DZITH_ENABLE_STRICT_WARNINGS=OFF \
+            -DZITH_ENABLE_C_COMPILE=OFF \
             -DZITH_VERSION=${{ needs.create-release.outputs.tag || inputs.tag_name }} \
             -DCMAKE_CROSSCOMPILING=ON \
             -DZITH_IS_WASM=ON

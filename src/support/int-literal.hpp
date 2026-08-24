@@ -18,7 +18,7 @@ enum class IntLiteralStatus : std::uint8_t {
 /// Integer type suffixes are accepted by the lexer as part of a literal token and
 /// only affect the literal's type, never its bit pattern.
 [[nodiscard]] constexpr std::string_view integerSuffix(std::string_view text) noexcept {
-    static constexpr std::string_view kSuffixes[] = {
+    constexpr std::string_view kSuffixes[] = {
         "u128", "i128", "u64", "i64", "u32", "i32", "u16", "i16", "u8", "i8", "usize", "isize",
     };
     for (const auto suffix : kSuffixes) {

@@ -103,7 +103,8 @@ symbols::SymbolVisibility mapFrontendVisibility(const frontend::Visibility visib
 }
 
 template <typename ArrayT>
-void loadTomlStringArray(const toml::table &table, const char *key, ArrayT &destination) {
+[[maybe_unused]] void loadTomlStringArray(const toml::table &table, const char *key,
+                                          ArrayT &destination) {
     if (const auto *values = table[key].as_array())
         for (const auto &value : *values)
             if (const auto text = value.value<std::string>())
@@ -493,6 +494,7 @@ bool CompilationSession::lexStage() {
 #endif
 
     ensureFrontendContext();
+    mCanonicalPath = SourceCatalog::canonicalPath(mFilePath);
 
 #ifndef ZITH_IS_WASM
     if (!mCacheStore) {

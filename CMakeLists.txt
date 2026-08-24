@@ -10,6 +10,7 @@ option(ZITH_BUILD_BENCHMARKS "Build local benchmark executables" OFF)
 option(ZITH_IS_WASM "Build for WebAssembly target" OFF)
 option(ZITH_HAS_LLVM "Enable LLVM codegen backend" ON)
 option(ZITH_BUILD_LEGACY_LIB "Build the legacy parser/sema compatibility library" ON)
+option(ZITH_ENABLE_STRICT_WARNINGS "Strict Clang warning set for development" ON)
 option(ZITH_ENABLE_C_COMPILE "Enable recursive .c compilation for ffi.c_source_dirs / --c-source-dir" ON)
 set(ZITH_TCC_ROOT "" CACHE PATH "Optional root containing libtcc headers and libraries")
 option(ZITH_TCC_FETCH "Fetch and build TinyCC when libtcc is not found on the system" ON)
@@ -489,9 +490,9 @@ endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     set(ZITH_CLANG_WARNINGS
-        -Wall
-        -Werror
-        -Weverything
+        $<$<BOOL:${ZITH_ENABLE_STRICT_WARNINGS}>:-Wall>
+        $<$<BOOL:${ZITH_ENABLE_STRICT_WARNINGS}>:-Werror>
+        $<$<BOOL:${ZITH_ENABLE_STRICT_WARNINGS}>:-Weverything>
         -Wno-unknown-warning-option
         -Wno-disabled-macro-expansion
         -Wno-switch-enum
