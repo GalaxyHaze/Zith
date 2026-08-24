@@ -355,7 +355,7 @@ struct SnapshotMetrics {
 class CompilationSnapshot {
 public:
     CompilationSnapshot(std::shared_ptr<const SourceCatalog> catalog, CacheKey cache_key,
-                        std::vector<ModuleArtifactPtr> modules,
+                        ModuleKey root_module_key, std::vector<ModuleArtifactPtr> modules,
                         std::vector<MergedSymbol> merged_symbols,
                         std::vector<ImportEdge> import_graph,
                         std::vector<std::shared_ptr<const cinterop::CHeaderArtifact>> c_headers,
@@ -388,6 +388,10 @@ public:
     [[nodiscard]] const std::vector<ModuleDiagnostic> &diagnostics() const noexcept {
         return diagnostics_;
     }
+    /// Canonical key of the entry module for this analysis session.
+    [[nodiscard]] const ModuleKey &rootModuleKey() const noexcept {
+        return root_module_key_;
+    }
     [[nodiscard]] const SnapshotMetrics &metrics() const noexcept {
         return metrics_;
     }
@@ -397,6 +401,7 @@ public:
 private:
     std::shared_ptr<const SourceCatalog> catalog_;
     CacheKey cache_key_;
+    ModuleKey root_module_key_;
     std::vector<ModuleArtifactPtr> modules_;
     std::vector<MergedSymbol> merged_symbols_;
     std::vector<ImportEdge> import_graph_;

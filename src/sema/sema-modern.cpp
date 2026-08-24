@@ -533,6 +533,13 @@ void PerModuleSema::collectMarkers(frontend::ExprId id) {
     if (!id || id.value > snapshot.expressions().size())
         return;
     const auto &expr = snapshot.expressions()[id.value - 1U];
+    // A macro body is a template, but once it is expanded its nodes carry the
+    // call-site ID and must be visible to marker collection just like any
+    // regular expression tree.
+    if (expr.kind == frontend::ExprKind::MacroCall && expr.expansion) {
+        collectMarkers(expr.expansion);
+        return;
+    }
     if (expr.kind == frontend::ExprKind::Block) {
         for (const auto &stmt_id : expr.statements) {
             if (!stmt_id || stmt_id.value > snapshot.statements().size())
@@ -3294,8 +3301,12 @@ bool SemaPipeline::run() {
             has_errors_ = true;
     }
     for (auto *sema : modules_) {
-        if (!sema->checkExpressions())
-            has_errors_ = true;
+        // Imported modules are declaration sources, not entry programs: their
+        // public bodies become real code only when expanded/called from the
+        // root module, so only the root is expression-checked here.
+        if (sema->module == snapshot_.rootModuleKey())
+            if (!sema->checkExpressions())
+                has_errors_ = true;
     }
 
     for (const auto *sema : modules_) {

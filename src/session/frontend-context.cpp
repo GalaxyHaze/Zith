@@ -369,12 +369,13 @@ FrontendContext::importedMacrosFor(const ModuleArtifact &module,
 
 CompilationSnapshot::CompilationSnapshot(
     std::shared_ptr<const SourceCatalog> catalog, CacheKey cache_key,
-    std::vector<ModuleArtifactPtr> modules, std::vector<MergedSymbol> merged_symbols,
-    std::vector<ImportEdge> import_graph,
+    ModuleKey root_module_key, std::vector<ModuleArtifactPtr> modules,
+    std::vector<MergedSymbol> merged_symbols, std::vector<ImportEdge> import_graph,
     std::vector<std::shared_ptr<const cinterop::CHeaderArtifact>> c_headers,
     std::vector<ModuleResolution> resolutions, std::vector<ModuleDiagnostic> diagnostics,
     SnapshotMetrics metrics)
-    : catalog_(std::move(catalog)), cache_key_(std::move(cache_key)), modules_(std::move(modules)),
+    : catalog_(std::move(catalog)), cache_key_(std::move(cache_key)),
+      root_module_key_(std::move(root_module_key)), modules_(std::move(modules)),
       merged_symbols_(std::move(merged_symbols)), import_graph_(std::move(import_graph)),
       c_headers_(std::move(c_headers)), resolutions_(std::move(resolutions)),
       diagnostics_(std::move(diagnostics)), metrics_(metrics) {}
@@ -1333,6 +1334,9 @@ void FrontendContext::sortDiagnostics(std::vector<ModuleDiagnostic> &diagnostics
 
 memory::Result<std::shared_ptr<const CompilationSnapshot>>
 FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
+    if (!root_source)
+        return memory::Error{"frontend analysis requires a root source"};
+    const auto root_key = root_source->canonicalPath;
     const auto visible_roots = visibleRootsFor(root_source->canonicalPath);
     std::map<ModuleKey, SourceCatalog::SourcePtr> pending;
     std::map<ModuleKey, ModuleArtifactPtr> modules;
@@ -1341,7 +1345,7 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
     std::vector<ImportEdge> import_graph;
     std::vector<ModuleDiagnostic> diagnostics;
     std::vector<ModuleDiagnostic> module_diagnostics;
-    pending.emplace(root_source->canonicalPath, std::move(root_source));
+    pending.emplace(root_key, std::move(root_source));
 
     while (!pending.empty()) {
         std::vector<PendingModule> batch;
@@ -1532,9 +1536,9 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
         c_headers.push_back(header);
     }
     return std::make_shared<const CompilationSnapshot>(
-        catalog_, cache_key_, std::move(ordered_modules), std::move(merged_symbols),
-        std::move(import_graph), std::move(c_headers), std::move(resolutions),
-        std::move(diagnostics), snapshot_metrics);
+        catalog_, cache_key_, root_key, std::move(ordered_modules),
+        std::move(merged_symbols), std::move(import_graph), std::move(c_headers),
+        std::move(resolutions), std::move(diagnostics), snapshot_metrics);
 }
 
 memory::Result<bool> FrontendContext::initializeStdlib() {

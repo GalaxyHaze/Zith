@@ -2831,7 +2831,16 @@ void HirLowerModern::collectMarkers(frontend::ExprId id) {
     if (!id || current_module_ == nullptr ||
         id.value > current_module_->frontend->expressions().size())
         return;
+    if (current_module_->frontend->isMacroTemplateExpr(id))
+        return;
     const auto &expr = current_module_->frontend->expressions()[id.value - 1U];
+    // Expanded macro nodes are ordinary expression/statement trees at the
+    // call site; marker declarations and uses inside them must be discoverable
+    // during the pre-scan just like directly written markers.
+    if (expr.kind == frontend::ExprKind::MacroCall && expr.expansion) {
+        collectMarkers(expr.expansion);
+        return;
+    }
     if (expr.kind != frontend::ExprKind::Block)
         return;
     for (const auto &stmt_id : expr.statements) {
