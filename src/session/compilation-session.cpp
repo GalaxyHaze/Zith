@@ -1716,6 +1716,14 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             expr              = slice;
             break;
         }
+        case cache::CompactExprKind::UnionCheck: {
+            hir::HirUnionCheck check;
+            check.value        = ce.ref_a;
+            check.union_type   = compactType(ce.ref_b);
+            check.member_index = ce.ref_c;
+            expr               = check;
+            break;
+        }
         case cache::CompactExprKind::Cast: {
             const auto to   = compactType(ce.ref_b);
             const auto from = compactType(ce.ref_e);

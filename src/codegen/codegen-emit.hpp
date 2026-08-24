@@ -73,11 +73,12 @@ private:
     /// True for signed integers; false for unsigned integers and all other types.
     bool isSignedType(types::TypeId id) const;
 
-    /// Last non-terminal instruction emitted by `emitBody`, along with the HIR
-    /// block it came from. `emitRet` uses this to avoid re-evaluating the same
-    /// expression when it was already emitted as the block's trailing `inst`.
-    hir::HirExprId emitBodyLastId_  = hir::kInvalidHirExpr;
-    llvm::Value *emitBodyLastValue_ = nullptr;
+    /// Values already emitted within the current basic block, keyed by HIR expr.
+    /// Re-emitting the same expression in the same block is only used for value
+    /// nodes like a call that was emitted as a block instruction and then reused
+    /// by the block terminator; the cache is cleared on every block boundary so
+    /// it never reuses a value across an LLVM CFG edge.
+    memory::FlatMap<hir::HirExprId, llvm::Value *> emittedValues_;
 
     llvm::IRBuilderBase &builder_;
     CodeGenType &typeGen_;

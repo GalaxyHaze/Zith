@@ -405,6 +405,13 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                                  out.ref_f   = internType(slice.bound_type);
                                  out.flags = (slice.is_array ? 1U : 0U) | (slice.checked ? 2U : 0U);
                              },
+                             [&](const hir::HirUnionCheck &check) {
+                                 out.kind      = CompactExprKind::UnionCheck;
+                                 out.type_id   = internType(types::kBoolType);
+                                 out.ref_a     = check.value;
+                                 out.ref_b     = internType(check.union_type);
+                                 out.ref_c     = check.member_index;
+                             },
                              [&](const hir::HirUnionCast &uc) {
                                  out.kind  = CompactExprKind::Cast;
                                  out.ref_a = uc.value;

@@ -41,6 +41,7 @@ enum class HirExprKind : uint8_t {
     MakeSlice,
     SlotAddr,
     Cast,
+    UnionCheck,
     LayoutIntrinsic,
     MarkerStore,
     MarkerLoad,
@@ -276,6 +277,14 @@ struct HirUnionCast {
     bool checked = false;
     HirExprKind tag = HirExprKind::Cast;
 };
+/// Tagged-union member test (`x is Member`). Materialised as a separate HIR
+/// node so the checked member type and the tested value stay explicit.
+struct HirUnionCheck {
+    HirExprId value;
+    HirTypeId union_type = types::kInvalidType;
+    uint32_t member_index = ~0U;
+    HirExprKind tag = HirExprKind::UnionCheck;
+};
 
 /// The offsetOf / alignOf / sizeOf layout intrinsics; resolved to a constant at codegen.
 struct HirLayoutIntrinsic {
@@ -327,7 +336,8 @@ using HirExpr =
     std::variant<HirLiteral, HirBinary, HirUnary, HirLet, HirVar, HirCall, HirRet, HirBranch,
                  HirJump, HirPhi, HirAssign, HirIndex, HirField, HirStructLiteral, HirArrayLiteral,
                  HirEnumValue, HirSlotAlloca, HirSlotStore, HirSlotLoad, HirSlotAddr, HirMakeNone,
-                 HirMakeSome, HirMakeSlice, HirCast, HirUnionCast, HirLayoutIntrinsic,
+                 HirMakeSome, HirMakeSlice, HirCast, HirUnionCast, HirUnionCheck,
+                 HirLayoutIntrinsic,
                  HirMarkerStore, HirMarkerLoad, HirMarkerDock, HirMarkerJump, HirMarkerRet>;
 
 inline HirExprKind exprKind(const HirExpr &expr) {

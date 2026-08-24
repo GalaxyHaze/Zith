@@ -1268,6 +1268,48 @@ void test_raw_union_lowers_members_and_casts() {
     }
 }
 
+void test_is_type_pointer_lowers_union_check_and_keeps_terminators() {
+    Workspace workspace;
+    workspace.writeFile("main.zith",
+                        "import \"stdio.h\"\n"
+                        "union Foo { *char, i32, f64 }\n"
+                        "fn main(): i32 {\n"
+                        "    let f = Foo{\"hello\"};\n"
+                        "    if (f is *char) {\n"
+                        "        printf(\"%s\", f);\n"
+                        "    } else {\n"
+                        "        printf(\"abu\\n\");\n"
+                        "    }\n"
+                        "    return 0;\n"
+                        "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "tagged union is-pointer test with a compound member lowers");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main is available for is-pointer checks");
+    if (main != nullptr) {
+        size_t union_checks = 0;
+        for (size_t i = 0; i < hir.exprCount(); ++i) {
+            if (std::holds_alternative<hir::HirUnionCheck>(
+                    hir.getExpr(static_cast<hir::HirExprId>(i))))
+                ++union_checks;
+        }
+        CHECK_EQ(union_checks, 1u, "`is *char` emits one tagged-union check node");
+        CHECK_EQ(countTerminatorKind(hir, *main, hir::HirExprKind::Branch), 1u,
+                 "the if/is condition retains its branch terminator");
+        CHECK(countTerminatorKind(hir, *main, hir::HirExprKind::Jump) >= 2u,
+              "then and else branches jump to merge");
+        CHECK(countInstKind(hir, *main, hir::HirExprKind::Call) >= 2u,
+              "both printf calls remain in the lowered body");
+    }
+}
+
 void test_distinct_generic_instances_have_distinct_symbols() {
     Workspace workspace;
     workspace.writeFile("main.zith", "fn pick<T>(x: T): T { x }\n"
@@ -1344,6 +1386,7 @@ static void test_hir_lower_modern() {
     test_generic_instance_deduplication();
     test_call_with_unlowerable_argument_fails_pipeline();
     test_raw_union_lowers_members_and_casts();
+    test_is_type_pointer_lowers_union_check_and_keeps_terminators();
     test_distinct_generic_instances_have_distinct_symbols();
 }
 

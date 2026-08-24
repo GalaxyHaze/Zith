@@ -191,6 +191,7 @@ enum class CompactExprKind : uint8_t {
     MarkerDock,
     MarkerJump,
     MarkerRet,
+    UnionCheck,
 };
 
 enum class CompactBinaryOp : uint8_t {

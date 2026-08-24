@@ -17,8 +17,11 @@ CodeGenEmit::CodeGenEmit(llvm::IRBuilderBase &builder, CodeGenType &typeGen,
     : builder_(builder), typeGen_(typeGen), interner_(interner), types_(types) {}
 
 llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod) {
-    auto &expr = mod.getExpr(id);
-    return hir::visitExpr(
+    if (auto *cached = emittedValues_.get(id))
+        return *cached;
+
+    auto &expr   = mod.getExpr(id);
+    auto *emitted = hir::visitExpr(
         expr,
         common::overloaded{
             [&](const hir::HirLiteral &lit) { return emitLiteral(lit); },
@@ -237,6 +240,16 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                     builder_.CreateBitCast(bytes,
                                            llvm::PointerType::get(builder_.getContext(), 0)));
             },
+            [&](const hir::HirUnionCheck &check) -> llvm::Value * {
+                auto *tag = emitExpr(check.value, mod);
+                if (tag == nullptr)
+                    return nullptr;
+                if (!tag->getType()->isIntegerTy())
+                    return nullptr;
+                auto *expected = llvm::ConstantInt::get(
+                    llvm::cast<llvm::IntegerType>(tag->getType()), check.member_index);
+                return builder_.CreateICmpEQ(tag, expected);
+            },
             [&](const hir::HirCast &cast) -> llvm::Value * {
                 auto *value = emitExpr(cast.value, mod);
                 if (!value)
@@ -349,6 +362,9 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
             [&](const hir::HirMarkerJump &jump) { return emitMarkerJump(jump, mod); },
             [&](const hir::HirMarkerRet &ret) { return emitMarkerRet(ret, mod); },
         });
+    if (emitted != nullptr)
+        emittedValues_.insert(id, emitted);
+    return emitted;
 }
 
 llvm::Value *CodeGenEmit::emitBody(const hir::HirFunction &fn, const hir::HirModule &mod) {
@@ -364,13 +380,10 @@ llvm::Value *CodeGenEmit::emitBody(const hir::HirFunction &fn, const hir::HirMod
         // Move builder to this block if it's not already inserted
         // (avoid moving if the block already has a terminator)
         builder_.SetInsertPoint(llvmBB);
-        emitBodyLastId_    = hir::kInvalidHirExpr;
-        emitBodyLastValue_ = nullptr;
+        emittedValues_.clear();
 
         for (auto inst_id : block.insts) {
-            last               = emitExpr(inst_id, mod);
-            emitBodyLastId_    = inst_id;
-            emitBodyLastValue_ = last;
+            last = emitExpr(inst_id, mod);
         }
         if (block.terminator != hir::kInvalidHirExpr) {
             emitExpr(block.terminator, mod);
@@ -880,10 +893,9 @@ llvm::Value *CodeGenEmit::emitRet(const hir::HirRet &ret, const hir::HirModule &
     if (ret.value == hir::kInvalidHirExpr)
         return builder_.CreateRetVoid();
     // The implicit-return path lowers the trailing expression both as an
-    // instruction and as the Ret value. Re-emitting calls there would execute
-    // them twice; reuse the value produced by the trailing instruction instead.
-    if (ret.value == emitBodyLastId_ && emitBodyLastValue_ != nullptr)
-        return builder_.CreateRet(emitBodyLastValue_);
+    // instruction and as the Ret value. Reuse the value produced earlier in the
+    // same block when available; the block-scoped cache avoids re-evaluating
+    // calls while never reusing values from a different CFG edge.
     auto *val = emitExpr(ret.value, mod);
     if (!val)
         return nullptr;

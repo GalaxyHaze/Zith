@@ -385,6 +385,28 @@ static void test_when_expression_runtime() {
     CHECK_EQ(r.exitCode, 100, "when dispatches through literal, range, and default cases");
 }
 
+static void test_tagged_union_pointer_is_type_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith",
+            "import \"stdio.h\"\n"
+            "union Foo { *char, i32, f64 }\n"
+            "fn main(): i32 {\n"
+            "    let f = Foo{\"hello\"};\n"
+            "    if (f is *char) {\n"
+            "        printf(\"union string: %s\\n\", f);\n"
+            "        return 0;\n"
+            "    }\n"
+            "    printf(\"abu\\n\");\n"
+            "    return 2;\n"
+            "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "tagged union `is *char` with a C variadic call compiles and runs");
+    CHECK_EQ(r.exitCode, 0, "the string member branch is selected");
+    CHECK(r.output.find("union string: hello") != std::string::npos,
+          "the narrowed tagged value is passed to printf");
+}
+
 static void test_for_three_clause_runtime() {
     CodegenTest t;
     auto r = t.run("codegen-for3.zith", "fn sum_to(n: i32): i32 {\n"
@@ -1542,6 +1564,7 @@ static void test_codegen() {
     test_offsetof_and_alignof_runtime();
     test_sizeof_intrinsic_runtime();
     test_when_expression_runtime();
+    test_tagged_union_pointer_is_type_runtime();
     test_for_three_clause_runtime();
     printf("Running test_named_struct_literal_and_defaults_runtime\n");
     test_named_struct_literal_and_defaults_runtime();

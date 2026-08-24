@@ -2061,10 +2061,6 @@ hir::HirExprId HirLowerModern::lowerIsType(const frontend::Expression &expr) {
     if (expr.operands.empty() || !expr.cast_type ||
         current_module_ == nullptr || current_module_->frontend == nullptr)
         return hir::kInvalidHirExpr;
-    const auto &type_exprs = current_module_->frontend->typeExpressions();
-    if (expr.cast_type.value > type_exprs.size())
-        return hir::kInvalidHirExpr;
-    const auto &type_expr = type_exprs[expr.cast_type.value - 1U];
     const auto operand    = lowerExpr(expr.operands[0]);
     if (operand == hir::kInvalidHirExpr)
         return hir::kInvalidHirExpr;
@@ -2078,7 +2074,10 @@ hir::HirExprId HirLowerModern::lowerIsType(const frontend::Expression &expr) {
     const auto *def = types_.lookupUnionDef(union_type->def_id);
     if (def == nullptr || !def->is_tagged)
         return hir::kInvalidHirExpr;
-    const auto target = lowerType(sema_.typeTable().lookupNamed(type_expr.name));
+    const auto target = lowerType(sema_.typeTable().lowerTypeExpr(*current_module_->frontend,
+                                                                 expr.cast_type));
+    if (target == types::kErrorType || target == types::kInvalidType)
+        return hir::kInvalidHirExpr;
     uint32_t member_index = 0;
     for (const auto member : def->members) {
         if (member == target)
@@ -2094,11 +2093,11 @@ hir::HirExprId HirLowerModern::lowerIsType(const frontend::Expression &expr) {
     const auto tag_type = tagType(types_, static_cast<uint32_t>(def->members.size()));
     const auto tag = addExpr(hir::HirField{addExpr(hir::HirSlotAddr{slot, operand_type}), 1U,
                                            tag_type, operand_type});
-    hir::HirLiteral expected;
-    expected.type = tag_type;
-    expected.i    = static_cast<int64_t>(member_index);
-    return addExpr(hir::HirBinary{tag, addExpr(std::move(expected)), hir::HirBinaryOp::Eq,
-                                  types::kBoolType});
+    hir::HirUnionCheck check;
+    check.value        = tag;
+    check.union_type   = operand_type;
+    check.member_index = member_index;
+    return addExpr(std::move(check));
 }
 
 hir::HirExprId HirLowerModern::lowerLayoutIntrinsic(const frontend::Expression &expr) {
