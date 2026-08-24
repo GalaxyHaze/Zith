@@ -198,6 +198,12 @@ public:
     [[nodiscard]] const sema::modern::NraFacts *nraFacts() const noexcept {
         return mNraFacts.get();
     }
+    [[nodiscard]] sema::modern::SemaPipeline *semaPipeline() noexcept {
+        return mModernSemaPipeline.get();
+    }
+    [[nodiscard]] const sema::modern::SemaPipeline *semaPipeline() const noexcept {
+        return mModernSemaPipeline.get();
+    }
     memory::StringInterner &interner() {
         return *mInterner;
     }
