@@ -28,7 +28,8 @@ inline constexpr uint32_t kMagic = 0x5A49524Cu; // "ZIRL"
 // check turns stale caches into a clean miss rather than a checksum failure.
 // Bumped to 6 when the persistent artifact gained the monomorphized-instance
 // summary section.
-inline constexpr uint32_t kFormatVersion = 6;
+/// Version 7: plain unions carry a runtime tag and store member payload first.
+inline constexpr uint32_t kFormatVersion = 7;
 inline constexpr uint8_t kEndianLittle   = 1;
 
 enum class SectionId : uint8_t {

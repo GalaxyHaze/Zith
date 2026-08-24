@@ -89,6 +89,8 @@ namespace {
         return "OptionalProp";
     case ExprKind::Index:
         return "Index";
+    case ExprKind::SliceRange:
+        return "SliceRange";
     case ExprKind::Field:
         return "Field";
     case ExprKind::Arrow:
@@ -105,6 +107,8 @@ namespace {
         return "Cast";
     case ExprKind::IsNull:
         return "IsNull";
+    case ExprKind::IsType:
+        return "IsType";
     case ExprKind::Placeholder:
         return "Placeholder";
     case ExprKind::LayoutIntrinsic:

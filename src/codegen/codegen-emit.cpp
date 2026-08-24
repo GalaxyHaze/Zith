@@ -103,31 +103,42 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 if (!val)
                     return nullptr;
                 // A member -> union cast writes one member's bytes into union
-                // storage. It is represented by a temporary aggregate load, so
-                // reconstruct the store from the cast's own storage instead of
-                // letting LLVM reload a loaded aggregate.
+                // storage and, for tagged unions, also stores the member tag.
+                // It is represented by a temporary aggregate load, so rebuild
+                // the store directly instead of letting LLVM reload the cast.
                 if (union_storage != nullptr) {
                     llvm::Value *dest = builder_.CreateBitCast(
                         slots_[s.slot], llvm::PointerType::get(builder_.getContext(), 0));
                     builder_.CreateStore(
                         llvm::ConstantAggregateZero::get(typeGen_.lower(union_cast->to)),
                         slots_[s.slot]);
-                    auto *src_bytes = builder_.CreateStructGEP(
-                        typeGen_.lower(union_cast->to),
-                        builder_.CreateBitCast(union_storage,
-                                               llvm::PointerType::get(builder_.getContext(), 0)),
-                        0U);
+                    auto *to_type = typeGen_.lower(union_cast->to);
+                    auto *payload = builder_.CreateStructGEP(to_type, dest, 0U);
                     builder_.CreateStore(
-                        llvm::ConstantExpr::getBitCast(
-                            llvm::ConstantAggregateZero::get(typeGen_.lower(union_cast->to)),
-                            llvm::ArrayType::get(llvm::Type::getInt8Ty(builder_.getContext()),
-                                                 typeGen_.sizeOf(union_cast->to))),
-                        dest);
-                    builder_.CreateMemCpy(
-                        dest, llvm::MaybeAlign(1),
-                        builder_.CreateBitCast(src_bytes,
-                                               llvm::PointerType::get(builder_.getContext(), 0)),
-                        llvm::MaybeAlign(1), typeGen_.sizeOf(union_cast->from));
+                        emitExpr(union_cast->value, mod),
+                        builder_.CreateBitCast(payload,
+                                               llvm::PointerType::get(builder_.getContext(), 0)));
+                    if (union_cast->member_index != ~0U &&
+                        [&]() {
+                            const auto *ud =
+                                std::get_if<types::TypeUnion>(&types_.lookup(union_cast->to));
+                            const auto *def =
+                                ud != nullptr ? types_.lookupUnionDef(ud->def_id) : nullptr;
+                            return def != nullptr && def->is_tagged;
+                        }()) {
+                        auto *tag = builder_.CreateStructGEP(to_type, dest, 1U);
+                        const auto *tag_def =
+                            std::get_if<types::TypeUnion>(&types_.lookup(union_cast->to));
+                        const auto *def =
+                            tag_def != nullptr ? types_.lookupUnionDef(tag_def->def_id) : nullptr;
+                        const auto tag_width = def != nullptr && def->members.size() > 0xFFFFU
+                                                   ? 32U
+                                                   : (def != nullptr && def->members.size() > 0xFFU
+                                                          ? 16U
+                                                          : 8U);
+                        builder_.CreateStore(builder_.getIntN(tag_width, union_cast->member_index),
+                                             tag);
+                    }
                     return val;
                 }
                 builder_.CreateStore(val, slots_[s.slot]);
@@ -151,13 +162,21 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 return llvm::ConstantAggregateZero::get(llvm_type);
             },
             [&](const hir::HirUnionCast &cast) -> llvm::Value * {
-                auto *value = emitExpr(cast.value, mod);
-                if (!value)
-                    return nullptr;
                 const auto from_kind  = types_.kindOf(cast.from);
                 const auto to_kind    = types_.kindOf(cast.to);
                 const auto union_type = from_kind == types::TypeKind::Union ? cast.from : cast.to;
                 auto *union_ll        = typeGen_.lower(union_type);
+                const bool to_tagged = [&]() {
+                    if (to_kind != types::TypeKind::Union)
+                        return false;
+                    const auto *ud =
+                        std::get_if<types::TypeUnion>(&types_.lookup(union_type));
+                    const auto *def = ud != nullptr ? types_.lookupUnionDef(ud->def_id) : nullptr;
+                    return def != nullptr && def->is_tagged;
+                }();
+                auto *value = emitExpr(cast.value, mod);
+                if (!value)
+                    return nullptr;
                 llvm::Value *storage  = nullptr;
                 if (from_kind == types::TypeKind::Union) {
                     // Keep the source storage address so member extraction
@@ -170,13 +189,47 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                     builder_.CreateStore(
                         value, builder_.CreateBitCast(
                                    bytes, llvm::PointerType::get(builder_.getContext(), 0)));
+                    if (to_tagged && cast.member_index != ~0U) {
+                        auto *tag_type = llvm::cast<llvm::IntegerType>(union_ll->getStructElementType(1));
+                        auto *tag       = builder_.CreateStructGEP(union_ll, storage, 1U);
+                        builder_.CreateStore(
+                            llvm::ConstantInt::get(tag_type, cast.member_index), tag);
+                    }
                 }
                 if (storage == nullptr)
                     return nullptr;
                 if (to_kind == types::TypeKind::Union) {
                     return builder_.CreateLoad(
                         union_ll, builder_.CreateBitCast(
-                                      storage, llvm::PointerType::get(builder_.getContext(), 0)));
+                              storage, llvm::PointerType::get(builder_.getContext(), 0)));
+                }
+                if (from_kind == types::TypeKind::Union) {
+                    const auto *from_union =
+                        std::get_if<types::TypeUnion>(&types_.lookup(cast.from));
+                    const auto *from_def =
+                        from_union != nullptr ? types_.lookupUnionDef(from_union->def_id) : nullptr;
+                    const bool from_tagged = from_def != nullptr && from_def->is_tagged;
+                    if (from_tagged && cast.checked && cast.member_index != ~0U) {
+                        auto *tag_addr = builder_.CreateStructGEP(union_ll, storage, 1U);
+                        auto *tag =
+                            builder_.CreateLoad(llvm::cast<llvm::IntegerType>(
+                                                    union_ll->getStructElementType(1)),
+                                                tag_addr);
+                        auto *expected = llvm::ConstantInt::get(
+                            llvm::cast<llvm::IntegerType>(union_ll->getStructElementType(1)),
+                            cast.member_index);
+                        auto *match = builder_.CreateICmpEQ(tag, expected);
+                        llvm::BasicBlock *fail = llvm::BasicBlock::Create(
+                            builder_.getContext(), "union_tag_fail",
+                            builder_.GetInsertBlock()->getParent());
+                        llvm::BasicBlock *cont = llvm::BasicBlock::Create(
+                            builder_.getContext(), "union_tag_ok",
+                            builder_.GetInsertBlock()->getParent());
+                        builder_.CreateCondBr(match, cont, fail);
+                        builder_.SetInsertPoint(fail);
+                        builder_.CreateUnreachable();
+                        builder_.SetInsertPoint(cont);
+                    }
                 }
                 auto *bytes = builder_.CreateStructGEP(union_ll, storage, 0U);
                 return builder_.CreateLoad(
@@ -238,6 +291,45 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 result              = builder_.CreateInsertValue(
                     result,
                     llvm::ConstantInt::get(llvm::Type::getInt1Ty(builder_.getContext()), 1u), {1u});
+                return result;
+            },
+            [&](const hir::HirMakeSlice &slice) -> llvm::Value * {
+                auto *lo = emitExpr(slice.lo, mod);
+                auto *hi = emitExpr(slice.hi, mod);
+                if (!lo || !hi)
+                    return nullptr;
+                auto *i64 = llvm::Type::getInt64Ty(builder_.getContext());
+                if (lo->getType()->isIntOrIntVectorTy() && !lo->getType()->isIntegerTy(64))
+                    lo = builder_.CreateSExtOrTrunc(lo, i64);
+                if (hi->getType()->isIntOrIntVectorTy() && !hi->getType()->isIntegerTy(64))
+                    hi = builder_.CreateSExtOrTrunc(hi, i64);
+
+                const auto *elem_type = std::get_if<types::TypeSlice>(&types_.lookup(slice.type));
+                const auto elem_ll =
+                    elem_type != nullptr ? typeGen_.lower(elem_type->elem) : nullptr;
+                llvm::Value *data    = nullptr;
+                llvm::Value *len_val = nullptr;
+                if (slice.is_array) {
+                    auto *addr = emitAddrOf(slice.object, mod);
+                    if (!addr || !elem_ll)
+                        return nullptr;
+                    auto *zero = llvm::ConstantInt::get(builder_.getContext(), llvm::APInt(32, 0));
+                    data = builder_.CreateGEP(typeGen_.lower(slice.object_type), addr, {zero, lo});
+                } else {
+                    auto *agg = emitExpr(slice.object, mod);
+                    if (!agg)
+                        return nullptr;
+                    data = builder_.CreateExtractValue(agg, {0U});
+                    if (!elem_ll)
+                        return nullptr;
+                    data = builder_.CreateGEP(elem_ll, data, lo);
+                }
+                if (len_val == nullptr)
+                    len_val = builder_.CreateSub(hi, lo);
+                auto *agg_type      = typeGen_.lower(slice.type);
+                llvm::Value *result = llvm::ConstantAggregateZero::get(agg_type);
+                result              = builder_.CreateInsertValue(result, data, {0U});
+                result              = builder_.CreateInsertValue(result, len_val, {1U});
                 return result;
             },
             [&](const hir::HirLayoutIntrinsic &i) -> llvm::Value * {
@@ -700,8 +792,6 @@ llvm::Value *CodeGenEmit::emitAddrOf(hir::HirExprId id, const hir::HirModule &mo
 }
 
 llvm::Value *CodeGenEmit::emitCall(const hir::HirCall &call, const hir::HirModule &mod) {
-    llvm::Function *fn = nullptr;
-
     // For extern calls, resolve by finding the function in the module
     llvm::SmallVector<llvm::Value *, 8> args;
     for (auto arg_id : call.args) {
@@ -717,6 +807,7 @@ llvm::Value *CodeGenEmit::emitCall(const hir::HirCall &call, const hir::HirModul
 
     // HIR function names are local to their source module, while call symbols
     // can be namespace-qualified by an import alias. Resolve by symbol identity.
+    llvm::Function *fn = nullptr;
     if (call.resolved_fn != symbols::kInvalidSym) {
         for (size_t i = 0; i < mod.getFnCount(); ++i) {
             const auto &hir_fn = mod.getFn(i);
@@ -728,7 +819,7 @@ llvm::Value *CodeGenEmit::emitCall(const hir::HirCall &call, const hir::HirModul
         }
     }
 
-    if (!fn) {
+    if (fn == nullptr && call.fn_type == types::kInvalidType) {
         llvm::errs() << "ERROR: emitCall failed to resolve callee (resolved_fn=" << call.resolved_fn
                      << ")\n";
         return nullptr;
@@ -736,7 +827,20 @@ llvm::Value *CodeGenEmit::emitCall(const hir::HirCall &call, const hir::HirModul
 
     // C default argument promotions apply only to the variadic tail: float -> double,
     // and bool/char/small ints -> int. Fixed parameters keep their declared ABI types.
-    const auto *fn_type = fn->getFunctionType();
+    llvm::FunctionType *fn_type = nullptr;
+    if (fn != nullptr) {
+        fn_type = fn->getFunctionType();
+    } else {
+        const auto *lowered = std::get_if<types::TypeFn>(&types_.lookup(call.fn_type));
+        if (lowered == nullptr) {
+            llvm::errs() << "ERROR: emitCall has an indirect callee without a function type\n";
+            return nullptr;
+        }
+        llvm::SmallVector<llvm::Type *, 8> param_types;
+        for (size_t index = 0; index < lowered->param_count; ++index)
+            param_types.push_back(typeGen_.lower(lowered->params[index]));
+        fn_type = llvm::FunctionType::get(typeGen_.lower(lowered->ret), param_types, false);
+    }
     if (fn_type->isVarArg()) {
         const auto fixed_count = fn_type->getNumParams();
         for (size_t index = fixed_count; index < args.size(); ++index) {
@@ -756,6 +860,17 @@ llvm::Value *CodeGenEmit::emitCall(const hir::HirCall &call, const hir::HirModul
                         : builder_.CreateZExt(value, llvm::Type::getInt32Ty(builder_.getContext()));
             }
         }
+    }
+
+    if (fn == nullptr) {
+        auto *callee = emitExpr(call.callee, mod);
+        if (callee == nullptr)
+            return nullptr;
+        auto *fn_ptr_type = llvm::PointerType::get(builder_.getContext(),
+                                                   callee->getType()->getPointerAddressSpace());
+        if (callee->getType() != fn_ptr_type)
+            callee = builder_.CreateBitCast(callee, fn_ptr_type);
+        return builder_.CreateCall(fn_type, callee, args);
     }
 
     return builder_.CreateCall(fn, args);
@@ -799,6 +914,12 @@ llvm::Value *CodeGenEmit::emitVar(const hir::HirVar &var) {
             return builder_.CreateLoad(nv->elementType, nv->value);
         return nv->value;
     }
+    // Function references lower to HirVar using their linkage name, so a direct
+    // module lookup lets them participate as first-class function-pointer values.
+    if (module_ != nullptr) {
+        if (auto *fn = module_->getFunction(llvm::StringRef(name.data(), name.size())))
+            return fn;
+    }
     return nullptr;
 }
 
@@ -807,6 +928,10 @@ llvm::Value *CodeGenEmit::emitVarAddr(const hir::HirVar &var) {
     auto *nv  = namedValues_.get(name);
     if (nv)
         return nv->value;
+    if (module_ != nullptr) {
+        if (auto *fn = module_->getFunction(llvm::StringRef(name.data(), name.size())))
+            return fn;
+    }
     return nullptr;
 }
 

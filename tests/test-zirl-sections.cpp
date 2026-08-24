@@ -53,6 +53,17 @@ Artifact makeMinimalArtifact() {
     struct_type.ref0 = 0;
     art.types.push_back(struct_type);
 
+    // function and slice types used by function-pointer bootstrap programs
+    CompactType fn_type;
+    fn_type.kind = CompactTypeKind::Fn;
+    fn_type.ref0 = 0;   // i32 return
+    fn_type.args = {0}; // one i32 parameter
+    art.types.push_back(fn_type);
+    CompactType slice_type;
+    slice_type.kind = CompactTypeKind::Slice;
+    slice_type.ref0 = 0;
+    art.types.push_back(slice_type);
+
     // one exported fn declaration
     DeclRecord decl;
     decl.name       = "main";
@@ -123,6 +134,30 @@ void addModernCode(Artifact &art) {
     cast.type_id = 0;
     fn.exprs.push_back(cast);
 
+    { // Indirect call keeps the call's lowered function type.
+        CompactExpr call;
+        call.kind      = CompactExprKind::Call;
+        call.ref_a     = 0;
+        call.ref_e     = 2;
+        call.args      = {0};
+        call.arg_types = {0};
+        fn.exprs.push_back(call);
+    }
+
+    { // Slice-range HIR keeps object/bounds/types and the checking flags.
+        CompactExpr make_slice;
+        make_slice.kind      = CompactExprKind::MakeSlice;
+        make_slice.ref_a     = 0;
+        make_slice.ref_b     = 0;
+        make_slice.ref_c     = 0;
+        make_slice.type_id   = 3; // slice type
+        make_slice.ref_e     = 0;
+        make_slice.ref_f     = 0;
+        make_slice.flags     = 3; // array + runtime-checked
+        make_slice.arg_types = {};
+        fn.exprs.push_back(make_slice);
+    }
+
     CompactExpr layout;
     layout.kind    = CompactExprKind::LayoutIntrinsic;
     layout.type_id = 0;
@@ -131,7 +166,7 @@ void addModernCode(Artifact &art) {
     fn.exprs.push_back(layout);
 
     CompactBasicBlock blk;
-    blk.terminator = 2;
+    blk.terminator = 4;
     fn.blocks.push_back(blk);
     art.functions.push_back(fn);
 }
@@ -192,6 +227,12 @@ static void test_type_section_round_trip() {
     CHECK(ok, "decodeTypes succeeds after encodeTypes");
     CHECK(decoded.strings.size() == original.strings.size(), "decodeTypes preserves string count");
     CHECK(decoded.types.size() == original.types.size(), "decodeTypes preserves type count");
+    if (decoded.types.size() >= 4u) {
+        CHECK(decoded.types[2].kind == CompactTypeKind::Fn, "decodeTypes preserves fn type kind");
+        CHECK_EQ(decoded.types[2].args.size(), 1u, "decodeTypes preserves fn parameter count");
+        CHECK(decoded.types[3].kind == CompactTypeKind::Slice,
+              "decodeTypes preserves slice type kind");
+    }
 }
 
 // ── Declarations section round-trip ───────────────────────────────
@@ -247,15 +288,22 @@ static void test_modern_code_section_round_trip() {
     CHECK_EQ(decoded.functions.size(), 1u, "function count preserved");
     if (decoded.functions.empty())
         return;
-    CHECK_EQ(decoded.functions[0].exprs.size(), 3u, "modern expression count preserved");
-    if (decoded.functions[0].exprs.size() == 3u) {
+    CHECK_EQ(decoded.functions[0].exprs.size(), 5u, "modern expression count preserved");
+    if (decoded.functions[0].exprs.size() == 5u) {
         CHECK(decoded.functions[0].exprs[0].kind == CompactExprKind::Literal,
               "literal kind preserved");
         CHECK(decoded.functions[0].exprs[1].kind == CompactExprKind::Cast, "cast kind preserved");
         CHECK_EQ(decoded.functions[0].exprs[1].ref_e, 0u, "cast from-type preserved");
-        CHECK(decoded.functions[0].exprs[2].kind == CompactExprKind::LayoutIntrinsic,
+        CHECK(decoded.functions[0].exprs[2].kind == CompactExprKind::Call,
+              "indirect call kind preserved");
+        CHECK_EQ(decoded.functions[0].exprs[2].ref_e, 2u, "call fn_type preserved");
+        CHECK(decoded.functions[0].exprs[3].kind == CompactExprKind::MakeSlice,
+              "slice range kind preserved");
+        CHECK_EQ(decoded.functions[0].exprs[3].ref_f, 0u, "slice bound type preserved");
+        CHECK_EQ(decoded.functions[0].exprs[3].flags, 3u, "slice flags preserved");
+        CHECK(decoded.functions[0].exprs[4].kind == CompactExprKind::LayoutIntrinsic,
               "layout intrinsic kind preserved");
-        CHECK_EQ(decoded.functions[0].exprs[2].ref_f, 2u, "layout field index preserved");
+        CHECK_EQ(decoded.functions[0].exprs[4].ref_f, 2u, "layout field index preserved");
     }
 }
 

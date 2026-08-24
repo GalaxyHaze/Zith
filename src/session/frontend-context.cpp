@@ -320,13 +320,13 @@ FrontendContext::importedMacrosFor(const ModuleArtifact &module,
             } else {
                 record.name = decl.name;
             }
-            record.span                = decl.span;
-            record.aliasSpan           = selector != nullptr && !selector->alias.empty()
-                                             ? selector->aliasSpan
-                                             : frontend::TextSpan{};
-            record.isRawMacro          = decl.isRawMacro;
-            record.isTagMacro          = decl.isTagMacro;
-            record.hasAttributesParam  = decl.hasAttributesParam;
+            record.span               = decl.span;
+            record.aliasSpan          = selector != nullptr && !selector->alias.empty()
+                                            ? selector->aliasSpan
+                                            : frontend::TextSpan{};
+            record.isRawMacro         = decl.isRawMacro;
+            record.isTagMacro         = decl.isTagMacro;
+            record.hasAttributesParam = decl.hasAttributesParam;
             record.parameters         = decl.parameters;
             record.body               = decl.body;
             record.source             = target->frontend.get();
@@ -751,9 +751,8 @@ ModuleArtifactPtr FrontendContext::buildModule(
     artifact->source      = source;
 
     const auto parse_start = std::chrono::steady_clock::now();
-    artifact->frontend =
-        std::make_shared<const frontend::FrontendSnapshot>(
-            frontend::parseWithImports(source->text, imported_macros));
+    artifact->frontend     = std::make_shared<const frontend::FrontendSnapshot>(
+        frontend::parseWithImports(source->text, imported_macros));
     artifact->timings.lexMs =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - parse_start)
             .count();
@@ -981,19 +980,19 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
             // Struct fields, enum variants, interface members, union fields, and
             // parameters of other composites live in the type's own lookup table,
             // not in the module resolution scope.
-            const bool params_are_bindings =
-                declaration.kind == frontend::DeclKind::Function ||
-                declaration.kind == frontend::DeclKind::Marker;
-            if (params_are_bindings) {
+            const bool params_are_bindings = declaration.kind == frontend::DeclKind::Function ||
+                                             declaration.kind == frontend::DeclKind::Marker;
+            if (params_are_bindings && declaration.body) {
                 for (const auto &parameter : declaration.parameters) {
-                    add_binding({parameter.name,
-                                 ResolutionKind::Declaration,
-                                 parameter.span,
-                                 {},
-                                 {},
-                                 parameter.id,
-                                 {}},
-                                parameter_scope);
+                    ResolvedName parameter_binding{parameter.name,
+                                                   ResolutionKind::Declaration,
+                                                   parameter.span,
+                                                   {},
+                                                   {},
+                                                   parameter.id,
+                                                   {}};
+                    parameter_binding.declKind = declaration.kind;
+                    add_binding(std::move(parameter_binding), parameter_scope);
                 }
             }
         }
@@ -1018,14 +1017,15 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                     found != statement_scopes.end()) {
                     statement_scope = found->second;
                 }
-                add_binding({statement.binding.name,
-                             ResolutionKind::Declaration,
-                             statement.binding.span,
-                             {},
-                             {},
-                             statement.binding.id,
-                             {}},
-                            statement_scope);
+                ResolvedName local_binding{statement.binding.name,
+                                           ResolutionKind::Declaration,
+                                           statement.binding.span,
+                                           {},
+                                           {},
+                                           statement.binding.id,
+                                           {}};
+                local_binding.declKind = frontend::DeclKind::Variable;
+                add_binding(std::move(local_binding), statement_scope);
             } else if (statement.kind == frontend::StmtKind::Marker) {
                 frontend::ScopeId marker_scope;
                 if (statement.expression &&
@@ -1356,13 +1356,13 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
 
         std::vector<std::pair<ModuleKey, std::shared_future<ModuleArtifactPtr>>> futures;
         futures.reserve(batch.size());
-    for (const auto &item : batch) {
-        auto source = item.source;
-        futures.emplace_back(item.key, cache_.getOrBuild(cache_key_, source, executor_,
-                                                         [this, worker_source = source]() {
-                                                             return buildModule(worker_source);
-                                                         }));
-    }
+        for (const auto &item : batch) {
+            auto source = item.source;
+            futures.emplace_back(item.key, cache_.getOrBuild(cache_key_, source, executor_,
+                                                             [this, worker_source = source]() {
+                                                                 return buildModule(worker_source);
+                                                             }));
+        }
 
         for (auto &[key, future] : futures) {
             auto module = future.get();

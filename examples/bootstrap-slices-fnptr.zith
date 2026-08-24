@@ -1,0 +1,11 @@
+// C-runtime slice bootstrap: the slice aggregates are supplied by C, and the
+// function pointer is passed back into C for an indirect call.
+extern fn make_slice(): []i32
+extern fn apply(f: fn(i32): i32, x: i32): i32
+extern fn double(x: i32): i32
+
+fn main(): i32 {
+    var values: []i32 = make_slice();
+    var f: fn(i32): i32 = double;
+    return apply(f, raw values[0]);
+}

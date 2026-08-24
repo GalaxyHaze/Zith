@@ -119,6 +119,18 @@ private:
 
     uint32_t lowerTypeSize(types::TypeId type) noexcept;
     uint32_t lowerTypeAlign(types::TypeId type) noexcept;
+    /// Number of payload bytes a tagged union needs to store its member index.
+    static uint32_t tagByteCount(uint32_t member_count) noexcept;
+    /// The integer HIR type used for a tagged union's member-index tag.
+    static types::TypeId tagType(types::TypeIntern &types, uint32_t member_count) noexcept;
+    /// `tagType` for the tagged union type `type`; raw unions return kInvalidType.
+    static types::TypeId lowerTagType(types::TypeId type, types::TypeIntern &types,
+                                      uint32_t member_count) noexcept;
+    /// Index of `member` in the tagged union `type`, or ~0U when not applicable.
+    uint32_t taggedMemberIndex(types::TypeId union_type, types::TypeId member) noexcept;
+    /// Rebuilds a tagged-union local by storing a payload value after checking its tag.
+    hir::HirExprId rebuildTaggedUnion(types::TypeId union_type, hir::HirExprId value,
+                                      uint32_t member_index);
     static uint32_t alignUp(uint32_t value, uint32_t align) noexcept;
 
     types::TypeId lowerType(sema::modern::TypeId type);
@@ -153,6 +165,11 @@ private:
     hir::HirExprId lowerAssign(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerOptionalProp(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerIndex(const frontend::Expression &expr, types::TypeId type);
+    hir::HirExprId lowerSliceRange(const frontend::Expression &expr, types::TypeId type);
+    /// Converts an array expression to a slice by borrowing the whole array.
+    /// Emits `HirMakeSlice` with statically-known `[0, N]` bounds.
+    hir::HirExprId lowerCoerceToSliceIfArray(types::TypeId target, frontend::ExprId expression,
+                                             hir::HirExprId value);
     hir::HirExprId lowerField(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerArrow(const frontend::Expression &expr, types::TypeId type);
     /// When `operand` is a Name that resolves to an enum declaration and `variant` is a
@@ -164,6 +181,7 @@ private:
                                        size_t field_index) const noexcept;
     hir::HirExprId lowerCast(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerIsNull(const frontend::Expression &expr);
+    hir::HirExprId lowerIsType(const frontend::Expression &expr);
     hir::HirExprId lowerLayoutIntrinsic(const frontend::Expression &expr);
     hir::HirExprId lowerCoerceToOptional(types::TypeId target, hir::HirExprId value);
     sema::modern::TypeId semaTypeOfExpr(frontend::ExprId id);

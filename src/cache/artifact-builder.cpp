@@ -302,6 +302,7 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                                  out.kind  = CompactExprKind::Call;
                                  out.ref_a = call.callee;
                                  out.ref_b = call.resolved_fn;
+                                 out.ref_e = internType(call.fn_type);
                                  for (auto arg : call.args)
                                      out.args.push_back(arg);
                                  for (auto arg_type : call.argument_types)
@@ -394,17 +395,31 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                                  out.type_id = internType(ms.type);
                                  out.ref_a   = ms.value;
                              },
+                             [&](const hir::HirMakeSlice &slice) {
+                                 out.kind    = CompactExprKind::MakeSlice;
+                                 out.type_id = internType(slice.type);
+                                 out.ref_a   = slice.object;
+                                 out.ref_b   = slice.lo;
+                                 out.ref_c   = slice.hi;
+                                 out.ref_e   = internType(slice.object_type);
+                                 out.ref_f   = internType(slice.bound_type);
+                                 out.flags = (slice.is_array ? 1U : 0U) | (slice.checked ? 2U : 0U);
+                             },
                              [&](const hir::HirUnionCast &uc) {
                                  out.kind  = CompactExprKind::Cast;
                                  out.ref_a = uc.value;
                                  out.ref_e = internType(uc.from);
                                  out.ref_b = internType(uc.to);
+                                 out.ref_c = uc.member_index;
+                                 out.flags = uc.checked ? 1U : 0U;
                              },
                              [&](const hir::HirCast &cast) {
                                  out.kind  = CompactExprKind::Cast;
                                  out.ref_a = cast.value;
                                  out.ref_e = internType(cast.from);
                                  out.ref_b = internType(cast.to);
+                                 out.ref_c = ~0U;
+                                 out.flags = 0U;
                              },
                              [&](const hir::HirLayoutIntrinsic &li) {
                                  out.kind    = CompactExprKind::LayoutIntrinsic;
@@ -709,7 +724,7 @@ Artifact ArtifactBuilder::build(std::string_view canonical_path, std::string_vie
         const auto name = interner_.lookup(ud->name);
         cdef.name       = std::string(name);
         cdef.name_id    = internString(name);
-        cdef.is_raw     = ud->is_raw;
+        cdef.is_raw     = !ud->is_tagged;
         for (const auto member : ud->members)
             cdef.member_type_ids.push_back(internType(member));
         art.union_defs.push_back(std::move(cdef));

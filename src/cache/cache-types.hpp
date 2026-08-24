@@ -183,6 +183,7 @@ enum class CompactExprKind : uint8_t {
     SlotAddr,
     MakeNone,
     MakeSome,
+    MakeSlice,
     Cast,
     LayoutIntrinsic,
     MarkerStore,
@@ -219,7 +220,7 @@ struct CompactExpr {
     uint32_t ref_b       = 0; // rhs / index / value
     uint32_t ref_c       = 0; // then_block / field index / version
     uint32_t ref_d       = 0; // else_block
-    uint32_t ref_e       = 0; // Cast::from / LayoutIntrinsic::which / operand type
+    uint32_t ref_e       = 0; // Cast::from / LayoutIntrinsic::which / operand type / call fn_type
     uint32_t ref_f       = 0; // LayoutIntrinsic::field_index
     uint8_t op           = 0; // binary/unary op
     uint8_t flags        = 0; // is_array / literal sub-tag

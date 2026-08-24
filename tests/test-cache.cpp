@@ -419,7 +419,7 @@ static void test_format_version_bump() {
     (void)Writer::write(art, writer);
 
     std::string bytes(reinterpret_cast<const char *>(writer.ptr()), writer.size());
-    CHECK_EQ(kFormatVersion, 6u, "zirl format version is bumped to 6");
+    CHECK_EQ(kFormatVersion, 7u, "zirl format version is bumped to 7 for tagged unions");
 
     // Simulate an old reader by treating the v6 version field as v3.
     bytes[4]        = 3;
@@ -503,6 +503,16 @@ static void test_artifact_builder() {
         arg_types.push(i32);
         hir::HirCall call(var_id, std::move(args), std::move(arg_types));
         call.resolved_fn = 1;
+        hir.addExpr(std::move(call));
+    }
+
+    { // Indirect call with a lowered function type and no direct symbol.
+        const types::TypeId params[] = {i32};
+        const auto fn_type           = types.internFn(params, i32);
+        memory::DynArray<hir::HirExprId> args(arena);
+        memory::DynArray<types::TypeId> arg_types(arena);
+        hir::HirCall call(var_id, std::move(args), std::move(arg_types));
+        call.fn_type = fn_type;
         hir.addExpr(std::move(call));
     }
 
@@ -614,6 +624,20 @@ static void test_artifact_builder() {
         hir.addExpr(some);
     }
     {
+        const auto array_type = types.internArray(i32, 4);
+        const auto slice_type = types.internSlice(i32);
+        hir::HirMakeSlice slice;
+        slice.object      = var_id;
+        slice.lo          = int_id;
+        slice.hi          = int_id;
+        slice.type        = slice_type;
+        slice.object_type = array_type;
+        slice.bound_type  = i32;
+        slice.is_array    = true;
+        slice.checked     = true;
+        hir.addExpr(slice);
+    }
+    {
         hir::HirCast cast;
         cast.value = int_id;
         cast.from  = i32;
@@ -655,7 +679,7 @@ static void test_artifact_builder() {
     const auto private_enum = types.defineEnum("_CacheEnum", i32);
     types.addEnumVariant(private_enum, "First", -3);
     types.addEnumVariant(private_enum, "Second", 4);
-    const auto private_union = types.defineUnion("_CacheUnion", true);
+    const auto private_union = types.defineUnion("_CacheUnion", false);
     types.addUnionMember(private_union, i32);
     types.addUnionMember(private_union, f64);
 
@@ -674,6 +698,32 @@ static void test_artifact_builder() {
     CHECK_EQ(art.functions.size(), 1u, "builder extracts HIR functions");
     CHECK_EQ(art.source_fp_hi, 0u, "builder stores source fingerprint hi");
     CHECK_EQ(art.functions[0].is_variadic, true, "builder stores HIR variadic flag");
+    const auto indirect_call = std::find_if(
+        art.functions[0].exprs.begin(), art.functions[0].exprs.end(),
+        [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::Call && expr.ref_b == symbols::kInvalidSym;
+        });
+    CHECK(indirect_call != art.functions[0].exprs.end(), "builder serializes an indirect call");
+    if (indirect_call != art.functions[0].exprs.end())
+        CHECK(indirect_call->ref_e != 0u, "builder preserves the indirect call's lowered fn type");
+    const auto make_slice =
+        std::find_if(art.functions[0].exprs.begin(), art.functions[0].exprs.end(),
+                     [](const cache::CompactExpr &expr) {
+                         return expr.kind == cache::CompactExprKind::MakeSlice;
+                     });
+    CHECK(make_slice != art.functions[0].exprs.end(),
+          "builder serializes a slice-range expression");
+    if (make_slice != art.functions[0].exprs.end()) {
+        CHECK_EQ(make_slice->ref_a, var_id, "slice range serializes the object");
+        CHECK_EQ(make_slice->ref_b, int_id, "slice range serializes the lower bound");
+        CHECK_EQ(make_slice->ref_c, int_id, "slice range serializes the upper bound");
+        const auto i32_kind = art.types[make_slice->ref_f].kind;
+        CHECK(i32_kind == CompactTypeKind::Int && art.types[make_slice->ref_f].int_width ==
+                                                      static_cast<uint8_t>(types::IntWidth::I32),
+              "slice range serializes an i32 bound type");
+        CHECK((make_slice->flags & 1U) != 0, "slice range serializes the array flag");
+        CHECK((make_slice->flags & 2U) != 0, "slice range serializes the runtime-check flag");
+    }
     CHECK_EQ(art.functions[0].exprs.size(), hir.exprCount(),
              "builder serializes the module expression pool");
     const auto point_decl = std::find_if(art.decls.begin(), art.decls.end(),

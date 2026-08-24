@@ -194,6 +194,10 @@ private:
     void checkAssignableOwnership(frontend::ExprId target, frontend::TextSpan span);
     TypeId inferOptionalProp(frontend::ExprId id);
     TypeId inferIndex(frontend::ExprId id);
+    TypeId inferSliceRange(frontend::ExprId id);
+    void prepareLValueIndexTypes(frontend::ExprId id);
+    /// Decodes an integer literal node, including unary `-N`, for static slice checks.
+    bool constantIntegerValue(frontend::ExprId id, std::int64_t &out) const noexcept;
     TypeId inferField(frontend::ExprId id);
     TypeId inferArrow(frontend::ExprId id);
     /// When `operand` is a Name that resolves to an enum declaration, returns the enum type
@@ -221,6 +225,7 @@ private:
     /// True for `*void` and `?*void`, the two spellings a C `void*` can take.
     [[nodiscard]] bool isVoidPointer(TypeId type) const noexcept;
     TypeId inferIsNull(frontend::ExprId id);
+    TypeId inferIsType(frontend::ExprId id);
     TypeId inferWhen(frontend::ExprId id);
     TypeId inferRange(frontend::ExprId id);
     TypeId inferLayoutIntrinsic(frontend::ExprId id);
@@ -268,6 +273,9 @@ private:
     TypeId concreteBase(TypeId t) const noexcept;
 
     TypeId typeOfLocalByName(frontend::ScopeId scope, std::string_view name);
+    /// Name expression id when `name` resolves to a local declared in `scope`.
+    const frontend::Expression *nameExpression(frontend::ScopeId scope,
+                                               std::string_view name) const noexcept;
     TypeId typeOfResolvedName(frontend::ExprId id);
     const session::ResolvedName *findResolvedExpr(frontend::ExprId id) const noexcept;
     const session::ResolvedName *findResolvedBinding(std::string_view name,

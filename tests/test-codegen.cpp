@@ -232,10 +232,9 @@ static void test_array_variable_indexing() {
                                                   "    arr[0] = 10;\n"
                                                   "    arr[1] = 20;\n"
                                                   "    arr[2] = 30;\n"
-                                                  "    return arr[1];\n"
+                                                  "    return raw arr[1];\n"
                                                   "}\n");
     CHECK(r.ok, "Array indexing compiles and runs");
-    printf("EXIT CODE: %d\n", r.exitCode);
     CHECK_EQ(r.exitCode, 20, "arr[1] returns 20");
 }
 
@@ -319,11 +318,10 @@ static void test_array_of_structs() {
                                                     "fn main(): i32 {\n"
                                                     "    var items: [2]Pair;\n"
                                                     "    items[0] = Pair{5, 6};\n"
-                                                    "    items[0].right = 9;\n"
-                                                    "    return items[0].left + items[0].right;\n"
-                                                    "}\n");
+                    "    items[0].right = 9;\n"
+                    "    return raw items[0].left + raw items[0].right;\n"
+                    "}\n");
     CHECK(r.ok, "Arrays of structs support indexed field assignment");
-    printf("EXIT CODE: %d\n", r.exitCode);
     CHECK_EQ(r.exitCode, 14, "items[i].field writes target the selected aggregate element");
 }
 
@@ -884,7 +882,7 @@ static void test_layout_api_matches_llvm() {
 
     auto tuple_array = types.internArray(tuple, 3);
     auto color       = types.defineEnum("Color", types.internInt(types::IntWidth::U8));
-    auto raw_union   = types.defineUnion("Bits", true);
+    auto raw_union   = types.defineUnion("Bits", false);
     types.addUnionMember(raw_union, types.internInt(types::IntWidth::U8));
     types.addUnionMember(raw_union, types.internInt(types::IntWidth::U32));
 
@@ -964,12 +962,150 @@ static void test_slice_abi_matches_c_runtime() {
     t.write("main.zith", "extern fn zith_test_slice(): []i32\n"
                          "fn main(): i32 {\n"
                          "    var s: []i32 = zith_test_slice();\n"
-                         "    return s[1];\n"
+                         "    return raw s[1];\n"
                          "}\n");
 
     auto r = t.run();
     CHECK(r.ok, "slice returned from C compiles, links and executes");
     CHECK_EQ(r.exitCode, 20, "indexing a C-provided slice reads the expected element");
+}
+
+/// An array coerced to `[]i32` is a zero-copy view of the original storage.
+static void test_array_to_slice_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn write(s: []i32): i32 { s[1] = 9; raw s[1] }\n"
+                         "fn sum(s: []i32): i32 { raw s[0] + raw s[1] }\n"
+                         "fn main(): i32 {\n"
+                         "    var values: [3]i32 = [10, 20, 30];\n"
+                         "    return sum(values) + write(values);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "array-to-slice coercion compiles, links and executes");
+    CHECK_EQ(r.exitCode, 39, "array-to-slice coercion reads array storage without a copy");
+}
+
+static void test_raw_slice_and_index_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn main(): i32 {\n"
+                         "    var values: [3]i32 = [10, 20, 30];\n"
+                         "    let s: []i32 = raw values[1..3];\n"
+                         "    return raw s[0] + raw s[1];\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "raw slice/index expressions compile, link and execute");
+    CHECK_EQ(r.exitCode, 50, "raw slice views and raw slice indexing return the elements");
+}
+
+/// Runtime checks wrap valid checked indexes in Some and invalid ones in None.
+static void test_checked_index_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn pick(values: [3]i32, i: i32): ?i32 { values[i] }\n"
+                         "fn slice_pick(values: []i32, i: i32): ?i32 { values[i] }\n"
+                         "fn main(): i32 {\n"
+                         "    var values: [3]i32 = [10, 20, 30];\n"
+                         "    let slice: []i32 = raw values[0..3];\n"
+                         "    var failures: i32 = 0;\n"
+                         "    if (pick(values, 1) is null) { failures = failures + 1; }\n"
+                         "    if (pick(values, 3) is null) { failures = failures + 1; }\n"
+                         "    if (slice_pick(slice, 0) is null) { failures = failures + 1; }\n"
+                         "    if (slice_pick(slice, 3) is null) { failures = failures + 1; }\n"
+                         "    return failures;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "checked index expressions compile, link and execute");
+    CHECK_EQ(r.exitCode, 2, "in-range indexes are Some and out-of-range indexes are None");
+}
+
+/// Builds a tiny C runtime that receives a function pointer from Zith and
+/// invokes it, proving `fn(...): R` values lower as C function pointers.
+static void test_function_pointer_call() {
+    ModernFileCodegenTest t;
+    const auto c_path   = (t.root / "fnptr-abi.c").string();
+    const auto lib_path = (t.root / "libzithfnptr.a").string();
+    const auto obj_path = (t.root / "fnptr-abi.o").string();
+    {
+        std::ofstream c_source(c_path, std::ios::binary | std::ios::trunc);
+        c_source << "int apply(int (*f)(int), int x) { return f(x); }\n"
+                    "int double_(int x) { return x * 2; }\n";
+    }
+    const auto compile = "cc -c " + c_path + " -o " + obj_path + " 2>/dev/null";
+    const auto archive = "ar rcs " + lib_path + " " + obj_path + " 2>/dev/null";
+    if (std::system(compile.c_str()) != 0 || std::system(archive.c_str()) != 0) {
+        std::printf("  SKIP: no C toolchain for the function-pointer ABI runtime test\n");
+        return;
+    }
+
+    t.opts.libraryDirs.push(t.root.string());
+    t.opts.libraries.push("zithfnptr");
+    t.write("main.zith", "extern fn apply(f: fn(i32): i32, x: i32): i32\n"
+                         "extern fn double_(x: i32): i32\n"
+                         "fn main(): i32 {\n"
+                         "    var f: fn(i32): i32 = double_;\n"
+                         "    return apply(f, 7);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "function value is passed to C as a function pointer and called");
+    CHECK_EQ(r.exitCode, 14, "indirect C call through a Zith function value returns 14");
+}
+
+static void test_native_function_value_call() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn double(x: i32): i32 { x * 2 }\n"
+                         "fn main(): i32 {\n"
+                         "    var f: fn(i32): i32 = double;\n"
+                         "    return f(7);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "a native function value compiles, links and executes");
+    CHECK_EQ(r.exitCode, 14, "an indirect call through a native function value returns 14");
+}
+
+/// A C runtime mutates a `{ ptr, len }` slice through the same aggregate ABI
+/// that Zith reads, then Zith assigns and reads an element from the slice.
+static void test_mutable_slice_from_c() {
+    ModernFileCodegenTest t;
+    const auto c_path   = (t.root / "slice-set.c").string();
+    const auto lib_path = (t.root / "libzithsliceset.a").string();
+    const auto obj_path = (t.root / "slice-set.o").string();
+    {
+        std::ofstream c_source(c_path, std::ios::binary | std::ios::trunc);
+        c_source << "#include <stdint.h>\n"
+                    "typedef struct { int32_t *ptr; int64_t len; } Slice;\n"
+                    "Slice make_slice(void) {\n"
+                    "    static int32_t data[2] = {1, 2};\n"
+                    "    Slice s = {data, 2};\n"
+                    "    return s;\n"
+                    "}\n"
+                    "int slice_set(Slice *s, int64_t i, int32_t v) {\n"
+                    "    s->ptr[i] = v;\n"
+                    "    return s->ptr[i];\n"
+                    "}\n";
+    }
+    const auto compile = "cc -c " + c_path + " -o " + obj_path + " 2>/dev/null";
+    const auto archive = "ar rcs " + lib_path + " " + obj_path + " 2>/dev/null";
+    if (std::system(compile.c_str()) != 0 || std::system(archive.c_str()) != 0) {
+        std::printf("  SKIP: no C toolchain for the mutable slice runtime test\n");
+        return;
+    }
+
+    t.opts.libraryDirs.push(t.root.string());
+    t.opts.libraries.push("zithsliceset");
+    t.write("main.zith", "extern fn make_slice(): []i32\n"
+                         "extern fn slice_set(s: *[]i32, i: i64, v: i32): i32\n"
+                         "fn main(): i32 {\n"
+                         "    var s: []i32 = make_slice();\n"
+                         "    slice_set(&s, 1, 10);\n"
+                         "    return raw s[1];\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "mutable slice from C compiles, links and executes");
+    CHECK_EQ(r.exitCode, 10, "assignment to a slice element reads the updated value");
 }
 
 static void test_optional_and_slice_layouts() {
@@ -1484,6 +1620,18 @@ static void test_codegen() {
     test_optional_and_slice_layouts();
     printf("Running test_slice_abi_matches_c_runtime\n");
     test_slice_abi_matches_c_runtime();
+    printf("Running test_array_to_slice_runtime\n");
+    test_array_to_slice_runtime();
+    printf("Running test_raw_slice_and_index_runtime\n");
+    test_raw_slice_and_index_runtime();
+    printf("Running test_checked_index_runtime\n");
+    test_checked_index_runtime();
+    printf("Running test_function_pointer_call\n");
+    test_function_pointer_call();
+    printf("Running test_native_function_value_call\n");
+    test_native_function_value_call();
+    printf("Running test_mutable_slice_from_c\n");
+    test_mutable_slice_from_c();
 }
 
 TEST_MAIN(codegen)

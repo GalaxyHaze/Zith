@@ -144,6 +144,11 @@ enum class ExprKind : uint8_t {
     ArrayLiteral,
     Cast,
     IsNull,
+    /// `expr is Type`: runtime tagged-union member test. Operand[0] is the value;
+    /// `cast_type` is the checked member type.
+    IsType,
+    /// `expr[lo..hi]`: a view over an array/slice. operands = [object, lo, hi].
+    SliceRange,
     /// `when (subject) { (cond) ~> body, (_) ~> default }` — match is a synonym.
     When,
     /// A range pattern `lo..hi`, valid only inside a `when` case condition.
@@ -246,6 +251,9 @@ struct Expression {
     /// For MacroCall: the result of expansion (a Block expression for normal
     /// macros; zero remains when expansion fails or did not run).
     ExprId expansion;
+    /// True when `raw a[i]` or `raw a[lo..hi]` was written. Raw slice/index
+    /// operations skip static and runtime bounds handling.
+    bool is_raw = false;
     /// True when `expansion` is the result of a `raw` macro (the expansion
     /// statements splice directly without a wrapping Block scope).
     bool expansionIsRaw = false;

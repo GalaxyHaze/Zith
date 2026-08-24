@@ -747,7 +747,7 @@ bool SemaPipeline::run(const ast::ProgramNode &program) {
                     auto &def = ctx_.types().getUnionDef(union_type);
                     if (!def.members.empty())
                         return;
-                    def.is_raw = n.is_raw;
+                    def.is_tagged = !n.is_raw;
                     for (const auto &variant : n.variants) {
                         if (variant.type_expr == ast::kInvalidTypeExpr)
                             continue;

@@ -67,7 +67,8 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `T!` (failable) | **Working** | Declared type; lowered through HIR |
 | `*T` (pointer) | **Working** | Non-nullable: `null` requires `?*T`. `*p` deref, `&x` addr-of, and `->` arrow all work. `*void` is rejected (use `raw opaque`). Pointers imported from C are `?*T`, checked with `is null`; a `?*T` is still accepted unchecked where `*T` is expected |
 | `raw opaque` | **Working** | Dedicated `TypeExprKind::Opaque`, lowered to pointer-to-void. Castable to and from any `*T` via `as`. Bare `opaque` (the tagged reference type) is still unimplemented and reports `unknown type` |
-| `[N]T` (array), `[]T` (slice) | **Working** | Indexing on arrays, slices, and pointers lowers through HIR/LLVM |
+| `[N]T` (array), `[]T` (slice) | **Working** | Arrays coerce to slices as zero-copy views; `a[lo..hi]` and `a[i]` return optionals with static/dynamic bounds checks. `raw a[lo..hi]`/`raw a[i]` emit unchecked views/indexing |
+| `fn(...): R` (function value) | **Working** | Parses as a type value, type-checks non-generic function references, and lowers/calls through C function-pointer ABI. No closures or captures |
 | `dyn Trait` | **Parse error** | Type parser does not handle `dyn` |
 | `struct`, `component`, `enum`, `union` | **Working** | Declarations parse and resolve |
 | `trait`, `interface` | **Working (member storage)** | Declaration bodies now store trait method requirements/default methods and interface fields in the frontend snapshot |
@@ -92,7 +93,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | dereference `*p` | **Working** | Pointer dereference via unary `*` |
 | address-of `&x` | **Working** | Address-of via unary `&` |
 | `->` chain operator | **Working** | Arrow access on struct pointers (`p->field`) |
-| index `a[i]` | **Working** | On arrays, slices, pointers; rejects non-indexable types |
+| index `a[i]` | **Working** | On arrays, slices, pointers; array/slice reads return `?T` with bounds checks. `raw a[i]` skips bounds handling and returns `T` |
 | `?` postfix propagation | **Working** | Requires optional operand in optional-returning function |
 | `as` cast | **Working** | Dedicated `ExprKind::Cast` -> `HirCast` -> LLVM conversion. Numeric pairs plus `raw opaque` <-> `*T` (`classifyCast`); pointer-to-pointer between concrete pointees, integer/pointer mixes and user-defined casts stay rejected. No narrowing overflow check |
 | `is null` | **Working** | Dedicated `ExprKind::IsNull`. Requires an optional operand; `?*T` uses the nullptr niche, `?T` reads the discriminant |

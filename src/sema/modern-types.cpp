@@ -150,13 +150,13 @@ TypeId TypeTable::internEnum(std::string_view name, TypeId underlying,
 }
 
 TypeId TypeTable::internUnion(std::string_view name, memory::DynArray<TypeId> &members,
-                              bool is_raw) {
+                              bool is_tagged) {
     auto &entry         = pushEntry(EntryKind::Union);
     entry.reported_kind = TypeKind::Union;
     auto &storage       = makeStorage();
     for (auto &m : members)
         storage.push(m);
-    entry.union_ty = arena_->make<UnionType>(UnionType{name, storage, is_raw});
+    entry.union_ty = arena_->make<UnionType>(UnionType{name, storage, is_tagged});
     entry.storage  = &storage;
     return entry.id;
 }

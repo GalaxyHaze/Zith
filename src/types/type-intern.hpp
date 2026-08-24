@@ -34,7 +34,7 @@ struct EnumDef {
 
 struct UnionDef {
     memory::InternedId name;
-    bool is_raw;
+    bool is_tagged;
     memory::DynArray<TypeId> members;
 };
 
@@ -114,7 +114,7 @@ public:
     }
     bool enumValue(TypeId enum_type, std::string_view name, int64_t &value) const;
 
-    TypeId defineUnion(std::string_view name, bool is_raw);
+    TypeId defineUnion(std::string_view name, bool is_tagged);
     void addUnionMember(TypeId union_type, TypeId member);
     const UnionDef &getUnionDef(TypeId union_type) const;
     UnionDef &getUnionDef(TypeId union_type);
@@ -131,5 +131,16 @@ public:
         return interner_;
     }
 };
+
+/// Safe default returned by `getUnionDef` when the requested type is not a
+/// defined union. Callers should prefer `lookupUnionDef` when they already
+/// hold a def id. The static arena keeps the member DynArray valid for the
+/// whole process; this default contains no members.
+inline const UnionDef &emptyUnionDef() {
+    static memory::Arena *arena = new memory::Arena;
+    static const UnionDef *def =
+        new UnionDef{memory::InternedId{0}, false, memory::DynArray<TypeId>(*arena)};
+    return *def;
+}
 
 } // namespace zith::types

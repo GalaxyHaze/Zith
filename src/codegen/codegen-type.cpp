@@ -88,17 +88,17 @@ llvm::Type *CodeGenType::lower(types::TypeId id) {
                 }
                 return result;
             } else if constexpr (std::is_same_v<T, types::TypeFn>) {
-                auto *ret = lower(t.ret);
-                llvm::SmallVector<llvm::Type *, 8> params;
-                for (size_t i = 0; i < t.param_count; i++)
-                    params.push_back(lower(t.params[i]));
-                return llvm::FunctionType::get(ret, params, false);
+                // A `fn(...)` value is stored and passed as a C function
+                // pointer.  The underlying signature is reconstructed by the
+                // call emitter from HirCall::fn_type when needed.
+                return llvm::PointerType::get(ctx_, 0);
             } else if constexpr (std::is_same_v<T, types::TypeNever>) {
                 return llvm::Type::getVoidTy(ctx_);
             } else if constexpr (std::is_same_v<T, types::TypeEnum>) {
                 return lower(types_.getEnumDef(id).underlying);
             } else if constexpr (std::is_same_v<T, types::TypeUnion>) {
-                const auto &def                = types_.getUnionDef(id);
+                const auto *def_ptr            = types_.lookupUnionDef(t.def_id);
+                const auto &def = def_ptr != nullptr ? *def_ptr : types::emptyUnionDef();
                 uint64_t max_bytes             = 1;
                 llvm::Type *max_aligned_member = llvm::Type::getInt8Ty(ctx_);
                 for (auto member : def.members) {
@@ -110,6 +110,29 @@ llvm::Type *CodeGenType::lower(types::TypeId id) {
                     if (layout_ && layout_->getABITypeAlign(member_type) >
                                        layout_->getABITypeAlign(max_aligned_member))
                         max_aligned_member = member_type;
+                }
+                if (def.is_tagged) {
+                    uint64_t max_align = 1;
+                    if (layout_)
+                        max_align = layout_->getABITypeAlign(max_aligned_member).value();
+                    else if (max_aligned_member->isPointerTy())
+                        max_align = 8;
+                    const auto payload_bytes =
+                        (max_bytes + max_align - 1U) / max_align * max_align;
+                    llvm::Type *tag_type = llvm::Type::getInt8Ty(ctx_);
+                    if (def.members.size() > 0xFFU)
+                        tag_type = llvm::Type::getInt16Ty(ctx_);
+                    if (def.members.size() > 0xFFFFU)
+                        tag_type = llvm::Type::getInt32Ty(ctx_);
+                    // Field 0 stores the aligned payload and field 1 stores the
+                    // exact member-index tag. The zero-length member at field 2
+                    // raises ABI alignment without consuming storage.
+                    return llvm::StructType::get(
+                        ctx_,
+                        {llvm::ArrayType::get(llvm::Type::getInt8Ty(ctx_), payload_bytes),
+                         tag_type,
+                         llvm::ArrayType::get(max_aligned_member, 0)},
+                        false);
                 }
                 // The zero-length trailing member raises ABI alignment without consuming storage.
                 // LLVM rounds the struct size to that alignment, yielding untagged union storage.

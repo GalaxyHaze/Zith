@@ -322,14 +322,22 @@ uint32_t HirLowerModern::lowerTypeSize(types::TypeId type) noexcept {
         const auto *union_type = std::get_if<types::TypeUnion>(&types_.lookup(type));
         if (union_type == nullptr)
             return 0U;
-        const auto &def    = types_.getUnionDef(union_type->def_id);
+        const auto *def    = types_.lookupUnionDef(union_type->def_id);
+        if (def == nullptr)
+            return 0U;
         uint32_t max_bytes = 1U;
         uint32_t max_align = 1U;
-        for (const auto member : def.members) {
+        for (const auto member : def->members) {
             max_align = std::max(max_align, lowerTypeAlign(member));
             max_bytes = std::max(max_bytes, lowerTypeSize(member));
         }
-        return alignUp(max_bytes, max_align);
+        if (!def->is_tagged)
+            return alignUp(max_bytes, max_align);
+        // Tagged unions append the smallest sufficient member-index tag after
+        // the aligned payload.
+        const auto payload_bytes = alignUp(max_bytes, max_align);
+        return alignUp(payload_bytes + tagByteCount(static_cast<uint32_t>(def->members.size())),
+                       max_align);
     }
     case types::TypeKind::Struct: {
         const auto *structure = std::get_if<types::TypeStruct>(&types_.lookup(type));
@@ -413,8 +421,11 @@ uint32_t HirLowerModern::lowerTypeAlign(types::TypeId type) noexcept {
         const auto *union_type = std::get_if<types::TypeUnion>(&types_.lookup(type));
         if (union_type == nullptr)
             return 0U;
+        const auto *def = types_.lookupUnionDef(union_type->def_id);
+        if (def == nullptr)
+            return 0U;
         uint32_t max_align = 1U;
-        for (const auto member : types_.getUnionDef(union_type->def_id).members)
+        for (const auto member : def->members)
             max_align = std::max(max_align, lowerTypeAlign(member));
         return max_align;
     }
@@ -442,6 +453,69 @@ uint32_t HirLowerModern::lowerTypeAlign(types::TypeId type) noexcept {
     default:
         return 0U;
     }
+}
+
+uint32_t HirLowerModern::tagByteCount(uint32_t member_count) noexcept {
+    if (member_count <= 0xFFU)
+        return 1U;
+    if (member_count <= 0xFFFFU)
+        return 2U;
+    return 4U;
+}
+
+types::TypeId HirLowerModern::tagType(types::TypeIntern &types, uint32_t member_count) noexcept {
+    if (member_count <= 0xFFU)
+        return types.internInt(types::IntWidth::U8);
+    if (member_count <= 0xFFFFU)
+        return types.internInt(types::IntWidth::U16);
+    return types.internInt(types::IntWidth::U32);
+}
+
+types::TypeId HirLowerModern::lowerTagType(types::TypeId type, types::TypeIntern &types,
+                                           uint32_t member_count) noexcept {
+    const auto *union_type = std::get_if<types::TypeUnion>(&types.lookup(type));
+    if (union_type == nullptr)
+        return types::kInvalidType;
+    const auto *def = types.lookupUnionDef(union_type->def_id);
+    if (def == nullptr || !def->is_tagged)
+        return types::kInvalidType;
+    return tagType(types, member_count);
+}
+
+uint32_t HirLowerModern::taggedMemberIndex(types::TypeId union_type, types::TypeId member) noexcept {
+    if (types_.kindOf(union_type) != types::TypeKind::Union)
+        return ~0U;
+    const auto *union_data = std::get_if<types::TypeUnion>(&types_.lookup(union_type));
+    if (union_data == nullptr)
+        return ~0U;
+    const auto *def = types_.lookupUnionDef(union_data->def_id);
+    if (def == nullptr || !def->is_tagged)
+        return ~0U;
+    uint32_t index = 0;
+    for (const auto candidate : def->members) {
+        if (candidate == member)
+            return index;
+        ++index;
+    }
+    return ~0U;
+}
+
+hir::HirExprId HirLowerModern::rebuildTaggedUnion(types::TypeId union_type, hir::HirExprId value,
+                                                  uint32_t member_index) {
+    const auto *union_data = std::get_if<types::TypeUnion>(&types_.lookup(union_type));
+    if (union_data == nullptr)
+        return hir::kInvalidHirExpr;
+    const auto *def = types_.lookupUnionDef(union_data->def_id);
+    if (def == nullptr || !def->is_tagged)
+        return hir::kInvalidHirExpr;
+    const auto &members = def->members;
+    hir::HirUnionCast cast;
+    cast.value        = value;
+    cast.from         = member_index < members.size() ? members[member_index] : types::kInvalidType;
+    cast.to           = union_type;
+    cast.member_index = member_index;
+    cast.checked      = false;
+    return addExpr(std::move(cast));
 }
 
 bool HirLowerModern::lowerFunctionBodies() {
@@ -727,7 +801,8 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
         hir::HirRet ret;
         if (current_fn_->return_type != types::kVoidType && body_expr != hir::kInvalidHirExpr)
-            ret.value = body_expr;
+            ret.value =
+                lowerCoerceToSliceIfArray(current_fn_->return_type, info.decl->body, body_expr);
         current_fn_->blocks[current_block_].terminator = addExpr(std::move(ret));
     }
 
@@ -859,8 +934,12 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
             lowered = types::kErrorType;
             break;
         }
-        lowered = types_.defineUnion(union_type->name, union_type->is_raw);
-        if (types_.getUnionDef(lowered).members.size() == 0U) {
+        lowered = types_.defineUnion(union_type->name, union_type->is_tagged);
+        const auto *lowered_union =
+            std::get_if<types::TypeUnion>(&types_.lookup(lowered));
+        const auto *def =
+            lowered_union != nullptr ? types_.lookupUnionDef(lowered_union->def_id) : nullptr;
+        if (def != nullptr && def->members.size() == 0U) {
             lowered_types_.insert(type.intern_seq, lowered);
             for (const auto member : union_type->members)
                 types_.addUnionMember(lowered, lowerType(member));
@@ -1145,6 +1224,8 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
         return lowerOptionalProp(expr, type);
     case frontend::ExprKind::Index:
         return lowerIndex(expr, type);
+    case frontend::ExprKind::SliceRange:
+        return lowerSliceRange(expr, type);
     case frontend::ExprKind::Field:
         return lowerField(expr, type);
     case frontend::ExprKind::Arrow:
@@ -1157,6 +1238,8 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
         return lowerCast(expr, type);
     case frontend::ExprKind::IsNull:
         return lowerIsNull(expr);
+    case frontend::ExprKind::IsType:
+        return lowerIsType(expr);
     case frontend::ExprKind::LayoutIntrinsic:
         return lowerLayoutIntrinsic(expr);
     case frontend::ExprKind::MacroCall: {
@@ -1250,8 +1333,26 @@ hir::HirExprId HirLowerModern::lowerName(const frontend::Expression &expr) {
     // pick up a same-named binding from another function.
     if (const auto *resolved = findResolvedExpr(expr.id)) {
         if (resolved->local) {
-            const auto slot = localSlot(resolved->local);
-            return emitSlotLoad(slot, typeOfLocal(resolved->local));
+            const auto slot      = localSlot(resolved->local);
+            const auto local_ty  = typeOfLocal(resolved->local);
+            const auto expr_type = typeOfExpr(expr.id);
+            const auto *local_union =
+                types_.kindOf(local_ty) == types::TypeKind::Union
+                    ? std::get_if<types::TypeUnion>(&types_.lookup(local_ty))
+                    : nullptr;
+            const auto *local_union_def =
+                local_union != nullptr ? types_.lookupUnionDef(local_union->def_id) : nullptr;
+            if (local_union_def != nullptr && local_union_def->is_tagged &&
+                expr_type != local_ty) {
+                hir::HirUnionCast cast;
+                cast.value        = emitSlotLoad(slot, local_ty);
+                cast.from         = local_ty;
+                cast.to           = expr_type;
+                cast.member_index = taggedMemberIndex(local_ty, expr_type);
+                cast.checked      = false;
+                return addExpr(std::move(cast));
+            }
+            return emitSlotLoad(slot, local_ty);
         }
         if (resolved->foreignFunction != nullptr) {
             hir::HirVar var;
@@ -1402,17 +1503,33 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
     }
 
     for (size_t index = 1; index < expr.operands.size(); ++index) {
-        const auto argument = lowerExpr(expr.operands[index]);
+        const size_t call_index = is_receiver_method ? index : index - 1U;
+        const auto argument     = lowerExpr(expr.operands[index]);
         if (argument == hir::kInvalidHirExpr)
             return hir::kInvalidHirExpr;
-        args.push(argument);
         const auto argument_type = typeOfExpr(expr.operands[index]);
         if (argument_type != types::kInvalidType)
             arg_types.push(argument_type);
+        const sema::modern::TypeId callee_sema_type = semaTypeOfExpr(callee_id);
+        const auto *callee_fn = callee_sema_type != sema::modern::kInvalidTypeId
+                                    ? sema_.typeTable().function(callee_sema_type)
+                                    : nullptr;
+        const auto param_type = callee_fn != nullptr && call_index < callee_fn->params.size()
+                                    ? lowerType(callee_fn->params[call_index])
+                                    : types::kInvalidType;
+        const auto lowered_argument =
+            lowerCoerceToSliceIfArray(param_type, expr.operands[index], argument);
+        args.push(lowered_argument);
     }
 
     hir::HirCall call{callee, std::move(args), std::move(arg_types)};
     call.resolved_fn = symbols::kInvalidSym;
+    // Indirect calls through a variable (for example a function pointer) must
+    // remember the lowered function type so codegen can cast the callee value to
+    // a function pointer without re-running semantic analysis.
+    if (callee != hir::kInvalidHirExpr) {
+        call.fn_type = typeOfExpr(callee_id);
+    }
     if (method_decl != nullptr) {
         if (const auto *target = overloadTarget(callee_id);
             target != nullptr && target->module == current_module_->key) {
@@ -1539,10 +1656,10 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
     current_fn_->blocks[then_block].insts = memory::DynArray<hir::HirExprId>(arena_);
     const auto then_value                 = lowerExpr(expr.operands[1]);
     if (has_value && then_value != hir::kInvalidHirExpr &&
-        current_fn_->blocks[then_block].terminator == hir::kInvalidHirExpr) {
-        current_fn_->blocks[then_block].insts.push(emitSlotStore(result_slot, then_value));
+        current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
+        current_fn_->blocks[current_block_].insts.push(emitSlotStore(result_slot, then_value));
     }
-    if (current_fn_->blocks[then_block].terminator == hir::kInvalidHirExpr)
+    if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
         emitJump(merge_block);
 
     if (has_else) {
@@ -1550,10 +1667,11 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
         current_fn_->blocks[else_block].insts = memory::DynArray<hir::HirExprId>(arena_);
         const auto else_value                 = lowerExpr(expr.operands[2]);
         if (has_value && else_value != hir::kInvalidHirExpr &&
-            current_fn_->blocks[else_block].terminator == hir::kInvalidHirExpr) {
-            current_fn_->blocks[else_block].insts.push(emitSlotStore(result_slot, else_value));
+            current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
+            current_fn_->blocks[current_block_].insts.push(
+                emitSlotStore(result_slot, else_value));
         }
-        if (current_fn_->blocks[else_block].terminator == hir::kInvalidHirExpr)
+        if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
             emitJump(merge_block);
     }
 
@@ -1615,10 +1733,10 @@ hir::HirExprId HirLowerModern::lowerWhen(const frontend::Expression &expr,
         current_fn_->blocks[body_block].insts = memory::DynArray<hir::HirExprId>(arena_);
         const auto body_value                 = lowerExpr(expr.operands[body_index]);
         if (has_value && body_value != hir::kInvalidHirExpr &&
-            current_fn_->blocks[body_block].terminator == hir::kInvalidHirExpr) {
-            current_fn_->blocks[body_block].insts.push(emitSlotStore(result_slot, body_value));
+            current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
+            current_fn_->blocks[current_block_].insts.push(emitSlotStore(result_slot, body_value));
         }
-        if (current_fn_->blocks[body_block].terminator == hir::kInvalidHirExpr)
+        if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
             emitJump(merge_block);
     }
 
@@ -1772,8 +1890,11 @@ hir::HirExprId HirLowerModern::lowerAssign(const frontend::Expression &expr,
         if (const auto *resolved = findResolvedExpr(expr.operands[0]);
             resolved != nullptr && resolved->local) {
             const auto value = lowerExpr(expr.operands[1]);
-            return value != hir::kInvalidHirExpr ? emitSlotStore(localSlot(resolved->local), value)
-                                                 : hir::kInvalidHirExpr;
+            if (value == hir::kInvalidHirExpr)
+                return hir::kInvalidHirExpr;
+            const auto value_slice =
+                lowerCoerceToSliceIfArray(typeOfLocal(resolved->local), expr.operands[1], value);
+            return emitSlotStore(localSlot(resolved->local), value_slice);
         }
     }
     // For field/arrow lvalue targets, lower the lhs normally (produces HirField) then assign.
@@ -1785,9 +1906,10 @@ hir::HirExprId HirLowerModern::lowerAssign(const frontend::Expression &expr,
         const auto value       = lowerExpr(expr.operands[1]);
         if (target == hir::kInvalidHirExpr || value == hir::kInvalidHirExpr)
             return hir::kInvalidHirExpr;
+        const auto value_slice = lowerCoerceToSliceIfArray(target_type, expr.operands[1], value);
         hir::HirAssign assign;
         assign.target = target;
-        assign.value  = value;
+        assign.value  = value_slice;
         return addExpr(std::move(assign));
     }
 
@@ -1795,10 +1917,12 @@ hir::HirExprId HirLowerModern::lowerAssign(const frontend::Expression &expr,
     const auto value  = lowerExpr(expr.operands[1]);
     if (target == hir::kInvalidHirExpr || value == hir::kInvalidHirExpr)
         return hir::kInvalidHirExpr;
+    const auto value_slice =
+        lowerCoerceToSliceIfArray(typeOfExpr(expr.operands[0]), expr.operands[1], value);
 
     hir::HirAssign assign;
     assign.target = target;
-    assign.value  = value;
+    assign.value  = value_slice;
     return addExpr(std::move(assign));
 }
 
@@ -1881,6 +2005,21 @@ hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,
         if (wrapper_count == 1U)
             return addExpr(hir::HirField{value, 0U, type, from});
     }
+    if (types_.kindOf(from) == types::TypeKind::Union &&
+        types_.kindOf(type) != types::TypeKind::Union) {
+        const auto *union_type = std::get_if<types::TypeUnion>(&types_.lookup(from));
+        const auto *def =
+            union_type != nullptr ? types_.lookupUnionDef(union_type->def_id) : nullptr;
+        if (def != nullptr && def->is_tagged) {
+            hir::HirUnionCast cast;
+            cast.value        = value;
+            cast.from         = from;
+            cast.to           = type;
+            cast.member_index = taggedMemberIndex(from, type);
+            cast.checked      = !expr.is_raw;
+            return addExpr(std::move(cast));
+        }
+    }
     if (types_.kindOf(from) == types::TypeKind::Union ||
         types_.kindOf(type) == types::TypeKind::Union)
         return addExpr(hir::HirUnionCast{value, from, type});
@@ -1916,6 +2055,50 @@ hir::HirExprId HirLowerModern::lowerIsNull(const frontend::Expression &expr) {
     const auto tag = addExpr(hir::HirField{addExpr(hir::HirSlotAddr{slot, operand_type}), 1U,
                                            types::kBoolType, operand_type});
     return addExpr(hir::HirUnary{hir::HirUnaryOp::Not, tag, types::kBoolType});
+}
+
+hir::HirExprId HirLowerModern::lowerIsType(const frontend::Expression &expr) {
+    if (expr.operands.empty() || !expr.cast_type ||
+        current_module_ == nullptr || current_module_->frontend == nullptr)
+        return hir::kInvalidHirExpr;
+    const auto &type_exprs = current_module_->frontend->typeExpressions();
+    if (expr.cast_type.value > type_exprs.size())
+        return hir::kInvalidHirExpr;
+    const auto &type_expr = type_exprs[expr.cast_type.value - 1U];
+    const auto operand    = lowerExpr(expr.operands[0]);
+    if (operand == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+    const auto operand_type = typeOfExpr(expr.operands[0]);
+    if (types_.kindOf(operand_type) != types::TypeKind::Union)
+        return hir::kInvalidHirExpr;
+    const auto *union_type =
+        std::get_if<types::TypeUnion>(&types_.lookup(operand_type));
+    if (union_type == nullptr)
+        return hir::kInvalidHirExpr;
+    const auto *def = types_.lookupUnionDef(union_type->def_id);
+    if (def == nullptr || !def->is_tagged)
+        return hir::kInvalidHirExpr;
+    const auto target = lowerType(sema_.typeTable().lookupNamed(type_expr.name));
+    uint32_t member_index = 0;
+    for (const auto member : def->members) {
+        if (member == target)
+            break;
+        ++member_index;
+    }
+    if (member_index >= def->members.size())
+        return hir::kInvalidHirExpr;
+
+    const auto slot = next_slot_++;
+    current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, operand_type));
+    current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, operand));
+    const auto tag_type = tagType(types_, static_cast<uint32_t>(def->members.size()));
+    const auto tag = addExpr(hir::HirField{addExpr(hir::HirSlotAddr{slot, operand_type}), 1U,
+                                           tag_type, operand_type});
+    hir::HirLiteral expected;
+    expected.type = tag_type;
+    expected.i    = static_cast<int64_t>(member_index);
+    return addExpr(hir::HirBinary{tag, addExpr(std::move(expected)), hir::HirBinaryOp::Eq,
+                                  types::kBoolType});
 }
 
 hir::HirExprId HirLowerModern::lowerLayoutIntrinsic(const frontend::Expression &expr) {
@@ -1961,7 +2144,306 @@ hir::HirExprId HirLowerModern::lowerIndex(const frontend::Expression &expr,
     indexing.type     = type;
     indexing.obj_type = object_type;
     indexing.is_array = types_.kindOf(object_type) == types::TypeKind::Array;
-    return addExpr(std::move(indexing));
+    if (expr.is_raw)
+        return addExpr(std::move(indexing));
+
+    const auto *optional    = std::get_if<types::TypeOptional>(&types_.lookup(type));
+    const auto element_type = optional != nullptr ? optional->inner : type;
+    const auto index_type   = typeOfExpr(expr.operands[1]);
+    if (optional == nullptr)
+        return addExpr(std::move(indexing));
+
+    // Evaluate the object and index once, then branch on the dynamic bounds checks.
+    const auto object_slot = next_slot_++;
+    const auto index_slot  = next_slot_++;
+    const auto result_slot = next_slot_++;
+    current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(object_slot, object_type));
+    current_fn_->blocks[current_block_].insts.push(emitSlotStore(object_slot, object));
+    current_fn_->blocks[current_block_].insts.push(
+        emitSlotAlloca(index_slot, types_.kindOf(index_type) == types::TypeKind::Int
+                                         ? index_type
+                                         : types::kErrorType));
+    current_fn_->blocks[current_block_].insts.push(emitSlotStore(index_slot, index));
+    current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(result_slot, type));
+
+    const auto loaded_index = emitSlotLoad(index_slot, index_type);
+    hir::HirLiteral zero;
+    zero.type = index_type;
+    zero.i    = 0;
+    hir::HirExprId len = hir::kInvalidHirExpr;
+    const auto *array  = std::get_if<types::TypeArray>(&types_.lookup(object_type));
+    if (array != nullptr) {
+        hir::HirLiteral len_lit;
+        len_lit.type = index_type;
+        len_lit.i    = static_cast<int64_t>(array->count);
+        len          = addExpr(std::move(len_lit));
+    } else {
+        const auto loaded    = emitSlotLoad(object_slot, object_type);
+        auto len_i64         = addExpr(hir::HirField{
+            loaded, 1U, types_.internInt(types::IntWidth::I64), object_type});
+        const auto len64     = types_.internInt(types::IntWidth::I64);
+        if (types_.kindOf(index_type) != types::TypeKind::Int) {
+            len = hir::kInvalidHirExpr;
+        } else if (index_type != len64) {
+            len = addExpr(hir::HirCast{len_i64, len64, index_type});
+        } else {
+            len = len_i64;
+        }
+    }
+    if (len == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+
+    hir::HirBinary ge_zero;
+    ge_zero.lhs          = loaded_index;
+    ge_zero.rhs          = addExpr(std::move(zero));
+    ge_zero.op           = hir::HirBinaryOp::Ge;
+    ge_zero.type         = types::kBoolType;
+    ge_zero.operand_type = index_type;
+    const auto ge_zero_id = addExpr(std::move(ge_zero));
+
+    hir::HirBinary lt_len;
+    lt_len.lhs          = loaded_index;
+    lt_len.rhs          = len;
+    lt_len.op           = hir::HirBinaryOp::Lt;
+    lt_len.type         = types::kBoolType;
+    lt_len.operand_type = index_type;
+    const auto lt_len_id = addExpr(std::move(lt_len));
+
+    hir::HirBinary all_ok;
+    all_ok.lhs          = ge_zero_id;
+    all_ok.rhs          = lt_len_id;
+    all_ok.op           = hir::HirBinaryOp::And;
+    all_ok.type         = types::kBoolType;
+    all_ok.operand_type = types::kBoolType;
+
+    const auto some_block  = newBlock();
+    const auto none_block  = newBlock();
+    const auto merge_block = newBlock();
+    hir::HirBranch branch;
+    branch.cond       = addExpr(std::move(all_ok));
+    branch.then_block = static_cast<hir::HirDeclId>(some_block);
+    branch.else_block = static_cast<hir::HirDeclId>(none_block);
+    setTerminator(addExpr(std::move(branch)));
+
+    setCurrentBlock(some_block);
+    current_fn_->blocks[some_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    {
+        hir::HirIndex ok_index;
+        ok_index.object   = emitSlotLoad(object_slot, object_type);
+        ok_index.index    = emitSlotLoad(index_slot, index_type);
+        ok_index.type     = element_type;
+        ok_index.obj_type = object_type;
+        ok_index.is_array = indexing.is_array;
+        hir::HirMakeSome some;
+        some.type  = type;
+        some.value = addExpr(std::move(ok_index));
+        current_fn_->blocks[some_block].insts.push(
+            emitSlotStore(result_slot, addExpr(std::move(some))));
+        emitJump(merge_block);
+    }
+
+    setCurrentBlock(none_block);
+    current_fn_->blocks[none_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    {
+        hir::HirMakeNone none;
+        none.type = type;
+        current_fn_->blocks[none_block].insts.push(
+            emitSlotStore(result_slot, addExpr(std::move(none))));
+        emitJump(merge_block);
+    }
+
+    setCurrentBlock(merge_block);
+    current_fn_->blocks[merge_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    return emitSlotLoad(result_slot, type);
+}
+
+hir::HirExprId HirLowerModern::lowerCoerceToSliceIfArray(types::TypeId target,
+                                                         frontend::ExprId expression,
+                                                         hir::HirExprId value) {
+    if (value == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+    const auto source_type = typeOfExpr(expression);
+    if (types_.kindOf(source_type) != types::TypeKind::Array ||
+        types_.kindOf(target) != types::TypeKind::Slice) {
+        return value;
+    }
+
+    hir::HirMakeSlice slice;
+    slice.object      = value;
+    slice.type        = target;
+    slice.object_type = source_type;
+    slice.is_array    = true;
+    slice.checked     = false;
+
+    const auto array      = std::get_if<types::TypeArray>(&types_.lookup(source_type));
+    const auto count      = array != nullptr ? static_cast<int64_t>(array->count) : 0;
+    const auto index_type = types_.internInt(types::IntWidth::I64);
+    slice.bound_type      = index_type;
+    hir::HirLiteral lo;
+    lo.type = index_type;
+    lo.i    = 0;
+    hir::HirLiteral hi;
+    hi.type  = index_type;
+    hi.i     = count;
+    slice.lo = addExpr(std::move(lo));
+    slice.hi = addExpr(std::move(hi));
+    return addExpr(std::move(slice));
+}
+
+hir::HirExprId HirLowerModern::lowerSliceRange(const frontend::Expression &expr,
+                                               const types::TypeId type) {
+    if (expr.operands.size() < 3U)
+        return hir::kInvalidHirExpr;
+    const auto object = lowerExpr(expr.operands[0]);
+    const auto lo     = lowerExpr(expr.operands[1]);
+    const auto hi     = lowerExpr(expr.operands[2]);
+    if (object == hir::kInvalidHirExpr || lo == hir::kInvalidHirExpr ||
+        hi == hir::kInvalidHirExpr) {
+        return hir::kInvalidHirExpr;
+    }
+
+    const auto object_type = typeOfExpr(expr.operands[0]);
+    const auto *optional   = std::get_if<types::TypeOptional>(&types_.lookup(type));
+    const auto slice_type  = optional != nullptr ? optional->inner : type;
+    const auto bound_type  = typeOfExpr(expr.operands[1]);
+    hir::HirMakeSlice slice;
+    slice.object      = object;
+    slice.lo          = lo;
+    slice.hi          = hi;
+    slice.type        = slice_type;
+    slice.object_type = object_type;
+    slice.bound_type  = bound_type;
+    slice.is_array    = types_.kindOf(object_type) == types::TypeKind::Array;
+    slice.checked     = false;
+    if (optional == nullptr || expr.is_raw)
+        return addExpr(std::move(slice));
+
+    // Evaluate the object and both bounds once, then branch on the dynamic checks.
+    const auto object_slot = next_slot_++;
+    const auto lo_slot     = next_slot_++;
+    const auto hi_slot     = next_slot_++;
+    const auto result_slot = next_slot_++;
+    current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(object_slot, object_type));
+    current_fn_->blocks[current_block_].insts.push(emitSlotStore(object_slot, object));
+    current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(
+        lo_slot,
+        types_.kindOf(bound_type) == types::TypeKind::Int ? bound_type : types::kErrorType));
+    current_fn_->blocks[current_block_].insts.push(emitSlotStore(lo_slot, lo));
+    current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(
+        hi_slot,
+        types_.kindOf(bound_type) == types::TypeKind::Int ? bound_type : types::kErrorType));
+    current_fn_->blocks[current_block_].insts.push(emitSlotStore(hi_slot, hi));
+    current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(result_slot, type));
+
+    const auto bound_load = emitSlotLoad(lo_slot, bound_type);
+    const auto hi_load    = emitSlotLoad(hi_slot, bound_type);
+    hir::HirLiteral zero;
+    zero.type          = bound_type;
+    zero.i             = 0;
+    hir::HirExprId len = hir::kInvalidHirExpr;
+    const auto *array  = std::get_if<types::TypeArray>(&types_.lookup(object_type));
+    if (array != nullptr) {
+        hir::HirLiteral len_lit;
+        len_lit.type = bound_type;
+        len_lit.i    = static_cast<int64_t>(array->count);
+        len          = addExpr(std::move(len_lit));
+    } else {
+        const auto loaded = emitSlotLoad(object_slot, object_type);
+        auto len_i64 =
+            addExpr(hir::HirField{loaded, 1U, types_.internInt(types::IntWidth::I64), object_type});
+        const auto len64 = types_.internInt(types::IntWidth::I64);
+        if (types_.kindOf(bound_type) != types::TypeKind::Int) {
+            len = hir::kInvalidHirExpr;
+        } else if (bound_type != len64) {
+            len = addExpr(hir::HirCast{len_i64, len64, bound_type});
+        } else {
+            len = len_i64;
+        }
+    }
+    if (len == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+
+    hir::HirBinary lo_ge_zero;
+    lo_ge_zero.lhs           = bound_load;
+    lo_ge_zero.rhs           = addExpr(std::move(zero));
+    lo_ge_zero.op            = hir::HirBinaryOp::Ge;
+    lo_ge_zero.type          = types::kBoolType;
+    lo_ge_zero.operand_type  = bound_type;
+    const auto lo_ge_zero_id = addExpr(std::move(lo_ge_zero));
+
+    hir::HirBinary hi_le_len;
+    hi_le_len.lhs           = hi_load;
+    hi_le_len.rhs           = len;
+    hi_le_len.op            = hir::HirBinaryOp::Le;
+    hi_le_len.type          = types::kBoolType;
+    hi_le_len.operand_type  = bound_type;
+    const auto hi_le_len_id = addExpr(std::move(hi_le_len));
+
+    hir::HirBinary lo_le_hi;
+    lo_le_hi.lhs           = bound_load;
+    lo_le_hi.rhs           = hi_load;
+    lo_le_hi.op            = hir::HirBinaryOp::Le;
+    lo_le_hi.type          = types::kBoolType;
+    lo_le_hi.operand_type  = bound_type;
+    const auto lo_le_hi_id = addExpr(std::move(lo_le_hi));
+
+    hir::HirBinary first_and;
+    first_and.lhs           = lo_ge_zero_id;
+    first_and.rhs           = hi_le_len_id;
+    first_and.op            = hir::HirBinaryOp::And;
+    first_and.type          = types::kBoolType;
+    first_and.operand_type  = types::kBoolType;
+    const auto first_and_id = addExpr(std::move(first_and));
+
+    hir::HirBinary all_ok;
+    all_ok.lhs          = first_and_id;
+    all_ok.rhs          = lo_le_hi_id;
+    all_ok.op           = hir::HirBinaryOp::And;
+    all_ok.type         = types::kBoolType;
+    all_ok.operand_type = types::kBoolType;
+
+    const auto some_block  = newBlock();
+    const auto none_block  = newBlock();
+    const auto merge_block = newBlock();
+    hir::HirBranch branch;
+    branch.cond       = addExpr(std::move(all_ok));
+    branch.then_block = static_cast<hir::HirDeclId>(some_block);
+    branch.else_block = static_cast<hir::HirDeclId>(none_block);
+    setTerminator(addExpr(std::move(branch)));
+
+    setCurrentBlock(some_block);
+    current_fn_->blocks[some_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    {
+        hir::HirMakeSlice ok_slice;
+        ok_slice.object      = emitSlotLoad(object_slot, object_type);
+        ok_slice.lo          = emitSlotLoad(lo_slot, bound_type);
+        ok_slice.hi          = emitSlotLoad(hi_slot, bound_type);
+        ok_slice.type        = slice_type;
+        ok_slice.object_type = object_type;
+        ok_slice.bound_type  = bound_type;
+        ok_slice.is_array    = slice.is_array;
+        ok_slice.checked     = false;
+        hir::HirMakeSome some;
+        some.type  = type;
+        some.value = addExpr(std::move(ok_slice));
+        current_fn_->blocks[some_block].insts.push(
+            emitSlotStore(result_slot, addExpr(std::move(some))));
+        emitJump(merge_block);
+    }
+
+    setCurrentBlock(none_block);
+    current_fn_->blocks[none_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    {
+        hir::HirMakeNone none;
+        none.type = type;
+        current_fn_->blocks[none_block].insts.push(
+            emitSlotStore(result_slot, addExpr(std::move(none))));
+        emitJump(merge_block);
+    }
+
+    setCurrentBlock(merge_block);
+    current_fn_->blocks[merge_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    return emitSlotLoad(result_slot, type);
 }
 
 memory::Optional<int64_t> HirLowerModern::enumVariantValue(frontend::ExprId operand,
@@ -2063,7 +2545,13 @@ hir::HirExprId HirLowerModern::lowerStructLiteral(const frontend::Expression &ex
         if (value == hir::kInvalidHirExpr)
             return hir::kInvalidHirExpr;
         const auto from = typeOfExpr(expr.operands[0]);
-        return addExpr(hir::HirUnionCast{value, from, type});
+        hir::HirUnionCast cast;
+        cast.value        = value;
+        cast.from         = from;
+        cast.to           = type;
+        cast.member_index = taggedMemberIndex(type, from);
+        cast.checked      = false;
+        return addExpr(std::move(cast));
     }
     hir::HirStructLiteral lit(arena_);
     lit.type = type;
@@ -2090,6 +2578,7 @@ hir::HirExprId HirLowerModern::lowerStructLiteral(const frontend::Expression &ex
                 types_.kindOf(value_type) != types::TypeKind::Optional) {
                 value = lowerCoerceToOptional(field_type, value);
             }
+            value = lowerCoerceToSliceIfArray(field_type, expr.operands[i], value);
         }
         if (slot_index < ordered.size())
             ordered[slot_index] = value;
@@ -2111,7 +2600,7 @@ hir::HirExprId HirLowerModern::lowerStructLiteral(const frontend::Expression &ex
                 types_.kindOf(field_type) == types::TypeKind::Optional &&
                         types_.kindOf(typeOfExpr(default_id)) != types::TypeKind::Optional
                     ? lowerCoerceToOptional(field_type, default_value)
-                    : default_value;
+                    : lowerCoerceToSliceIfArray(field_type, default_id, default_value);
         }
     }
     // Keep every slot (missing ones are zero at codegen); the array is index-aligned.
@@ -2193,6 +2682,7 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                     init = lowerCoerceToOptional(type, init);
                 }
             }
+            init = lowerCoerceToSliceIfArray(type, statement.binding.initializer, init);
             if (init != hir::kInvalidHirExpr)
                 current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, init));
         }
@@ -2211,6 +2701,8 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                     value = lowerCoerceToOptional(current_fn_->return_type, value);
                 }
             }
+            value =
+                lowerCoerceToSliceIfArray(current_fn_->return_type, statement.expression, value);
             ret.value = value;
         }
         setTerminator(addExpr(std::move(ret)));

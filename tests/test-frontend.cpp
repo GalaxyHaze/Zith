@@ -305,12 +305,23 @@ static void test_is_null_expression() {
         CHECK_EQ(is_null->operands.size(), 1u, "'is null' has exactly one operand");
 }
 
-static void test_is_other_type_is_rejected() {
+static void test_is_type_expression() {
     auto snapshot = frontend::parse("fn check(p: ?*i32): bool {\n"
                                     "    return p is i32;\n"
                                     "}\n");
 
-    CHECK(!snapshot.diagnostics().empty(), "'is' with a type operand produces a diagnostic");
+    CHECK(snapshot.diagnostics().empty(), "'is Type' parses without diagnostics");
+    const frontend::Expression *is_type = nullptr;
+    for (const auto &expression : snapshot.expressions()) {
+        if (expression.kind == frontend::ExprKind::IsType)
+            is_type = &expression;
+    }
+    CHECK(is_type != nullptr, "'is Type' lowers to a dedicated expression");
+    if (is_type != nullptr) {
+        CHECK_EQ(is_type->operands.size(), 1u, "'is Type' has exactly one operand");
+        CHECK(static_cast<bool>(is_type->cast_type),
+              "'is Type' records the checked member type");
+    }
 }
 
 static void test_for_loop_forms() {
@@ -463,6 +474,76 @@ static void test_type_alias_and_struct_enum_union() {
     CHECK(snapshot.declarations()[4].isRawUnion, "raw union is flagged raw");
     CHECK_EQ(snapshot.declarations()[4].parameters.size(), 2u,
              "raw union member types are retained");
+}
+
+static void test_function_type_expression() {
+    auto snapshot = frontend::parse("alias Callback = fn(i32): i32;\n"
+                                    "fn main() {\n"
+                                    "    var f: fn(i32): i32 = 0;\n"
+                                    "}\n");
+    CHECK(snapshot.diagnostics().empty(), "fn(...): R type expressions parse cleanly");
+
+    const frontend::TypeExpression *function_type = nullptr;
+    for (const auto &type : snapshot.typeExpressions()) {
+        if (type.kind == frontend::TypeExprKind::Function)
+            function_type = &type;
+    }
+    CHECK(function_type != nullptr, "fn type is lowered to TypeExprKind::Function");
+    if (function_type != nullptr) {
+        CHECK_EQ(function_type->arguments.size(), 2u,
+                 "function type stores params plus the result as its last argument");
+        CHECK_EQ(function_type->arguments[1].value, function_type->arguments[0].value + 1u,
+                 "i32 parameter and i32 result are distinct type expressions");
+    }
+
+    auto malformed = frontend::parse("alias Bad = fn(i32) i32;\n");
+    CHECK(!malformed.diagnostics().empty(),
+          "a function type missing ':' is rejected at parse time");
+}
+
+static void test_slice_range_expression() {
+    auto snapshot = frontend::parse("fn main(): ?[]i32 {\n"
+                                    "    var values: [3]i32 = [10, 20, 30];\n"
+                                    "    return values[1..3];\n"
+                                    "}\n");
+    CHECK(snapshot.diagnostics().empty(), "array slice bounds parse cleanly");
+
+    const frontend::Expression *slice = nullptr;
+    for (const auto &expression : snapshot.expressions()) {
+        if (expression.kind == frontend::ExprKind::SliceRange)
+            slice = &expression;
+    }
+    CHECK(slice != nullptr, "arr[lo..hi] lowers to ExprKind::SliceRange");
+    if (slice != nullptr) {
+        CHECK_EQ(slice->operands.size(), 3u,
+                 "slice expression stores object, lower bound, and upper bound");
+        CHECK(slice->text == "..", "slice expression records the range spelling");
+    }
+
+    auto malformed = frontend::parse("fn main() {\n"
+                                     "    var values: [3]i32 = [10, 20, 30];\n"
+                                     "    values[1..3\n"
+                                     "}\n");
+    CHECK(!malformed.diagnostics().empty(), "an unterminated slice range is rejected");
+}
+
+static void test_raw_index_slice_expression() {
+    auto snapshot = frontend::parse("fn main(): i32 {\n"
+                                    "    var values: [3]i32 = [10, 20, 30];\n"
+                                    "    let s: []i32 = raw values[1..3];\n"
+                                    "    return raw s[0];\n"
+                                    "}\n");
+    CHECK(snapshot.diagnostics().empty(), "raw index/slice expressions parse cleanly");
+    bool raw_slice = false;
+    bool raw_index = false;
+    for (const auto &expression : snapshot.expressions()) {
+        if (expression.kind == frontend::ExprKind::SliceRange)
+            raw_slice = expression.is_raw;
+        if (expression.kind == frontend::ExprKind::Index)
+            raw_index |= expression.is_raw;
+    }
+    CHECK(raw_slice, "raw slice range retains the raw marker");
+    CHECK(raw_index, "raw index retains the raw marker");
 }
 
 static void test_unary_and_nested_expressions() {
@@ -732,7 +813,7 @@ static void test_frontend() {
     test_binary_comparison_expression();
     test_cast_expression();
     test_is_null_expression();
-    test_is_other_type_is_rejected();
+    test_is_type_expression();
     test_for_loop_forms();
     test_structured_imports();
     test_c_header_import_syntax();
@@ -745,6 +826,9 @@ static void test_frontend() {
     test_unexpected_top_level_token_is_diagnosed();
     test_macro_invocation_is_tolerated();
     test_extern_before_declaration_is_tolerated();
+    test_function_type_expression();
+    test_slice_range_expression();
+    test_raw_index_slice_expression();
     test_function_kinds();
     test_function_kind_combinations_are_rejected();
     test_function_kind_methods_propagate();

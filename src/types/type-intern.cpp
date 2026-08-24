@@ -305,7 +305,7 @@ TypeId TypeIntern::registerNamedType(std::string_view name, TypeKind kind) {
         tid = defineEnum(name, kErrorType);
         break;
     case TypeKind::Union:
-        tid = defineUnion(name, false);
+        tid = defineUnion(name, true);
         break;
     default:
         return kErrorType;
@@ -498,13 +498,21 @@ bool TypeIntern::enumValue(TypeId enum_type, std::string_view name, int64_t &val
     return false;
 }
 
-TypeId TypeIntern::defineUnion(std::string_view name, bool is_raw) {
+TypeId TypeIntern::defineUnion(std::string_view name, bool is_tagged) {
     const auto id = interner_.intern(name);
-    if (const auto *existing = named_types_.get(id); existing != nullptr)
+    if (const auto *existing = named_types_.get(id); existing != nullptr) {
+        // A named union may be registered speculatively before its declaration
+        // is lowered. Keep the union's identity but honor the declaration's
+        // raw/tagged spelling once the def exists.
+        if (const auto *t = std::get_if<TypeUnion>(&types_[*existing]); t != nullptr) {
+            if (t->def_id < union_defs_.size() && !is_tagged)
+                union_defs_[t->def_id].is_tagged = false;
+        }
         return *existing;
+    }
 
     TypeId def_id = static_cast<TypeId>(union_defs_.size());
-    union_defs_.push(UnionDef{id, is_raw, memory::DynArray<TypeId>(arena_)});
+    union_defs_.push(UnionDef{id, is_tagged, memory::DynArray<TypeId>(arena_)});
     auto type = intern(TypeUnion{def_id});
     named_types_.insert(id, type);
     return type;
@@ -518,6 +526,8 @@ void TypeIntern::addUnionMember(TypeId union_type, TypeId member) {
 
 const UnionDef &TypeIntern::getUnionDef(TypeId union_type) const {
     auto *td = std::get_if<TypeUnion>(&types_[union_type]);
+    if (td == nullptr || td->def_id >= union_defs_.size())
+        return emptyUnionDef();
     return union_defs_[td->def_id];
 }
 

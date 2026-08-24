@@ -115,9 +115,10 @@ void test_optional_across_calls() {
 }
 
 void test_slice_and_array_indexing() {
-    expectAccepted("fn f(s: []i32): i32 { return s[0] }\n", "a slice can be indexed");
-    expectAccepted("fn f(a: [4]i32): i32 { return a[2] }\n", "a fixed-size array can be indexed");
-    expectAccepted("fn f(s: []i32): i32 { let t: []i32 = s\n    return t[1] }\n",
+    expectAccepted("fn f(s: []i32): i32 { return raw s[0] }\n", "a slice can be indexed");
+    expectAccepted("fn f(a: [4]i32): i32 { return raw a[2] }\n",
+                   "a fixed-size array can be indexed");
+    expectAccepted("fn f(s: []i32): i32 { let t: []i32 = s\n    return raw t[1] }\n",
                    "a slice can be bound to a slice-typed local");
     expectRejected("fn f(s: []i32): i32 { return s[true] }\n", "array index must be an integer",
                    "a boolean index is rejected");

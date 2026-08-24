@@ -451,7 +451,7 @@ void PerModuleSema::lowerDeclarationTypes() {
                 }
                 members.push(member);
             }
-            TypeId ut = type_table.internUnion(decl.name, members, decl.isRawUnion);
+            TypeId ut = type_table.internUnion(decl.name, members, !decl.isRawUnion);
             setDeclType(decl.id, ut);
             type_table.registerNamed(decl.name, ut);
             break;
@@ -947,6 +947,9 @@ TypeId PerModuleSema::inferExpr(frontend::ExprId id) {
     case frontend::ExprKind::Index:
         result = inferIndex(id);
         break;
+    case frontend::ExprKind::SliceRange:
+        result = inferSliceRange(id);
+        break;
     case frontend::ExprKind::Field:
         result = inferField(id);
         break;
@@ -964,6 +967,9 @@ TypeId PerModuleSema::inferExpr(frontend::ExprId id) {
         break;
     case frontend::ExprKind::IsNull:
         result = inferIsNull(id);
+        break;
+    case frontend::ExprKind::IsType:
+        result = inferIsType(id);
         break;
     case frontend::ExprKind::When:
         result = inferWhen(id);
@@ -1703,6 +1709,8 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
         if (stmt_id.value > snapshot.statements().size())
             continue;
         const auto &stmt = snapshot.statements()[stmt_id.value - 1U];
+        if (snapshot.isMacroTemplateStmt(stmt.id))
+            continue;
         if (stmt.kind == frontend::StmtKind::Expression && stmt.expression) {
             last = inferExpr(stmt.expression);
         } else if (stmt.kind == frontend::StmtKind::Binding) {
@@ -1784,8 +1792,30 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
     TypeId cond = inferExpr(expr.operands[0]);
     if (!sameType(cond, bool_type))
         report(expr.span, "if condition must be boolean", diagnostics::err::TypeMismatch);
+    const auto &condition = snapshot.expressions()[expr.operands[0].value - 1U];
+    frontend::LocalId narrowed_local;
+    TypeId original_local_type = kInvalidTypeId;
+    TypeId narrowed_type       = kInvalidTypeId;
+    if (condition.kind == frontend::ExprKind::IsType && !condition.operands.empty() &&
+        condition.cast_type) {
+        const auto *resolved = findResolvedExpr(condition.operands[0]);
+        if (resolved != nullptr && resolved->local) {
+            narrowed_local    = resolved->local;
+            original_local_type = typeOfLocal(narrowed_local);
+            narrowed_type       = lowerTypeExpr(condition.cast_type);
+            if (narrowed_type)
+                setLocalType(narrowed_local, narrowed_type);
+        }
+    }
     TypeId then_type = inferExpr(expr.operands[1]);
+    if (narrowed_local && narrowed_type) {
+        setLocalType(narrowed_local, original_local_type);
+    }
     TypeId else_type = expr.operands.size() >= 3 ? inferExpr(expr.operands[2]) : void_type;
+    // An `if` without `else` is a statement even when its body has a value; only
+    // an `if/else` expression can produce a value for the surrounding expression.
+    if (expr.operands.size() < 3U || !expr.operands[2])
+        return void_type;
     if (sameType(then_type, else_type))
         return then_type;
     return then_type;
@@ -1968,6 +1998,38 @@ TypeId PerModuleSema::inferIsNull(frontend::ExprId id) {
         return error_type;
     }
     return bool_type;
+}
+
+TypeId PerModuleSema::inferIsType(frontend::ExprId id) {
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.operands.empty() || !expr.cast_type)
+        return error_type;
+    const TypeId operand = inferExpr(expr.operands[0]);
+    if (operand == error_type || !operand)
+        return error_type;
+    const TypeId operand_resolved = resolve(operand);
+    const auto *union_data        = type_table.union_type(operand_resolved);
+    if (union_data == nullptr || !union_data->is_tagged) {
+        report(expr.span,
+               "'is Type' requires an operand whose type is a tagged union",
+               diagnostics::err::TypeMismatch);
+        return error_type;
+    }
+    const TypeId target = lowerTypeExpr(expr.cast_type);
+    if (!target) {
+        report(expr.span, "unknown target type in 'is' test",
+               diagnostics::err::TypeMismatch);
+        return error_type;
+    }
+    for (const auto member : union_data->members) {
+        if (sameType(resolve(member), resolve(target)))
+            return bool_type;
+    }
+    report(expr.span,
+           "'" + type_table.typeToString(target) + "' is not a member of tagged union '" +
+               type_table.typeToString(operand_resolved) + "'",
+           diagnostics::err::InvalidCast);
+    return error_type;
 }
 
 TypeId PerModuleSema::inferRange(frontend::ExprId id) {
@@ -2243,6 +2305,7 @@ TypeId PerModuleSema::inferAssign(frontend::ExprId id) {
     if (expr.operands.size() < 2)
         return error_type;
     TypeId left_type          = kInvalidTypeId;
+    prepareLValueIndexTypes(expr.operands[0]);
     const auto *left_resolved = findResolvedExpr(expr.operands[0]);
     if (left_resolved != nullptr && left_resolved->local)
         left_type = typeOfLocal(left_resolved->local);
@@ -2312,14 +2375,29 @@ TypeId PerModuleSema::inferIndex(frontend::ExprId id) {
         if (type_table.kindOf(resolve(index)) != TypeKind::Integer)
             report(expr.span, "array index must be an integer", diagnostics::err::TypeMismatch);
         const TypeId resolved_object = resolve(object);
+        bool checked_container       = false;
         switch (type_table.kindOf(resolved_object)) {
         case TypeKind::Slice:
-            if (const auto *slice = type_table.slice(resolved_object))
+            if (const auto *slice = type_table.slice(resolved_object)) {
                 result = slice->element;
+                checked_container = true;
+            }
             break;
         case TypeKind::Array:
-            if (const auto *array = type_table.array(resolved_object))
+            if (const auto *array = type_table.array(resolved_object)) {
                 result = array->element;
+                checked_container = true;
+                if (!expr.is_raw) {
+                    int64_t index_value = 0;
+                    if (constantIntegerValue(expr.operands[1], index_value) &&
+                        (index_value < 0 ||
+                         static_cast<uint64_t>(index_value) >= array->size)) {
+                        report(expr.span, "array index is out of bounds",
+                               diagnostics::err::TypeMismatch);
+                        return error_type;
+                    }
+                }
+            }
             break;
         case TypeKind::Pointer:
             if (const auto *pointer = type_table.pointer(resolved_object))
@@ -2331,8 +2409,123 @@ TypeId PerModuleSema::inferIndex(frontend::ExprId id) {
             report(expr.span, "type is not indexable", diagnostics::err::TypeMismatch);
             break;
         }
+        if (result && !expr.is_raw && checked_container)
+            result = type_table.internOptional(result);
     }
     return result;
+}
+
+void PerModuleSema::prepareLValueIndexTypes(frontend::ExprId id) {
+    if (!id || id.value > snapshot.expressions().size())
+        return;
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.kind != frontend::ExprKind::Index && expr.kind != frontend::ExprKind::Field &&
+        expr.kind != frontend::ExprKind::Arrow)
+        return;
+    if (expr.kind != frontend::ExprKind::Index) {
+        if (!expr.operands.empty())
+            prepareLValueIndexTypes(expr.operands[0]);
+        return;
+    }
+    if (expr.operands.empty())
+        return;
+    prepareLValueIndexTypes(expr.operands[0]);
+    const TypeId object   = inferExpr(expr.operands[0]);
+    const TypeId resolved = resolve(object);
+    TypeId element        = kInvalidTypeId;
+    if (const auto *array = type_table.array(resolved))
+        element = array->element;
+    else if (const auto *slice = type_table.slice(resolved))
+        element = slice->element;
+    else if (const auto *pointer = type_table.pointer(resolved))
+        element = pointer->pointee;
+    if (element) {
+        const auto *array = type_table.array(resolved);
+        if (array != nullptr && !expr.is_raw) {
+            int64_t index_value = 0;
+            if (constantIntegerValue(expr.operands[1], index_value) &&
+                (index_value < 0 || static_cast<uint64_t>(index_value) >= array->size)) {
+                report(expr.span, "array index is out of bounds", diagnostics::err::TypeMismatch);
+                return;
+            }
+        }
+        setExprType(id, element);
+    }
+}
+
+bool PerModuleSema::constantIntegerValue(frontend::ExprId id, std::int64_t &out) const noexcept {
+    if (!id || id.value > snapshot.expressions().size())
+        return false;
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.kind == frontend::ExprKind::Unary && expr.text == "-" && !expr.operands.empty()) {
+        std::int64_t magnitude = 0;
+        if (!constantIntegerValue(expr.operands[0], magnitude))
+            return false;
+        out = -magnitude;
+        return true;
+    }
+    if (expr.kind != frontend::ExprKind::Literal || !looksInteger(expr.text))
+        return false;
+    return support::parseIntegerLiteral(expr.text, out) == support::IntLiteralStatus::Ok;
+}
+
+TypeId PerModuleSema::inferSliceRange(frontend::ExprId id) {
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    TypeId result    = error_type;
+    if (expr.operands.size() < 3U)
+        return result;
+
+    const TypeId object = inferExpr(expr.operands[0]);
+    const TypeId lower  = inferExpr(expr.operands[1]);
+    const TypeId upper  = inferExpr(expr.operands[2]);
+    if (type_table.kindOf(resolve(lower)) != TypeKind::Integer ||
+        type_table.kindOf(resolve(upper)) != TypeKind::Integer) {
+        report(expr.span, "slice bounds must be integers", diagnostics::err::TypeMismatch);
+        return error_type;
+    }
+    if (type_table.kindOf(resolve(lower)) == TypeKind::Integer &&
+        type_table.kindOf(resolve(upper)) == TypeKind::Integer &&
+        !sameType(resolve(lower), resolve(upper))) {
+        report(expr.span, "slice bounds must have the same integer type",
+               diagnostics::err::TypeMismatch);
+        return error_type;
+    }
+
+    const TypeId resolved_object = resolve(object);
+    TypeId element               = error_type;
+    uint64_t object_length       = 0;
+    const bool is_array          = type_table.kindOf(resolved_object) == TypeKind::Array;
+    const bool is_slice          = type_table.kindOf(resolved_object) == TypeKind::Slice;
+    if (is_array) {
+        if (const auto *array = type_table.array(resolved_object)) {
+            element       = array->element;
+            object_length = array->size;
+        }
+    } else if (is_slice) {
+        if (const auto *slice = type_table.slice(resolved_object))
+            element = slice->element;
+    } else {
+        report(expr.span, "slice target must be an array or slice", diagnostics::err::TypeMismatch);
+        return error_type;
+    }
+
+    if (is_array && !expr.is_raw) {
+        // Static known bounds are rejected before any runtime code is generated.
+        int64_t lo          = 0;
+        int64_t hi          = 0;
+        const bool lo_known = constantIntegerValue(expr.operands[1], lo);
+        const bool hi_known = constantIntegerValue(expr.operands[2], hi);
+        if (lo_known && hi_known) {
+            if (lo < 0 || static_cast<uint64_t>(hi) > object_length || lo > hi) {
+                report(expr.span, "slice bounds are outside the array or reversed",
+                       diagnostics::err::TypeMismatch);
+                return error_type;
+            }
+        }
+    }
+
+    const TypeId slice_type = type_table.internSlice(element);
+    return expr.is_raw ? slice_type : type_table.internOptional(slice_type);
 }
 
 TypeId PerModuleSema::inferField(frontend::ExprId id) {
@@ -2844,6 +3037,14 @@ bool PerModuleSema::coercesTo(TypeId target, TypeId source) const noexcept {
         // `free(x)` works for both `*i32` and `?*i32`. The reverse still needs `as`.
         if (!result && isVoidPointer(resolved_target) && pointerBase(source))
             result = true;
+        // A fixed array is an implicit view into a slice of the same element type.
+        const TypeId resolved_source = resolve(source);
+        if (!result && type_table.kindOf(resolved_target) == TypeKind::Slice) {
+            const auto *slice = type_table.slice(resolved_target);
+            const auto *array = type_table.array(resolved_source);
+            result =
+                slice != nullptr && array != nullptr && sameType(slice->element, array->element);
+        }
     }
     return result;
 }
@@ -2993,6 +3194,18 @@ TypeId PerModuleSema::typeOfLocalByName(frontend::ScopeId scope, std::string_vie
             return typeOfDecl(resolved->declaration);
     }
     return kInvalidTypeId;
+}
+
+const frontend::Expression *PerModuleSema::nameExpression(frontend::ScopeId scope,
+                                                          std::string_view name) const noexcept {
+    for (const auto &expression : snapshot.expressions()) {
+        if (expression.kind == frontend::ExprKind::Name && expression.text == name &&
+            expression.scope == scope && findResolvedExpr(expression.id) != nullptr &&
+            findResolvedExpr(expression.id)->local) {
+            return &expression;
+        }
+    }
+    return nullptr;
 }
 
 TypeId PerModuleSema::typeOfResolvedName(frontend::ExprId id) {

@@ -179,9 +179,11 @@ int FmtVisitor::exprPrecedence(const frontend::Expression &expr) const noexcept 
     case frontend::ExprKind::Unary:
         return 12;
     case frontend::ExprKind::IsNull:
+    case frontend::ExprKind::IsType:
         return 5;
     case frontend::ExprKind::Call:
     case frontend::ExprKind::Index:
+    case frontend::ExprKind::SliceRange:
     case frontend::ExprKind::OptionalProp:
     case frontend::ExprKind::Cast:
     case frontend::ExprKind::Field:
@@ -335,8 +337,21 @@ void FmtVisitor::emitType(const frontend::TypeExprId id) {
     case frontend::TypeExprKind::Opaque:
         emit("raw opaque");
         break;
+    case frontend::TypeExprKind::Function: {
+        emit("fn(");
+        for (size_t index = 0; index + 1U < type->arguments.size(); ++index) {
+            if (index != 0)
+                emit(", ");
+            emitType(type->arguments[index]);
+        }
+        emit("): ");
+        if (type->arguments.empty())
+            emit("?");
+        else
+            emitType(type->arguments.back());
+        break;
+    }
     case frontend::TypeExprKind::Array:
-    case frontend::TypeExprKind::Function:
     case frontend::TypeExprKind::Slice:
     case frontend::TypeExprKind::Error:
         emitOriginal(type->span);
@@ -862,9 +877,25 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
             emitOriginal(expr->span);
             break;
         }
+        if (expr->is_raw)
+            emit("raw ");
         visitExpr(expr->operands[0], current_prec);
         emit("[");
         visitExpr(expr->operands[1]);
+        emit("]");
+        break;
+    case frontend::ExprKind::SliceRange:
+        if (expr->operands.size() < 3U) {
+            emitOriginal(expr->span);
+            break;
+        }
+        if (expr->is_raw)
+            emit("raw ");
+        visitExpr(expr->operands[0], current_prec);
+        emit("[");
+        visitExpr(expr->operands[1]);
+        emit("..");
+        visitExpr(expr->operands[2]);
         emit("]");
         break;
     case frontend::ExprKind::Field:
@@ -956,6 +987,15 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
         }
         visitExpr(expr->operands[0], current_prec);
         emit(" is null");
+        break;
+    case frontend::ExprKind::IsType:
+        if (expr->operands.empty()) {
+            emitOriginal(expr->span);
+            break;
+        }
+        visitExpr(expr->operands[0], current_prec);
+        emit(" is ");
+        emitType(expr->cast_type);
         break;
     case frontend::ExprKind::Placeholder:
         emit("_");

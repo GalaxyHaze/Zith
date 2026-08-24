@@ -24,7 +24,7 @@ constexpr Example kExamples[] = {
     {"for-loops.zith", 10, false},  {"bitwise.zith", 0, false},
     {"when-dispatch.zith", 20, false}, {"arrays.zith", 5, false},
     {"nested-structs.zith", 4, false}, {"optionals.zith", 0, false},
-    {"generics-decl.zith", 3, false},
+    {"generics-decl.zith", 3, false}, {"tagged-union.zith", 0, false},
     {"c-interop.zith", 0, true},
 };
 

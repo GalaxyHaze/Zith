@@ -978,6 +978,224 @@ void test_generic_function_lowers_to_concrete_instances() {
     }
 }
 
+void test_indirect_function_call_has_callee_and_fn_type() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "extern fn apply(f: fn(i32): i32, x: i32): i32\n"
+                                     "extern fn double(x: i32): i32\n"
+                                     "fn main(): i32 {\n"
+                                     "    var f: fn(i32): i32 = double;\n"
+                                     "    return f(7);\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "function value and indirect call lower to HIR");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main function is present after function-value lowering");
+    if (main == nullptr)
+        return;
+
+    const hir::HirCall *call = nullptr;
+    for (const auto &block : main->blocks) {
+        for (auto inst : block.insts)
+            if (const auto *candidate = std::get_if<hir::HirCall>(&hir.getExpr(inst))) {
+                call = candidate;
+                break;
+            }
+        if (call == nullptr && block.terminator != hir::kInvalidHirExpr) {
+            if (const auto *ret = std::get_if<hir::HirRet>(&hir.getExpr(block.terminator))) {
+                if (ret->value != hir::kInvalidHirExpr)
+                    if (const auto *candidate =
+                            std::get_if<hir::HirCall>(&hir.getExpr(ret->value))) {
+                        call = candidate;
+                        break;
+                    }
+            }
+        }
+        if (call != nullptr)
+            break;
+    }
+    CHECK(call != nullptr, "indirect call is lowered as a HirCall instruction");
+    if (call == nullptr)
+        return;
+    CHECK(call->callee != hir::kInvalidHirExpr, "indirect call carries a callee expression");
+    CHECK(call->resolved_fn == symbols::kInvalidSym,
+          "indirect call does not resolve to a direct function symbol");
+    CHECK(call->fn_type != types::kInvalidType, "indirect call records the lowered function type");
+}
+
+void test_array_to_slice_coercion_lowers_to_make_slice() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn whole(a: [3]i32): []i32 { a }\n"
+                                     "fn main(): i32 {\n"
+                                     "    var values: [3]i32 = [10, 20, 30];\n"
+                                     "    return raw whole(values)[1];\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+    CHECK(session.runTo(session::Stage::HirLowered), "array-to-slice coercion lowers to HIR");
+
+    const auto &hir   = session.hirModule();
+    const auto *whole = findFunction(hir, session.interner(), "whole");
+    CHECK(whole != nullptr, "whole function is present after lowering");
+    if (whole == nullptr)
+        return;
+
+    const hir::HirMakeSlice *slice = nullptr;
+    for (size_t index = 0; index < hir.exprCount(); ++index) {
+        if (const auto *candidate =
+                std::get_if<hir::HirMakeSlice>(&hir.getExpr(static_cast<hir::HirExprId>(index)))) {
+            slice = candidate;
+            if (slice->is_array)
+                break;
+        }
+    }
+    CHECK(slice != nullptr, "array return coercion emits HirMakeSlice");
+    if (slice != nullptr) {
+        CHECK(slice->is_array, "the coercion marks the object as an array");
+        CHECK(!slice->checked, "full-array coercion is statically unchecked");
+        const auto &lo = hir.getExpr(slice->lo);
+        const auto &hi = hir.getExpr(slice->hi);
+        CHECK(std::get_if<hir::HirLiteral>(&lo) != nullptr &&
+                  std::get_if<hir::HirLiteral>(&hi) != nullptr,
+              "full-array coercion stores literal bounds");
+        if (const auto *lo_lit = std::get_if<hir::HirLiteral>(&lo))
+            CHECK_EQ(lo_lit->i, 0, "coercion lower bound is zero");
+        if (const auto *hi_lit = std::get_if<hir::HirLiteral>(&hi))
+            CHECK_EQ(hi_lit->i, 3, "coercion upper bound is the array size");
+    }
+}
+
+void test_slice_range_lowers_to_checked_optional_view() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn get(i: i32): ?[]i32 {\n"
+                                     "    var values: [3]i32 = [10, 20, 30];\n"
+                                     "    return values[i..(i + 1)];\n"
+                                     "}\n"
+                                     "fn main(): i32 { 0 }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+    CHECK(session.runTo(session::Stage::HirLowered), "array slice range lowers to HIR");
+
+    const auto &hir = session.hirModule();
+    const auto *get = findFunction(hir, session.interner(), "get");
+    CHECK(get != nullptr, "get function is present after lowering");
+    if (get == nullptr)
+        return;
+
+    size_t make_none_count         = 0;
+    size_t make_some_count         = 0;
+    const hir::HirMakeSlice *slice = nullptr;
+    for (size_t index = 0; index < hir.exprCount(); ++index) {
+        const auto &expr = hir.getExpr(static_cast<hir::HirExprId>(index));
+        if (const auto *some = std::get_if<hir::HirMakeSome>(&expr))
+            ++make_some_count;
+        if (const auto *none = std::get_if<hir::HirMakeNone>(&expr))
+            ++make_none_count;
+        if (slice == nullptr) {
+            const auto *candidate = std::get_if<hir::HirMakeSlice>(&expr);
+            if (candidate != nullptr)
+                slice = candidate;
+        }
+    }
+    CHECK(slice != nullptr, "slice range lowers to HirMakeSlice");
+    if (slice != nullptr) {
+        CHECK(slice->is_array, "array slicing marks the object as an array");
+        CHECK(slice->lo != hir::kInvalidHirExpr && slice->hi != hir::kInvalidHirExpr,
+              "slice range carries lowered bounds");
+        CHECK(slice->type != types::kInvalidType, "slice range records the slice type");
+        CHECK(slice->object_type != types::kInvalidType, "slice range records the object type");
+    }
+    CHECK(make_some_count > 0u, "dynamic slice ranges wrap the valid path in Some");
+    CHECK(make_none_count > 0u, "dynamic slice ranges wrap the invalid path in None");
+}
+
+void test_checked_index_lowers_to_optional_with_some_and_none() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn get(i: i32): ?i32 {\n"
+                                     "    var values: [3]i32 = [10, 20, 30];\n"
+                                     "    return values[i];\n"
+                                     "}\n"
+                                     "fn main(): i32 { 0 }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+    CHECK(session.runTo(session::Stage::HirLowered), "checked index lowers to HIR");
+
+    const auto &hir = session.hirModule();
+    const auto *get = findFunction(hir, session.interner(), "get");
+    CHECK(get != nullptr, "get function is present after lowering");
+    if (get == nullptr)
+        return;
+
+    size_t make_none_count = 0;
+    size_t make_some_count = 0;
+    const hir::HirIndex *index = nullptr;
+    for (size_t index_id = 0; index_id < hir.exprCount(); ++index_id) {
+        const auto &expr = hir.getExpr(static_cast<hir::HirExprId>(index_id));
+        if (const auto *some = std::get_if<hir::HirMakeSome>(&expr))
+            ++make_some_count;
+        if (const auto *none = std::get_if<hir::HirMakeNone>(&expr))
+            ++make_none_count;
+        if (index == nullptr) {
+            const auto *candidate = std::get_if<hir::HirIndex>(&expr);
+            if (candidate != nullptr)
+                index = candidate;
+        }
+    }
+    CHECK(index != nullptr, "checked index valid path lowers to HirIndex");
+    if (index != nullptr) {
+        CHECK(index->type != types::kInvalidType, "checked index carries the element type");
+        CHECK(index->obj_type != types::kInvalidType, "checked index carries the object type");
+    }
+    CHECK(make_some_count > 0u, "dynamic checked indexes wrap the valid path in Some");
+    CHECK(make_none_count > 0u, "dynamic checked indexes wrap the invalid path in None");
+}
+
+void test_raw_slice_and_index_lower_without_optional_checks() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn main(): i32 {\n"
+                                     "    var values: [3]i32 = [10, 20, 30];\n"
+                                     "    let s: []i32 = raw values[1..3];\n"
+                                     "    return raw s[0];\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+    CHECK(session.runTo(session::Stage::HirLowered), "raw slice/index expressions lower to HIR");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main function is present after raw slice lowering");
+    if (main == nullptr)
+        return;
+
+    const hir::HirMakeSlice *slice = nullptr;
+    for (size_t index = 0; index < hir.exprCount(); ++index) {
+        const auto &expr = hir.getExpr(static_cast<hir::HirExprId>(index));
+        if (const auto *candidate = std::get_if<hir::HirMakeSlice>(&expr))
+            slice = candidate;
+        CHECK(std::get_if<hir::HirMakeSome>(&expr) == nullptr, "raw slicing has no Some wrapper");
+        CHECK(std::get_if<hir::HirMakeNone>(&expr) == nullptr, "raw slicing has no None wrapper");
+    }
+    CHECK(slice != nullptr, "raw array slicing still lowers to HirMakeSlice");
+    if (slice != nullptr) {
+        CHECK(slice->is_array, "raw slice marks the object as an array");
+        CHECK(!slice->checked, "raw slice skips the runtime checked path");
+    }
+}
+
 void test_generic_instance_deduplication() {
     Workspace workspace;
     workspace.writeFile("main.zith", "fn same<T>(x: T): T { x }\n"
@@ -1118,6 +1336,11 @@ static void test_hir_lower_modern() {
     test_flow_jump_carries_origin_continuation();
     test_global_marker_lowers_into_multiple_flow_fns();
     test_generic_function_lowers_to_concrete_instances();
+    test_indirect_function_call_has_callee_and_fn_type();
+    test_array_to_slice_coercion_lowers_to_make_slice();
+    test_slice_range_lowers_to_checked_optional_view();
+    test_checked_index_lowers_to_optional_with_some_and_none();
+    test_raw_slice_and_index_lower_without_optional_checks();
     test_generic_instance_deduplication();
     test_call_with_unlowerable_argument_fails_pipeline();
     test_raw_union_lowers_members_and_casts();

@@ -621,8 +621,14 @@ bool CompilationSession::lexStage() {
 
 bool CompilationSession::scanStage() {
     auto t0 = std::chrono::steady_clock::now();
-    if (mCacheHydrated)
+    if (mCacheHydrated) {
+        if (mOpts.get().flags.emitHir()) {
+            const std::string hir_text =
+                captureStdioDump([this](FILE *out) { mHirModule.dump(out, *mInterner); });
+            writeOutput("--- HIR ---\n%s---\n", hir_text.c_str());
+        }
         return true;
+    }
 
     if (mSnapshot->hasErrors())
         forwardSnapshotDiagnostics();
@@ -736,16 +742,16 @@ bool CompilationSession::lowerStage() {
     // The solver only needs to run on cold builds. Warm builds restore the HIR
     // artifact directly and the generic pass already ran before HIR lowering.
 
-    if (mOpts.get().flags.emitHir()) {
-        const std::string hir_text =
-            captureStdioDump([this](FILE *out) { mHirModule.dump(out, *mInterner); });
-        writeOutput("--- HIR ---\n%s---\n", hir_text.c_str());
-    }
-
     comptime::Solver solver(mTypes, nullptr, nullptr, mSyms, mDiags, mHirArena);
     if (!solver.runPostLower(mHirModule)) {
         mDiags.emit();
         return false;
+    }
+
+    if (mOpts.get().flags.emitHir()) {
+        const std::string hir_text =
+            captureStdioDump([this](FILE *out) { mHirModule.dump(out, *mInterner); });
+        writeOutput("--- HIR ---\n%s---\n", hir_text.c_str());
     }
 
     auto lowerDt =
@@ -1397,7 +1403,7 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
     for (size_t ei = 0; ei < art.enum_defs.size(); ++ei)
         enum_tids[ei] = mTypes.defineEnum(art.enum_defs[ei].name, types::kErrorType);
     for (size_t ui = 0; ui < art.union_defs.size(); ++ui)
-        union_tids[ui] = mTypes.defineUnion(art.union_defs[ui].name, art.union_defs[ui].is_raw);
+        union_tids[ui] = mTypes.defineUnion(art.union_defs[ui].name, !art.union_defs[ui].is_raw);
 
     for (size_t i = 0; i < art.types.size(); ++i) {
         const auto &ct = art.types[i];
@@ -1568,6 +1574,7 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
                 arg_types.push(compactType(id));
             hir::HirCall call(ce.ref_a, std::move(args), std::move(arg_types));
             call.resolved_fn = ce.ref_b;
+            call.fn_type     = compactType(ce.ref_e);
             expr             = std::move(call);
             break;
         }
@@ -1696,6 +1703,19 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             expr     = ms;
             break;
         }
+        case cache::CompactExprKind::MakeSlice: {
+            hir::HirMakeSlice slice;
+            slice.object      = ce.ref_a;
+            slice.lo          = ce.ref_b;
+            slice.hi          = ce.ref_c;
+            slice.type        = compactType(ce.type_id);
+            slice.object_type = compactType(ce.ref_e);
+            slice.bound_type  = compactType(ce.ref_f);
+            slice.is_array    = (ce.flags & 1U) != 0;
+            slice.checked     = (ce.flags & 2U) != 0;
+            expr              = slice;
+            break;
+        }
         case cache::CompactExprKind::Cast: {
             const auto to   = compactType(ce.ref_b);
             const auto from = compactType(ce.ref_e);
@@ -1711,6 +1731,8 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
                 cast.value = ce.ref_a;
                 cast.from  = from;
                 cast.to    = to;
+                cast.member_index = ce.ref_c;
+                cast.checked      = (ce.flags & 1U) != 0;
                 expr       = cast;
             } else {
                 hir::HirCast cast;

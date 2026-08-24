@@ -477,12 +477,40 @@ static void check_unsupported_syntax(const SemaTest::Result &r) {
           "Does not reuse the NotImplemented warning");
 }
 
-static void test_is_and_as_are_rejected() {
+static void test_tagged_union_is_syntax() {
+    SemaTest tagged;
+    auto tagged_result = tagged.run("union Value { i32, f64 }\n"
+                                    "fn main(): bool {\n"
+                                    "    var v: Value = Value { 42 };\n"
+                                    "    return v is i32;\n"
+                                    "}\n");
+    CHECK(tagged_result.ok, "tagged union construction and 'is Type' pass sema");
+
     SemaTest is_test;
-    check_unsupported_syntax(is_test.run("fn main() { 1 is Missing; }\n"));
+    auto is_result = is_test.run("fn main() { 1 is Missing; }\n");
+    CHECK(!is_result.ok, "'is Type' on a non-union operand fails sema");
+    CHECK(is_result.hasErrorCode(diagnostics::err::TypeMismatch),
+          "non-union 'is Type' reports TypeMismatch");
+
+    SemaTest raw_test;
+    auto raw_result = raw_test.run("raw union Bits { u8, u32 }\n"
+                                   "fn main() { var b: Bits = Bits { 1u8 }; _ = b is u8; }\n");
+    CHECK(!raw_result.ok, "'is Type' on a raw union fails sema");
+    CHECK(raw_result.hasErrorCode(diagnostics::err::TypeMismatch),
+          "raw union 'is Type' reports TypeMismatch");
+
+    SemaTest member_test;
+    auto member_result = member_test.run("union Value { i32, f64 }\n"
+                                         "fn main() { var v: Value = Value { 42 }; _ = v is u8; }\n");
+    CHECK(!member_result.ok, "'is Type' with a non-member type fails sema");
+    CHECK(member_result.hasErrorCode(diagnostics::err::InvalidCast),
+          "non-member 'is Type' reports InvalidCast");
 
     SemaTest as_test;
-    check_unsupported_syntax(as_test.run("fn main() { 1 as Missing; }\n"));
+    auto as_result = as_test.run("fn main() { 1 as Missing; }\n");
+    CHECK(!as_result.ok, "unknown cast target still fails sema");
+    CHECK(as_result.hasErrorCode(diagnostics::err::UnsupportedSyntax),
+          "unknown cast target reports UnsupportedSyntax");
 }
 
 static void test_fallback_and_propagation_are_rejected() {
@@ -570,7 +598,7 @@ static void test_word_call_ast_is_rejected() {
 
 static void test_unsupported_syntax_does_not_reach_hir() {
     SemaTest t;
-    check_unsupported_syntax(t.run("fn main() { 1 is Missing; }\n", session::Stage::HirLowered));
+    check_unsupported_syntax(t.run("fn main() { ?missing; }\n", session::Stage::HirLowered));
 }
 
 static void test_offsetof_intrinsic_ok() {
@@ -1598,7 +1626,7 @@ static void test_modern_generic_struct_literal_inference() {
 static void test_modern_array_literal() {
     ModernSemaTest t;
     auto r = t.run("fn sum(arr: [4]i32): i32 {\n"
-                   "    return arr[0] + arr[1] + arr[2] + arr[3];\n"
+                   "    return raw arr[0] + raw arr[1] + raw arr[2] + raw arr[3];\n"
                    "}\n"
                    "fn main(): i32 {\n"
                    "    var xs = [1, 2, 3, 4];\n"
@@ -1735,6 +1763,131 @@ static void test_modern_unknown_method_still_reports_field() {
           "an unresolved method falls back to a field diagnostic (E2006)");
 }
 
+static void test_modern_function_value_and_call() {
+    ModernSemaTest t;
+    t.write("runtime.zith", "pub extern fn apply(f: fn(i32): i32, x: i32): i32\n"
+                            "pub extern fn double(x: i32): i32\n");
+    auto r = t.run("from runtime\n"
+                   "fn main(): i32 {\n"
+                   "    var f: fn(i32): i32 = double;\n"
+                   "    return apply(f, 7);\n"
+                   "}\n");
+    CHECK(r.ok, "a function value binds to a function-typed local and is passed by value");
+}
+
+static void test_modern_function_value_type_mismatch() {
+    ModernSemaTest t;
+    auto r = t.run("extern fn double(x: i32): i32\n"
+                   "fn main() {\n"
+                   "    var f: fn(i32): i32 = 5;\n"
+                   "}\n");
+    CHECK(!r.ok, "assigning a non-function to a function type is rejected");
+    CHECK(r.hasErrorCode(diagnostics::err::TypeMismatch),
+          "function value mismatch reports TypeMismatch (3001)");
+}
+
+static void test_modern_array_to_slice_coercion() {
+    ModernSemaTest t;
+    auto r = t.run("fn read_first(s: []i32): i32 { raw s[0] }\n"
+                   "fn full_view(a: [4]i32): []i32 { a }\n"
+                   "fn main(): i32 {\n"
+                   "    let values: [4]i32 = [1, 2, 3, 4];\n"
+                   "    return read_first(values) + raw full_view(values)[3];\n"
+                   "}\n",
+                   session::Stage::TypeChecked);
+    CHECK(r.ok, "arrays coerce to slices for bindings, parameters, and returns");
+}
+
+static void test_modern_array_to_slice_element_mismatch() {
+    ModernSemaTest t;
+    auto r = t.run("fn read_first(s: []u32): i32 { 0 }\n"
+                   "fn main(): i32 {\n"
+                   "    let values: [3]i32 = [1, 2, 3];\n"
+                   "    read_first(values);\n"
+                   "    0\n"
+                   "}\n");
+    CHECK(!r.ok, "an array does not coerce to a slice with a different element type");
+    CHECK(r.hasErrorCode(diagnostics::err::NoMatchingFn),
+          "array-to-slice element mismatch rejects the call");
+}
+
+static void test_modern_slice_range_sema() {
+    ModernSemaTest t;
+    auto ok = t.run("fn main(): i32 {\n"
+                    "    var values: [3]i32 = [10, 20, 30];\n"
+                    "    let s: ?[]i32 = values[1..3];\n"
+                    "    0\n"
+                    "}\n");
+    CHECK(ok.ok, "a statically valid array slice is accepted by sema");
+
+    auto reversed = t.run("fn main(): ?[]i32 {\n"
+                          "    var values: [3]i32 = [10, 20, 30];\n"
+                          "    return values[1..0];\n"
+                          "}\n");
+    CHECK(!reversed.ok, "reversed static slice bounds are rejected");
+    CHECK(reversed.hasErrorCode(diagnostics::err::TypeMismatch),
+          "reversed static bounds report TypeMismatch (3001)");
+
+    auto negative = t.run("fn main(): ?[]i32 {\n"
+                          "    var values: [3]i32 = [10, 20, 30];\n"
+                          "    return values[-1..2];\n"
+                          "}\n");
+    CHECK(!negative.ok, "negative static slice bounds are rejected");
+    CHECK(negative.hasErrorCode(diagnostics::err::TypeMismatch),
+          "negative static bounds report TypeMismatch (3001)");
+
+    auto oversized = t.run("fn main(): ?[]i32 {\n"
+                           "    var values: [3]i32 = [10, 20, 30];\n"
+                           "    return values[0..N];\n"
+                           "}\n");
+    CHECK(!oversized.ok, "an oversized static slice bound is rejected");
+}
+
+static void test_modern_raw_slice_and_index_sema() {
+    ModernSemaTest t;
+    auto ok = t.run("fn main(): i32 {\n"
+                    "    var values: [3]i32 = [10, 20, 30];\n"
+                    "    let s: []i32 = raw values[1..3];\n"
+                    "    return raw s[0];\n"
+                    "}\n");
+    CHECK(ok.ok, "raw index and slice expressions type-check without an optional result");
+
+    auto checked = t.run("fn main(): ?i32 {\n"
+                         "    var values: [3]i32 = [10, 20, 30];\n"
+                         "    return values[1];\n"
+                         "}\n");
+    CHECK(checked.ok, "registry slice/index expressions type-check with an optional result");
+
+    auto dynamic_slice = t.run("fn read(s: []i32, i: i32): ?i32 { s[i] }\n"
+                               "fn main(): i32 { 0 }\n");
+    CHECK(dynamic_slice.ok, "dynamic slice indexes type-check as optional");
+
+    auto static_oob = t.run("fn main(): ?i32 {\n"
+                            "    var values: [3]i32 = [10, 20, 30];\n"
+                            "    return values[3];\n"
+                            "}\n");
+    CHECK(!static_oob.ok, "static out-of-bounds array index is rejected");
+
+    auto static_negative = t.run("fn main(): ?i32 {\n"
+                                 "    var values: [3]i32 = [10, 20, 30];\n"
+                                 "    return values[-1];\n"
+                                 "}\n");
+    CHECK(!static_negative.ok, "static negative array index is rejected");
+
+    auto unchecked = t.run("fn main(): []i32 {\n"
+                           "    var values: [3]i32 = [10, 20, 30];\n"
+                           "    return raw values[-1..2];\n"
+                           "}\n");
+    CHECK(unchecked.ok,
+          "raw array slicing skips static bounds rejection and returns the slice type");
+
+    auto malformed = t.run("fn main(): i32 {\n"
+                           "    var values: [3]i32 = [10, 20, 30];\n"
+                           "    return raw values + 1;\n"
+                           "}\n");
+    CHECK(!malformed.ok, "raw prefix is rejected on a non-index/slice expression");
+}
+
 static void test_sema() {
     test_basic_unification();
     test_type_mismatch();
@@ -1762,7 +1915,7 @@ static void test_sema() {
     test_field_not_implemented_warning();
     test_macro_unknown();
     test_macro_defined();
-    test_is_and_as_are_rejected();
+    test_tagged_union_is_syntax();
     test_fallback_and_propagation_are_rejected();
     test_optional_propagation_is_supported();
     test_word_sequences_are_rejected();
@@ -1856,6 +2009,12 @@ static void test_sema() {
     test_modern_method_call_arity_mismatch();
     test_modern_method_call_arg_type_mismatch();
     test_modern_unknown_method_still_reports_field();
+    test_modern_function_value_and_call();
+    test_modern_function_value_type_mismatch();
+    test_modern_array_to_slice_coercion();
+    test_modern_array_to_slice_element_mismatch();
+    test_modern_slice_range_sema();
+    test_modern_raw_slice_and_index_sema();
 }
 
 TEST_MAIN(sema)

@@ -169,6 +169,10 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                            buffer += std::to_string(call.args[ai]);
                                        }
                                        buffer += ")";
+                                       if (call.fn_type != types::kInvalidType) {
+                                           buffer += " fn_type %t";
+                                           buffer += std::to_string(call.fn_type);
+                                       }
                                    },
                                    [&](const HirRet &ret) {
                                        if (ret.value == kInvalidHirExpr)
@@ -258,6 +262,16 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                        buffer += std::to_string(m.value);
                                        buffer += " : %t";
                                        buffer += std::to_string(m.type);
+                                   },
+                                   [&](const HirMakeSlice &slice) {
+                                       buffer += "make_slice %e";
+                                       buffer += std::to_string(slice.object);
+                                       buffer += "[%e";
+                                       buffer += std::to_string(slice.lo);
+                                       buffer += "..%e";
+                                       buffer += std::to_string(slice.hi);
+                                       buffer += "] : %t";
+                                       buffer += std::to_string(slice.type);
                                    },
                                    [&](const HirUnionCast &c) {
                                        buffer += "union_cast %e";

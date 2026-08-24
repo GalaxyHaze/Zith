@@ -747,6 +747,50 @@ private:
             ++index_;
             type.kind = TypeExprKind::Pointer;
             type.arguments.push_back(parseType());
+        } else if (isKeywordToken("fn")) {
+            // A function type value: `fn(params): result`.  Parameters are
+            // parsed as bare types; the result follows `:` and is appended as
+            // the final argument so sema and canonical printing share the
+            // existing `arguments = [params..., result]` convention.
+            ++index_;
+            if (!punctuation(index_, '(')) {
+                snapshot_.diagnostics_.push_back({tokenSpan(index_),
+                                                  "expected '(' after 'fn' in function type", false,
+                                                  diagnostics::err::ExpectedExpr});
+            } else {
+                ++index_;
+                while (index_ < token_count_ && !punctuation(index_, ')')) {
+                    TypeExprId parameter = parseType();
+                    if (!parameter)
+                        break;
+                    type.arguments.push_back(parameter);
+                    if (punctuation(index_, ',')) {
+                        ++index_;
+                        continue;
+                    }
+                    if (!punctuation(index_, ')')) {
+                        snapshot_.diagnostics_.push_back(
+                            {tokenSpan(index_), "expected ',' or ')' in function type parameters",
+                             false, diagnostics::err::ExpectedExpr});
+                    }
+                    break;
+                }
+                if (punctuation(index_, ')'))
+                    ++index_;
+                else
+                    snapshot_.diagnostics_.push_back({range(start, index_),
+                                                      "expected ')' in function type", false,
+                                                      diagnostics::err::ExpectedExpr});
+            }
+            if (punctuation(index_, ':')) {
+                ++index_;
+                type.arguments.push_back(parseType());
+            } else {
+                snapshot_.diagnostics_.push_back({range(start, index_),
+                                                  "function type requires a return type after ':'",
+                                                  false, diagnostics::err::ExpectedExpr});
+            }
+            type.kind = TypeExprKind::Function;
         } else if (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
                    snapshot_.tokens_[index_].kind == TokenKind::Keyword) {
             type.kind = TypeExprKind::Name;
@@ -1295,16 +1339,41 @@ private:
             if (punctuation(index_, '[')) {
                 const uint32_t index_start = start;
                 ++index_;
+                const bool saved_range_mode = range_mode_;
+                range_mode_                 = true;
+                const ExprId lower          = parseExpression();
+                range_mode_                 = saved_range_mode;
                 Expression indexing;
                 indexing.kind  = ExprKind::Index;
                 indexing.scope = current_scope_;
                 indexing.operands.push_back(result);
-                indexing.operands.push_back(parseExpression());
-                if (!punctuation(index_, ']'))
+                indexing.operands.push_back(lower);
+                if (!punctuation(index_, ']')) {
+                    if (punctuation(index_, '.') && punctuation(index_ + 1U, '.')) {
+                        // `expr[lo..hi]` is an array/slice view, not a plain index.
+                        Expression slicing;
+                        slicing.kind  = ExprKind::SliceRange;
+                        slicing.text  = "..";
+                        slicing.scope = current_scope_;
+                        slicing.operands.push_back(result);
+                        slicing.operands.push_back(lower);
+                        index_ += 2; // consume `..`
+                        slicing.operands.push_back(parseExpression());
+                        if (!punctuation(index_, ']'))
+                            snapshot_.diagnostics_.push_back(
+                                {range(index_start, index_),
+                                 "expected ']' after slice upper bound"});
+                        else
+                            ++index_;
+                        slicing.span = range(index_start, index_);
+                        result       = addExpression(std::move(slicing));
+                        continue;
+                    }
                     snapshot_.diagnostics_.push_back(
                         {range(index_start, index_), "expected ']' after index"});
-                else
+                } else {
                     ++index_;
+                }
                 indexing.span = range(index_start, index_);
                 result        = addExpression(std::move(indexing));
                 continue;
@@ -1435,10 +1504,62 @@ private:
                  diagnostics::err::UnsupportedSyntax});
             return addExpression(std::move(error_expr));
         }
-        if ((snapshot_.tokens_[index_].kind == TokenKind::Operator &&
-             (text(index_) == "-" || text(index_) == "!" || text(index_) == "&" ||
-              text(index_) == "*" || text(index_) == "~")) ||
-            text(index_) == "not") {
+        if (isKeywordToken("raw")) {
+            // Raw prefix marks an unchecked operation on the next postfix
+            // expression. It is valid on indexing/slicing and on tagged-union
+            // extraction (`raw v as T`); a declaration form is disambiguated by
+            // parseStatement/parseDeclaration before this point.
+            ++index_;
+            const ExprId operand = parseExpression(kUnaryPrecedence);
+            if (operand.value <= snapshot_.expressions_.size()) {
+                auto &child = snapshot_.expressions_[operand.value - 1U];
+                if (child.kind == ExprKind::Index || child.kind == ExprKind::SliceRange ||
+                    child.kind == ExprKind::Cast) {
+                    child.is_raw = true;
+                    child.span   = range(start, index_);
+                    left         = operand;
+                } else {
+                    // `raw items[0].field` applies to the underlying index expression:
+                    // the postfix chain keeps the rest of the lvalue path intact.
+                    frontend::ExprId root = operand;
+                    unsigned guard       = 0;
+                    while (guard++ < 16U && root.value <= snapshot_.expressions_.size()) {
+                        auto &chain = snapshot_.expressions_[root.value - 1U];
+                        if (chain.kind != frontend::ExprKind::Field &&
+                            chain.kind != frontend::ExprKind::Arrow)
+                            break;
+                        if (chain.operands.empty())
+                            break;
+                        root = chain.operands[0];
+                    }
+                    if (root.value <= snapshot_.expressions_.size()) {
+                        auto &raw_root = snapshot_.expressions_[root.value - 1U];
+                        if (raw_root.kind == ExprKind::Index ||
+                            raw_root.kind == ExprKind::SliceRange) {
+                            raw_root.is_raw = true;
+                            left            = operand;
+                        } else {
+                            snapshot_.diagnostics_.push_back(
+                                {range(start, index_),
+                                 "raw prefix is only valid on an index, slice, or cast expression",
+                                 false, diagnostics::err::TypeMismatch});
+                            Expression raw_error;
+                            raw_error.kind  = ExprKind::Error;
+                            raw_error.span  = range(start, index_);
+                            raw_error.scope = current_scope_;
+                            left            = addExpression(std::move(raw_error));
+                        }
+                    } else {
+                        left = {};
+                    }
+                }
+            } else {
+                left = {};
+            }
+        } else if ((snapshot_.tokens_[index_].kind == TokenKind::Operator &&
+                    (text(index_) == "-" || text(index_) == "!" || text(index_) == "&" ||
+                     text(index_) == "*" || text(index_) == "~")) ||
+                   text(index_) == "not") {
             const auto op = std::string(text(index_++));
             Expression unary;
             unary.kind  = ExprKind::Unary;
@@ -1452,26 +1573,29 @@ private:
         }
 
         while (index_ < token_count_) {
-            // `x is null` sits at comparison precedence; no other `is` form exists yet.
+            // `x is null` and tagged-union `x is Type` sit at comparison precedence.
             if (isKeywordToken("is")) {
                 if (5 < minimum_precedence)
                     break;
                 ++index_;
-                Expression is_null;
-                is_null.scope = current_scope_;
+                Expression is_expr;
+                is_expr.scope = current_scope_;
                 if (isKeywordToken("null")) {
                     ++index_;
-                    is_null.kind = ExprKind::IsNull;
-                    is_null.operands.push_back(left);
+                    is_expr.kind = ExprKind::IsNull;
+                    is_expr.operands.push_back(left);
+                } else if (const TypeExprId type = parseType()) {
+                    is_expr.kind      = ExprKind::IsType;
+                    is_expr.operands.push_back(left);
+                    is_expr.cast_type = type;
                 } else {
-                    is_null.kind = ExprKind::Error;
+                    is_expr.kind = ExprKind::Error;
                     snapshot_.diagnostics_.push_back(
-                        {range(start, index_), "'is' expressions are not supported in this version",
+                        {range(start, index_), "'is' requires 'null' or a member type",
                          false, diagnostics::err::UnsupportedSyntax});
-                    (void)parseExpression(); // consume the operand so no cascading errors follow
                 }
-                is_null.span = range(start, index_);
-                left         = addExpression(std::move(is_null));
+                is_expr.span = range(start, index_);
+                left         = addExpression(std::move(is_expr));
                 continue;
             }
             if (snapshot_.tokens_[index_].kind != TokenKind::Operator)

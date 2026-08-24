@@ -1,0 +1,20 @@
+import "stdio.h"
+
+raw union bitfield{
+    u32,
+    f32
+}
+
+fn foo(): i32{
+    return -60;
+}
+
+fn main(){
+    let b = bitfield{5};
+    let fnPtr: fn (): i32 = foo;
+    var slice: []i32 = [2,4,6,8];
+
+    printf("union value is: %d\n", b as u32);
+    printf("fn ptr result is: %d\n", fnPtr());
+    printf("slice size: %d", slice.size);
+}

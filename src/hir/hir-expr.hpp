@@ -38,6 +38,7 @@ enum class HirExprKind : uint8_t {
     SlotLoad,
     MakeNone,
     MakeSome,
+    MakeSlice,
     SlotAddr,
     Cast,
     LayoutIntrinsic,
@@ -117,6 +118,9 @@ struct HirCall {
     memory::DynArray<HirExprId> args;
     /// Type ids for `args`, kept for ABI promotion rules such as C variadic calls.
     memory::DynArray<types::TypeId> argument_types;
+    /// Lowered function type for indirect calls (`callee` is an expression).
+    /// Direct calls resolved by symbol keep this invalid.
+    types::TypeId fn_type      = types::kInvalidType;
     symbols::SymId resolved_fn = symbols::kInvalidSym;
     HirExprKind tag            = HirExprKind::Call;
 
@@ -245,12 +249,31 @@ struct HirMakeSome {
     HirExprKind tag = HirExprKind::MakeSome;
 };
 
+/// A zero-copy view over an array or an existing slice. When `checked` is true,
+/// runtime bounds validation returns None on failure; otherwise the bounds are
+/// statically known to describe the whole array.
+struct HirMakeSlice {
+    HirExprId object      = kInvalidHirExpr;
+    HirExprId lo          = kInvalidHirExpr;
+    HirExprId hi          = kInvalidHirExpr;
+    HirTypeId type        = types::kInvalidType; // slice type
+    HirTypeId object_type = types::kInvalidType;
+    HirTypeId bound_type  = types::kInvalidType;
+    bool is_array         = false;
+    bool checked          = false;
+    HirExprKind tag       = HirExprKind::MakeSlice;
+};
+
 /// Reinterpret the bytes of a value through the given union type. Unlike a
 /// numeric `as`, this stores into union storage and never converts the value.
 struct HirUnionCast {
     HirExprId value;
     HirTypeId from;
     HirTypeId to;
+    /// Member index when `to` is a tagged union member, otherwise ~0U.
+    uint32_t member_index = ~0U;
+    /// When extracting from a tagged union, verify the stored tag before reading.
+    bool checked = false;
     HirExprKind tag = HirExprKind::Cast;
 };
 
@@ -304,8 +327,8 @@ using HirExpr =
     std::variant<HirLiteral, HirBinary, HirUnary, HirLet, HirVar, HirCall, HirRet, HirBranch,
                  HirJump, HirPhi, HirAssign, HirIndex, HirField, HirStructLiteral, HirArrayLiteral,
                  HirEnumValue, HirSlotAlloca, HirSlotStore, HirSlotLoad, HirSlotAddr, HirMakeNone,
-                 HirMakeSome, HirCast, HirUnionCast, HirLayoutIntrinsic, HirMarkerStore,
-                 HirMarkerLoad, HirMarkerDock, HirMarkerJump, HirMarkerRet>;
+                 HirMakeSome, HirMakeSlice, HirCast, HirUnionCast, HirLayoutIntrinsic,
+                 HirMarkerStore, HirMarkerLoad, HirMarkerDock, HirMarkerJump, HirMarkerRet>;
 
 inline HirExprKind exprKind(const HirExpr &expr) {
     return std::visit([](const auto &entry) { return entry.tag; }, expr);

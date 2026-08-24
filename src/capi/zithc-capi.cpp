@@ -70,13 +70,13 @@ std::string renderTypeExpr(const zith::frontend::TypeExpression &te,
         return "[" + std::to_string(te.arrayLength) + "]" + inner;
     }
     case zith::frontend::TypeExprKind::Function: {
-        std::string result = "(";
+        std::string result = "fn(";
         for (size_t i = 0; i + 1U < te.arguments.size(); ++i) {
             if (i > 0)
                 result += ", ";
             result += renderTypeExpr(all_types[te.arguments[i].value - 1U], all_types);
         }
-        result += ") -> ";
+        result += "): ";
         if (te.arguments.empty())
             result += "?";
         else

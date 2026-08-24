@@ -9,17 +9,17 @@ struct Point {
 }
 
 fn second(values: [4]i32): i32 {
-    return values[1];
+    return raw values[1];
 }
 
 fn main(): i32 {
     var numbers: [4]i32 = [1, 2, 3, 4];
 
-    if (numbers[0] != 1) {
+    if (raw numbers[0] != 1) {
         return 1;
     }
     numbers[3] = 9;
-    if (numbers[3] != 9) {
+    if (raw numbers[3] != 9) {
         return 2;
     }
     if (second(numbers) != 2) {
