@@ -267,7 +267,7 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 const bool from_signed = isSignedType(cast.from);
                 const bool to_signed   = isSignedType(cast.to);
                 const bool from_int =
-                    from_kind == types::TypeKind::Int || from_kind == types::TypeKind::Char;
+                    from_kind == types::TypeKind::Int || from_kind == types::TypeKind::Char || from_kind == types::TypeKind::Enum;
                 const bool to_int =
                     to_kind == types::TypeKind::Int || to_kind == types::TypeKind::Char;
                 if (from_int && to_int) {
@@ -630,6 +630,10 @@ llvm::Value *CodeGenEmit::emitLiteral(const hir::HirLiteral &lit) {
 }
 
 bool CodeGenEmit::isSignedType(const types::TypeId id) const {
+    const auto kind = types_.kindOf(id);
+    if (kind == types::TypeKind::Enum) {
+        return isSignedType(types_.getEnumDef(id).underlying);
+    }
     const auto *int_type = std::get_if<types::TypeInt>(&types_.lookup(id));
     return int_type != nullptr && types::isSignedWidth(int_type->width);
 }

@@ -36,6 +36,8 @@ Expressões constantes para `const` são literais numéricos, `bool`, `char` e `
 
 `let x; x = e;` continua aceite uma vez para inferir o tipo do binding; atribuições seguintes são rejeitadas. `let x: T; x = e;` também aceite a primeira escrita para inicializar o valor, sem alterar o tipo anotado.
 
+A imutabilidade de um binding propaga-se a qualquer caminho de escrita num valor composto: `let p; p.x = 1`, `let p; p->x = 1`, `p.inner.x = 1` e `p[0].x = 1` são rejeitados quando `p` é `let` ou `const` (local ou global). Para `var`, continua permitido escrever campos e elementos aninhados. `view` mantém o bloqueio `WriteThroughView`; `lend` continua mutável. A mensagem para raiz `let`/`const` é `Zith--: cannot write through immutable binding 'p'`.
+
 ## Const Global
 
 O único global real/executável é declarado com:
@@ -68,6 +70,27 @@ fn main(): i32 {
 ````
 
 Campos regulares continuam permitidos, com ou sem default. Atribuição a um campo `const` é rejeitada.
+
+A mesma regra aplica-se a campos `const` dentro de union e a valores de union armazenados por casts/construção: a imutabilidade da raiz não permite alterar o storage interior através de caminhos Root Field/Arrow/Index.
+
+## Enums
+
+Discriminantes não precisam ser literais. Uma variante pode usar uma expressão constante inteira avaliada no módulo:
+
+````zith
+const BASE: i32 = 8;
+
+enum Flag {
+    ONE = 1,
+    SHIFT = 1 << 4,
+    OR = 1 |. 4,
+    NEG = -1,
+    PREV = SHIFT + 1,
+    FROM_GLOBAL = BASE,
+}
+````
+
+São aceites literais inteiros (incluindo `0x`, `0b` e `0c`), `-`/`~` unários, aritmética, operadores bitwise `&.`/`|.`/`^.`, shifts `<<`/`>>`, comparações que resultem em inteiro, variantes anteriores do mesmo enum e `const` globais/locais de tipo inteiro já declarados. Chamadas, casts, literais float/string/bool, `null`, opaques e outros agregados não são aceites. O resultado é avaliado como `int64_t` e, após a avaliação, verificado contra o tipo subjacente do enum; overflow e valores negativos em `uN` são rejeitados.
 
 ## Tipos
 
@@ -118,9 +141,11 @@ tag macro Box(content) { <content/> }
 | `unique`/`share`/`belong` | ownership fora desta iteração | `E2010` |
 | Tag macros | só permanecem macros normais/raw | `E2010` |
 | Atribuição a `let`/`const` | imutabilidade | `E2010` |
+| Escrita de campo/arrow/index por raiz `let`/`const` | imutabilidade propaga a compósitos | `E2010` |
 | Atribuição a campo `const` | storage const | `E2010` |
 | `const` sem inicializador | constante precisa de valor | `E2010` |
 | `let`/`var` não-triviais sem inicializador | evita valor não inicializado | `E2010` |
+| Discriminante de enum não constante | variante precisa de valor constante inteiro | `E3001` |
 
 ## Não É Desta Iteração
 

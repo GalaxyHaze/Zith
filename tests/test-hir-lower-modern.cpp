@@ -266,6 +266,27 @@ void test_const_global_lowers_to_load() {
     CHECK(saw_load, "referencing the const global lowers to a global const load");
 }
 
+void test_untyped_const_global_type_comes_from_initializer() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "const SIZE = 1024;");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "modern lowering succeeds for an untyped top-level const");
+
+    const auto &hir = session.hirModule();
+    CHECK_EQ(hir.getGlobalConstCount(), 1u, "HIR contains one const global");
+    if (hir.getGlobalConstCount() != 1u)
+        return;
+    const auto &global = hir.getGlobalConst(0);
+    CHECK(global.init != hir::kInvalidHirExpr, "const global has an initializer expression");
+    CHECK(global.type != types::kVoidType,
+          "untyped const global gets the type inferred from its initializer");
+}
+
 void test_if_else_lowers_to_branch_and_merge() {
     Workspace workspace;
     workspace.writeFile("main.zith", "fn pick(flag: bool): i32 {\n"
@@ -559,6 +580,50 @@ void test_enum_discriminant_honours_radix() {
             found_16 = true;
     }
     CHECK(found_16, "enum discriminant '= 0x10' lowers to 16");
+}
+
+void test_const_enum_discriminant_expressions_lower_to_values() {
+    Workspace workspace;
+    workspace.writeFile(
+        "main.zith",
+        "enum Flag { ONE = 1, SHIFT = 1 << 4, OR = 1 |. 4, NEG = -1, PREV = SHIFT + 1 }\n"
+        "fn main(): Flag { Flag.PREV }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "constant enum discriminant expressions lower to HIR");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main function is present");
+    if (main == nullptr)
+        return;
+
+    const auto &types = session.types();
+    const auto enum_type =
+        std::get_if<types::TypeEnum>(&types.lookup(types.lookupNamedType("Flag")));
+    CHECK(enum_type != nullptr, "Flag lowers to an enum type");
+    if (enum_type == nullptr)
+        return;
+    const auto *def = types.lookupEnumDef(enum_type->def_id);
+    CHECK(def != nullptr, "Flag has a lowered enum definition");
+    if (def == nullptr)
+        return;
+    const auto has = [&](std::string_view name, int64_t value) {
+        for (const auto &variant : def->variants) {
+            if (types.interner().lookup(variant.name) == name)
+                return variant.discriminant == value;
+        }
+        return false;
+    };
+    CHECK(has("ONE", 1), "computed enum discriminant ONE lowers to 1");
+    CHECK(has("SHIFT", 16), "computed enum discriminant SHIFT lowers to 16");
+    CHECK(has("OR", 5), "computed enum discriminant OR lowers to 5");
+    CHECK(has("NEG", -1), "computed enum discriminant NEG lowers to -1");
+    CHECK(has("PREV", 17), "computed enum discriminant PREV lowers to 17");
 }
 
 void test_struct_literal_lowers_to_hir() {
@@ -1395,6 +1460,7 @@ static void test_hir_lower_modern() {
 #endif
     test_radix_literals_lower_to_their_value();
     test_enum_discriminant_honours_radix();
+    test_const_enum_discriminant_expressions_lower_to_values();
     test_struct_literal_lowers_to_hir();
     test_dot_field_read_lowers_to_hir_field();
     test_addrof_and_deref_lowers_to_hir_unary();
@@ -1409,6 +1475,7 @@ static void test_hir_lower_modern() {
     test_global_marker_lowers_into_multiple_flow_fns();
     test_generic_function_lowers_to_concrete_instances();
     test_const_global_lowers_to_load();
+    test_untyped_const_global_type_comes_from_initializer();
     test_indirect_function_call_has_callee_and_fn_type();
     test_array_to_slice_coercion_lowers_to_make_slice();
     test_slice_range_lowers_to_checked_optional_view();

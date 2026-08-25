@@ -1169,6 +1169,53 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
         for (const auto &expression : module->frontend->expressions()) {
             if (module->frontend->isMacroTemplateExpr(expression.id))
                 continue;
+            // Enum discriminant expressions may reference earlier variants by bare
+            // name (`PREV = SHIFT + 1`). The variants live in the enum's own lookup
+            // table rather than the module scope, so resolve those occurrences to the
+            // containing enum declaration here.
+            if (expression.kind == frontend::ExprKind::Name && expression.scope) {
+                const frontend::Declaration *variant_enum = nullptr;
+                for (const auto &enum_decl : module->frontend->declarations()) {
+                    if (enum_decl.kind != frontend::DeclKind::Enum)
+                        continue;
+                    bool inside_enum_default = false;
+                    for (const auto &variant : enum_decl.parameters) {
+                        if (!variant.defaultValue ||
+                            variant.defaultValue.value > module->frontend->expressions().size())
+                            continue;
+                        const auto &default_expr =
+                            module->frontend->expressions()[variant.defaultValue.value - 1U];
+                        if (expression.span.start >= default_expr.span.start &&
+                            expression.span.end <= default_expr.span.end) {
+                            inside_enum_default = true;
+                            break;
+                        }
+                    }
+                    if (!inside_enum_default)
+                        continue;
+                    for (const auto &variant : enum_decl.parameters) {
+                        if (variant.name == expression.text) {
+                            variant_enum = &enum_decl;
+                            break;
+                        }
+                    }
+                    if (variant_enum != nullptr)
+                        break;
+                }
+                if (variant_enum != nullptr) {
+                    ResolvedName variant_binding{
+                        variant_enum->name,
+                        ResolutionKind::Declaration,
+                        expression.span,
+                        {module->key, frontend::SymbolId{variant_enum->id.value}},
+                        variant_enum->id,
+                        {},
+                        expression.scope};
+                    variant_binding.expr     = expression.id;
+                    variant_binding.declKind = frontend::DeclKind::Enum;
+                    resolution.expressions.push_back(std::move(variant_binding));
+                }
+            }
             if (expression.kind == frontend::ExprKind::Field && !expression.operands.empty()) {
                 // `console.println` where `console` is an `import ... as console` alias:
                 // resolve the member against the aliased module's public symbols and bind

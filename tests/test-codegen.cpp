@@ -333,8 +333,14 @@ static void test_enum_values() {
                                                "    if (Color.Green == Color.Green) { return 3; }\n"
                                                "    return 0;\n"
                                                "}\n");
-    CHECK(r.ok, "Typed enum variant constants compile and run");
-    CHECK_EQ(r.exitCode, 3, "Enum variant comparisons use the underlying integer representation");
+
+    auto r2 = t.run("codegen-enum-cast.zith", "enum Color: u8 { Red = 10, Green = 20 }\n"
+                                               "fn main(): i32 {\n"
+                                               "    let c: Color = Color.Green;\n"
+                                               "    return c as i32;\n"
+                                               "}\n");
+    CHECK(r2.ok, "Enum to integer cast compiles and runs");
+    CHECK_EQ(r2.exitCode, 20, "Enum cast evaluates to the underlying integer discriminant value");
 }
 
 static void test_offsetof_and_alignof_runtime() {

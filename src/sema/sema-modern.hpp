@@ -201,6 +201,11 @@ private:
     frontend::ExprId assignmentRoot(frontend::ExprId id) const noexcept;
     /// Reports `WriteThroughView` when the assignment target is rooted at a `view` binding.
     void checkAssignableOwnership(frontend::ExprId target, frontend::TextSpan span);
+    /// Reports `UnsupportedSyntax` when an assignment target rooted at a `let`/`const`
+    /// binding reaches a field, arrow, or index path. The immutable root propagates to
+    /// nested struct/union storage; `view` is reported separately by
+    /// `checkAssignableOwnership`, and `lend` remains mutable.
+    void checkImmutableRootFieldWrite(frontend::ExprId target, frontend::TextSpan span);
     TypeId inferOptionalProp(frontend::ExprId id);
     TypeId inferIndex(frontend::ExprId id);
     TypeId inferSliceRange(frontend::ExprId id);

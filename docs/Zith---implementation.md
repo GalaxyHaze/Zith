@@ -44,6 +44,22 @@ Atribuições são verificadas em `inferAssign`:
 
 `targetFieldIsConst` percorre o caminho de uma place expression para detectar campos const, incluindo bases aninhadas e acesso por pointer.
 
+Além do check de ownership existente (`checkAssignableOwnership`), `inferAssign` chama
+`checkImmutableRootFieldWrite`. Essa função usa `assignmentRoot` para encontrar a raiz da
+place expression e rejeita escritas de campo, arrow ou index cuja raiz seja `let` ou `const`
+(local ou global) com `Zith--: cannot write through immutable binding '<name>'` (`E2010`).
+O check dedicado `checkConstFieldAssignments`/`targetFieldIsConst` continua responsável por
+campos `const`; `view` e `lend` mantêm o tratamento de ownership anterior.
+
+Discriminantes de enum são avaliados em `lowerDeclarationTypes`, não como literais fixos.
+O evaluator percorre recursivamente literais inteiros, unários `-`/`~`, binários aritméticos,
+bitwise `&.`/`|.`/`^.`, shifts e comparações, variantes anteriores do enum e referências a
+`const` inteiros globais/locais. Usa aritmética alargada para detectar overflow de
+`int64_t`, depois verifica o resultado contra o tipo subjacente do enum. Expressões não
+constantes ou não inteiras reportam `enum variant discriminant must be a constant integer
+expression`; valores fora do tipo subjacente são rejeitados com
+`enum variant discriminant does not fit its underlying type '<T>'`.
+
 ## HIR
 
 `predeclareGlobalConsts` roda antes das funções e cria um `HirGlobalConst` por declaração `const` top-level:
@@ -78,8 +94,8 @@ Isso mantém os ids de HIR estáveis entre módulos vazios de funções, const g
 Os seguintes testes cobrem a iteração:
 
 - `test-frontend`: bindings `let`/`var`/`const`, rejeição de `global`/`mut`/ownership/tags, const fields.
-- `test-sema`: valida const global/local, campos const, atribuições proibidas, expressões constantes e não-triviais sem inicializador.
-- `test-hir-lower-modern`: `HirGlobalConst` e `HirGlobalConstLoad`.
+- `test-sema`: valida const global/local, campos const, propagação de imutabilidade em structs/unions, discriminantes constantes de enum e atribuições proibidas.
+- `test-hir-lower-modern`: `HirGlobalConst`, `HirGlobalConstLoad` e valores de enum calculados a partir de expressões.
 - `test-codegen`: execução runtime de um const global.
 - `test-cache`/`test-zirl-sections`: pool de expressões e globals persistidos.
 - `test-memory-qualifiers`: lend/view aceites; unique/share/belong e mut rejeitados.

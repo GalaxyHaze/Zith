@@ -1982,6 +1982,170 @@ static void test_modern_zith_bindings() {
           "const field assignment diagnostic names the field");
 }
 
+static void test_modern_mutability_propagates_to_struct_fields() {
+    ModernSemaTest t;
+
+    auto var_root = t.run("struct Inner { x: i32 }\n"
+                          "struct Outer { inner: Inner }\n"
+                          "fn main(): i32 {\n"
+                          "    var p: Outer = Outer { inner: Inner { x: 1 } };\n"
+                          "    p.inner.x = 2;\n"
+                          "    return p.inner.x;\n"
+                          "}\n");
+    CHECK(var_root.ok, "writing a nested field remains allowed when rooted at 'var'");
+
+    auto dot_let = t.run("struct Point { x: i32 }\n"
+                         "fn main() {\n"
+                         "    let p: Point = Point { x: 1 };\n"
+                         "    p.x = 2;\n"
+                         "}\n");
+    CHECK(!dot_let.ok, "writing through a 'let' struct root is rejected");
+    CHECK(dot_let.hasMessage("cannot write through immutable binding 'p'"),
+          "immutable field write names the root binding");
+
+    auto arrow_let = t.run("struct Point { x: i32 }\n"
+                           "fn main() {\n"
+                           "    let q: Point = Point { x: 1 };\n"
+                           "    let p: *Point = &q;\n"
+                           "    p->x = 2;\n"
+                           "}\n");
+    CHECK(!arrow_let.ok, "writing through an immutable struct root and arrow is rejected");
+    CHECK(arrow_let.hasMessage("cannot write through immutable binding 'p'"),
+          "arrow field write names the pointer root binding");
+
+    auto nested_let = t.run("struct Inner { x: i32 }\n"
+                            "struct Outer { inner: Inner }\n"
+                            "fn main() {\n"
+                            "    let p: Outer = Outer { inner: Inner { x: 1 } };\n"
+                            "    p.inner.x = 2;\n"
+                            "}\n");
+    CHECK(!nested_let.ok, "deep field writes inherit the immutable root");
+    CHECK(nested_let.hasMessage("cannot write through immutable binding 'p'"),
+          "nested immutable field write names the root binding");
+
+    auto const_global = t.run("struct Point { x: i32 }\n"
+                              "const P: Point = Point { x: 1 };\n"
+                              "fn main() {\n"
+                              "    P.x = 2;\n"
+                              "}\n");
+    CHECK(!const_global.ok, "writing through a const struct global is rejected");
+    CHECK(const_global.hasMessage("cannot write through immutable binding 'P'"),
+          "const global field write names the root binding");
+
+    auto const_local = t.run("struct Point { x: i32 }\n"
+                             "fn main() {\n"
+                             "    const P: Point = Point { x: 1 };\n"
+                             "    P.x = 2;\n"
+                             "}\n");
+    CHECK(!const_local.ok, "writing through a local const struct is rejected");
+    CHECK(const_local.hasMessage("cannot write through immutable binding 'P'"),
+          "local const field write names the root binding");
+
+    auto current_field = t.run("struct P { const X: i32 = 1, y: i32 }\n"
+                               "fn main(): i32 {\n"
+                               "    var p: P = P { y: 2 };\n"
+                               "    p.X = 3;\n"
+                               "    return p.X;\n"
+                               "}\n");
+    CHECK(!current_field.ok, "const struct fields remain immutable for any root");
+    CHECK(current_field.hasMessage("cannot assign to a const struct field"),
+          "dedicated const-field diagnostic still fires");
+
+    auto const_union_cast = t.run("raw union Any { i32, f64 }\n"
+                                  "fn main() {\n"
+                                  "    const u: Any = Any { 1 };\n"
+                                  "    var x: i32 = u as i32;\n"
+                                  "    x = 2;\n"
+                                  "}\n");
+    CHECK(const_union_cast.ok, "reading a const union through a member cast stays valid");
+
+    auto let_union_cast = t.run("raw union Any { i32, f64 }\n"
+                                "fn main() {\n"
+                                "    let u: Any = Any { 1 };\n"
+                                "    u as i32;\n"
+                                "}\n");
+    CHECK(let_union_cast.ok, "const/let union values continue to type-check");
+}
+
+static void test_modern_enum_constant_discriminants() {
+    ModernSemaTest t;
+
+    auto ok =
+        t.run("enum Flag { ONE = 1, SHIFT = 1 << 4, OR = 1 |. 4, NEG = -1, PREV = SHIFT + 1 }\n"
+              "fn main(): Flag { Flag.PREV }\n",
+              session::Stage::HirLowered);
+    CHECK(ok.ok, "constant enum discriminant expressions lower successfully");
+
+    auto prior = t.run("enum Flag { ONE = 1, TWO = ONE + 1 }\n"
+                       "fn main(): Flag { Flag.TWO }\n");
+    CHECK(prior.ok, "enum variants can reference earlier variants");
+
+    auto qualified_prior = t.run("enum Flag { ONE = 1, TWO = Flag.ONE + 1 }\n"
+                                 "fn main(): Flag { Flag.TWO }\n");
+    CHECK(qualified_prior.ok, "enum variants can reference earlier variants by qualified name");
+
+    auto global = t.run("const BASE: i32 = 10;\n"
+                        "enum Flag { SHIFT = BASE << 2 }\n"
+                        "fn main(): Flag { Flag.SHIFT }\n");
+    CHECK(global.ok, "enum variants can reference integer const globals");
+
+    auto local = t.run("const BASE: i32 = 3;\n"
+                       "enum Flag { V = BASE + 1 }\n"
+                       "fn main(): Flag { Flag.V }\n");
+    CHECK(local.ok, "enum variants can reference integer local consts");
+
+    auto float_disc = t.run("enum Flag { BAD = 1.5 }\n"
+                            "fn main(): Flag { Flag.BAD }\n");
+    CHECK(!float_disc.ok, "float enum discriminants are rejected");
+    CHECK(float_disc.hasMessage("constant integer expression"),
+          "float enum discriminant reports the constant-expr diagnostic");
+
+    auto call_disc = t.run("fn foo(): i32 { 1 }\n"
+                           "enum Flag { BAD = foo() }\n"
+                           "fn main(): Flag { Flag.BAD }\n");
+    CHECK(!call_disc.ok, "calls in enum discriminants are rejected");
+    CHECK(call_disc.hasMessage("constant integer expression"),
+          "call enum discriminant reports the constant-expr diagnostic");
+
+    auto divide_by_zero = t.run("enum Bad { V = 1 / 0 }\n"
+                                "fn main(): Bad { Bad.V }\n");
+    CHECK(!divide_by_zero.ok, "division by zero in enum discriminants is rejected");
+    CHECK(divide_by_zero.hasMessage("constant integer expression"),
+          "division by zero reports the constant-expr diagnostic");
+
+    auto shift_out_of_range = t.run("enum Bad { V = 1 << 64 }\n"
+                                    "fn main(): Bad { Bad.V }\n");
+    CHECK(!shift_out_of_range.ok, "invalid shift amounts in enum discriminants are rejected");
+    CHECK(shift_out_of_range.hasMessage("constant integer expression"),
+          "invalid shift reports the constant-expr diagnostic");
+
+    auto overflow_disc = t.run("enum Small: u8 { BIG = 256 }\n"
+                               "fn main(): Small { Small.BIG }\n");
+    CHECK(!overflow_disc.ok, "enum discriminants outside the underlying type are rejected");
+    CHECK(overflow_disc.hasMessage("does not fit its underlying type"),
+          "underlying-type overflow names the enum type");
+
+    auto negative_u8 = t.run("enum Small: u8 { NEG = -1 }\n"
+                             "fn main(): Small { Small.NEG }\n");
+    CHECK(!negative_u8.ok, "negative values are rejected for unsigned enum underlying types");
+    CHECK(negative_u8.hasMessage("does not fit its underlying type"),
+          "negative unsigned discriminant reports the underlying-type diagnostic");
+
+    auto enum_to_int = t.run("enum Color { Red = 1, Green = 2 }\n"
+                             "fn main(): i32 {\n"
+                             "    let c: Color = Color.Green;\n"
+                             "    return c as i32;\n"
+                             "}\n");
+    CHECK(enum_to_int.ok, "enum to integer cast is allowed");
+
+    auto int_to_enum = t.run("enum Color { Red = 1, Green = 2 }\n"
+                             "fn main(): Color {\n"
+                             "    let x: i32 = 2;\n"
+                             "    return x as Color;\n"
+                             "}\n");
+    CHECK(!int_to_enum.ok, "integer to enum cast is disallowed");
+}
+
 static void test_sema() {
     test_basic_unification();
     test_type_mismatch();
@@ -2110,6 +2274,8 @@ static void test_sema() {
     test_modern_slice_range_sema();
     test_modern_raw_slice_and_index_sema();
     test_modern_zith_bindings();
+    test_modern_mutability_propagates_to_struct_fields();
+    test_modern_enum_constant_discriminants();
 }
 
 TEST_MAIN(sema)

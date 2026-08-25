@@ -6,9 +6,11 @@
 
 #include <algorithm>
 #include <cstring>
+#include <functional>
 
 #include <cctype>
 #include <cstdlib>
+#include <limits>
 #include <string>
 
 namespace zith::sema::modern {
@@ -46,30 +48,6 @@ bool looksBool(std::string_view text) {
     return text == "true" || text == "false";
 }
 
-/// Parses an enum variant's explicit `= <int literal>` discriminant. Accepts a plain
-/// literal or a unary-minus literal (`Red = -1`). Returns false for anything else.
-bool explicitDiscriminant(const frontend::FrontendSnapshot &snapshot, frontend::ExprId id,
-                          std::int64_t &value) {
-    if (!id || id.value > snapshot.expressions().size())
-        return false;
-    const auto &expr = snapshot.expressions()[id.value - 1U];
-    if (expr.kind == frontend::ExprKind::Unary && expr.text == "-" && !expr.operands.empty()) {
-        if (expr.operands[0].value > snapshot.expressions().size())
-            return false;
-        const auto &operand = snapshot.expressions()[expr.operands[0].value - 1U];
-        if (operand.kind != frontend::ExprKind::Literal)
-            return false;
-        std::int64_t magnitude = 0;
-        if (support::parseIntegerLiteral(operand.text, magnitude) != support::IntLiteralStatus::Ok)
-            return false;
-        value = -magnitude;
-        return true;
-    }
-    if (expr.kind != frontend::ExprKind::Literal)
-        return false;
-    return support::parseIntegerLiteral(expr.text, value) == support::IntLiteralStatus::Ok;
-}
-
 bool looksString(std::string_view text) {
     return text.size() >= 2 && text.front() == '"' && text.back() == '"';
 }
@@ -93,9 +71,10 @@ enum class CastKind : uint8_t {
 [[nodiscard]] CastKind classifyCast(TypeKind from, TypeKind to) {
     const bool from_integer = from == TypeKind::Integer || from == TypeKind::Char;
     const bool to_integer   = to == TypeKind::Integer || to == TypeKind::Char;
+    const bool from_enum    = from == TypeKind::Enum;
     if (from == to && from == TypeKind::Float)
         return CastKind::FloatToFloat;
-    if (from_integer && to_integer)
+    if ((from_integer || from_enum) && to_integer)
         return CastKind::IntToInt;
     if (from_integer && to == TypeKind::Float)
         return CastKind::IntToFloat;
@@ -359,7 +338,7 @@ void PerModuleSema::lowerDeclarationTypes() {
         case frontend::DeclKind::Variable: {
             TypeId vtype = lowerTypeExpr(decl.declaredType);
             if (!vtype)
-                vtype = error_type;
+                vtype = decl.initializer ? inferExpr(decl.initializer) : error_type;
             setDeclType(decl.id, vtype);
             break;
         }
@@ -405,6 +384,145 @@ void PerModuleSema::lowerDeclarationTypes() {
             auto &variant_names = type_table.makeStringStorage();
             auto &discriminants = type_table.makeDiscStorage();
             int64_t next_value  = 0;
+            std::function<bool(frontend::ExprId, std::int64_t &, unsigned)> evaluate =
+                [&](frontend::ExprId id, std::int64_t &out, unsigned guard) -> bool {
+                if (!id || id.value > snapshot.expressions().size() || guard > 64U)
+                    return false;
+                const auto &expr = snapshot.expressions()[id.value - 1U];
+                switch (expr.kind) {
+                case frontend::ExprKind::Literal:
+                    return looksInteger(expr.text) &&
+                           support::parseIntegerLiteral(expr.text, out) ==
+                               support::IntLiteralStatus::Ok;
+                case frontend::ExprKind::Unary: {
+                    if (expr.operands.empty() || (expr.text != "-" && expr.text != "~"))
+                        return false;
+                    std::int64_t operand = 0;
+                    if (!evaluate(expr.operands[0], operand, guard + 1U))
+                        return false;
+                    if (expr.text == "-" && operand == std::numeric_limits<std::int64_t>::min())
+                        return false;
+                    out = expr.text == "-" ? -operand : ~operand;
+                    return true;
+                }
+                case frontend::ExprKind::Binary: {
+                    if (expr.operands.size() < 2U)
+                        return false;
+                    std::int64_t left  = 0;
+                    std::int64_t right = 0;
+                    if (!evaluate(expr.operands[0], left, guard + 1U) ||
+                        !evaluate(expr.operands[1], right, guard + 1U))
+                        return false;
+                    const bool division = expr.text == "/" || expr.text == "%";
+                    const bool shift    = expr.text == "<<" || expr.text == ">>";
+                    if (division &&
+                        (right == 0 ||
+                         (left == std::numeric_limits<std::int64_t>::min() && right == -1)))
+                        return false;
+                    if (shift && (right < 0 || right >= 64))
+                        return false;
+                    const __int128 wide = [&]() {
+                        if (expr.text == "+")
+                            return static_cast<__int128>(left) + right;
+                        if (expr.text == "-")
+                            return static_cast<__int128>(left) - right;
+                        if (expr.text == "*")
+                            return static_cast<__int128>(left) * right;
+                        if (expr.text == "/") {
+                            return static_cast<__int128>(left) / right;
+                        }
+                        if (expr.text == "%") {
+                            return static_cast<__int128>(left) % right;
+                        }
+                        if (expr.text == "&.")
+                            return static_cast<__int128>(static_cast<std::uint64_t>(left) &
+                                                         static_cast<std::uint64_t>(right));
+                        if (expr.text == "|.")
+                            return static_cast<__int128>(static_cast<std::uint64_t>(left) |
+                                                         static_cast<std::uint64_t>(right));
+                        if (expr.text == "^.")
+                            return static_cast<__int128>(static_cast<std::uint64_t>(left) ^
+                                                         static_cast<std::uint64_t>(right));
+                        if (expr.text == "<<") {
+                            return static_cast<__int128>(static_cast<std::uint64_t>(left)
+                                                         << static_cast<unsigned>(right));
+                        }
+                        if (expr.text == ">>") {
+                            return static_cast<__int128>(left >> static_cast<unsigned>(right));
+                        }
+                        if (expr.text == "==")
+                            return static_cast<__int128>(left == right);
+                        if (expr.text == "!=")
+                            return static_cast<__int128>(left != right);
+                        if (expr.text == "<")
+                            return static_cast<__int128>(left < right);
+                        if (expr.text == "<=")
+                            return static_cast<__int128>(left <= right);
+                        if (expr.text == ">")
+                            return static_cast<__int128>(left > right);
+                        if (expr.text == ">=")
+                            return static_cast<__int128>(left >= right);
+                        return static_cast<__int128>(0);
+                    }();
+                    const std::int64_t min = std::numeric_limits<std::int64_t>::min();
+                    const std::int64_t max = std::numeric_limits<std::int64_t>::max();
+                    if (wide < min || wide > max)
+                        return false;
+                    out = static_cast<std::int64_t>(wide);
+                    return expr.text == "+" || expr.text == "-" || expr.text == "*" ||
+                           expr.text == "/" || expr.text == "%" || expr.text == "&." ||
+                           expr.text == "|." || expr.text == "^." || expr.text == "<<" ||
+                           expr.text == ">>" || expr.text == "==" || expr.text == "!=" ||
+                           expr.text == "<" || expr.text == "<=" || expr.text == ">" ||
+                           expr.text == ">=";
+                }
+                case frontend::ExprKind::Name: {
+                    for (size_t i = 0; i < variant_names.size(); ++i) {
+                        if (variant_names[i] == expr.text) {
+                            out = discriminants[i];
+                            return true;
+                        }
+                    }
+                    const auto *resolved = findResolvedExpr(id);
+                    if (resolved == nullptr ||
+                        resolved->bindingKind != frontend::BindingKind::Const)
+                        return false;
+                    const TypeId const_type = typeOfResolvedName(id);
+                    if (!const_type ||
+                        type_table.integer(type_table.stripQualifiers(const_type)) == nullptr)
+                        return false;
+                    if (resolved->declaration &&
+                        resolved->declaration.value <= snapshot.declarations().size()) {
+                        const auto &const_decl =
+                            snapshot.declarations()[resolved->declaration.value - 1U];
+                        return evaluate(const_decl.initializer, out, guard + 1U);
+                    }
+                    for (const auto &statement : snapshot.statements()) {
+                        if (statement.kind == frontend::StmtKind::Binding &&
+                            statement.binding.id == resolved->local)
+                            return evaluate(statement.binding.initializer, out, guard + 1U);
+                    }
+                    return false;
+                }
+                case frontend::ExprKind::Field: {
+                    if (expr.operands.empty())
+                        return false;
+                    const auto *base = findResolvedExpr(expr.operands[0]);
+                    if (base == nullptr || base->declaration != decl.id ||
+                        base->declKind != frontend::DeclKind::Enum)
+                        return false;
+                    for (size_t i = 0; i < variant_names.size(); ++i) {
+                        if (variant_names[i] == expr.text) {
+                            out = discriminants[i];
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+                default:
+                    return false;
+                }
+            };
             for (const auto &variant : decl.parameters) {
                 for (const auto &existing : variant_names) {
                     if (existing == variant.name) {
@@ -415,11 +533,38 @@ void PerModuleSema::lowerDeclarationTypes() {
                 }
                 if (variant.defaultValue) {
                     std::int64_t disc = 0;
-                    if (explicitDiscriminant(snapshot, variant.defaultValue, disc))
+                    if (evaluate(variant.defaultValue, disc, 0U)) {
+                        const auto *int_type =
+                            type_table.integer(type_table.stripQualifiers(underlying));
+                        const bool fits_signed = [&]() {
+                            if (!int_type || !int_type->isSigned || int_type->bits >= 64)
+                                return true;
+                            const std::int64_t max = (std::int64_t{1} << (int_type->bits - 1U)) - 1;
+                            const std::int64_t min = -max - 1;
+                            return disc >= min && disc <= max;
+                        }();
+                        const bool fits_unsigned = [&]() {
+                            if (!int_type || int_type->isSigned)
+                                return true;
+                            if (disc < 0)
+                                return false;
+                            if (int_type->bits >= 64)
+                                return true;
+                            const std::uint64_t max = (std::uint64_t{1} << int_type->bits) - 1U;
+                            return static_cast<std::uint64_t>(disc) <= max;
+                        }();
+                        if (!fits_signed || !fits_unsigned) {
+                            report(variant.span,
+                                   "enum variant discriminant does not fit its underlying type '" +
+                                       type_table.typeToString(underlying) + "'",
+                                   diagnostics::err::TypeMismatch);
+                        }
                         next_value = disc;
-                    else
-                        report(variant.span, "enum variant discriminant must be an integer literal",
+                    } else {
+                        report(variant.span,
+                               "enum variant discriminant must be a constant integer expression",
                                diagnostics::err::TypeMismatch);
+                    }
                 }
                 // Store name in a stable arena allocation.
                 char *buf = static_cast<char *>(arena.alloc(variant.name.size(), 1));
@@ -1046,6 +1191,44 @@ TypeId PerModuleSema::inferLiteral(frontend::ExprId id, std::string_view text) {
 }
 
 TypeId PerModuleSema::inferName(frontend::ExprId id, std::string_view text) {
+    // Inside an enum discriminant, a bare name may refer to a variant declared earlier in
+    // the same enum. The variants are constants of the enum's underlying type for the
+    // purpose of the constant evaluator and expression typing.
+    if (id && id.value <= snapshot.expressions().size()) {
+        const auto &expr = snapshot.expressions()[id.value - 1U];
+        if (expr.scope) {
+            for (const auto &decl : snapshot.declarations()) {
+                if (decl.kind != frontend::DeclKind::Enum)
+                    continue;
+                bool inside_enum_default = false;
+                for (const auto &variant : decl.parameters) {
+                    if (!variant.defaultValue ||
+                        variant.defaultValue.value > snapshot.expressions().size())
+                        continue;
+                    const auto &default_expr =
+                        snapshot.expressions()[variant.defaultValue.value - 1U];
+                    if (expr.span.start >= default_expr.span.start &&
+                        expr.span.end <= default_expr.span.end) {
+                        inside_enum_default = true;
+                        break;
+                    }
+                }
+                if (!inside_enum_default)
+                    continue;
+                for (const auto &variant : decl.parameters) {
+                    if (variant.name == text) {
+                        const TypeId underlying =
+                            decl.declaredType ? lowerTypeExpr(decl.declaredType) : i32_type;
+                        if (underlying &&
+                            type_table.kindOf(resolve(underlying)) == TypeKind::Integer) {
+                            return underlying;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
     const auto *resolved = findResolvedExpr(id);
     if (resolved) {
         if (const TypeId resolved_type = typeOfResolvedName(id)) {
@@ -2308,6 +2491,33 @@ void PerModuleSema::checkAssignableOwnership(frontend::ExprId target, frontend::
            diagnostics::err::WriteThroughView);
 }
 
+void PerModuleSema::checkImmutableRootFieldWrite(frontend::ExprId target, frontend::TextSpan span) {
+    const frontend::ExprId root = assignmentRoot(target);
+    const auto *root_resolved   = root ? findResolvedExpr(root) : nullptr;
+    if (root_resolved == nullptr ||
+        (root_resolved->bindingKind != frontend::BindingKind::Let &&
+         root_resolved->bindingKind != frontend::BindingKind::Const) ||
+        root_resolved->declKind == frontend::DeclKind::Function ||
+        root_resolved->declKind == frontend::DeclKind::Marker)
+        return;
+    bool has_field_path = false;
+    for (frontend::ExprId current = target;
+         current && current.value <= snapshot.expressions().size() && current != root;) {
+        const auto &cursor = snapshot.expressions()[current.value - 1U];
+        if (cursor.kind != frontend::ExprKind::Field && cursor.kind != frontend::ExprKind::Arrow &&
+            cursor.kind != frontend::ExprKind::Index)
+            break;
+        if (cursor.operands.empty())
+            break;
+        has_field_path = true;
+        current        = cursor.operands[0];
+    }
+    if (!has_field_path)
+        return;
+    report(span, "Zith--: cannot write through immutable binding '" + root_resolved->name + "'",
+           diagnostics::err::UnsupportedSyntax);
+}
+
 TypeId PerModuleSema::inferAssign(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     if (expr.operands.size() < 2)
@@ -2371,6 +2581,7 @@ TypeId PerModuleSema::inferAssign(frontend::ExprId id) {
     }
     TypeId right_type = inferExpr(expr.operands[1]);
     checkAssignableOwnership(expr.operands[0], expr.span);
+    checkImmutableRootFieldWrite(expr.operands[0], expr.span);
     TypeId result = left_type;
     if (!coerceValue(expr.operands[1], left_type, right_type)) {
         reportCoercionFailure(expr.span, left_type, right_type,
@@ -2584,9 +2795,40 @@ TypeId PerModuleSema::inferField(frontend::ExprId id) {
         return error_type;
     }
     // `Color.Green` on a name that resolves to an enum declaration is a variant access,
-    // not a struct field access.
-    if (const auto enum_type = enumVariantType(expr.operands[0], expr.text, expr.span))
+    // not a struct field access. Inside an enum discriminant it has the enum's
+    // underlying integer type so it composes with arithmetic; after the declaration
+    // is lowered it retains the enum type (as before).
+    if (const auto enum_type = enumVariantType(expr.operands[0], expr.text, expr.span)) {
+        const auto *base = findResolvedExpr(expr.operands[0]);
+        if (base != nullptr) {
+            for (const auto &decl : snapshot.declarations()) {
+                if (decl.kind != frontend::DeclKind::Enum || decl.name != base->name)
+                    continue;
+                bool inside_enum_default = false;
+                for (const auto &variant : decl.parameters) {
+                    if (!variant.defaultValue ||
+                        variant.defaultValue.value > snapshot.expressions().size())
+                        continue;
+                    const auto &default_expr =
+                        snapshot.expressions()[variant.defaultValue.value - 1U];
+                    if (expr.span.start >= default_expr.span.start &&
+                        expr.span.end <= default_expr.span.end) {
+                        inside_enum_default = true;
+                        break;
+                    }
+                }
+                if (inside_enum_default) {
+                    const TypeId underlying =
+                        decl.declaredType ? lowerTypeExpr(decl.declaredType) : i32_type;
+                    if (underlying && type_table.kindOf(resolve(underlying)) == TypeKind::Integer) {
+                        return underlying;
+                    }
+                }
+                break;
+            }
+        }
         return *enum_type;
+    }
     // A struct name is a type, not a value. Reject `Pair.first` before the base
     // is treated as an expression that lowerings can silently drop.
     if (const auto *resolved = findResolvedExpr(expr.operands[0]);
