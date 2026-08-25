@@ -536,7 +536,7 @@ jobs:
           cmake-version: ${{ env.CMAKE_VERSION }}
 
       - name: Cache CMake build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: build-wasm
           key: cmake-wasm-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake', 'src/**/*.cpp', 'src/**/*.hpp') }}
