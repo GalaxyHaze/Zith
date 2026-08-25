@@ -246,6 +246,8 @@ static void test_compilation_session_fmt_uses_frontend_snapshot() {
 static void test_formatter_memory_qualifier_round_trip() {
     // Every qualifier must survive `zithc fmt`; losing one would silently change
     // ownership and mutability.
+    // Zith-- keeps `lend`/`view`; removed qualifiers are still formatter-tolerated
+    // for source preservation, but their re-parse now reports diagnostics.
     const char *qualified[] = {
         "fn f(p: lend i32) {}\n",     "fn f(p: view i32) {}\n",   "fn f(p: unique i32) {}\n",
         "fn f(p: share i32) {}\n",    "fn f(p: belong i32) {}\n", "fn f(p: mut i32) {}\n",
@@ -260,7 +262,12 @@ static void test_formatter_memory_qualifier_round_trip() {
         CHECK_EQ(formatter.result(), std::string(source), "qualified type round-trips through fmt");
 
         auto reparsed = frontend::parse(formatter.result());
-        CHECK(reparsed.diagnostics().empty(), "formatted qualified type re-parses cleanly");
+        if (std::string_view(source).find("unique") == std::string_view::npos &&
+            std::string_view(source).find("share") == std::string_view::npos &&
+            std::string_view(source).find("belong") == std::string_view::npos &&
+            std::string_view(source).find("mut") == std::string_view::npos) {
+            CHECK(reparsed.diagnostics().empty(), "formatted qualified type re-parses cleanly");
+        }
         formatter::FmtVisitor second(reparsed);
         second.format();
         CHECK_EQ(second.result(), formatter.result(), "qualifier formatting is idempotent");
@@ -281,14 +288,11 @@ static void test_formatter_variadic_declaration_round_trip() {
 static void test_formatter_function_kinds_round_trip() {
     const std::string source   = "fn standard() {}\n"
                                  "raw fn unsafe_op() {}\n"
-                                 "const fn compile_ready() {}\n"
                                  "extern fn putchar(c: i32): i32;\n"
                                  "flow fn structured() {}\n";
     const std::string expected = "fn standard() {}\n"
                                  "\n"
                                  "raw fn unsafe_op() {}\n"
-                                 "\n"
-                                 "const fn compile_ready() {}\n"
                                  "\n"
                                  "extern fn putchar(c: i32): i32;\n"
                                  "\n"

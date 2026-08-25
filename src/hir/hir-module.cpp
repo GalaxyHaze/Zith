@@ -23,7 +23,7 @@ void appendMarkerRetTerminator(std::string &buffer, const HirMarkerRet &ret) {
 } // namespace
 
 HirModule::HirModule(memory::Arena &arena)
-    : exprs_(arena), fns_(arena), marker_layout_(arena), attrs_(arena) {}
+    : exprs_(arena), fns_(arena), globals_(arena), marker_layout_(arena), attrs_(arena) {}
 
 HirExprId HirModule::addExpr(HirExpr expr) {
     HirExprId id = static_cast<HirExprId>(exprs_.size());
@@ -55,6 +55,11 @@ HirMarker &HirModule::addMarker() {
     return marker_layout_.markers.back();
 }
 
+HirGlobalConst &HirModule::addGlobalConst() {
+    globals_.emplace(exprs_.arena());
+    return globals_.back();
+}
+
 const HirMarker &HirModule::getMarker(size_t idx) const {
     return marker_layout_.markers[idx];
 }
@@ -70,6 +75,10 @@ const HirMarker *HirModule::findMarker(memory::InternedId name) const {
     return nullptr;
 }
 
+const HirGlobalConst &HirModule::getGlobalConst(size_t idx) const {
+    return globals_[idx];
+}
+
 size_t HirModule::getFnCount() const {
     return fns_.size();
 }
@@ -81,6 +90,18 @@ void HirModule::dump(FILE *out, const memory::StringInterner &interner) const {
 
 std::string HirModule::toString(const memory::StringInterner &interner) const {
     std::string buffer;
+    for (const auto &global : globals_) {
+        auto name = interner.lookup(global.name);
+        buffer += "global_const ";
+        buffer.append(name.data(), name.size());
+        buffer += " : %t";
+        buffer += std::to_string(global.type);
+        buffer += " = %e";
+        buffer += std::to_string(global.init);
+        buffer += "\n";
+    }
+    if (!globals_.empty())
+        buffer += "\n";
     for (size_t fi = 0; fi < fns_.size(); ++fi) {
         auto &fn     = fns_[fi];
         auto fn_name = interner.lookup(fn.name);
@@ -331,6 +352,13 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                        buffer += std::to_string(j.marker_entry);
                                    },
                                    [&](const HirMarkerRet &) { buffer += "marker_ret"; },
+                                   [&](const HirGlobalConstLoad &g) {
+                                       auto n = interner.lookup(g.name);
+                                       buffer += "global_const_load ";
+                                       buffer.append(n.data(), n.size());
+                                       buffer += " : %t";
+                                       buffer += std::to_string(g.type);
+                                   },
                                });
                 buffer += "\n";
             }

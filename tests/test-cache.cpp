@@ -69,8 +69,8 @@ Artifact makeMinimalArtifact(std::string_view path, std::string_view name,
     ret.ref_a      = ~uint32_t{0};
     blk.terminator = 0;
     fn.blocks.push_back(blk);
-    fn.exprs.push_back(ret);
     art.functions.push_back(fn);
+    art.exprs.push_back(ret);
     return art;
 }
 
@@ -97,6 +97,7 @@ static void test_binary_round_trip() {
     CHECK_EQ(decoded->public_abi_lo, original.public_abi_lo, "public ABI lo preserved");
     CHECK_EQ(decoded->decls.size(), original.decls.size(), "decl count preserved");
     CHECK_EQ(decoded->functions.size(), original.functions.size(), "function count preserved");
+    CHECK_EQ(decoded->exprs.size(), original.exprs.size(), "expression pool size preserved");
     CHECK_EQ(decoded->strings.size(), original.strings.size(), "string table size preserved");
     CHECK_EQ(decoded->types.size(), original.types.size(), "type table size preserved");
     if (!decoded->decls.empty()) {
@@ -419,7 +420,7 @@ static void test_format_version_bump() {
     (void)Writer::write(art, writer);
 
     std::string bytes(reinterpret_cast<const char *>(writer.ptr()), writer.size());
-    CHECK_EQ(kFormatVersion, 7u, "zirl format version is bumped to 7 for tagged unions");
+    CHECK_EQ(kFormatVersion, 8u, "zirl format version is bumped to 8 for const globals");
 
     // Simulate an old reader by treating the v6 version field as v3.
     bytes[4]        = 3;
@@ -696,24 +697,22 @@ static void test_artifact_builder() {
     CHECK(art.decls.size() >= 1, "builder extracts exported declarations");
     CHECK_EQ(art.decls[0].name, "main", "builder extracts function name");
     CHECK_EQ(art.functions.size(), 1u, "builder extracts HIR functions");
+    CHECK_EQ(art.exprs.size(), hir.exprCount(), "builder serializes module expression pool");
     CHECK_EQ(art.source_fp_hi, 0u, "builder stores source fingerprint hi");
     CHECK_EQ(art.functions[0].is_variadic, true, "builder stores HIR variadic flag");
-    const auto indirect_call = std::find_if(
-        art.functions[0].exprs.begin(), art.functions[0].exprs.end(),
-        [](const cache::CompactExpr &expr) {
+    const auto indirect_call =
+        std::find_if(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &expr) {
             return expr.kind == cache::CompactExprKind::Call && expr.ref_b == symbols::kInvalidSym;
         });
-    CHECK(indirect_call != art.functions[0].exprs.end(), "builder serializes an indirect call");
-    if (indirect_call != art.functions[0].exprs.end())
+    CHECK(indirect_call != art.exprs.end(), "builder serializes an indirect call");
+    if (indirect_call != art.exprs.end())
         CHECK(indirect_call->ref_e != 0u, "builder preserves the indirect call's lowered fn type");
     const auto make_slice =
-        std::find_if(art.functions[0].exprs.begin(), art.functions[0].exprs.end(),
-                     [](const cache::CompactExpr &expr) {
-                         return expr.kind == cache::CompactExprKind::MakeSlice;
-                     });
-    CHECK(make_slice != art.functions[0].exprs.end(),
-          "builder serializes a slice-range expression");
-    if (make_slice != art.functions[0].exprs.end()) {
+        std::find_if(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::MakeSlice;
+        });
+    CHECK(make_slice != art.exprs.end(), "builder serializes a slice-range expression");
+    if (make_slice != art.exprs.end()) {
         CHECK_EQ(make_slice->ref_a, var_id, "slice range serializes the object");
         CHECK_EQ(make_slice->ref_b, int_id, "slice range serializes the lower bound");
         CHECK_EQ(make_slice->ref_c, int_id, "slice range serializes the upper bound");
@@ -724,8 +723,6 @@ static void test_artifact_builder() {
         CHECK((make_slice->flags & 1U) != 0, "slice range serializes the array flag");
         CHECK((make_slice->flags & 2U) != 0, "slice range serializes the runtime-check flag");
     }
-    CHECK_EQ(art.functions[0].exprs.size(), hir.exprCount(),
-             "builder serializes the module expression pool");
     const auto point_decl = std::find_if(art.decls.begin(), art.decls.end(),
                                          [](const DeclRecord &d) { return d.name == "Point"; });
     CHECK(point_decl != art.decls.end(), "builder extracts public struct declaration");
@@ -762,8 +759,7 @@ static void test_artifact_builder() {
     if (!round)
         return;
     CHECK_EQ(round->functions.size(), art.functions.size(), "round-trip preserves function count");
-    CHECK_EQ(round->functions[0].exprs.size(), art.functions[0].exprs.size(),
-             "round-trip preserves expression pool size");
+    CHECK_EQ(round->exprs.size(), art.exprs.size(), "round-trip preserves expression pool size");
     CHECK_EQ(round->attrs_slots.size(), art.attrs_slots.size(), "round-trip preserves slot attrs");
     CHECK_EQ(round->attrs_calls.size(), art.attrs_calls.size(), "round-trip preserves call attrs");
     CHECK_EQ(round->attrs_fns.size(), art.attrs_fns.size(), "round-trip preserves fn attrs");

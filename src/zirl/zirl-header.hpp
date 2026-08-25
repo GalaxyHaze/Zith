@@ -29,7 +29,9 @@ inline constexpr uint32_t kMagic = 0x5A49524Cu; // "ZIRL"
 // Bumped to 6 when the persistent artifact gained the monomorphized-instance
 // summary section.
 /// Version 7: plain unions carry a runtime tag and store member payload first.
-inline constexpr uint32_t kFormatVersion = 7;
+/// Version 8: HIR module-level `const` globals and their load nodes are
+/// serialized in the Code section.
+inline constexpr uint32_t kFormatVersion = 8;
 inline constexpr uint8_t kEndianLittle   = 1;
 
 enum class SectionId : uint8_t {

@@ -368,9 +368,9 @@ FrontendContext::importedMacrosFor(const ModuleArtifact &module,
 }
 
 CompilationSnapshot::CompilationSnapshot(
-    std::shared_ptr<const SourceCatalog> catalog, CacheKey cache_key,
-    ModuleKey root_module_key, std::vector<ModuleArtifactPtr> modules,
-    std::vector<MergedSymbol> merged_symbols, std::vector<ImportEdge> import_graph,
+    std::shared_ptr<const SourceCatalog> catalog, CacheKey cache_key, ModuleKey root_module_key,
+    std::vector<ModuleArtifactPtr> modules, std::vector<MergedSymbol> merged_symbols,
+    std::vector<ImportEdge> import_graph,
     std::vector<std::shared_ptr<const cinterop::CHeaderArtifact>> c_headers,
     std::vector<ModuleResolution> resolutions, std::vector<ModuleDiagnostic> diagnostics,
     SnapshotMetrics metrics)
@@ -965,6 +965,8 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
             decl_binding.declKind   = declaration.kind;
             decl_binding.isExtern   = declaration.isExtern;
             decl_binding.isVariadic = declaration.isVariadic;
+            if (declaration.kind == frontend::DeclKind::Variable)
+                decl_binding.bindingKind = declaration.bindingKind;
             if (declaration.kind == frontend::DeclKind::Function) {
                 decl_binding.signature =
                     frontend::functionSignature(*module->frontend, declaration);
@@ -1025,7 +1027,8 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                                            {},
                                            statement.binding.id,
                                            {}};
-                local_binding.declKind = frontend::DeclKind::Variable;
+                local_binding.declKind    = frontend::DeclKind::Variable;
+                local_binding.bindingKind = statement.binding.bindingKind;
                 add_binding(std::move(local_binding), statement_scope);
             } else if (statement.kind == frontend::StmtKind::Marker) {
                 frontend::ScopeId marker_scope;
@@ -1336,7 +1339,7 @@ memory::Result<std::shared_ptr<const CompilationSnapshot>>
 FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
     if (!root_source)
         return memory::Error{"frontend analysis requires a root source"};
-    const auto root_key = root_source->canonicalPath;
+    const auto root_key      = root_source->canonicalPath;
     const auto visible_roots = visibleRootsFor(root_source->canonicalPath);
     std::map<ModuleKey, SourceCatalog::SourcePtr> pending;
     std::map<ModuleKey, ModuleArtifactPtr> modules;
@@ -1536,9 +1539,9 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
         c_headers.push_back(header);
     }
     return std::make_shared<const CompilationSnapshot>(
-        catalog_, cache_key_, root_key, std::move(ordered_modules),
-        std::move(merged_symbols), std::move(import_graph), std::move(c_headers),
-        std::move(resolutions), std::move(diagnostics), snapshot_metrics);
+        catalog_, cache_key_, root_key, std::move(ordered_modules), std::move(merged_symbols),
+        std::move(import_graph), std::move(c_headers), std::move(resolutions),
+        std::move(diagnostics), snapshot_metrics);
 }
 
 memory::Result<bool> FrontendContext::initializeStdlib() {

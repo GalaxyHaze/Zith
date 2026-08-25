@@ -133,7 +133,50 @@ HirLowerModern::HirLowerModern(memory::Arena &arena, diagnostics::DiagnosticEngi
       interner_(interner), nra_(nra), hir_(arena), lowered_types_(), function_index_by_key_() {}
 
 bool HirLowerModern::run() {
-    return predeclareFunctions() && lowerFunctionBodies() && !diags_.hasErrors();
+    return predeclareGlobalConsts() && predeclareFunctions() && lowerFunctionBodies() &&
+           !diags_.hasErrors();
+}
+
+bool HirLowerModern::predeclareGlobalConsts() {
+    for (const auto &module_ptr : snapshot_.modules()) {
+        const auto &module = *module_ptr;
+        auto *module_sema  = sema_.findModuleSema(module.key);
+        if (module_sema == nullptr)
+            continue;
+
+        for (const auto &decl : module.frontend->declarations()) {
+            if (decl.kind != frontend::DeclKind::Variable ||
+                decl.bindingKind != frontend::BindingKind::Const || decl.name.empty())
+                continue;
+
+            const auto key = internFunctionKey(interner_, module.key, decl.id);
+            if (global_const_by_key_.get(key) != nullptr)
+                continue;
+
+            const auto name_space   = moduleNamespace(module.key, snapshot_.cacheKey());
+            std::string global_name = "_zith_";
+            if (!name_space.empty()) {
+                global_name += name_space;
+                global_name += '.';
+            }
+            global_name += decl.name;
+
+            auto &global = hir_.addGlobalConst();
+            global.name  = interner_.intern(global_name);
+            global.type  = lowerType(module_sema->typeOfDecl(decl.id));
+            if (decl.initializer) {
+                current_module_     = &module;
+                current_resolution_ = snapshot_.findResolution(module.key);
+                current_types_      = sema_.findTypedMap(module.key);
+                global.init         = lowerExpr(decl.initializer);
+                current_module_     = nullptr;
+                current_resolution_ = nullptr;
+                current_types_      = nullptr;
+            }
+            global_const_by_key_.insert(key, global.name);
+        }
+    }
+    return !diags_.hasErrors();
 }
 
 bool HirLowerModern::predeclareFunctions() {
@@ -322,7 +365,7 @@ uint32_t HirLowerModern::lowerTypeSize(types::TypeId type) noexcept {
         const auto *union_type = std::get_if<types::TypeUnion>(&types_.lookup(type));
         if (union_type == nullptr)
             return 0U;
-        const auto *def    = types_.lookupUnionDef(union_type->def_id);
+        const auto *def = types_.lookupUnionDef(union_type->def_id);
         if (def == nullptr)
             return 0U;
         uint32_t max_bytes = 1U;
@@ -482,7 +525,8 @@ types::TypeId HirLowerModern::lowerTagType(types::TypeId type, types::TypeIntern
     return tagType(types, member_count);
 }
 
-uint32_t HirLowerModern::taggedMemberIndex(types::TypeId union_type, types::TypeId member) noexcept {
+uint32_t HirLowerModern::taggedMemberIndex(types::TypeId union_type,
+                                           types::TypeId member) noexcept {
     if (types_.kindOf(union_type) != types::TypeKind::Union)
         return ~0U;
     const auto *union_data = std::get_if<types::TypeUnion>(&types_.lookup(union_type));
@@ -934,9 +978,8 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
             lowered = types::kErrorType;
             break;
         }
-        lowered = types_.defineUnion(union_type->name, union_type->is_tagged);
-        const auto *lowered_union =
-            std::get_if<types::TypeUnion>(&types_.lookup(lowered));
+        lowered                   = types_.defineUnion(union_type->name, union_type->is_tagged);
+        const auto *lowered_union = std::get_if<types::TypeUnion>(&types_.lookup(lowered));
         const auto *def =
             lowered_union != nullptr ? types_.lookupUnionDef(lowered_union->def_id) : nullptr;
         if (def != nullptr && def->members.size() == 0U) {
@@ -1333,17 +1376,15 @@ hir::HirExprId HirLowerModern::lowerName(const frontend::Expression &expr) {
     // pick up a same-named binding from another function.
     if (const auto *resolved = findResolvedExpr(expr.id)) {
         if (resolved->local) {
-            const auto slot      = localSlot(resolved->local);
-            const auto local_ty  = typeOfLocal(resolved->local);
-            const auto expr_type = typeOfExpr(expr.id);
-            const auto *local_union =
-                types_.kindOf(local_ty) == types::TypeKind::Union
-                    ? std::get_if<types::TypeUnion>(&types_.lookup(local_ty))
-                    : nullptr;
+            const auto slot         = localSlot(resolved->local);
+            const auto local_ty     = typeOfLocal(resolved->local);
+            const auto expr_type    = typeOfExpr(expr.id);
+            const auto *local_union = types_.kindOf(local_ty) == types::TypeKind::Union
+                                          ? std::get_if<types::TypeUnion>(&types_.lookup(local_ty))
+                                          : nullptr;
             const auto *local_union_def =
                 local_union != nullptr ? types_.lookupUnionDef(local_union->def_id) : nullptr;
-            if (local_union_def != nullptr && local_union_def->is_tagged &&
-                expr_type != local_ty) {
+            if (local_union_def != nullptr && local_union_def->is_tagged && expr_type != local_ty) {
                 hir::HirUnionCast cast;
                 cast.value        = emitSlotLoad(slot, local_ty);
                 cast.from         = local_ty;
@@ -1353,6 +1394,26 @@ hir::HirExprId HirLowerModern::lowerName(const frontend::Expression &expr) {
                 return addExpr(std::move(cast));
             }
             return emitSlotLoad(slot, local_ty);
+        }
+        if (resolved->declKind == frontend::DeclKind::Variable &&
+            resolved->bindingKind == frontend::BindingKind::Const) {
+            const session::ModuleArtifact *decl_module = current_module_;
+            frontend::DeclId decl_id                   = resolved->declaration;
+            if (!resolved->target.module.empty()) {
+                decl_module = snapshot_.findModule(resolved->target.module);
+                if (!decl_id && resolved->target.localSymbol)
+                    decl_id = frontend::DeclId{resolved->target.localSymbol.value};
+            }
+            if (decl_module != nullptr && decl_id &&
+                decl_id.value <= decl_module->frontend->declarations().size()) {
+                const auto key = internFunctionKey(interner_, decl_module->key, decl_id);
+                if (const auto *global_name = global_const_by_key_.get(key)) {
+                    hir::HirGlobalConstLoad load;
+                    load.name = *global_name;
+                    load.type = typeOfExpr(expr.id);
+                    return addExpr(std::move(load));
+                }
+            }
         }
         if (resolved->foreignFunction != nullptr) {
             hir::HirVar var;
@@ -1668,8 +1729,7 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
         const auto else_value                 = lowerExpr(expr.operands[2]);
         if (has_value && else_value != hir::kInvalidHirExpr &&
             current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
-            current_fn_->blocks[current_block_].insts.push(
-                emitSlotStore(result_slot, else_value));
+            current_fn_->blocks[current_block_].insts.push(emitSlotStore(result_slot, else_value));
         }
         if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
             emitJump(merge_block);
@@ -2058,24 +2118,23 @@ hir::HirExprId HirLowerModern::lowerIsNull(const frontend::Expression &expr) {
 }
 
 hir::HirExprId HirLowerModern::lowerIsType(const frontend::Expression &expr) {
-    if (expr.operands.empty() || !expr.cast_type ||
-        current_module_ == nullptr || current_module_->frontend == nullptr)
+    if (expr.operands.empty() || !expr.cast_type || current_module_ == nullptr ||
+        current_module_->frontend == nullptr)
         return hir::kInvalidHirExpr;
-    const auto operand    = lowerExpr(expr.operands[0]);
+    const auto operand = lowerExpr(expr.operands[0]);
     if (operand == hir::kInvalidHirExpr)
         return hir::kInvalidHirExpr;
     const auto operand_type = typeOfExpr(expr.operands[0]);
     if (types_.kindOf(operand_type) != types::TypeKind::Union)
         return hir::kInvalidHirExpr;
-    const auto *union_type =
-        std::get_if<types::TypeUnion>(&types_.lookup(operand_type));
+    const auto *union_type = std::get_if<types::TypeUnion>(&types_.lookup(operand_type));
     if (union_type == nullptr)
         return hir::kInvalidHirExpr;
     const auto *def = types_.lookupUnionDef(union_type->def_id);
     if (def == nullptr || !def->is_tagged)
         return hir::kInvalidHirExpr;
-    const auto target = lowerType(sema_.typeTable().lowerTypeExpr(*current_module_->frontend,
-                                                                 expr.cast_type));
+    const auto target =
+        lowerType(sema_.typeTable().lowerTypeExpr(*current_module_->frontend, expr.cast_type));
     if (target == types::kErrorType || target == types::kInvalidType)
         return hir::kInvalidHirExpr;
     uint32_t member_index = 0;
@@ -2091,8 +2150,8 @@ hir::HirExprId HirLowerModern::lowerIsType(const frontend::Expression &expr) {
     current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, operand_type));
     current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, operand));
     const auto tag_type = tagType(types_, static_cast<uint32_t>(def->members.size()));
-    const auto tag = addExpr(hir::HirField{addExpr(hir::HirSlotAddr{slot, operand_type}), 1U,
-                                           tag_type, operand_type});
+    const auto tag      = addExpr(
+        hir::HirField{addExpr(hir::HirSlotAddr{slot, operand_type}), 1U, tag_type, operand_type});
     hir::HirUnionCheck check;
     check.value        = tag;
     check.union_type   = operand_type;
@@ -2158,17 +2217,16 @@ hir::HirExprId HirLowerModern::lowerIndex(const frontend::Expression &expr,
     const auto result_slot = next_slot_++;
     current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(object_slot, object_type));
     current_fn_->blocks[current_block_].insts.push(emitSlotStore(object_slot, object));
-    current_fn_->blocks[current_block_].insts.push(
-        emitSlotAlloca(index_slot, types_.kindOf(index_type) == types::TypeKind::Int
-                                         ? index_type
-                                         : types::kErrorType));
+    current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(
+        index_slot,
+        types_.kindOf(index_type) == types::TypeKind::Int ? index_type : types::kErrorType));
     current_fn_->blocks[current_block_].insts.push(emitSlotStore(index_slot, index));
     current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(result_slot, type));
 
     const auto loaded_index = emitSlotLoad(index_slot, index_type);
     hir::HirLiteral zero;
-    zero.type = index_type;
-    zero.i    = 0;
+    zero.type          = index_type;
+    zero.i             = 0;
     hir::HirExprId len = hir::kInvalidHirExpr;
     const auto *array  = std::get_if<types::TypeArray>(&types_.lookup(object_type));
     if (array != nullptr) {
@@ -2177,10 +2235,10 @@ hir::HirExprId HirLowerModern::lowerIndex(const frontend::Expression &expr,
         len_lit.i    = static_cast<int64_t>(array->count);
         len          = addExpr(std::move(len_lit));
     } else {
-        const auto loaded    = emitSlotLoad(object_slot, object_type);
-        auto len_i64         = addExpr(hir::HirField{
-            loaded, 1U, types_.internInt(types::IntWidth::I64), object_type});
-        const auto len64     = types_.internInt(types::IntWidth::I64);
+        const auto loaded = emitSlotLoad(object_slot, object_type);
+        auto len_i64 =
+            addExpr(hir::HirField{loaded, 1U, types_.internInt(types::IntWidth::I64), object_type});
+        const auto len64 = types_.internInt(types::IntWidth::I64);
         if (types_.kindOf(index_type) != types::TypeKind::Int) {
             len = hir::kInvalidHirExpr;
         } else if (index_type != len64) {
@@ -2193,19 +2251,19 @@ hir::HirExprId HirLowerModern::lowerIndex(const frontend::Expression &expr,
         return hir::kInvalidHirExpr;
 
     hir::HirBinary ge_zero;
-    ge_zero.lhs          = loaded_index;
-    ge_zero.rhs          = addExpr(std::move(zero));
-    ge_zero.op           = hir::HirBinaryOp::Ge;
-    ge_zero.type         = types::kBoolType;
-    ge_zero.operand_type = index_type;
+    ge_zero.lhs           = loaded_index;
+    ge_zero.rhs           = addExpr(std::move(zero));
+    ge_zero.op            = hir::HirBinaryOp::Ge;
+    ge_zero.type          = types::kBoolType;
+    ge_zero.operand_type  = index_type;
     const auto ge_zero_id = addExpr(std::move(ge_zero));
 
     hir::HirBinary lt_len;
-    lt_len.lhs          = loaded_index;
-    lt_len.rhs          = len;
-    lt_len.op           = hir::HirBinaryOp::Lt;
-    lt_len.type         = types::kBoolType;
-    lt_len.operand_type = index_type;
+    lt_len.lhs           = loaded_index;
+    lt_len.rhs           = len;
+    lt_len.op            = hir::HirBinaryOp::Lt;
+    lt_len.type          = types::kBoolType;
+    lt_len.operand_type  = index_type;
     const auto lt_len_id = addExpr(std::move(lt_len));
 
     hir::HirBinary all_ok;

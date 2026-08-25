@@ -342,7 +342,7 @@ namespace {
         return DeclKind::Trait;
     if (word == "interface")
         return DeclKind::Interface;
-    if (word == "let" || word == "var" || word == "const" || word == "global")
+    if (word == "let" || word == "var" || word == "const")
         return DeclKind::Variable;
     if (word == "context")
         return DeclKind::Context;
@@ -379,6 +379,20 @@ functionKindPrefix(const FrontendSnapshot &snapshot, uint32_t &index, uint32_t t
 }
 
 } // namespace
+
+[[nodiscard]] BindingKind bindingKind(const std::string_view word) noexcept {
+    if (word == "let")
+        return BindingKind::Let;
+    if (word == "var")
+        return BindingKind::Var;
+    if (word == "const")
+        return BindingKind::Const;
+    // `lowerDeclaration` can reach this helper through the rejected `global`
+    // path below. It emits its own Zith-- diagnostic before parsing the rest
+    // of the declaration; defaulting that recovery path to `const` avoids a
+    // second top-level-binding diagnostic.
+    return BindingKind::Const;
+}
 
 class AstLowerer {
 public:
@@ -497,6 +511,21 @@ public:
                 ++index_; // consume 'tag'
                 lowerMacroDeclaration(start, visibility, false, true);
                 visibility = Visibility::Private;
+                continue;
+            }
+
+            // Zith-- declares static storage with a top-level `const`; the
+            // legacy `global` keyword is rejected before the variable parser.
+            if (word == "global") {
+                flushBadRun();
+                snapshot_.diagnostics_.push_back(
+                    {tokenSpan(index_),
+                     "Zith--: 'global' is not supported; use `const NAME: T = value`", false,
+                     diagnostics::err::UnsupportedSyntax});
+                lowerDeclaration(start, DeclKind::Variable, visibility, {}, {}, is_extern,
+                                 FunctionKind::Standard, {}, false, true);
+                visibility = Visibility::Private;
+                is_extern  = false;
                 continue;
             }
 
@@ -663,6 +692,10 @@ private:
             const auto word = text(index_);
             OwnershipKind parsed{};
             if (word == "mut") {
+                snapshot_.diagnostics_.push_back(
+                    {tokenSpan(index_),
+                     "Zith--: 'mut' is not supported; use 'var' for a mutable local binding", false,
+                     diagnostics::err::UnsupportedSyntax});
                 if (has_mut) {
                     snapshot_.diagnostics_.push_back({tokenSpan(index_),
                                                       "duplicate 'mut' qualifier on this type",
@@ -678,6 +711,13 @@ private:
                 snapshot_.diagnostics_.push_back({tokenSpan(index_),
                                                   "a type may carry only one ownership qualifier",
                                                   false, diagnostics::err::ExpectedExpr});
+            }
+            if (parsed == OwnershipKind::Unique || parsed == OwnershipKind::Share ||
+                parsed == OwnershipKind::Belong) {
+                snapshot_.diagnostics_.push_back(
+                    {tokenSpan(index_),
+                     "Zith--: unique/share/belong ownership is not supported; use lend or view",
+                     false, diagnostics::err::UnsupportedSyntax});
             }
             ownership     = parsed;
             has_ownership = true;
@@ -1522,7 +1562,7 @@ private:
                     // `raw items[0].field` applies to the underlying index expression:
                     // the postfix chain keeps the rest of the lvalue path intact.
                     frontend::ExprId root = operand;
-                    unsigned guard       = 0;
+                    unsigned guard        = 0;
                     while (guard++ < 16U && root.value <= snapshot_.expressions_.size()) {
                         auto &chain = snapshot_.expressions_[root.value - 1U];
                         if (chain.kind != frontend::ExprKind::Field &&
@@ -1585,14 +1625,14 @@ private:
                     is_expr.kind = ExprKind::IsNull;
                     is_expr.operands.push_back(left);
                 } else if (const TypeExprId type = parseType()) {
-                    is_expr.kind      = ExprKind::IsType;
+                    is_expr.kind = ExprKind::IsType;
                     is_expr.operands.push_back(left);
                     is_expr.cast_type = type;
                 } else {
                     is_expr.kind = ExprKind::Error;
-                    snapshot_.diagnostics_.push_back(
-                        {range(start, index_), "'is' requires 'null' or a member type",
-                         false, diagnostics::err::UnsupportedSyntax});
+                    snapshot_.diagnostics_.push_back({range(start, index_),
+                                                      "'is' requires 'null' or a member type",
+                                                      false, diagnostics::err::UnsupportedSyntax});
                 }
                 is_expr.span = range(start, index_);
                 left         = addExpression(std::move(is_expr));
@@ -1906,11 +1946,11 @@ private:
             if (index_ < token_count_ && text(index_) == "var") {
                 ++index_;
                 Statement stmt;
-                stmt.kind                   = StmtKind::Binding;
-                stmt.binding.mutableBinding = true;
-                stmt.binding.id             = LocalId{statementCountLocals_++};
-                stmt.binding.name           = std::string(text(index_));
-                stmt.binding.span           = tokenSpan(index_++);
+                stmt.kind                = StmtKind::Binding;
+                stmt.binding.bindingKind = BindingKind::Var;
+                stmt.binding.id          = LocalId{statementCountLocals_++};
+                stmt.binding.name        = std::string(text(index_));
+                stmt.binding.span        = tokenSpan(index_++);
                 if (punctuation(index_, ':')) {
                     ++index_;
                     stmt.binding.type = parseType();
@@ -2171,8 +2211,8 @@ private:
 
         const auto word = text(index_);
         if (word == "let" || word == "var" || word == "const") {
-            statement.kind                   = StmtKind::Binding;
-            statement.binding.mutableBinding = word == "var";
+            statement.kind                = StmtKind::Binding;
+            statement.binding.bindingKind = bindingKind(word);
             ++index_;
             if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
                 statement.binding.id   = LocalId{statementCountLocals_++};
@@ -2464,6 +2504,12 @@ private:
         declaration.visibility = visibility;
         declaration.isRawMacro = isRaw;
         declaration.isTagMacro = isTag;
+        if (isTag) {
+            snapshot_.diagnostics_.push_back(
+                {tokenSpan(start),
+                 "Zith--: tag macros are not supported; use a normal or raw macro", false,
+                 diagnostics::err::UnsupportedSyntax});
+        }
 
         if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
             declaration.name = std::string(text(index_++));
@@ -2706,7 +2752,8 @@ private:
                           const bool isExtern                              = false,
                           const FunctionKind functionKind                  = FunctionKind::Standard,
                           const std::vector<GenericParam> &inheritedParams = {},
-                          const bool isRawUnion                            = false) {
+                          const bool isRawUnion                            = false,
+                          const bool suppressTopLevelBindingCheck          = false) {
         Declaration declaration;
         declaration.id         = DeclId{static_cast<uint32_t>(snapshot_.declarations_.size() + 1U)};
         declaration.kind       = kind;
@@ -2717,14 +2764,31 @@ private:
         declaration.isExtern      = isExtern;
         declaration.isRawUnion    = isRawUnion;
         declaration.isNominalType = declaration_is_nominal_;
+        if (kind == DeclKind::Variable)
+            declaration.bindingKind = BindingKind::Let;
         if (kind == DeclKind::Function && functionKind == FunctionKind::Extern)
             declaration.isExtern = true;
+        if (functionKind == FunctionKind::Const) {
+            snapshot_.diagnostics_.push_back(
+                {tokenSpan(start), "Zith--: 'const fn' is not supported; declare an ordinary 'fn'",
+                 false, diagnostics::err::UnsupportedSyntax});
+        }
         ++index_;
         if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+            if (kind == DeclKind::Variable)
+                declaration.bindingKind = bindingKind(text(index_ - 1U));
             declaration.name = std::string(text(index_++));
         } else {
             snapshot_.diagnostics_.push_back({tokenSpan(start), "expected a declaration name"});
             declaration.kind = DeclKind::Error;
+        }
+        if (kind == DeclKind::Variable && declaration.bindingKind != BindingKind::Const &&
+            !suppressTopLevelBindingCheck) {
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_),
+                 "Zith--: top-level variables must be declared with 'const NAME: T = value'; "
+                 "let/var are local bindings",
+                 false, diagnostics::err::UnsupportedSyntax});
         }
         // Generic parameter list `<T, U>` (constraints parse but are not enforced).
         if (isOperatorToken("<")) {
@@ -2807,6 +2871,10 @@ private:
         } else if (kind == DeclKind::Variable && index_ < token_count_ && text(index_) == "=") {
             ++index_;
             declaration.initializer = parseExpression();
+        } else if (kind == DeclKind::Variable && declaration.bindingKind == BindingKind::Const) {
+            snapshot_.diagnostics_.push_back({range(start, index_),
+                                              "Zith--: const declaration requires an initializer",
+                                              false, diagnostics::err::UnsupportedSyntax});
         } else if ((kind == DeclKind::Struct || kind == DeclKind::Interface) &&
                    punctuation(index_, '{')) {
             // Struct bodies also contain methods; interface bodies only contain fields.
@@ -2952,6 +3020,47 @@ private:
     /// Parse one struct field (regular or grouped `[x, y]: T`). Returns false when
     /// the malformed field cannot be recovered inline and the body should stop.
     bool parseStructField(std::vector<Parameter> &out) {
+        if (index_ < token_count_ && text(index_) == "const") {
+            const uint32_t const_start = index_++;
+            if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
+                snapshot_.diagnostics_.push_back({tokenSpan(index_),
+                                                  "expected a field name after 'const'", false,
+                                                  diagnostics::err::UnsupportedSyntax});
+                ++index_;
+                if (punctuation(index_, ',') || punctuation(index_, '}'))
+                    return true;
+                return false;
+            }
+            Parameter field;
+            field.id           = LocalId{statementCountLocals_++};
+            field.isConstField = true;
+            field.name         = std::string(text(index_));
+            field.span         = tokenSpan(index_++);
+            if (!punctuation(index_, ':')) {
+                snapshot_.diagnostics_.push_back({range(const_start, index_),
+                                                  "expected ':' after const field name", false,
+                                                  diagnostics::err::UnsupportedSyntax});
+            } else {
+                ++index_;
+                field.type = parseType();
+                if (index_ < token_count_ && text(index_) == "=") {
+                    ++index_;
+                    field.defaultValue = parseExpression();
+                } else {
+                    snapshot_.diagnostics_.push_back(
+                        {range(const_start, index_),
+                         "Zith--: const struct field requires an initializer", false,
+                         diagnostics::err::UnsupportedSyntax});
+                }
+            }
+            out.push_back(std::move(field));
+            if (punctuation(index_, ','))
+                ++index_;
+            else if (!punctuation(index_, '}'))
+                return false;
+            return true;
+        }
+
         // Grouped field syntax: `{ [x, y, z]: Type, ... }`. Expanding the
         // list into one Parameter per name keeps sema, HIR and codegen on
         // the existing per-field path.

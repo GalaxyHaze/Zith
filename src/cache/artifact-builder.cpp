@@ -406,11 +406,11 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                                  out.flags = (slice.is_array ? 1U : 0U) | (slice.checked ? 2U : 0U);
                              },
                              [&](const hir::HirUnionCheck &check) {
-                                 out.kind      = CompactExprKind::UnionCheck;
-                                 out.type_id   = internType(types::kBoolType);
-                                 out.ref_a     = check.value;
-                                 out.ref_b     = internType(check.union_type);
-                                 out.ref_c     = check.member_index;
+                                 out.kind    = CompactExprKind::UnionCheck;
+                                 out.type_id = internType(types::kBoolType);
+                                 out.ref_a   = check.value;
+                                 out.ref_b   = internType(check.union_type);
+                                 out.ref_c   = check.member_index;
                              },
                              [&](const hir::HirUnionCast &uc) {
                                  out.kind  = CompactExprKind::Cast;
@@ -459,6 +459,11 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                                  out.kind = CompactExprKind::MarkerRet;
                                  for (auto continuation : ret.continuations)
                                      out.args.push_back(continuation);
+                             },
+                             [&](const hir::HirGlobalConstLoad &load) {
+                                 out.kind    = CompactExprKind::GlobalConstLoad;
+                                 out.name_id = internString(interner_.lookup(load.name));
+                                 out.type_id = internType(load.type);
                              },
                          });
     return out;
@@ -620,13 +625,23 @@ Artifact ArtifactBuilder::build(std::string_view canonical_path, std::string_vie
             cblk.terminator = blk.terminator;
             cfn.blocks.push_back(std::move(cblk));
         }
-        // HIR expression ids are module-global and shared by all functions.
-        // The codec's per-function `exprs` list stores that global table on the
-        // first function so hydration can restore the module-level pool once.
-        if (fi == 0)
-            for (hir::HirExprId eid = 0; eid < hir_.exprCount(); ++eid)
-                cfn.exprs.push_back(convertExpr(eid));
         art.functions.push_back(std::move(cfn));
+    }
+
+    // HIR expression ids are module-global and shared by all functions and const
+    // globals. Serialize them once at module level so hydration can restore the
+    // pool even for modules that only contain constants.
+    art.exprs.reserve(hir_.exprCount());
+    for (hir::HirExprId eid = 0; eid < hir_.exprCount(); ++eid)
+        art.exprs.push_back(convertExpr(eid));
+
+    for (size_t gi = 0; gi < hir_.getGlobalConstCount(); ++gi) {
+        const auto &global = hir_.getGlobalConst(gi);
+        CompactGlobalConst cg;
+        cg.name_id   = internString(interner_.lookup(global.name));
+        cg.type_id   = internType(global.type);
+        cg.init_expr = global.init;
+        art.globals.push_back(std::move(cg));
     }
 
     // Marker metadata is module-global: blob offsets and the body expressions

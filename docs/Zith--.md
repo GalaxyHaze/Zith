@@ -1,0 +1,127 @@
+# Zith--
+
+## Objetivo
+
+Zith-- é o subconjunto da linguagem compilado pelo `main` atual da toolchain. Esta iteração mantém os tipos e features existentes, mas restringe bindings, storage e ownership a um núcleo verificável:
+
+- `let` para bindings locais imutáveis não-rebindáveis.
+- `var` para bindings locais mutáveis e rebindáveis.
+- `const` para globals reais, consts locais e campos struct, de storage estático no topo quando aplicável.
+- `lend`/`view` continuam como ownership residual; `unique`, `share` e `belong` ficam fora.
+- Macros normais e `raw macro` continuam ativas; tag macros ficam fora.
+
+As restrições devem ser aplicadas pela própria toolchain, não apenas documentadas.
+
+## Bindings
+
+A palavra-chave de um binding é preservada pelo frontend e tem estas semânticas:
+
+| Palavra | Escopo | Mutável | Rebindável | Inicializador | Storage |
+| --- | --- | --- | --- | --- | --- |
+| `let` | Local | Não | Não | Obrigatório para tipo não-trivial | Local |
+| `var` | Local | Sim | Sim | Obrigatório para tipo não-trivial | Local |
+| `const` | Global ou local | Não | Não | Sempre obrigatório | Estático quando global |
+
+````zith
+fn main(): i32 {
+    let a: i32 = 1;
+    var b: i32 = 2;
+    const LOCAL: i32 = 4;
+    b = 3;
+    return a + b + LOCAL;
+}
+````
+
+Expressões constantes para `const` são literais numéricos, `bool`, `char` e `null`, agregados desses literais, struct literals com campos `const`, e referências a `const` já declarados. Chamadas de função não contam como expressões constantes.
+
+`let x; x = e;` continua aceite uma vez para inferir o tipo do binding; atribuições seguintes são rejeitadas. `let x: T; x = e;` também aceite a primeira escrita para inicializar o valor, sem alterar o tipo anotado.
+
+## Const Global
+
+O único global real/executável é declarado com:
+
+````zith
+const GLOBAL: i32 = 3;
+
+fn main(): i32 {
+    return GLOBAL;
+}
+````
+
+O HIR emite um nó de global const e o codegen produz um `llvm::GlobalVariable` com linkage `internal`, tipo const e armazenamentos escritos desativados. Referências por nome produzem um load desse global.
+
+## Const Fields
+
+Campos `const` usam `const name: T = value`, exigem inicializador e só podem aparecer em structs dentro do Zith--:
+
+````zith
+struct Point {
+    const X_OFFSET: i32 = 2,
+    x: i32,
+    y: i32,
+}
+
+fn main(): i32 {
+    var p: Point = Point { x: 1, y: 2 };
+    return p.X_OFFSET;
+}
+````
+
+Campos regulares continuam permitidos, com ou sem default. Atribuição a um campo `const` é rejeitada.
+
+## Tipos
+
+Os tipos atuais são mantidos: primitivos, `struct`, `union`, `enum`, `string`, genéricos, function types e as formas compostas existentes. `ptr`, `array`, `slice` e `optional` são modificadores/compostos já existentes, não uma lista excludente de tipos.
+
+Para `let`/`var`, um tipo é não-trivial quando não é primitivo escalar (`iN`/`uN`/`fN`, `bool`, `char`, `void`). Tipos não-triviais sem inicializador são rejeitados:
+
+````zith
+// Rejeitados:
+let p: *i32;
+var s: []i32;
+let o: ?i32;
+var st: Point;
+
+// Aceites em locais:
+var n: i32;
+let ready: bool;
+````
+
+## Ownership
+
+`lend` e `view` continuam parseados, tipados e com o comportamento residual atual. `view` bloqueia escrita e as factas NRA continuam a ser emitidas.
+
+`unique`, `share` e `belong` são rejeitados com `E2010 UnsupportedSyntax` e mensagem `Zith--: unique/share/belong ownership is not supported; use lend or view`.
+
+## Macros
+
+Macros normais e `raw macro` continuam ativas. Tag macros são rejeitadas com diagnóstico claro:
+
+````zith
+// Aceite
+macro add(a, b) { a + b }
+
+// Aceite
+raw macro dbg(x) { @println(x) }
+
+// Rejeitado
+tag macro Box(content) { <content/> }
+````
+
+## Restrições Removidas
+
+| Sintaxe/feature | Motivo | Comportamento |
+| --- | --- | --- |
+| `global name: T = value` | globals devem usar `const` | `E2010` com sugestão de `const` |
+| `mut` como qualificador | bindings usam `var` | `E2010` |
+| `const fn` | funções comuns continuam caber no subconjunto | `E2010` |
+| `unique`/`share`/`belong` | ownership fora desta iteração | `E2010` |
+| Tag macros | só permanecem macros normais/raw | `E2010` |
+| Atribuição a `let`/`const` | imutabilidade | `E2010` |
+| Atribuição a campo `const` | storage const | `E2010` |
+| `const` sem inicializador | constante precisa de valor | `E2010` |
+| `let`/`var` não-triviais sem inicializador | evita valor não inicializado | `E2010` |
+
+## Não É Desta Iteração
+
+Novos checks de ownership/borrow, heurísticas novas de NRA, `Result` e similares, flag de ativação ou modo separado. O `main` é o Zith--.

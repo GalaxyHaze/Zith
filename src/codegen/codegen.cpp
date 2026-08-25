@@ -207,6 +207,10 @@ void CodeGen::emit(hir::HirModule &hirModule, std::string_view moduleName) {
                                              *ctx_);
     ensureTargetInfo();
 
+    // Const globals must exist before function bodies reference them. Predeclare
+    // first so forward references between globals resolve, then fill initializers.
+    emitConstGlobals(hirModule);
+
     // Marker samples are embedded in the flow fn that reaches them, so the
     // thread-local blob is module-global and shared by all flow fns.
     if (hirModule.getMarkerCount() > 0) {
@@ -228,6 +232,40 @@ void CodeGen::emit(hir::HirModule &hirModule, std::string_view moduleName) {
 
     // Invariant: no consumer ever sees a module that fails verifyModule.
     verifyWholeModule();
+}
+
+void CodeGen::emitConstGlobals(hir::HirModule &hirModule) {
+    CodeGenType typeGen(*ctx_, types_, &module_->getDataLayout());
+    std::vector<llvm::GlobalVariable *> llvmGlobals;
+    llvmGlobals.reserve(hirModule.getGlobalConstCount());
+
+    for (size_t index = 0; index < hirModule.getGlobalConstCount(); ++index) {
+        const auto &global = hirModule.getGlobalConst(index);
+        const auto name    = interner_.lookup(global.name);
+        auto *llvmType     = typeGen.lower(global.type);
+        auto *variable =
+            new llvm::GlobalVariable(*module_, llvmType, true, llvm::GlobalValue::InternalLinkage,
+                                     nullptr, llvm::StringRef(name.data(), name.size()));
+        llvmGlobals.push_back(variable);
+    }
+
+    for (size_t index = 0; index < hirModule.getGlobalConstCount(); ++index) {
+        const auto &global = hirModule.getGlobalConst(index);
+        if (global.init == hir::kInvalidHirExpr)
+            continue;
+        llvm::IRBuilder<> builder(module_->getContext());
+        CodeGenEmit emit(builder, typeGen, interner_, types_);
+        auto *initializer =
+            llvm::dyn_cast_or_null<llvm::Constant>(emit.emitExpr(global.init, hirModule));
+        if (initializer == nullptr) {
+            llvmError("const initializer for global '" +
+                      std::string(interner_.lookup(global.name).data(),
+                                  interner_.lookup(global.name).size()) +
+                      "' is not a constant expression");
+        } else {
+            llvmGlobals[index]->setInitializer(initializer);
+        }
+    }
 }
 
 llvm::Function *CodeGen::declareFn(const hir::HirFunction &fn) {

@@ -107,6 +107,9 @@ enum class DeclKind : uint8_t {
     Word,
 };
 
+/// Storage and rebinding semantics of a `let`/`var`/`const` binding.
+enum class BindingKind : uint8_t { Let, Var, Const };
+
 /// Parse-level function kind for `fn`, `const fn`, `raw fn`, `extern fn`, and
 /// `flow fn`.  All five share `DeclKind::Function`; this metadata is retained for
 /// frontend tooling and formatter output.
@@ -209,7 +212,7 @@ struct Parameter;
 struct Binding {
     LocalId id;
     std::string name;
-    bool mutableBinding = false;
+    BindingKind bindingKind = BindingKind::Let;
     TextSpan span;
     TypeExprId type;
     ExprId initializer;
@@ -283,6 +286,8 @@ struct Parameter {
     TypeExprId type;
     /// Optional default expression for a struct field: `left: i32 = 3`.
     ExprId defaultValue;
+    /// True for `const name: T = value` struct fields in Zith--.
+    bool isConstField = false;
 };
 
 struct ImportSelector {
@@ -341,6 +346,8 @@ struct Declaration {
     /// True for `type Name = T`; the declaration creates a nominal wrapper.
     /// `alias Name = T` remains a transparent type alias.
     bool isNominalType = false;
+    /// Binding kind for `DeclKind::Variable`: the source keyword was `let`, `var`, or `const`.
+    BindingKind bindingKind = BindingKind::Const;
     /// True when declared with `raw union`: untagged C-style union storage.
     bool isRawUnion = false;
     /// Non-empty only for methods lowered from `implement Type as Trait`: the

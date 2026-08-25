@@ -235,6 +235,37 @@ void test_bindings_lower_to_slots() {
     }
 }
 
+void test_const_global_lowers_to_load() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "const GLOBAL: i32 = 3;\n"
+                                     "fn main(): i32 {\n"
+                                     "    return GLOBAL;\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "modern lowering succeeds for a top-level const");
+
+    const auto &hir = session.hirModule();
+    CHECK_EQ(hir.getGlobalConstCount(), 1u, "HIR contains one const global");
+    if (hir.getGlobalConstCount() != 1u)
+        return;
+    const auto &global = hir.getGlobalConst(0);
+    CHECK(!session.interner().lookup(global.name).empty(), "const global has a linkage name");
+    CHECK(global.init != hir::kInvalidHirExpr, "const global has an initializer expression");
+
+    bool saw_load = false;
+    for (size_t i = 0; i < hir.exprCount(); ++i) {
+        if (std::holds_alternative<hir::HirGlobalConstLoad>(
+                hir.getExpr(static_cast<hir::HirExprId>(i))))
+            saw_load = true;
+    }
+    CHECK(saw_load, "referencing the const global lowers to a global const load");
+}
+
 void test_if_else_lowers_to_branch_and_merge() {
     Workspace workspace;
     workspace.writeFile("main.zith", "fn pick(flag: bool): i32 {\n"
@@ -1138,8 +1169,8 @@ void test_checked_index_lowers_to_optional_with_some_and_none() {
     if (get == nullptr)
         return;
 
-    size_t make_none_count = 0;
-    size_t make_some_count = 0;
+    size_t make_none_count     = 0;
+    size_t make_some_count     = 0;
     const hir::HirIndex *index = nullptr;
     for (size_t index_id = 0; index_id < hir.exprCount(); ++index_id) {
         const auto &expr = hir.getExpr(static_cast<hir::HirExprId>(index_id));
@@ -1270,18 +1301,17 @@ void test_raw_union_lowers_members_and_casts() {
 
 void test_is_type_pointer_lowers_union_check_and_keeps_terminators() {
     Workspace workspace;
-    workspace.writeFile("main.zith",
-                        "import \"stdio.h\"\n"
-                        "union Foo { *char, i32, f64 }\n"
-                        "fn main(): i32 {\n"
-                        "    let f = Foo{\"hello\"};\n"
-                        "    if (f is *char) {\n"
-                        "        printf(\"%s\", f);\n"
-                        "    } else {\n"
-                        "        printf(\"abu\\n\");\n"
-                        "    }\n"
-                        "    return 0;\n"
-                        "}\n");
+    workspace.writeFile("main.zith", "import \"stdio.h\"\n"
+                                     "union Foo { *char, i32, f64 }\n"
+                                     "fn main(): i32 {\n"
+                                     "    let f = Foo{\"hello\"};\n"
+                                     "    if (f is *char) {\n"
+                                     "        printf(\"%s\", f);\n"
+                                     "    } else {\n"
+                                     "        printf(\"abu\\n\");\n"
+                                     "    }\n"
+                                     "    return 0;\n"
+                                     "}\n");
 
     memory::Arena arena;
     Options options(arena);
@@ -1378,6 +1408,7 @@ static void test_hir_lower_modern() {
     test_flow_jump_carries_origin_continuation();
     test_global_marker_lowers_into_multiple_flow_fns();
     test_generic_function_lowers_to_concrete_instances();
+    test_const_global_lowers_to_load();
     test_indirect_function_call_has_callee_and_fn_type();
     test_array_to_slice_coercion_lowers_to_make_slice();
     test_slice_range_lowers_to_checked_optional_view();

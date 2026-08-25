@@ -48,6 +48,7 @@ enum class HirExprKind : uint8_t {
     MarkerDock,
     MarkerJump,
     MarkerRet,
+    GlobalConstLoad,
 };
 
 enum class HirBinaryOp : uint8_t {
@@ -274,16 +275,16 @@ struct HirUnionCast {
     /// Member index when `to` is a tagged union member, otherwise ~0U.
     uint32_t member_index = ~0U;
     /// When extracting from a tagged union, verify the stored tag before reading.
-    bool checked = false;
+    bool checked    = false;
     HirExprKind tag = HirExprKind::Cast;
 };
 /// Tagged-union member test (`x is Member`). Materialised as a separate HIR
 /// node so the checked member type and the tested value stay explicit.
 struct HirUnionCheck {
     HirExprId value;
-    HirTypeId union_type = types::kInvalidType;
+    HirTypeId union_type  = types::kInvalidType;
     uint32_t member_index = ~0U;
-    HirExprKind tag = HirExprKind::UnionCheck;
+    HirExprKind tag       = HirExprKind::UnionCheck;
 };
 
 /// The offsetOf / alignOf / sizeOf layout intrinsics; resolved to a constant at codegen.
@@ -332,13 +333,20 @@ struct HirMarkerRet {
     explicit HirMarkerRet(memory::Arena &arena) : continuations(arena) {}
 };
 
+/// Load of a module-scoped `const` global.
+struct HirGlobalConstLoad {
+    memory::InternedId name;
+    HirTypeId type  = types::kInvalidType;
+    HirExprKind tag = HirExprKind::GlobalConstLoad;
+};
+
 using HirExpr =
     std::variant<HirLiteral, HirBinary, HirUnary, HirLet, HirVar, HirCall, HirRet, HirBranch,
                  HirJump, HirPhi, HirAssign, HirIndex, HirField, HirStructLiteral, HirArrayLiteral,
                  HirEnumValue, HirSlotAlloca, HirSlotStore, HirSlotLoad, HirSlotAddr, HirMakeNone,
                  HirMakeSome, HirMakeSlice, HirCast, HirUnionCast, HirUnionCheck,
-                 HirLayoutIntrinsic,
-                 HirMarkerStore, HirMarkerLoad, HirMarkerDock, HirMarkerJump, HirMarkerRet>;
+                 HirLayoutIntrinsic, HirMarkerStore, HirMarkerLoad, HirMarkerDock, HirMarkerJump,
+                 HirMarkerRet, HirGlobalConstLoad>;
 
 inline HirExprKind exprKind(const HirExpr &expr) {
     return std::visit([](const auto &entry) { return entry.tag; }, expr);

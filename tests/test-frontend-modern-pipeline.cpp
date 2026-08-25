@@ -254,8 +254,8 @@ void test_pipeline_raw_macro_lowers() {
 
 void test_pipeline_normal_macro_hygiene_and_call_site_scope() {
     Workspace workspace;
-    workspace.write("main.zith", "global base: i32 = 100;\n"
-                                 "global inner: i32 = 9;\n"
+    workspace.write("main.zith", "const base: i32 = 100;\n"
+                                 "const inner: i32 = 9;\n"
                                  "macro norm() { base }\n"
                                  "macro inject() { let inner = 99; inner }\n"
                                  "fn main(): i32 {\n"
@@ -279,7 +279,7 @@ void test_pipeline_normal_macro_hygiene_and_call_site_scope() {
 
 void test_pipeline_raw_macro_sees_call_site_then_module() {
     Workspace workspace;
-    workspace.write("main.zith", "global base: i32 = 10;\n"
+    workspace.write("main.zith", "const base: i32 = 10;\n"
                                  "raw macro pick_raw() { target = base }\n"
                                  "raw macro inject() { let inner = 99; inner }\n"
                                  "fn main(): i32 {\n"
@@ -302,7 +302,7 @@ void test_pipeline_raw_macro_sees_call_site_then_module() {
           "raw macro call-site/global scope case produces no semantic diagnostics");
 }
 
-void test_pipeline_tag_macro_expands() {
+void test_pipeline_tag_macro_is_rejected() {
     Workspace workspace;
     workspace.write("main.zith", "tag macro RunTwice(attributes, body: body) {\n"
                                  "    let title = attributes.title;\n"
@@ -323,10 +323,10 @@ void test_pipeline_tag_macro_expands() {
 
     session::CompilationSession session(options, (workspace.root / "main.zith").string());
     session.setBuffered(true);
-    CHECK(session.runTo(session::Stage::HirLowered),
-          "tag macro body and attributes lower through the modern pipeline");
-    CHECK(session.snapshot() != nullptr && session.snapshot()->diagnostics().empty(),
-          "tag macro expansion produces no semantic diagnostics");
+    CHECK(!session.runTo(session::Stage::HirLowered),
+          "tag macros are rejected in the Zith-- pipeline");
+    CHECK(session.snapshot() != nullptr && !session.snapshot()->diagnostics().empty(),
+          "tag macro rejection surfaces a frontend diagnostic");
 }
 
 void test_pipeline_imported_jump_dock_macro_lowers() {
@@ -349,8 +349,8 @@ void test_pipeline_imported_jump_dock_macro_lowers() {
 
     session::CompilationSession session(options, (workspace.root / "main.zith").string());
     session.setBuffered(true);
-    CHECK(session.runTo(session::Stage::HirLowered),
-          "imported jump/dock macros expand and lower through the modern pipeline");
+    const bool lowered_ok = session.runTo(session::Stage::HirLowered);
+    CHECK(lowered_ok, "imported jump/dock macros expand and lower through the modern pipeline");
     CHECK(session.snapshot() != nullptr && session.snapshot()->diagnostics().empty(),
           "imported jump/dock macro expansion produces no diagnostics");
 }
@@ -471,7 +471,7 @@ static void test_frontend_modern_pipeline() {
     test_pipeline_raw_macro_lowers();
     test_pipeline_normal_macro_hygiene_and_call_site_scope();
     test_pipeline_raw_macro_sees_call_site_then_module();
-    test_pipeline_tag_macro_expands();
+    test_pipeline_tag_macro_is_rejected();
     test_pipeline_imported_jump_dock_macro_lowers();
     test_pipeline_imported_macro_lowers();
     test_imported_macro_unknown_without_import();

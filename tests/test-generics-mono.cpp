@@ -153,7 +153,7 @@ void test_generic_explosion_limit() {
     const std::string recursive = "struct Box<T> { value: T }\n"
                                   "fn nest<T>(x: T): Box<T> { return Box<T>{ value: x } }\n"
                                   "fn main(): i32 {\n"
-                                  "    let x: i32 = 0;\n";
+                                  "    var x: i32 = 0;\n";
     std::string body            = "    x = nest(x).value;\n";
     for (size_t index = 0; index < 8U; ++index)
         body += "    x = nest(x).value;\n";

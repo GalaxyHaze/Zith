@@ -59,6 +59,9 @@ bool readCompactExpr(ByteReader &r, cache::CompactExpr &out) {
 } // namespace
 
 bool encodeCode(const cache::Artifact &artifact, ByteWriter &w) {
+    w.writeU32(static_cast<uint32_t>(artifact.exprs.size()));
+    for (const auto &e : artifact.exprs)
+        writeCompactExpr(e, w);
     w.writeU32(static_cast<uint32_t>(artifact.functions.size()));
     for (const auto &fn : artifact.functions) {
         w.writeU32(fn.name_id);
@@ -81,9 +84,12 @@ bool encodeCode(const cache::Artifact &artifact, ByteWriter &w) {
                 w.writeU32(id);
             w.writeU32(blk.terminator);
         }
-        w.writeU32(static_cast<uint32_t>(fn.exprs.size()));
-        for (const auto &e : fn.exprs)
-            writeCompactExpr(e, w);
+    }
+    w.writeU32(static_cast<uint32_t>(artifact.globals.size()));
+    for (const auto &global : artifact.globals) {
+        w.writeU32(global.name_id);
+        w.writeU32(global.type_id);
+        w.writeU32(global.init_expr);
     }
     w.writeU32(static_cast<uint32_t>(artifact.markers.size()));
     for (const auto &marker : artifact.markers) {
@@ -108,6 +114,12 @@ bool encodeCode(const cache::Artifact &artifact, ByteWriter &w) {
 
 bool decodeCode(ByteReader &r, cache::Artifact &out) {
     uint32_t n = 0;
+    if (!r.readU32(n))
+        return false;
+    out.exprs.resize(n);
+    for (auto &e : out.exprs)
+        if (!readCompactExpr(r, e))
+            return false;
     if (!r.readU32(n))
         return false;
     out.functions.resize(n);
@@ -147,13 +159,14 @@ bool decodeCode(ByteReader &r, cache::Artifact &out) {
             if (!r.readU32(blk.terminator))
                 return false;
         }
-        if (!r.readU32(k))
-            return false;
-        fn.exprs.resize(k);
-        for (auto &e : fn.exprs)
-            if (!readCompactExpr(r, e))
-                return false;
     }
+    if (!r.readU32(n))
+        return false;
+    out.globals.resize(n);
+    for (auto &global : out.globals)
+        if (!r.readU32(global.name_id) || !r.readU32(global.type_id) ||
+            !r.readU32(global.init_expr))
+            return false;
     if (!r.readU32(n))
         return false;
     out.markers.resize(n);

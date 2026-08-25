@@ -101,6 +101,15 @@ private:
     void inferExpressionTypesForDecls();
     void checkReturnsAndCalls();
     void checkStructFieldDefaults();
+    void checkZithDeclarations();
+    void checkConstFieldAssignments();
+    /// Zith-- requires constant expressions for `const` declarations.
+    bool isConstantExpression(frontend::ExprId id) const;
+    /// True when any field along a place-expression path is a const struct field.
+    bool targetFieldIsConst(frontend::ExprId id) const;
+    bool findConstField(std::string_view struct_name, size_t index) const noexcept;
+    /// Local ids whose uninitialized `let` was typed by its first assignment.
+    std::vector<uint32_t> typeInferredByAssignment_;
     TypeId currentReturnType_ = kInvalidTypeId;
 
     /// True when the callee's signature mentions a generic parameter.

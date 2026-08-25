@@ -1,14 +1,22 @@
-# Repository Guidelines
+#Repository Guidelines
 
-## Project Structure & Module Organization
+##Project Structure &Module Organization
 
-Zith is a C++23 compiler. Compiler subsystems live under `src/`; keep code in the
+        Zith is a C++ 23 compiler.Compiler subsystems live under `src /`; keep code in the
 directory matching its namespace, such as `zith::parser` in `src/parser/`.
 Important areas include `ast/`, `lexer/`, `parser/`, `symbols/`, `types/`,
 `sema/`, `hir/`, `codegen/`, and `session/`. `src/session/compilation-session.*`
 orchestrates the pipeline. Unit tests are standalone executables in `tests/`.
 The language standard library is in `stdlib/`, examples in `examples/`, and
 user-facing language documentation in `docs/`.
+
+## Zith-- Source of Truth
+
+The `main` compiler builds the `Zith--` subset of the language. The canonical
+user-facing specification is `docs/Zith--.md`, and the implementation rules for
+frontend, sema, HIR, codegen and tests are in `docs/Zith---implementation.md`.
+Changes to bindings, storage, const semantics, ownership or macro restrictions
+must stay consistent with both files and update them when behavior changes.
 
 ## Build, Test, and Development Commands
 
@@ -27,7 +35,8 @@ Use `cmake --build build --target fmt` to format sources, or
 `cmake --build build --target fmt-check` to verify formatting without edits.
 
 The format and `fmt-check` targets are created only when `clang-format` is found
-on `PATH`; if a local LLVM has a different version, either put `clang-format<N>`
+on `PATH`;
+if a local LLVM has a different version, either put `clang-format<N>`
 on `PATH` or re-run CMake after installing it.
 
 ## CMake Options & Feature Gate
@@ -65,23 +74,27 @@ that later has to be removed again. Instead use the project debug print helper:
 ZITH_DEBUG_PRINT("lowering function %s\n", name.c_str());
 ```
 
-Temporary instrumentation must keep a small footprint in the final diff.
-`ZITH_DEBUG_PRINT(...)` evaluates like a void expression when disabled, so it
-can be left in place without affecting release builds. Build with it enabled
-when diagnosing a subsystem:
+    Temporary instrumentation must keep a small footprint in the final diff.
+`ZITH_DEBUG_PRINT(...)` evaluates like a void expression when disabled,
+    so it can be left in place without affecting release builds.Build with it enabled when
+        diagnosing a subsystem :
 
-```bash
-cmake -S . -B build-debug -DZITH_ENABLE_DEBUG_PRINT=ON
-cmake --build build-debug -j
+```bash cmake
+        - S.- B build - debug
+        - DZITH_ENABLE_DEBUG_PRINT = ON cmake-- build build - debug -
+                                     j
 ```
 
-Print to `stderr` only, and use the `[zith-debug]` prefix already provided by
-the helper so compiler output does not mix with child program stdout. Remove
-instrumentation once the diagnosed code is fixed; keep only the helper itself.
+                                     Print to `stderr` only,
+          and use the `[zith - debug]` prefix already provided by the helper so compiler output does
+              not mix with child program stdout.Remove
+              instrumentation once the diagnosed code is fixed;
+keep only the helper itself.
 
-## Project Layout Details
+    ##Project Layout Details
 
-Modern compiler source lives under `src/`; `lib/legacy-zith/` contains the
+        Modern compiler source lives under `src /`;
+`lib/legacy-zith/` contains the
 legacy parser/sema compatibility library that the modern pipeline still links
 against. The CMake target `legacy-zith` and `zithcLib` reference each other, so
 tests link both with `-Wl,--start-group ... -Wl,--end-group` to allow circular
@@ -231,7 +244,8 @@ markdown knowledge bases (docs, notes, project memory).
 ### Project Memory Files
 
 Persist useful discoveries about the project as Markdown files under `memory/`,
-one file per topic or area. Keep every file between 200 and 300 lines; if a
+one file per topic or area. Keep every file between 200 and 300 lines;
+if a
 topic grows beyond 300 lines, split it into more focused files and link them
 from `memory/README.md`.
 
@@ -257,13 +271,13 @@ repository and include enough context to decide whether the note is still valid.
 Project-level config lives in `.memsearch.toml`.
 
 ```bash
-# Index the project's markdown files (docs, AGENTS.md, etc.)
+#Index the project's markdown files (docs, AGENTS.md, etc.)
 memsearch index . --max-chunk-size 1500
 
-# Search indexed memory
+#Search indexed memory
 memsearch search "query"
 
-# Watch for changes and auto-reindex
+#Watch for changes and auto - reindex
 memsearch watch .
 ```
 

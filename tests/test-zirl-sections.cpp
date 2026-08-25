@@ -107,9 +107,9 @@ void addCode(Artifact &art) {
     blk.terminator = 1;
 
     fn.blocks.push_back(blk);
-    fn.exprs.push_back(lit);
-    fn.exprs.push_back(ret);
     art.functions.push_back(fn);
+    art.exprs.push_back(lit);
+    art.exprs.push_back(ret);
 }
 
 void addModernCode(Artifact &art) {
@@ -124,7 +124,9 @@ void addModernCode(Artifact &art) {
     lit.kind    = CompactExprKind::Literal;
     lit.type_id = 0;
     lit.int_val = 7;
-    fn.exprs.push_back(lit);
+    art.functions.push_back(fn);
+
+    art.exprs.push_back(lit);
 
     CompactExpr cast;
     cast.kind    = CompactExprKind::Cast;
@@ -132,7 +134,7 @@ void addModernCode(Artifact &art) {
     cast.ref_b   = 0;
     cast.ref_e   = 0;
     cast.type_id = 0;
-    fn.exprs.push_back(cast);
+    art.exprs.push_back(cast);
 
     { // Indirect call keeps the call's lowered function type.
         CompactExpr call;
@@ -141,7 +143,7 @@ void addModernCode(Artifact &art) {
         call.ref_e     = 2;
         call.args      = {0};
         call.arg_types = {0};
-        fn.exprs.push_back(call);
+        art.exprs.push_back(call);
     }
 
     { // Slice-range HIR keeps object/bounds/types and the checking flags.
@@ -155,7 +157,7 @@ void addModernCode(Artifact &art) {
         make_slice.ref_f     = 0;
         make_slice.flags     = 3; // array + runtime-checked
         make_slice.arg_types = {};
-        fn.exprs.push_back(make_slice);
+        art.exprs.push_back(make_slice);
     }
 
     CompactExpr layout;
@@ -163,12 +165,11 @@ void addModernCode(Artifact &art) {
     layout.type_id = 0;
     layout.ref_e   = 0;
     layout.ref_f   = 2;
-    fn.exprs.push_back(layout);
+    art.exprs.push_back(layout);
 
     CompactBasicBlock blk;
     blk.terminator = 4;
     fn.blocks.push_back(blk);
-    art.functions.push_back(fn);
 }
 
 void addAttrs(Artifact &art) {
@@ -288,22 +289,19 @@ static void test_modern_code_section_round_trip() {
     CHECK_EQ(decoded.functions.size(), 1u, "function count preserved");
     if (decoded.functions.empty())
         return;
-    CHECK_EQ(decoded.functions[0].exprs.size(), 5u, "modern expression count preserved");
-    if (decoded.functions[0].exprs.size() == 5u) {
-        CHECK(decoded.functions[0].exprs[0].kind == CompactExprKind::Literal,
-              "literal kind preserved");
-        CHECK(decoded.functions[0].exprs[1].kind == CompactExprKind::Cast, "cast kind preserved");
-        CHECK_EQ(decoded.functions[0].exprs[1].ref_e, 0u, "cast from-type preserved");
-        CHECK(decoded.functions[0].exprs[2].kind == CompactExprKind::Call,
-              "indirect call kind preserved");
-        CHECK_EQ(decoded.functions[0].exprs[2].ref_e, 2u, "call fn_type preserved");
-        CHECK(decoded.functions[0].exprs[3].kind == CompactExprKind::MakeSlice,
-              "slice range kind preserved");
-        CHECK_EQ(decoded.functions[0].exprs[3].ref_f, 0u, "slice bound type preserved");
-        CHECK_EQ(decoded.functions[0].exprs[3].flags, 3u, "slice flags preserved");
-        CHECK(decoded.functions[0].exprs[4].kind == CompactExprKind::LayoutIntrinsic,
+    CHECK_EQ(decoded.exprs.size(), 5u, "modern expression pool preserved");
+    if (decoded.exprs.size() == 5u) {
+        CHECK(decoded.exprs[0].kind == CompactExprKind::Literal, "literal kind preserved");
+        CHECK(decoded.exprs[1].kind == CompactExprKind::Cast, "cast kind preserved");
+        CHECK_EQ(decoded.exprs[1].ref_e, 0u, "cast from-type preserved");
+        CHECK(decoded.exprs[2].kind == CompactExprKind::Call, "indirect call kind preserved");
+        CHECK_EQ(decoded.exprs[2].ref_e, 2u, "call fn_type preserved");
+        CHECK(decoded.exprs[3].kind == CompactExprKind::MakeSlice, "slice range kind preserved");
+        CHECK_EQ(decoded.exprs[3].ref_f, 0u, "slice bound type preserved");
+        CHECK_EQ(decoded.exprs[3].flags, 3u, "slice flags preserved");
+        CHECK(decoded.exprs[4].kind == CompactExprKind::LayoutIntrinsic,
               "layout intrinsic kind preserved");
-        CHECK_EQ(decoded.functions[0].exprs[4].ref_f, 2u, "layout field index preserved");
+        CHECK_EQ(decoded.exprs[4].ref_f, 2u, "layout field index preserved");
     }
 }
 

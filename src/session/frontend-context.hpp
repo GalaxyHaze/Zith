@@ -305,6 +305,8 @@ struct ResolvedName {
     bool isExtern = false;
     /// True when the bound function accepts a variadic tail.
     bool isVariadic = false;
+    /// Source binding kind for `DeclKind::Variable` and local variable bindings.
+    frontend::BindingKind bindingKind = frontend::BindingKind::Let;
 };
 
 struct ModuleResolution {
@@ -520,8 +522,7 @@ private:
     [[nodiscard]] memory::Result<std::shared_ptr<const CompilationSnapshot>>
     analyze(SourceCatalog::SourcePtr root_source);
     static std::vector<frontend::ImportedMacroRecord>
-    importedMacrosFor(const ModuleArtifact &module,
-                      const std::vector<ModuleArtifactPtr> &modules,
+    importedMacrosFor(const ModuleArtifact &module, const std::vector<ModuleArtifactPtr> &modules,
                       const std::vector<ImportEdge> &import_graph);
     [[nodiscard]] ModuleArtifactPtr
     buildModule(SourceCatalog::SourcePtr source,

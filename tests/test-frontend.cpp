@@ -319,8 +319,7 @@ static void test_is_type_expression() {
     CHECK(is_type != nullptr, "'is Type' lowers to a dedicated expression");
     if (is_type != nullptr) {
         CHECK_EQ(is_type->operands.size(), 1u, "'is Type' has exactly one operand");
-        CHECK(static_cast<bool>(is_type->cast_type),
-              "'is Type' records the checked member type");
+        CHECK(static_cast<bool>(is_type->cast_type), "'is Type' records the checked member type");
     }
 }
 
@@ -418,25 +417,85 @@ static void test_c_header_import_syntax() {
 }
 
 static void test_variable_declarations() {
-    auto snapshot = frontend::parse("var x: i32 = 42;\n"
-                                    "let y = 100;\n"
-                                    "const z: f64 = 3.14;\n"
-                                    "global g: i32 = 1;\n");
+    auto snapshot = frontend::parse("const z: f64 = 3.14;\n"
+                                    "fn main() {\n"
+                                    "    var x: i32 = 42;\n"
+                                    "    let y = 100;\n"
+                                    "}\n");
 
-    CHECK(snapshot.diagnostics().empty(), "variable declarations lower without diagnostics");
-    CHECK_EQ(snapshot.declarations().size(), 4u, "four variable declarations are lowered");
+    CHECK(snapshot.diagnostics().empty(), "Zith-- variable declarations lower without diagnostics");
+    CHECK_EQ(snapshot.declarations().size(), 2u, "const global and function are lowered");
     CHECK_EQ(snapshot.declarations()[0].kind, frontend::DeclKind::Variable,
-             "var keyword produces a variable declaration");
-    CHECK_EQ(snapshot.declarations()[1].kind, frontend::DeclKind::Variable,
-             "let keyword produces a variable declaration");
-    CHECK_EQ(snapshot.declarations()[2].kind, frontend::DeclKind::Variable,
-             "const keyword produces a variable declaration");
-    CHECK_EQ(snapshot.declarations()[3].kind, frontend::DeclKind::Variable,
-             "global keyword produces a variable declaration");
-    CHECK_EQ(snapshot.declarations()[0].name, std::string("x"), "var name is preserved");
-    CHECK_EQ(snapshot.declarations()[1].name, std::string("y"), "let name is preserved");
-    CHECK_EQ(snapshot.declarations()[2].name, std::string("z"), "const name is preserved");
-    CHECK_EQ(snapshot.declarations()[3].name, std::string("g"), "global name is preserved");
+             "const keyword produces a global variable declaration");
+    CHECK_EQ(snapshot.declarations()[0].name, std::string("z"), "const name is preserved");
+    CHECK_EQ(snapshot.declarations()[0].bindingKind, frontend::BindingKind::Const,
+             "const records BindingKind::Const");
+
+    bool saw_var = false;
+    bool saw_let = false;
+    for (const auto &statement : snapshot.statements()) {
+        if (statement.kind != frontend::StmtKind::Binding)
+            continue;
+        saw_var |= statement.binding.name == "x" &&
+                   statement.binding.bindingKind == frontend::BindingKind::Var;
+        saw_let |= statement.binding.name == "y" &&
+                   statement.binding.bindingKind == frontend::BindingKind::Let;
+    }
+    CHECK(saw_var, "var records BindingKind::Var for a local binding");
+    CHECK(saw_let, "let records BindingKind::Let for a local binding");
+
+    auto global = frontend::parse("global g: i32 = 1;\n");
+    CHECK(!global.diagnostics().empty(), "'global' is rejected in Zith--");
+    bool global_diagnostic = false;
+    bool recovered_global  = false;
+    for (const auto &diagnostic : global.diagnostics()) {
+        global_diagnostic |=
+            diagnostic.code == diagnostics::err::UnsupportedSyntax &&
+            diagnostic.message.find("'global' is not supported") != std::string::npos;
+    }
+    for (const auto &decl : global.declarations()) {
+        recovered_global |= decl.kind == frontend::DeclKind::Variable && decl.name == "g";
+    }
+    CHECK(global_diagnostic, "'global' reports a Zith-- UnsupportedSyntax diagnostic");
+    CHECK(recovered_global, "the rejected global declaration is still recovered in the AST");
+}
+
+static void test_const_struct_fields() {
+    auto snapshot = frontend::parse("struct P { const X: i32 = 1, y: i32 }\n");
+    CHECK(snapshot.diagnostics().empty(), "const struct field parses cleanly");
+    CHECK_EQ(snapshot.declarations().size(), 1u, "one struct declaration");
+    const auto &fields = snapshot.declarations()[0].parameters;
+    CHECK_EQ(fields.size(), 2u, "struct keeps const and regular fields");
+    CHECK(fields[0].isConstField, "const field records isConstField");
+    CHECK(static_cast<bool>(fields[0].defaultValue), "const field initializer is preserved");
+    CHECK(!fields[1].isConstField, "regular field is not storage-const");
+
+    auto missing = frontend::parse("struct P { const X: i32 }\n");
+    CHECK(!missing.diagnostics().empty(), "const struct field requires an initializer");
+    bool has_reason = false;
+    for (const auto &diagnostic : missing.diagnostics()) {
+        has_reason |= diagnostic.code == diagnostics::err::UnsupportedSyntax &&
+                      diagnostic.message.find("const struct field requires an initializer") !=
+                          std::string::npos;
+    }
+    CHECK(has_reason, "missing const field value reports the Zith-- reason");
+}
+
+static void test_zith_removed_bindings_and_qualifiers() {
+    for (const std::string_view source :
+         {"const x: i32;\n", "fn f(p: unique P): i32 { p.x }\n", "fn f(p: share P): i32 { p.x }\n",
+          "fn f(p: belong P): i32 { p.x }\n", "fn f(p: mut i32): i32 { p }\n"}) {
+        auto snapshot = frontend::parse(std::string(source));
+        CHECK(!snapshot.diagnostics().empty(),
+              (std::string("removed Zith-- syntax reports a diagnostic: ") + std::string(source))
+                  .c_str());
+        bool unsupported = false;
+        for (const auto &diagnostic : snapshot.diagnostics())
+            unsupported |= diagnostic.code == diagnostics::err::UnsupportedSyntax;
+        CHECK(unsupported, (std::string("removed Zith-- syntax reports UnsupportedSyntax: ") +
+                            std::string(source))
+                               .c_str());
+    }
 }
 
 static void test_type_alias_and_struct_enum_union() {
@@ -654,14 +713,15 @@ static void test_extern_before_declaration_is_tolerated() {
 static void test_function_kinds() {
     auto snapshot = frontend::parse("fn standard() {}\n"
                                     "raw fn unsafe_op() {}\n"
-                                    "const fn compile_ready() {}\n"
                                     "extern fn putchar(c: i32): i32\n"
                                     "flow fn structured() {}\n");
 
-    CHECK(snapshot.diagnostics().empty(), "all five function kinds parse as functions");
-    CHECK_EQ(snapshot.declarations().size(), 5u, "all five kinds produce one declaration each");
+    CHECK(snapshot.diagnostics().empty(),
+          "supported Zith-- function kinds parse without diagnostics");
+    CHECK_EQ(snapshot.declarations().size(), 4u,
+             "supported function kinds produce one declaration each");
 
-    if (snapshot.declarations().size() != 5u)
+    if (snapshot.declarations().size() != 4u)
         return;
 
     CHECK_EQ(snapshot.declarations()[0].kind, frontend::DeclKind::Function,
@@ -679,26 +739,29 @@ static void test_function_kinds() {
              "raw fn keeps the function name");
 
     CHECK_EQ(snapshot.declarations()[2].kind, frontend::DeclKind::Function,
-             "const fn is a function declaration");
-    CHECK_EQ(snapshot.declarations()[2].functionKind, frontend::FunctionKind::Const,
-             "const fn records Const");
-    CHECK_EQ(snapshot.declarations()[2].name, std::string("compile_ready"),
-             "const fn no longer names a binding named fn");
-
-    CHECK_EQ(snapshot.declarations()[3].kind, frontend::DeclKind::Function,
              "extern fn is a function declaration");
-    CHECK_EQ(snapshot.declarations()[3].functionKind, frontend::FunctionKind::Extern,
+    CHECK_EQ(snapshot.declarations()[2].functionKind, frontend::FunctionKind::Extern,
              "extern fn records Extern");
-    CHECK(snapshot.declarations()[3].isExtern, "extern fn keeps the C-ABI flag");
-    CHECK_EQ(snapshot.declarations()[3].name, std::string("putchar"),
+    CHECK(snapshot.declarations()[2].isExtern, "extern fn keeps the C-ABI flag");
+    CHECK_EQ(snapshot.declarations()[2].name, std::string("putchar"),
              "extern fn keeps the function name");
 
-    CHECK_EQ(snapshot.declarations()[4].kind, frontend::DeclKind::Function,
+    CHECK_EQ(snapshot.declarations()[3].kind, frontend::DeclKind::Function,
              "flow fn is a function declaration");
-    CHECK_EQ(snapshot.declarations()[4].functionKind, frontend::FunctionKind::Flow,
+    CHECK_EQ(snapshot.declarations()[3].functionKind, frontend::FunctionKind::Flow,
              "flow fn records Flow");
-    CHECK_EQ(snapshot.declarations()[4].name, std::string("structured"),
+    CHECK_EQ(snapshot.declarations()[3].name, std::string("structured"),
              "flow fn keeps the function name");
+
+    auto const_fn = frontend::parse("const fn compile_ready() {}\n");
+    CHECK(!const_fn.diagnostics().empty(), "'const fn' is rejected in Zith--");
+    bool const_fn_diagnostic = false;
+    for (const auto &diagnostic : const_fn.diagnostics()) {
+        const_fn_diagnostic |=
+            diagnostic.code == diagnostics::err::UnsupportedSyntax &&
+            diagnostic.message.find("'const fn' is not supported") != std::string::npos;
+    }
+    CHECK(const_fn_diagnostic, "'const fn' reports a Zith-- UnsupportedSyntax diagnostic");
 }
 
 static void test_function_kind_combinations_are_rejected() {
@@ -717,44 +780,46 @@ static void test_function_kind_methods_propagate() {
     auto snapshot = frontend::parse("struct Counter {\n"
                                     "    value: i32,\n"
                                     "    raw fn unsafeTick(self): i32 { 0 }\n"
-                                    "    const fn constValue(self): i32 { 0 }\n"
                                     "    flow fn flowTick(self) {}\n"
                                     "}\n"
                                     "implement Counter {\n"
                                     "    raw fn implementUnsafe(self): i32 { 0 }\n"
-                                    "    const fn implementConst(self): i32 { 0 }\n"
                                     "    flow fn implementFlow(self) {}\n"
                                     "}\n");
 
-    CHECK(snapshot.diagnostics().empty(), "method function kinds parse without diagnostics");
+    CHECK(snapshot.diagnostics().empty(),
+          "supported method function kinds parse without diagnostics");
 
     bool saw_raw    = false;
-    bool saw_const  = false;
     bool saw_flow   = false;
     bool saw_impl   = false;
-    bool saw_impl_c = false;
     bool saw_impl_f = false;
     for (const auto &decl : snapshot.declarations()) {
         if (decl.kind != frontend::DeclKind::Function)
             continue;
         if (decl.name == "unsafeTick" || decl.name == "implementUnsafe")
             saw_raw |= decl.functionKind == frontend::FunctionKind::Raw;
-        if (decl.name == "constValue" || decl.name == "implementConst")
-            saw_const |= decl.functionKind == frontend::FunctionKind::Const;
         if (decl.name == "flowTick" || decl.name == "implementFlow")
             saw_flow |= decl.functionKind == frontend::FunctionKind::Flow;
         if (decl.name == "implementUnsafe")
             saw_impl = decl.functionKind == frontend::FunctionKind::Raw;
-        if (decl.name == "implementConst")
-            saw_impl_c = decl.functionKind == frontend::FunctionKind::Const;
         if (decl.name == "implementFlow")
             saw_impl_f = decl.functionKind == frontend::FunctionKind::Flow;
     }
     CHECK(saw_raw, "raw method functions record Raw");
-    CHECK(saw_const, "const method functions record Const");
     CHECK(saw_flow, "flow method functions record Flow");
-    CHECK(saw_impl && saw_impl_c && saw_impl_f,
-          "implement-block methods propagate their function kind");
+    CHECK(saw_impl && saw_impl_f, "implement-block methods propagate their function kind");
+
+    auto const_method =
+        frontend::parse("struct Counter { const fn constValue(self): i32 { 0 } }\n");
+    CHECK(!const_method.diagnostics().empty(), "'const fn' methods are rejected in Zith--");
+    bool const_method_diagnostic = false;
+    for (const auto &diagnostic : const_method.diagnostics()) {
+        const_method_diagnostic |=
+            diagnostic.code == diagnostics::err::UnsupportedSyntax &&
+            diagnostic.message.find("'const fn' is not supported") != std::string::npos;
+    }
+    CHECK(const_method_diagnostic, "rejected const methods report the Zith-- reason");
 }
 
 static void test_consecutive_garbage_coalesces_into_one_diagnostic() {
@@ -818,6 +883,8 @@ static void test_frontend() {
     test_structured_imports();
     test_c_header_import_syntax();
     test_variable_declarations();
+    test_const_struct_fields();
+    test_zith_removed_bindings_and_qualifiers();
     test_type_alias_and_struct_enum_union();
     test_unary_and_nested_expressions();
     test_multiple_top_level_decls_with_visibility();

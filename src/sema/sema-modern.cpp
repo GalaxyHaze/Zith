@@ -4,6 +4,7 @@
 #include "sema/op-mapping.hpp"
 #include "support/int-literal.hpp"
 
+#include <algorithm>
 #include <cstring>
 
 #include <cctype>
@@ -132,6 +133,8 @@ bool PerModuleSema::prepareTypes() {
 bool PerModuleSema::checkExpressions() {
     inferExpressionTypes();
     checkStructFieldDefaults();
+    checkConstFieldAssignments();
+    checkZithDeclarations();
     checkReturnsAndCalls();
     return !hasErrors();
 }
@@ -1807,7 +1810,7 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
         condition.cast_type) {
         const auto *resolved = findResolvedExpr(condition.operands[0]);
         if (resolved != nullptr && resolved->local) {
-            narrowed_local    = resolved->local;
+            narrowed_local      = resolved->local;
             original_local_type = typeOfLocal(narrowed_local);
             narrowed_type       = lowerTypeExpr(condition.cast_type);
             if (narrowed_type)
@@ -2017,15 +2020,13 @@ TypeId PerModuleSema::inferIsType(frontend::ExprId id) {
     const TypeId operand_resolved = resolve(operand);
     const auto *union_data        = type_table.union_type(operand_resolved);
     if (union_data == nullptr || !union_data->is_tagged) {
-        report(expr.span,
-               "'is Type' requires an operand whose type is a tagged union",
+        report(expr.span, "'is Type' requires an operand whose type is a tagged union",
                diagnostics::err::TypeMismatch);
         return error_type;
     }
     const TypeId target = lowerTypeExpr(expr.cast_type);
     if (!target) {
-        report(expr.span, "unknown target type in 'is' test",
-               diagnostics::err::TypeMismatch);
+        report(expr.span, "unknown target type in 'is' test", diagnostics::err::TypeMismatch);
         return error_type;
     }
     for (const auto member : union_data->members) {
@@ -2311,9 +2312,42 @@ TypeId PerModuleSema::inferAssign(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     if (expr.operands.size() < 2)
         return error_type;
-    TypeId left_type          = kInvalidTypeId;
+    TypeId left_type = kInvalidTypeId;
     prepareLValueIndexTypes(expr.operands[0]);
     const auto *left_resolved = findResolvedExpr(expr.operands[0]);
+    if (left_resolved != nullptr) {
+        const auto isFirstAssignmentForLet = [&]() {
+            if (!left_resolved || !left_resolved->local)
+                return false;
+            if (std::find(typeInferredByAssignment_.begin(), typeInferredByAssignment_.end(),
+                          left_resolved->local.value) != typeInferredByAssignment_.end())
+                return false;
+            for (const auto &statement : snapshot.statements()) {
+                if (statement.kind == frontend::StmtKind::Binding &&
+                    statement.binding.id == left_resolved->local &&
+                    !statement.binding.initializer) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        const bool first_assignment = isFirstAssignmentForLet();
+        if ((left_resolved->bindingKind == frontend::BindingKind::Let ||
+             left_resolved->bindingKind == frontend::BindingKind::Const)) {
+            if (first_assignment && left_resolved->bindingKind == frontend::BindingKind::Let) {
+                // `let x; x = e;` is allowed once; it supplies the variable's type.
+                typeInferredByAssignment_.push_back(left_resolved->local.value);
+            } else {
+                report(expr.span, "Zith--: cannot assign to an immutable let/const binding",
+                       diagnostics::err::UnsupportedSyntax);
+            }
+        }
+        if (left_resolved->declaration && left_resolved->declKind == frontend::DeclKind::Variable &&
+            left_resolved->bindingKind == frontend::BindingKind::Const) {
+            report(expr.span, "Zith--: cannot assign to a const global",
+                   diagnostics::err::UnsupportedSyntax);
+        }
+    }
     if (left_resolved != nullptr && left_resolved->local)
         left_type = typeOfLocal(left_resolved->local);
     if (!left_type && left_resolved != nullptr && left_resolved->declaration)
@@ -2386,19 +2420,18 @@ TypeId PerModuleSema::inferIndex(frontend::ExprId id) {
         switch (type_table.kindOf(resolved_object)) {
         case TypeKind::Slice:
             if (const auto *slice = type_table.slice(resolved_object)) {
-                result = slice->element;
+                result            = slice->element;
                 checked_container = true;
             }
             break;
         case TypeKind::Array:
             if (const auto *array = type_table.array(resolved_object)) {
-                result = array->element;
+                result            = array->element;
                 checked_container = true;
                 if (!expr.is_raw) {
                     int64_t index_value = 0;
                     if (constantIntegerValue(expr.operands[1], index_value) &&
-                        (index_value < 0 ||
-                         static_cast<uint64_t>(index_value) >= array->size)) {
+                        (index_value < 0 || static_cast<uint64_t>(index_value) >= array->size)) {
                         report(expr.span, "array index is out of bounds",
                                diagnostics::err::TypeMismatch);
                         return error_type;
@@ -3007,6 +3040,175 @@ void PerModuleSema::checkStructFieldDefaults() {
                                           decl.parameters[index].name + "'");
             }
         }
+    }
+}
+
+bool PerModuleSema::isConstantExpression(frontend::ExprId id) const {
+    if (!id || id.value > snapshot.expressions().size())
+        return false;
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    switch (expr.kind) {
+    case frontend::ExprKind::Literal:
+        return true;
+    case frontend::ExprKind::ArrayLiteral:
+        for (const auto operand : expr.operands)
+            if (!isConstantExpression(operand))
+                return false;
+        return true;
+    case frontend::ExprKind::StructLiteral:
+        for (const auto operand : expr.operands)
+            if (!isConstantExpression(operand))
+                return false;
+        return true;
+    case frontend::ExprKind::Name: {
+        const auto *resolved = findResolvedExpr(id);
+        if (resolved == nullptr)
+            return false;
+        if (resolved->local)
+            return resolved->bindingKind == frontend::BindingKind::Const;
+        if (resolved->kind == session::ResolutionKind::Import) {
+            if (!resolved->target.localSymbol)
+                return false;
+            const auto *decl =
+                resolved->target.localSymbol.value <= snapshot.declarations().size()
+                    ? &snapshot.declarations()[resolved->target.localSymbol.value - 1U]
+                    : nullptr;
+            return decl != nullptr && decl->kind == frontend::DeclKind::Variable &&
+                   decl->bindingKind == frontend::BindingKind::Const;
+        }
+        if (resolved->declaration) {
+            const auto *decl = resolved->declaration.value <= snapshot.declarations().size()
+                                   ? &snapshot.declarations()[resolved->declaration.value - 1U]
+                                   : nullptr;
+            return decl != nullptr && decl->kind == frontend::DeclKind::Variable &&
+                   decl->bindingKind == frontend::BindingKind::Const;
+        }
+        if (resolved->target.module.empty() && resolved->target.localSymbol)
+            return false;
+        return false;
+    }
+    default:
+        return false;
+    }
+}
+
+bool PerModuleSema::targetFieldIsConst(frontend::ExprId id) const {
+    for (unsigned guard = 0; guard < 64U && id && id.value <= snapshot.expressions().size();
+         ++guard) {
+        const auto &expr = snapshot.expressions()[id.value - 1U];
+        if (expr.kind != frontend::ExprKind::Field && expr.kind != frontend::ExprKind::Arrow)
+            return false;
+        if (expr.operands.empty())
+            return false;
+
+        TypeId object_type = typeOfExpr(expr.operands[0]);
+        if (!object_type)
+            return false;
+        TypeId object = type_table.stripQualifiers(object_type);
+        if (expr.kind == frontend::ExprKind::Arrow) {
+            const TypeId pointer = pointerBase(object);
+            if (!pointer)
+                return false;
+            const auto *ptr = type_table.pointer(pointer);
+            object = type_table.stripQualifiers(ptr != nullptr ? ptr->pointee : kInvalidTypeId);
+            if (!object)
+                return false;
+        }
+
+        const auto *struct_t = type_table.struct_type(object);
+        if (struct_t != nullptr) {
+            const auto idx = type_table.fieldIndex(object, expr.text);
+            if (idx >= 0 && findConstField(struct_t->name, static_cast<size_t>(idx)))
+                return true;
+        }
+        // A const field can be nested through ordinary fields, so continue
+        // walking the base expression (`p.a.b` where `a` is const).
+        id = expr.operands[0];
+    }
+    return false;
+}
+
+bool PerModuleSema::findConstField(std::string_view struct_name, size_t index) const noexcept {
+    for (const auto &decl : snapshot.declarations()) {
+        if (decl.kind != frontend::DeclKind::Struct || decl.name != struct_name)
+            continue;
+        if (index < decl.parameters.size())
+            return decl.parameters[index].isConstField;
+        break;
+    }
+    return false;
+}
+
+void PerModuleSema::checkZithDeclarations() {
+    for (const auto &decl : snapshot.declarations()) {
+        if (decl.kind != frontend::DeclKind::Variable)
+            continue;
+        TypeId declared = typeOfDecl(decl.id);
+        if (!declared)
+            declared = error_type;
+        const TypeId stripped = type_table.stripQualifiers(declared);
+        const TypeKind kind   = stripped ? type_table.kindOf(stripped) : TypeKind::Error;
+        if (decl.bindingKind == frontend::BindingKind::Const) {
+            if (!decl.initializer) {
+                report(decl.span, "Zith--: const declaration requires an initializer",
+                       diagnostics::err::UnsupportedSyntax);
+            } else if (!isConstantExpression(decl.initializer)) {
+                report(snapshot.expressions()[decl.initializer.value - 1U].span,
+                       "Zith--: const initializer must be a constant expression",
+                       diagnostics::err::UnsupportedSyntax);
+            }
+        } else if (decl.declaredType && kind != TypeKind::Integer && kind != TypeKind::Float &&
+                   kind != TypeKind::Bool && kind != TypeKind::Char && kind != TypeKind::Void &&
+                   !decl.initializer) {
+            report(decl.span, "Zith--: non-trivial let/var declaration requires an initializer",
+                   diagnostics::err::UnsupportedSyntax);
+        }
+    }
+
+    for (const auto &statement : snapshot.statements()) {
+        if (statement.kind != frontend::StmtKind::Binding)
+            continue;
+        const auto &binding = statement.binding;
+        if (binding.bindingKind == frontend::BindingKind::Const && !binding.initializer) {
+            report(binding.span, "Zith--: const binding requires an initializer",
+                   diagnostics::err::UnsupportedSyntax);
+            continue;
+        }
+        if (binding.bindingKind == frontend::BindingKind::Const &&
+            !isConstantExpression(binding.initializer)) {
+            report(binding.span, "Zith--: const binding initializer must be a constant expression",
+                   diagnostics::err::UnsupportedSyntax);
+            continue;
+        }
+        TypeId local_type = typeOfLocal(binding.id);
+        if (!local_type)
+            continue;
+        const TypeId stripped = type_table.stripQualifiers(local_type);
+        const TypeKind kind   = stripped ? type_table.kindOf(stripped) : TypeKind::Error;
+        const bool non_trivial =
+            kind == TypeKind::Pointer || kind == TypeKind::Array || kind == TypeKind::Slice ||
+            kind == TypeKind::Optional || kind == TypeKind::Struct || kind == TypeKind::Union ||
+            kind == TypeKind::Enum || kind == TypeKind::String || kind == TypeKind::GenericParam ||
+            kind == TypeKind::Incomplete || kind == TypeKind::Nominal || kind == TypeKind::Alias ||
+            kind == TypeKind::Function || kind == TypeKind::Failable || kind == TypeKind::Pack ||
+            kind == TypeKind::Trait || kind == TypeKind::Sum || kind == TypeKind::TypeVar;
+        if (!binding.initializer &&
+            (binding.bindingKind == frontend::BindingKind::Let ||
+             binding.bindingKind == frontend::BindingKind::Var) &&
+            non_trivial) {
+            report(binding.span, "Zith--: non-trivial let/var binding requires an initializer",
+                   diagnostics::err::UnsupportedSyntax);
+        }
+    }
+}
+
+void PerModuleSema::checkConstFieldAssignments() {
+    for (const auto &expr : snapshot.expressions()) {
+        if (expr.kind != frontend::ExprKind::Assign)
+            continue;
+        if (targetFieldIsConst(expr.operands[0]))
+            report(expr.span, "Zith--: cannot assign to a const struct field",
+                   diagnostics::err::UnsupportedSyntax);
     }
 }
 

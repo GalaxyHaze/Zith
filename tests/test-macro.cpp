@@ -299,7 +299,7 @@ static void test_macro() {
         CHECK(snap.declarations()[0].isTagMacro, "isTagMacro is true");
         CHECK(snap.declarations()[0].hasAttributesParam,
               "tag macro with attributes parameter is recorded");
-        CHECK(snap.diagnostics().empty(), "template body is inert and produces no diagnostics");
+        CHECK(!snap.diagnostics().empty(), "tag macro declaration is rejected in Zith--");
     }
     // 25. tag macro call parses attributes and body
     {
@@ -317,7 +317,7 @@ static void test_macro() {
                   "body argument span is recorded");
         }
         CHECK(found, "found tag macro MacroCall");
-        CHECK(snap.diagnostics().empty(), "tag macro body and call parse without diagnostics");
+        CHECK(!snap.diagnostics().empty(), "tag macro body and call are rejected in Zith--");
     }
     // 26. mismatched closing tag
     {
@@ -348,7 +348,7 @@ static void test_macro() {
         auto snap = frontend::parse(
             "tag macro Box(attributes, content: body) { let t = attributes.title; content }\n"
             "fn main() { <Box title: 2, color: \"red\"> </Box> }");
-        CHECK(snap.diagnostics().empty(), "declared attribute substitution expands");
+        CHECK(!snap.diagnostics().empty(), "tag macro source is rejected before expansion");
 
         auto missing =
             frontend::parse("tag macro Box(attributes, content: body) { attributes.missing }\n"
@@ -387,11 +387,10 @@ static void test_macro() {
     }
     // 31. macro body with dock/jump arguments does not diagnose arguments as code
     {
-        auto snap = frontend::parse(
-            "marker target(v: i32) { v }\n"
-            "macro jump_to(v: expr) { jump target(v); }\n"
-            "macro dock_to(v: expr) { dock target(v); }\n"
-            "fn main() { @jump_to(1); @dock_to(2); }");
+        auto snap             = frontend::parse("marker target(v: i32) { v }\n"
+                                                            "macro jump_to(v: expr) { jump target(v); }\n"
+                                                            "macro dock_to(v: expr) { dock target(v); }\n"
+                                                            "fn main() { @jump_to(1); @dock_to(2); }");
         bool macro_unknown    = false;
         bool template_unknown = false;
         for (const auto &d : snap.diagnostics()) {
@@ -408,11 +407,11 @@ static void test_macro() {
         auto dep = frontend::parse("pub macro twice(v: expr) { v + v }\n"
                                    "pub macro greet() { @println(\"hi\"); }\n");
         frontend::ImportedMacroRecord imported;
-        imported.name               = "twice";
-        imported.span               = dep.declarations()[0].span;
-        imported.parameters         = dep.declarations()[0].parameters;
-        imported.body               = dep.declarations()[0].body;
-        imported.source             = &dep;
+        imported.name       = "twice";
+        imported.span       = dep.declarations()[0].span;
+        imported.parameters = dep.declarations()[0].parameters;
+        imported.body       = dep.declarations()[0].body;
+        imported.source     = &dep;
 
         auto snap = frontend::parseWithImports("fn main(): i32 { @twice(21) }", {imported});
         CHECK(snap.diagnostics().empty(), "imported macro expansion produces no diagnostics");

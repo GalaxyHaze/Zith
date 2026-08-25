@@ -52,6 +52,18 @@ struct HirMarker {
     explicit HirMarker(memory::Arena &arena) : params(arena) {}
 };
 
+/// A module-scoped `const` global declaration. The initializer is a HIR
+/// expression of constant form; codegen lowers it into an immutable LLVM global.
+struct HirGlobalConst {
+    memory::InternedId name{};
+    HirTypeId type = types::kInvalidType;
+    HirExprId init = kInvalidHirExpr;
+
+    explicit HirGlobalConst(memory::Arena &arena) {
+        (void)arena;
+    }
+};
+
 struct HirModuleMarkerLayout {
     memory::InternedId module_name = {};
     memory::DynArray<HirMarker> markers;
@@ -64,6 +76,7 @@ struct HirModuleMarkerLayout {
 class HirModule {
     memory::DynArray<HirExpr> exprs_;
     memory::DynArray<HirFunction> fns_;
+    memory::DynArray<HirGlobalConst> globals_;
     HirModuleMarkerLayout marker_layout_;
     HirAttrs attrs_;
 
@@ -76,6 +89,11 @@ public:
     HirFunction &addFn(memory::InternedId name);
     HirFunction &getFn(size_t idx);
     HirMarker &addMarker();
+    HirGlobalConst &addGlobalConst();
+    size_t getGlobalConstCount() const noexcept {
+        return globals_.size();
+    }
+    const HirGlobalConst &getGlobalConst(size_t idx) const;
     void setModuleMarkerLayout(uint32_t size, uint32_t align) noexcept {
         marker_layout_.blob_size  = size;
         marker_layout_.blob_align = align;

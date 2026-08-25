@@ -1512,10 +1512,9 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             mTypes.addUnionMember(tid, compactType(member_type_id));
     }
 
-    // Rebuild the module-level expression pool from the first function's
-    // serialized table. Function blocks reference these global HirExprIds.
-    for (const auto &ce :
-         art.functions.empty() ? std::vector<cache::CompactExpr>{} : art.functions.front().exprs) {
+    // Rebuild the module-level expression pool. Function blocks and const global
+    // initializers reference these global HirExprIds.
+    for (const auto &ce : art.exprs) {
         hir::HirExpr expr;
         switch (ce.kind) {
         case cache::CompactExprKind::Literal: {
@@ -1565,6 +1564,13 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             var.name    = mInterner->intern(art.strings[ce.name_id]);
             var.version = ce.ref_c;
             expr        = var;
+            break;
+        }
+        case cache::CompactExprKind::GlobalConstLoad: {
+            hir::HirGlobalConstLoad load;
+            load.name = mInterner->intern(art.strings[ce.name_id]);
+            load.type = compactType(ce.type_id);
+            expr      = load;
             break;
         }
         case cache::CompactExprKind::Call: {
@@ -1738,12 +1744,12 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             } else if (mTypes.kindOf(from) == types::TypeKind::Union ||
                        mTypes.kindOf(to) == types::TypeKind::Union) {
                 hir::HirUnionCast cast;
-                cast.value = ce.ref_a;
-                cast.from  = from;
-                cast.to    = to;
+                cast.value        = ce.ref_a;
+                cast.from         = from;
+                cast.to           = to;
                 cast.member_index = ce.ref_c;
                 cast.checked      = (ce.flags & 1U) != 0;
-                expr       = cast;
+                expr              = cast;
             } else {
                 hir::HirCast cast;
                 cast.value = ce.ref_a;
@@ -1822,6 +1828,15 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
                 blk.insts.push(id);
             blk.terminator = cblk.terminator;
         }
+    }
+
+    for (const auto &cg : art.globals) {
+        if (cg.name_id >= art.strings.size())
+            continue;
+        auto &global = mHirModule.addGlobalConst();
+        global.name  = mInterner->intern(art.strings[cg.name_id]);
+        global.type  = compactType(cg.type_id);
+        global.init  = cg.init_expr;
     }
 
     // Marker metadata is restored before any flow-fn block is consumed by the

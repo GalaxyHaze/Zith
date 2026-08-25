@@ -1,4 +1,4 @@
-# Zith
+#Zith
 
 [![Build](https://github.com/GalaxyHaze/Zith/actions/workflows/ci.yml/badge.svg)](https://github.com/GalaxyHaze/Zith/actions)
 [![License](https://img.shields.io/github/license/GalaxyHaze/Zith)](./license)
@@ -12,6 +12,12 @@
 A statically typed, compiled, general-purpose language. Zith proves memory safety at compile time
 through **Node Resource Analysis (NRA)** — no garbage collector, no borrow checker, no runtime
 overhead. The syntax stays clean; the compiler does the hard work.
+
+The current `main` compiles **Zith--**, a simplified subset documented in
+[`docs/Zith--.md`](docs/Zith--.md). The subset keeps the existing type system and normal/raw
+macros, while restricting bindings to `let`, `var` and `const` and removing `global`, `mut`,
+`unique`/`share`/`belong`, `const fn` and tag macros. Implementation rules live in
+[`docs/Zith---implementation.md`](docs/Zith---implementation.md).
 
 ---
 

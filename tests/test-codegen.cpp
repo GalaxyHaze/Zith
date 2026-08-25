@@ -228,7 +228,7 @@ static void test_forward_reference() {
 static void test_array_variable_indexing() {
     CodegenTest t;
     auto r = t.run("codegen-array-indexing.zith", "fn main(): i32 {\n"
-                                                  "    var arr: [5]i32;\n"
+                                                  "    var arr: [5]i32 = [0, 0, 0, 0, 0];\n"
                                                   "    arr[0] = 10;\n"
                                                   "    arr[1] = 20;\n"
                                                   "    arr[2] = 30;\n"
@@ -314,13 +314,14 @@ static void test_struct_fields_and_parameter() {
 
 static void test_array_of_structs() {
     CodegenTest t;
-    auto r = t.run("codegen-array-of-structs.zith", "struct Pair { left: i32, right: i32 }\n"
-                                                    "fn main(): i32 {\n"
-                                                    "    var items: [2]Pair;\n"
-                                                    "    items[0] = Pair{5, 6};\n"
-                    "    items[0].right = 9;\n"
-                    "    return raw items[0].left + raw items[0].right;\n"
-                    "}\n");
+    auto r = t.run("codegen-array-of-structs.zith",
+                   "struct Pair { left: i32, right: i32 }\n"
+                   "fn main(): i32 {\n"
+                   "    var items: [2]Pair = [Pair{0, 0}, Pair{0, 0}];\n"
+                   "    items[0] = Pair{5, 6};\n"
+                   "    items[0].right = 9;\n"
+                   "    return raw items[0].left + raw items[0].right;\n"
+                   "}\n");
     CHECK(r.ok, "Arrays of structs support indexed field assignment");
     CHECK_EQ(r.exitCode, 14, "items[i].field writes target the selected aggregate element");
 }
@@ -387,18 +388,17 @@ static void test_when_expression_runtime() {
 
 static void test_tagged_union_pointer_is_type_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith",
-            "import \"stdio.h\"\n"
-            "union Foo { *char, i32, f64 }\n"
-            "fn main(): i32 {\n"
-            "    let f = Foo{\"hello\"};\n"
-            "    if (f is *char) {\n"
-            "        printf(\"union string: %s\\n\", f);\n"
-            "        return 0;\n"
-            "    }\n"
-            "    printf(\"abu\\n\");\n"
-            "    return 2;\n"
-            "}\n");
+    t.write("main.zith", "import \"stdio.h\"\n"
+                         "union Foo { *char, i32, f64 }\n"
+                         "fn main(): i32 {\n"
+                         "    let f = Foo{\"hello\"};\n"
+                         "    if (f is *char) {\n"
+                         "        printf(\"union string: %s\\n\", f);\n"
+                         "        return 0;\n"
+                         "    }\n"
+                         "    printf(\"abu\\n\");\n"
+                         "    return 2;\n"
+                         "}\n");
 
     auto r = t.run();
     CHECK(r.ok, "tagged union `is *char` with a C variadic call compiles and runs");
@@ -818,6 +818,19 @@ static void test_modern_file_pipeline_executes_program() {
     CHECK(r.usedModern, "Real-file codegen test used the modern frontend pipeline");
     CHECK(r.ok, "Real-file program compiles and executes");
     CHECK_EQ(r.exitCode, 31, "Real-file program preserves exit status");
+}
+
+static void test_const_global_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "const GLOBAL: i32 = 3;\n"
+                         "fn main(): i32 {\n"
+                         "    return GLOBAL;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "Const-global runtime test used the modern frontend pipeline");
+    CHECK(r.ok, "Const global compiles and executes");
+    CHECK_EQ(r.exitCode, 3, "Reading a const global returns its stored value");
 }
 
 static void test_modern_file_import_codegen_executes() {
@@ -1604,6 +1617,8 @@ static void test_codegen() {
     test_linked_list_acceptance_program();
     printf("Running test_modern_file_pipeline_executes_program\n");
     test_modern_file_pipeline_executes_program();
+    printf("Running test_const_global_runtime\n");
+    test_const_global_runtime();
     printf("Running test_modern_file_import_codegen_executes\n");
     test_modern_file_import_codegen_executes();
     printf("Running test_modern_file_type_alias_codegen_executes\n");

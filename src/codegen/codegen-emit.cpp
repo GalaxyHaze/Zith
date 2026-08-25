@@ -20,7 +20,7 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
     if (auto *cached = emittedValues_.get(id))
         return *cached;
 
-    auto &expr   = mod.getExpr(id);
+    auto &expr    = mod.getExpr(id);
     auto *emitted = hir::visitExpr(
         expr,
         common::overloaded{
@@ -29,6 +29,16 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
             [&](const hir::HirUnary &un) { return emitUnary(un, mod); },
             [&](const hir::HirLet &let) { return emitLet(let, mod); },
             [&](const hir::HirVar &var) { return emitVar(var); },
+            [&](const hir::HirGlobalConstLoad &load) -> llvm::Value * {
+                const auto name = interner_.lookup(load.name);
+                auto *global =
+                    module_ != nullptr
+                        ? module_->getNamedGlobal(llvm::StringRef(name.data(), name.size()))
+                        : nullptr;
+                if (!global)
+                    return nullptr;
+                return builder_.CreateLoad(typeGen_.lower(load.type), global);
+            },
             [&](const hir::HirCall &call) { return emitCall(call, mod); },
             [&](const hir::HirRet &ret) { return emitRet(ret, mod); },
             [&](const hir::HirBranch &branch) { return emitBranch(branch, mod); },
@@ -121,8 +131,7 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                         emitExpr(union_cast->value, mod),
                         builder_.CreateBitCast(payload,
                                                llvm::PointerType::get(builder_.getContext(), 0)));
-                    if (union_cast->member_index != ~0U &&
-                        [&]() {
+                    if (union_cast->member_index != ~0U && [&]() {
                             const auto *ud =
                                 std::get_if<types::TypeUnion>(&types_.lookup(union_cast->to));
                             const auto *def =
@@ -134,11 +143,10 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                             std::get_if<types::TypeUnion>(&types_.lookup(union_cast->to));
                         const auto *def =
                             tag_def != nullptr ? types_.lookupUnionDef(tag_def->def_id) : nullptr;
-                        const auto tag_width = def != nullptr && def->members.size() > 0xFFFFU
-                                                   ? 32U
-                                                   : (def != nullptr && def->members.size() > 0xFFU
-                                                          ? 16U
-                                                          : 8U);
+                        const auto tag_width =
+                            def != nullptr && def->members.size() > 0xFFFFU
+                                ? 32U
+                                : (def != nullptr && def->members.size() > 0xFFU ? 16U : 8U);
                         builder_.CreateStore(builder_.getIntN(tag_width, union_cast->member_index),
                                              tag);
                     }
@@ -169,18 +177,17 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 const auto to_kind    = types_.kindOf(cast.to);
                 const auto union_type = from_kind == types::TypeKind::Union ? cast.from : cast.to;
                 auto *union_ll        = typeGen_.lower(union_type);
-                const bool to_tagged = [&]() {
+                const bool to_tagged  = [&]() {
                     if (to_kind != types::TypeKind::Union)
                         return false;
-                    const auto *ud =
-                        std::get_if<types::TypeUnion>(&types_.lookup(union_type));
+                    const auto *ud  = std::get_if<types::TypeUnion>(&types_.lookup(union_type));
                     const auto *def = ud != nullptr ? types_.lookupUnionDef(ud->def_id) : nullptr;
                     return def != nullptr && def->is_tagged;
                 }();
                 auto *value = emitExpr(cast.value, mod);
                 if (!value)
                     return nullptr;
-                llvm::Value *storage  = nullptr;
+                llvm::Value *storage = nullptr;
                 if (from_kind == types::TypeKind::Union) {
                     // Keep the source storage address so member extraction
                     // never round-trips an aggregate through registers.
@@ -193,10 +200,11 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                         value, builder_.CreateBitCast(
                                    bytes, llvm::PointerType::get(builder_.getContext(), 0)));
                     if (to_tagged && cast.member_index != ~0U) {
-                        auto *tag_type = llvm::cast<llvm::IntegerType>(union_ll->getStructElementType(1));
-                        auto *tag       = builder_.CreateStructGEP(union_ll, storage, 1U);
-                        builder_.CreateStore(
-                            llvm::ConstantInt::get(tag_type, cast.member_index), tag);
+                        auto *tag_type =
+                            llvm::cast<llvm::IntegerType>(union_ll->getStructElementType(1));
+                        auto *tag = builder_.CreateStructGEP(union_ll, storage, 1U);
+                        builder_.CreateStore(llvm::ConstantInt::get(tag_type, cast.member_index),
+                                             tag);
                     }
                 }
                 if (storage == nullptr)
@@ -204,7 +212,7 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 if (to_kind == types::TypeKind::Union) {
                     return builder_.CreateLoad(
                         union_ll, builder_.CreateBitCast(
-                              storage, llvm::PointerType::get(builder_.getContext(), 0)));
+                                      storage, llvm::PointerType::get(builder_.getContext(), 0)));
                 }
                 if (from_kind == types::TypeKind::Union) {
                     const auto *from_union =
@@ -214,20 +222,19 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                     const bool from_tagged = from_def != nullptr && from_def->is_tagged;
                     if (from_tagged && cast.checked && cast.member_index != ~0U) {
                         auto *tag_addr = builder_.CreateStructGEP(union_ll, storage, 1U);
-                        auto *tag =
-                            builder_.CreateLoad(llvm::cast<llvm::IntegerType>(
-                                                    union_ll->getStructElementType(1)),
-                                                tag_addr);
+                        auto *tag      = builder_.CreateLoad(
+                            llvm::cast<llvm::IntegerType>(union_ll->getStructElementType(1)),
+                            tag_addr);
                         auto *expected = llvm::ConstantInt::get(
                             llvm::cast<llvm::IntegerType>(union_ll->getStructElementType(1)),
                             cast.member_index);
                         auto *match = builder_.CreateICmpEQ(tag, expected);
-                        llvm::BasicBlock *fail = llvm::BasicBlock::Create(
-                            builder_.getContext(), "union_tag_fail",
-                            builder_.GetInsertBlock()->getParent());
-                        llvm::BasicBlock *cont = llvm::BasicBlock::Create(
-                            builder_.getContext(), "union_tag_ok",
-                            builder_.GetInsertBlock()->getParent());
+                        llvm::BasicBlock *fail =
+                            llvm::BasicBlock::Create(builder_.getContext(), "union_tag_fail",
+                                                     builder_.GetInsertBlock()->getParent());
+                        llvm::BasicBlock *cont =
+                            llvm::BasicBlock::Create(builder_.getContext(), "union_tag_ok",
+                                                     builder_.GetInsertBlock()->getParent());
                         builder_.CreateCondBr(match, cont, fail);
                         builder_.SetInsertPoint(fail);
                         builder_.CreateUnreachable();

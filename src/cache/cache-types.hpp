@@ -192,6 +192,7 @@ enum class CompactExprKind : uint8_t {
     MarkerJump,
     MarkerRet,
     UnionCheck,
+    GlobalConstLoad,
 };
 
 enum class CompactBinaryOp : uint8_t {
@@ -248,6 +249,12 @@ struct CompactFunction {
     uint32_t instance_index = ~uint32_t{0};
     bool is_extern          = false;
     bool is_variadic        = false;
+};
+
+struct CompactGlobalConst {
+    uint32_t name_id   = 0;
+    uint32_t type_id   = 0;
+    uint32_t init_expr = ~uint32_t{0};
 };
 
 struct CompactMarkerParam {
@@ -317,6 +324,8 @@ struct Artifact {
     std::vector<DeclRecord> decls;            // sec3
     std::vector<TemplateBlueprint> templates; // sec4
     std::vector<CompactFunction> functions;   // sec5
+    std::vector<CompactExpr> exprs;           // sec5 module-level expression pool
+    std::vector<CompactGlobalConst> globals;  // sec5
     std::vector<CompactMarker> markers;       // sec5 marker metadata
     // Definition tables used to restore composite types regardless of whether
     // they appear among exported DeclRecord entries.

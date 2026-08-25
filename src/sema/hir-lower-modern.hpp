@@ -56,6 +56,8 @@ private:
     memory::FlatMap<uint32_t, types::TypeId> lowered_types_;
     /// Maps `(interned module id, decl id)` to the predeclared HIR function index.
     memory::FlatMap<uint64_t, size_t> function_index_by_key_;
+    /// Maps `(interned module id, decl id)` to the predeclared HIR const global name.
+    memory::FlatMap<uint64_t, memory::InternedId> global_const_by_key_;
     std::vector<FunctionInfo> functions_;
     std::vector<LoopTarget> loop_stack_;
     const session::ModuleArtifact *current_module_                   = nullptr;
@@ -71,6 +73,7 @@ private:
     symbols::SymId next_sym_id_ = 1;
 
     bool predeclareFunctions();
+    bool predeclareGlobalConsts();
     void predeclareInstantiation(session::ModuleKey module_key,
                                  const comptime::InstantiationInstance &instance);
     bool lowerFunctionBodies();

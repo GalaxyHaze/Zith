@@ -500,8 +500,9 @@ static void test_tagged_union_is_syntax() {
           "raw union 'is Type' reports TypeMismatch");
 
     SemaTest member_test;
-    auto member_result = member_test.run("union Value { i32, f64 }\n"
-                                         "fn main() { var v: Value = Value { 42 }; _ = v is u8; }\n");
+    auto member_result =
+        member_test.run("union Value { i32, f64 }\n"
+                        "fn main() { var v: Value = Value { 42 }; _ = v is u8; }\n");
     CHECK(!member_result.ok, "'is Type' with a non-member type fails sema");
     CHECK(member_result.hasErrorCode(diagnostics::err::InvalidCast),
           "non-member 'is Type' reports InvalidCast");
@@ -1888,6 +1889,99 @@ static void test_modern_raw_slice_and_index_sema() {
     CHECK(!malformed.ok, "raw prefix is rejected on a non-index/slice expression");
 }
 
+static void test_modern_zith_bindings() {
+    ModernSemaTest t;
+
+    auto valid = t.run("const GLOBAL: i32 = 3;\n"
+                       "struct P { const X: i32 = 1, y: i32 }\n"
+                       "fn main(): i32 {\n"
+                       "    let a: i32 = 1;\n"
+                       "    var b: i32 = 2;\n"
+                       "    const LOCAL: i32 = 4;\n"
+                       "    var n: i32;\n"
+                       "    var p: P = P { y: 2 };\n"
+                       "    n = GLOBAL + a + b + LOCAL + p.X + n;\n"
+                       "    return n;\n"
+                       "}\n");
+    CHECK(valid.ok, "Zith-- let/var/const, scalar default and const fields type-check");
+
+    auto const_without_init = t.run("const C: i32;\n"
+                                    "fn main(): i32 { return 0; }\n");
+    CHECK(!const_without_init.ok, "top-level const without initializer is rejected");
+    CHECK(const_without_init.hasErrorCode(diagnostics::err::UnsupportedSyntax),
+          "top-level const without initializer reports UnsupportedSyntax");
+    CHECK(const_without_init.hasMessage("const declaration requires an initializer"),
+          "top-level const diagnostic names the missing initializer");
+
+    auto local_const_without_init = t.run("fn main(): i32 {\n"
+                                          "    const C: i32;\n"
+                                          "    return 0;\n"
+                                          "}\n");
+    CHECK(!local_const_without_init.ok, "local const without initializer is rejected");
+    CHECK(local_const_without_init.hasMessage("const binding requires an initializer"),
+          "local const diagnostic names the missing initializer");
+
+    auto non_constant = t.run("fn foo(): i32 { 1 }\n"
+                              "const C: i32 = foo();\n"
+                              "fn main(): i32 { return C; }\n");
+    CHECK(!non_constant.ok, "const initializer must be a constant expression");
+    CHECK(non_constant.hasMessage("const initializer must be a constant expression"),
+          "non-constant const initializer reports the Zith-- reason");
+
+    auto non_trivial_let = t.run("fn main(): i32 {\n"
+                                 "    let p: *i32;\n"
+                                 "    return 0;\n"
+                                 "}\n");
+    CHECK(!non_trivial_let.ok, "non-trivial let without initializer is rejected");
+    CHECK(non_trivial_let.hasMessage("non-trivial let/var binding requires an initializer"),
+          "non-trivial let diagnostic names the missing initializer");
+
+    auto non_trivial_var = t.run("fn main(): []i32 {\n"
+                                 "    var s: []i32;\n"
+                                 "    return s;\n"
+                                 "}\n");
+    CHECK(!non_trivial_var.ok, "non-trivial var without initializer is rejected");
+    CHECK(non_trivial_var.hasErrorCode(diagnostics::err::UnsupportedSyntax),
+          "non-trivial var reports UnsupportedSyntax");
+
+    auto scalar_without_init = t.run("fn main(): i32 {\n"
+                                     "    var n: i32;\n"
+                                     "    n = 1;\n"
+                                     "    return n;\n"
+                                     "}\n");
+    CHECK(scalar_without_init.ok, "scalar var without initializer remains accepted");
+
+    auto assign_let = t.run("fn main(): i32 {\n"
+                            "    let n: i32 = 1;\n"
+                            "    n = 2;\n"
+                            "    return n;\n"
+                            "}\n");
+    CHECK(!assign_let.ok, "assigning to let is rejected");
+    CHECK(assign_let.hasErrorCode(diagnostics::err::UnsupportedSyntax),
+          "assigning to let reports UnsupportedSyntax");
+    CHECK(assign_let.hasMessage("cannot assign to an immutable let/const binding"),
+          "immutable assignment diagnostic names the binding");
+
+    auto assign_const = t.run("const C: i32 = 1;\n"
+                              "fn main(): i32 {\n"
+                              "    C = 2;\n"
+                              "    return C;\n"
+                              "}\n");
+    CHECK(!assign_const.ok, "assigning to a const global is rejected");
+    CHECK(assign_const.hasMessage("cannot assign to a const global"),
+          "const global assignment diagnostic names the global");
+
+    auto assign_const_field = t.run("struct P { const X: i32 = 1, y: i32 }\n"
+                                    "fn main(): i32 {\n"
+                                    "    var p: P = P { y: 2 };\n"
+                                    "    p.X = 3;\n"
+                                    "    return p.X;\n"
+                                    "}\n");
+    CHECK(!assign_const_field.ok, "assigning to a const struct field is rejected");
+    CHECK(assign_const_field.hasMessage("cannot assign to a const struct field"),
+          "const field assignment diagnostic names the field");
+}
+
 static void test_sema() {
     test_basic_unification();
     test_type_mismatch();
@@ -2015,6 +2109,7 @@ static void test_sema() {
     test_modern_array_to_slice_element_mismatch();
     test_modern_slice_range_sema();
     test_modern_raw_slice_and_index_sema();
+    test_modern_zith_bindings();
 }
 
 TEST_MAIN(sema)
