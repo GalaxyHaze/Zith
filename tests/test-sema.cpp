@@ -2131,6 +2131,22 @@ static void test_modern_enum_constant_discriminants() {
     CHECK(negative_u8.hasMessage("does not fit its underlying type"),
           "negative unsigned discriminant reports the underlying-type diagnostic");
 
+    auto int64_overflow = t.run(
+        "const BIG: i64 = 9223372036854775807;\n"
+        "enum Bad { V = BIG + 1 }\n"
+        "fn main(): Bad { Bad.V }\n");
+    CHECK(!int64_overflow.ok, "int64 discriminant arithmetic overflow is rejected");
+    CHECK(int64_overflow.hasMessage("constant integer expression"),
+          "int64 overflow reports the constant-expr diagnostic");
+
+    auto wide_mul =
+        t.run("const BIG: i64 = 4611686018427387904;\n"
+              "enum Bad { V = BIG * 2 }\n"
+              "fn main(): Bad { Bad.V }\n");
+    CHECK(!wide_mul.ok, "int64 discriminant multiplication overflow is rejected");
+    CHECK(wide_mul.hasMessage("constant integer expression"),
+          "int64 multiplication overflow reports the constant-expr diagnostic");
+
     auto enum_to_int = t.run("enum Color { Red = 1, Green = 2 }\n"
                              "fn main(): i32 {\n"
                              "    let c: Color = Color.Green;\n"

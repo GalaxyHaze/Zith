@@ -421,60 +421,96 @@ void PerModuleSema::lowerDeclarationTypes() {
                         return false;
                     if (shift && (right < 0 || right >= 64))
                         return false;
-                    const __int128 wide = [&]() {
-                        if (expr.text == "+")
-                            return static_cast<__int128>(left) + right;
-                        if (expr.text == "-")
-                            return static_cast<__int128>(left) - right;
-                        if (expr.text == "*")
-                            return static_cast<__int128>(left) * right;
-                        if (expr.text == "/") {
-                            return static_cast<__int128>(left) / right;
-                        }
-                        if (expr.text == "%") {
-                            return static_cast<__int128>(left) % right;
-                        }
-                        if (expr.text == "&.")
-                            return static_cast<__int128>(static_cast<std::uint64_t>(left) &
-                                                         static_cast<std::uint64_t>(right));
-                        if (expr.text == "|.")
-                            return static_cast<__int128>(static_cast<std::uint64_t>(left) |
-                                                         static_cast<std::uint64_t>(right));
-                        if (expr.text == "^.")
-                            return static_cast<__int128>(static_cast<std::uint64_t>(left) ^
-                                                         static_cast<std::uint64_t>(right));
-                        if (expr.text == "<<") {
-                            return static_cast<__int128>(static_cast<std::uint64_t>(left)
-                                                         << static_cast<unsigned>(right));
-                        }
-                        if (expr.text == ">>") {
-                            return static_cast<__int128>(left >> static_cast<unsigned>(right));
-                        }
-                        if (expr.text == "==")
-                            return static_cast<__int128>(left == right);
-                        if (expr.text == "!=")
-                            return static_cast<__int128>(left != right);
-                        if (expr.text == "<")
-                            return static_cast<__int128>(left < right);
-                        if (expr.text == "<=")
-                            return static_cast<__int128>(left <= right);
-                        if (expr.text == ">")
-                            return static_cast<__int128>(left > right);
-                        if (expr.text == ">=")
-                            return static_cast<__int128>(left >= right);
-                        return static_cast<__int128>(0);
-                    }();
                     const std::int64_t min = std::numeric_limits<std::int64_t>::min();
                     const std::int64_t max = std::numeric_limits<std::int64_t>::max();
-                    if (wide < min || wide > max)
-                        return false;
-                    out = static_cast<std::int64_t>(wide);
-                    return expr.text == "+" || expr.text == "-" || expr.text == "*" ||
-                           expr.text == "/" || expr.text == "%" || expr.text == "&." ||
-                           expr.text == "|." || expr.text == "^." || expr.text == "<<" ||
-                           expr.text == ">>" || expr.text == "==" || expr.text == "!=" ||
-                           expr.text == "<" || expr.text == "<=" || expr.text == ">" ||
-                           expr.text == ">=";
+
+                    if (expr.text == "+") {
+                        if (right > 0 && left > max - right)
+                            return false;
+                        if (right < 0 && left < min - right)
+                            return false;
+                        out = left + right;
+                        return true;
+                    }
+                    if (expr.text == "-") {
+                        if (right < 0 && left > max + right)
+                            return false;
+                        if (right > 0 && left < min + right)
+                            return false;
+                        out = left - right;
+                        return true;
+                    }
+                    if (expr.text == "*") {
+                        if (right == 0) {
+                            out = 0;
+                            return true;
+                        }
+                        const auto magnitude = [](std::int64_t value) {
+                            return value < 0 ? static_cast<std::uint64_t>(-(value + 1)) + 1U
+                                             : static_cast<std::uint64_t>(value);
+                        };
+                        const std::uint64_t left_mag  = magnitude(left);
+                        const std::uint64_t right_mag = magnitude(right);
+                        const std::uint64_t limit     = ((left < 0) == (right < 0))
+                                                            ? static_cast<std::uint64_t>(max)
+                                                            : (std::uint64_t{1} << 63U);
+                        if (left_mag > limit / right_mag)
+                            return false;
+                        const std::uint64_t product = left_mag * right_mag;
+                        if ((left < 0) == (right < 0)) {
+                            out = static_cast<std::int64_t>(product);
+                        } else {
+                            out = product == (std::uint64_t{1} << 63U)
+                                      ? min
+                                      : -static_cast<std::int64_t>(product);
+                        }
+                        return true;
+                    }
+                    if (expr.text == "/" || expr.text == "%") {
+                        out = expr.text == "/" ? left / right : left % right;
+                        return true;
+                    }
+                    if (expr.text == "&.") {
+                        out = static_cast<std::int64_t>(static_cast<std::uint64_t>(left) &
+                                                        static_cast<std::uint64_t>(right));
+                        return true;
+                    }
+                    if (expr.text == "|.") {
+                        out = static_cast<std::int64_t>(static_cast<std::uint64_t>(left) |
+                                                        static_cast<std::uint64_t>(right));
+                        return true;
+                    }
+                    if (expr.text == "^.") {
+                        out = static_cast<std::int64_t>(static_cast<std::uint64_t>(left) ^
+                                                        static_cast<std::uint64_t>(right));
+                        return true;
+                    }
+                    if (expr.text == "<<") {
+                        if (right < 0 || right >= 63)
+                            return false;
+                        const std::uint64_t shifted =
+                            static_cast<std::uint64_t>(static_cast<std::int64_t>(left))
+                            << static_cast<unsigned>(right);
+                        if (shifted > static_cast<std::uint64_t>(max))
+                            return false;
+                        out = static_cast<std::int64_t>(shifted);
+                        return true;
+                    }
+                    if (expr.text == ">>") {
+                        out = left >> static_cast<unsigned>(right);
+                        return true;
+                    }
+                    if (expr.text == "==" || expr.text == "!=" || expr.text == "<" ||
+                        expr.text == "<=" || expr.text == ">" || expr.text == ">=") {
+                        out = expr.text == "=="   ? (left == right)
+                              : expr.text == "!=" ? (left != right)
+                              : expr.text == "<"  ? (left < right)
+                              : expr.text == "<=" ? (left <= right)
+                              : expr.text == ">"  ? (left > right)
+                                                  : (left >= right);
+                        return true;
+                    }
+                    return false;
                 }
                 case frontend::ExprKind::Name: {
                     for (size_t i = 0; i < variant_names.size(); ++i) {

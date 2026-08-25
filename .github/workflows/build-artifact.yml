@@ -343,11 +343,9 @@ jobs:
             cmake_flags: >-
               -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc
               -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
-              -DLLVM_DIR=/usr/lib/llvm-18/lib/cmake/llvm
               -DCMAKE_SYSTEM_NAME=Linux
               -DCMAKE_SYSTEM_PROCESSOR=aarch64
-              -DCMAKE_CROSSCOMPILING=ON
-              -DZITH_HAS_LLVM=ON
+              -DZITH_HAS_LLVM=OFF
 
           - os: macos-14
             target_name: macos-universal
