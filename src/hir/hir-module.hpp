@@ -23,6 +23,9 @@ struct HirFunction {
     memory::DynArray<HirTypeId> params;
     memory::DynArray<memory::InternedId> param_names;
     HirTypeId return_type;
+    /// True for `state` functions; their jumps are LLVM musttail transitions.
+    bool isState    = false;
+    uint32_t machineId = 0;
     bool isVariadic       = false;
     ast::DeclId decl_id   = ast::kInvalidDecl;
     symbols::SymId sym_id = symbols::kInvalidSym;
@@ -31,25 +34,6 @@ struct HirFunction {
     memory::DynArray<HirBasicBlock> blocks;
 
     explicit HirFunction(memory::Arena &arena) : params(arena), param_names(arena), blocks(arena) {}
-};
-
-struct HirMarkerParam {
-    memory::InternedId name{};
-    HirTypeId type  = types::kInvalidType;
-    uint32_t offset = 0;
-    uint32_t size   = 0;
-    uint32_t align  = 0;
-};
-
-struct HirMarker {
-    memory::InternedId name{};
-    uint32_t marker_id   = ~0U;
-    bool stackful        = false;
-    uint32_t blob_offset = 0;
-    memory::DynArray<HirMarkerParam> params;
-    uint32_t body_expr = 0;
-
-    explicit HirMarker(memory::Arena &arena) : params(arena) {}
 };
 
 /// A module-scoped `const` global declaration. The initializer is a HIR
@@ -64,20 +48,10 @@ struct HirGlobalConst {
     }
 };
 
-struct HirModuleMarkerLayout {
-    memory::InternedId module_name = {};
-    memory::DynArray<HirMarker> markers;
-    uint32_t blob_size  = 0;
-    uint32_t blob_align = 1;
-
-    explicit HirModuleMarkerLayout(memory::Arena &arena) : markers(arena) {}
-};
-
 class HirModule {
     memory::DynArray<HirExpr> exprs_;
     memory::DynArray<HirFunction> fns_;
     memory::DynArray<HirGlobalConst> globals_;
-    HirModuleMarkerLayout marker_layout_;
     HirAttrs attrs_;
 
 public:
@@ -88,35 +62,11 @@ public:
     HirExprId addExpr(HirExpr expr);
     HirFunction &addFn(memory::InternedId name);
     HirFunction &getFn(size_t idx);
-    HirMarker &addMarker();
     HirGlobalConst &addGlobalConst();
     size_t getGlobalConstCount() const noexcept {
         return globals_.size();
     }
     const HirGlobalConst &getGlobalConst(size_t idx) const;
-    void setModuleMarkerLayout(uint32_t size, uint32_t align) noexcept {
-        marker_layout_.blob_size  = size;
-        marker_layout_.blob_align = align;
-    }
-    size_t getMarkerCount() const noexcept {
-        return marker_layout_.markers.size();
-    }
-    const HirMarker &getMarker(size_t idx) const;
-    HirMarker &getMarkerMut(size_t idx);
-    const HirMarker *findMarker(memory::InternedId name) const;
-    uint32_t markerLayoutBlobSize() const noexcept {
-        return marker_layout_.blob_size;
-    }
-    uint32_t markerLayoutBlobAlign() const noexcept {
-        return marker_layout_.blob_align;
-    }
-    HirModuleMarkerLayout &markers() noexcept {
-        return marker_layout_;
-    }
-    [[nodiscard]] const HirModuleMarkerLayout &markers() const noexcept {
-        return marker_layout_;
-    }
-
     const HirExpr &getExpr(HirExprId id) const;
     HirExpr &getExprMut(HirExprId id);
     [[nodiscard]] size_t exprCount() const noexcept {

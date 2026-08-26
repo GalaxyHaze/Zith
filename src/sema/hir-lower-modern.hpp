@@ -66,7 +66,8 @@ private:
     const comptime::GenericInstantiationPass *current_instantiation_ = nullptr;
     const comptime::InstantiationInstance *current_instance_         = nullptr;
     hir::HirFunction *current_fn_                                    = nullptr;
-    bool current_fn_is_flow_                                         = false;
+    bool current_fn_is_state_                                        = false;
+    uint32_t current_state_machine_id_                               = 0;
     size_t current_block_                                            = 0;
     hir::HirSlotId next_slot_                                        = 0;
     std::vector<hir::HirSlotId> local_slots_;
@@ -79,46 +80,6 @@ private:
     bool lowerFunctionBodies();
     bool lowerFunctionBody(FunctionInfo &info);
 
-    /// Pre-scans a function body, assigning a block index to every local `marker` statement.
-    void collectMarkers(frontend::ExprId id);
-    /// Local marker label -> statement id for the current flow fn.
-    memory::FlatMap<std::string, uint32_t> marker_decl_stmts_;
-
-    struct MarkerSample {
-        uint32_t marker_id = ~0U;
-        size_t entry_block = ~size_t{0};
-        bool lowered       = false;
-    };
-    struct SourceMarker {
-        const frontend::Statement *statement = nullptr;
-        const frontend::Declaration *decl    = nullptr;
-    };
-
-    /// One shared sample per referenced marker within the current flow fn.
-    std::vector<MarkerSample> markerSamples_;
-    std::unordered_map<uint32_t, size_t> markerSampleIndex_;
-    /// Continuation blocks written by `dock`, in declaration/CFG order.
-    std::vector<size_t> markerContinuations_;
-    /// Module-level metadata maps for the HIR marker table.
-    std::string currentMarkerModule_;
-    std::unordered_map<uint32_t, SourceMarker> markerSources_;
-    std::unordered_map<std::string, uint32_t> globalMarkerByName_;
-    std::unordered_map<uint32_t, uint32_t> markerIdByStmt_;
-    std::unordered_map<uint32_t, uint32_t> markerIdByDecl_;
-    uint32_t nextMarkerId_ = 0;
-
-    void ensureModuleMarkers(const session::ModuleArtifact &module);
-    uint32_t addMarkerMetadata(const session::ModuleArtifact &module, std::string_view name,
-                               bool stackful, const frontend::Declaration *decl,
-                               const frontend::Statement *statement);
-    /// Resolve a marker name to its HIR marker id, giving local markers precedence.
-    uint32_t resolveMarker(std::string_view name) const;
-    const SourceMarker *markerSource(uint32_t marker_id) const noexcept;
-    size_t markerSampleEntry(uint32_t marker_id);
-    void lowerMarkerSamples();
-    void lowerMarkerSample(MarkerSample &sample);
-    /// True while lowering a marker sample body.
-    bool inMarkerBody_ = false;
     /// Synthetic for-in binding statement currently being skipped by
     /// `lowerStatement`; set while lowering the loop body.
     frontend::StmtId current_for_in_binding_stmt_;

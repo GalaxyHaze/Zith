@@ -43,11 +43,7 @@ enum class HirExprKind : uint8_t {
     Cast,
     UnionCheck,
     LayoutIntrinsic,
-    MarkerStore,
-    MarkerLoad,
-    MarkerDock,
-    MarkerJump,
-    MarkerRet,
+    StateTailCall,
     GlobalConstLoad,
 };
 
@@ -124,6 +120,8 @@ struct HirCall {
     /// Direct calls resolved by symbol keep this invalid.
     types::TypeId fn_type      = types::kInvalidType;
     symbols::SymId resolved_fn = symbols::kInvalidSym;
+    /// True when this call is a direct LLVM `musttail` state transition.
+    bool musttail              = false;
     HirExprKind tag            = HirExprKind::Call;
 
     explicit HirCall(memory::Arena &arena) : args(arena), argument_types(arena) {}
@@ -145,13 +143,7 @@ struct HirBranch {
 };
 struct HirJump {
     HirDeclId target;
-    /// True for `jump marker` inside a flow function: the marker body returns
-    /// to `return_block` when it falls through.
-    bool flowReturn = false;
-    // Destination used only when `flowReturn` is true. Direct `jump` entries
-    // created by the lowerer leave it unread.
-    HirDeclId return_block = ~HirDeclId{0};
-    HirExprKind tag        = HirExprKind::Jump;
+    HirExprKind tag = HirExprKind::Jump;
 };
 struct HirPhi {
     memory::DynArray<HirExprId> incoming;
@@ -296,41 +288,13 @@ struct HirLayoutIntrinsic {
     HirExprKind tag      = HirExprKind::LayoutIntrinsic;
 };
 
-struct HirMarkerStore {
-    /// Marker symbol, matching module marker metadata.
-    uint32_t marker = ~0U;
-    /// Parameter index written into the marker blob.
-    uint32_t param_index = 0;
-    HirExprId value      = kInvalidHirExpr;
-    HirExprKind tag      = HirExprKind::MarkerStore;
-};
+/// A terminating transfer to another state in the same machine. The call is
+/// lowered as a direct LLVM `musttail` call followed immediately by `ret`.
+struct HirStateTailCall {
+    hir::HirCall call;
+    HirExprKind tag = HirExprKind::StateTailCall;
 
-struct HirMarkerLoad {
-    uint32_t marker      = ~0U;
-    uint32_t param_index = 0;
-    HirTypeId type       = types::kInvalidType;
-    HirExprKind tag      = HirExprKind::MarkerLoad;
-};
-
-struct HirMarkerDock {
-    /// Entry block of the marker sample lowered for the enclosing flow fn.
-    HirDeclId marker_entry = ~HirDeclId{0};
-    HirDeclId continuation = ~HirDeclId{0};
-    HirExprKind tag        = HirExprKind::MarkerDock;
-};
-
-struct HirMarkerJump {
-    HirDeclId marker_entry = ~HirDeclId{0};
-    HirExprKind tag        = HirExprKind::MarkerJump;
-};
-
-struct HirMarkerRet {
-    /// Every continuation recorded by a `dock` reachable from the current flow
-    /// fn body. Codegen switches on the stored continuation id.
-    memory::DynArray<HirDeclId> continuations;
-    HirExprKind tag = HirExprKind::MarkerRet;
-
-    explicit HirMarkerRet(memory::Arena &arena) : continuations(arena) {}
+    explicit HirStateTailCall(memory::Arena &arena) : call(arena) {}
 };
 
 /// Load of a module-scoped `const` global.
@@ -345,8 +309,7 @@ using HirExpr =
                  HirJump, HirPhi, HirAssign, HirIndex, HirField, HirStructLiteral, HirArrayLiteral,
                  HirEnumValue, HirSlotAlloca, HirSlotStore, HirSlotLoad, HirSlotAddr, HirMakeNone,
                  HirMakeSome, HirMakeSlice, HirCast, HirUnionCast, HirUnionCheck,
-                 HirLayoutIntrinsic, HirMarkerStore, HirMarkerLoad, HirMarkerDock, HirMarkerJump,
-                 HirMarkerRet, HirGlobalConstLoad>;
+                 HirLayoutIntrinsic, HirStateTailCall, HirGlobalConstLoad>;
 
 inline HirExprKind exprKind(const HirExpr &expr) {
     return std::visit([](const auto &entry) { return entry.tag; }, expr);

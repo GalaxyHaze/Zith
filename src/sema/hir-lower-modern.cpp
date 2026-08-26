@@ -217,6 +217,9 @@ bool HirLowerModern::predeclareFunctions() {
             hir_fn.decl_id    = static_cast<ast::DeclId>(decl.id.value);
             hir_fn.fnSpan     = memory::Span{0, decl.span.start, decl.span.end};
             hir_fn.isVariadic = decl.isVariadic;
+            hir_fn.isState    = decl.functionKind == frontend::FunctionKind::State;
+            if (hir_fn.isState)
+                hir_fn.machineId = module_sema->stateMachineIdFor(decl);
 
             const auto fn_type = module_sema->typeOfDecl(decl.id);
             if (const auto *fn = sema_.typeTable().function(fn_type)) {
@@ -564,91 +567,11 @@ hir::HirExprId HirLowerModern::rebuildTaggedUnion(types::TypeId union_type, hir:
 }
 
 bool HirLowerModern::lowerFunctionBodies() {
-    session::ModuleKey last_module_key;
-    for (const auto &module_ptr : snapshot_.modules()) {
-        if (module_ptr == nullptr)
-            continue;
-        if (module_ptr->key != last_module_key) {
-            ensureModuleMarkers(*module_ptr);
-            last_module_key = module_ptr->key;
-        }
-    }
     for (auto &function : functions_) {
         if (function.decl != nullptr && function.decl->body && !lowerFunctionBody(function))
             return false;
     }
-    uint32_t blob_size  = 1;
-    uint32_t blob_align = 1;
-    for (auto &marker : hir_.markers().markers) {
-        uint32_t marker_offset = 0;
-        for (auto &param : marker.params) {
-            const auto size  = lowerTypeSize(param.type);
-            const auto align = lowerTypeAlign(param.type);
-            if (size == 0 || align == 0)
-                continue;
-            marker_offset = alignUp(marker_offset, align);
-            param.offset  = marker_offset;
-            marker_offset += size;
-            if (align > blob_align)
-                blob_align = align;
-        }
-        marker.blob_offset = marker_offset;
-        if (marker_offset > blob_size)
-            blob_size = marker_offset;
-    }
-    hir_.setModuleMarkerLayout(blob_size, blob_align);
     return !diags_.hasErrors();
-}
-
-void HirLowerModern::ensureModuleMarkers(const session::ModuleArtifact &module) {
-    if (module.key == currentMarkerModule_)
-        return;
-    currentMarkerModule_ = module.key;
-    globalMarkerByName_.clear();
-    markerSources_.clear();
-    markerIdByStmt_.clear();
-    markerIdByDecl_.clear();
-    nextMarkerId_ = 0;
-    if (module.frontend == nullptr)
-        return;
-    for (const auto &decl : module.frontend->declarations()) {
-        if (decl.kind != frontend::DeclKind::Marker || decl.name.empty())
-            continue;
-        const auto marker = addMarkerMetadata(module, decl.name, decl.isStackful, &decl, nullptr);
-        globalMarkerByName_[decl.name] = marker;
-    }
-}
-
-uint32_t HirLowerModern::addMarkerMetadata(const session::ModuleArtifact &module,
-                                           const std::string_view name, const bool stackful,
-                                           const frontend::Declaration *decl,
-                                           const frontend::Statement *statement) {
-    auto &marker         = hir_.addMarker();
-    const auto marker_id = nextMarkerId_++;
-    marker.name          = interner_.intern(name);
-    marker.marker_id     = marker_id;
-    marker.stackful      = stackful;
-    marker.body_expr     = statement ? statement->expression.value : (decl ? decl->body.value : 0U);
-    markerSources_[marker_id] = SourceMarker{statement, decl};
-    if (statement != nullptr)
-        markerIdByStmt_[statement->id.value] = marker_id;
-    if (decl != nullptr)
-        markerIdByDecl_[decl->id.value] = marker_id;
-
-    const auto &params = statement ? statement->parameters : decl->parameters;
-    auto *module_sema  = sema_.findModuleSema(module.key);
-    for (const auto &param : params) {
-        hir::HirMarkerParam hir_param;
-        hir_param.name = interner_.intern(param.name);
-        if (module_sema != nullptr) {
-            const auto sema_type = module_sema->markerParamType(param);
-            hir_param.type       = lowerType(sema_type);
-        } else {
-            hir_param.type = types::kErrorType;
-        }
-        marker.params.push(std::move(hir_param));
-    }
-    return marker_id;
 }
 
 void HirLowerModern::predeclareInstantiation(session::ModuleKey module_key,
@@ -666,6 +589,9 @@ void HirLowerModern::predeclareInstantiation(session::ModuleKey module_key,
     hir_fn.decl_id    = static_cast<ast::DeclId>(decl->id.value);
     hir_fn.fnSpan     = memory::Span{0, decl->span.start, decl->span.end};
     hir_fn.isVariadic = decl->isVariadic;
+    hir_fn.isState    = decl->functionKind == frontend::FunctionKind::State;
+    if (hir_fn.isState)
+        hir_fn.machineId = module_sema->stateMachineIdFor(*decl);
 
     const auto template_type  = module_sema->typeOfDecl(decl->id);
     const auto *template_fn   = sema_.typeTable().function(template_type);
@@ -693,85 +619,6 @@ void HirLowerModern::predeclareInstantiation(session::ModuleKey module_key,
         {key, module, decl, nullptr, &instance, hir_fn.sym_id, hir_.getFnCount() - 1U});
 }
 
-uint32_t HirLowerModern::resolveMarker(const std::string_view name) const {
-    if (const auto *local = marker_decl_stmts_.get(std::string(name))) {
-        if (const auto found = markerIdByStmt_.find(*local); found != markerIdByStmt_.end())
-            return found->second;
-    }
-    if (const auto found = globalMarkerByName_.find(std::string(name));
-        found != globalMarkerByName_.end())
-        return found->second;
-    return ~0U;
-}
-
-const HirLowerModern::SourceMarker *
-HirLowerModern::markerSource(const uint32_t marker_id) const noexcept {
-    const auto found = markerSources_.find(marker_id);
-    return found == markerSources_.end() ? nullptr : &found->second;
-}
-
-size_t HirLowerModern::markerSampleEntry(const uint32_t marker_id) {
-    if (const auto found = markerSampleIndex_.find(marker_id); found != markerSampleIndex_.end())
-        return markerSamples_[found->second].entry_block;
-    const size_t index = markerSamples_.size();
-    markerSamples_.push_back(MarkerSample{marker_id, newBlock(), false});
-    markerSampleIndex_.emplace(marker_id, index);
-    return markerSamples_[index].entry_block;
-}
-
-void HirLowerModern::lowerMarkerSamples() {
-    // Nested jumps append samples; iterate until the vector stops growing.
-    for (size_t index = 0; index < markerSamples_.size(); ++index)
-        lowerMarkerSample(markerSamples_[index]);
-}
-
-void HirLowerModern::lowerMarkerSample(MarkerSample &sample) {
-    if (sample.lowered)
-        return;
-    sample.lowered             = true;
-    const SourceMarker *source = markerSource(sample.marker_id);
-    if (source == nullptr)
-        return;
-    const auto *params = source->statement ? &source->statement->parameters
-                                           : (source->decl ? &source->decl->parameters : nullptr);
-    current_fn_->blocks[sample.entry_block].insts = memory::DynArray<hir::HirExprId>(arena_);
-    setCurrentBlock(sample.entry_block);
-
-    const auto *marker =
-        hir_.findMarker(source->statement ? interner_.intern(source->statement->label)
-                                          : interner_.intern(source->decl->name));
-    if (marker != nullptr && params != nullptr) {
-        for (size_t index = 0; index < params->size(); ++index) {
-            const auto type =
-                index < marker->params.size() ? marker->params[index].type : types::kErrorType;
-            hir::HirMarkerLoad load;
-            load.marker        = marker->marker_id;
-            load.param_index   = static_cast<uint32_t>(index);
-            load.type          = type;
-            const auto load_id = addExpr(std::move(load));
-            current_fn_->blocks[current_block_].insts.push(load_id);
-            // Bind the parameter as a normal local slot so expressions referring
-            // to the parameter resolve through the existing ResolvedName path.
-            const auto slot = localSlot((*params)[index].id);
-            current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, type));
-            current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, load_id));
-        }
-    }
-
-    const bool saved_marker = inMarkerBody_;
-    inMarkerBody_           = true;
-    if (marker != nullptr && marker->body_expr)
-        (void)lowerExpr(frontend::ExprId{marker->body_expr});
-    inMarkerBody_ = saved_marker;
-
-    if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
-        hir::HirMarkerRet ret(arena_);
-        for (const auto continuation : markerContinuations_)
-            ret.continuations.push(static_cast<hir::HirDeclId>(continuation));
-        setTerminator(addExpr(std::move(ret)));
-    }
-}
-
 bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     current_module_     = info.module;
     current_resolution_ = snapshot_.findResolution(info.module->key);
@@ -785,8 +632,9 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     current_fn_            = &hir_.getFn(info.hir_index);
     current_instantiation_ = info.instance != nullptr ? sema_.instantiations() : nullptr;
     current_instance_      = info.instance;
-    current_fn_is_flow_ =
-        info.decl != nullptr && info.decl->functionKind == frontend::FunctionKind::Flow;
+    current_fn_is_state_ =
+        info.decl != nullptr && info.decl->functionKind == frontend::FunctionKind::State;
+    current_state_machine_id_ = current_fn_is_state_ ? current_fn_->machineId : 0;
 
     if (nra_ != nullptr && info.module != nullptr && info.decl != nullptr) {
         const auto *fn_fact = nra_->functionFact(info.module->key, info.decl->id);
@@ -801,11 +649,6 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     current_block_ = 0;
     next_slot_     = 0;
     loop_stack_.clear();
-    marker_decl_stmts_.clear();
-    markerSamples_.clear();
-    markerSampleIndex_.clear();
-    markerContinuations_.clear();
-    inMarkerBody_ = false;
     local_slots_.clear();
     local_slots_.resize(1U);
     current_for_in_binding_stmt_  = {};
@@ -813,14 +656,6 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
 
     current_fn_->blocks.emplace(arena_);
     current_fn_->blocks[0].insts = memory::DynArray<hir::HirExprId>(arena_);
-
-    collectMarkers(info.decl->body);
-    for (const auto [marker_name, stmt_id] : marker_decl_stmts_) {
-        (void)marker_name;
-        if (const auto found = markerIdByStmt_.find(stmt_id); found != markerIdByStmt_.end()) {
-            markerSampleEntry(found->second);
-        }
-    }
 
     for (size_t index = 0; index < info.decl->parameters.size(); ++index) {
         const auto &parameter = info.decl->parameters[index];
@@ -853,15 +688,14 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
         current_fn_->blocks[current_block_].terminator = addExpr(std::move(ret));
     }
 
-    lowerMarkerSamples();
-
     current_module_        = nullptr;
     current_resolution_    = nullptr;
     current_types_         = nullptr;
     current_instantiation_ = nullptr;
     current_instance_      = nullptr;
     current_fn_            = nullptr;
-    current_fn_is_flow_    = false;
+    current_fn_is_state_   = false;
+    current_state_machine_id_ = 0;
     return true;
 }
 
@@ -1251,6 +1085,10 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
     case frontend::ExprKind::Binary:
         return lowerBinary(expr, type);
     case frontend::ExprKind::Call:
+        return lowerCall(expr);
+    case frontend::ExprKind::DockCall:
+        // `dock` is a plain call expression whose result carries the machine
+        // return type; sema already resolved the target state declaration.
         return lowerCall(expr);
     case frontend::ExprKind::Block:
         return lowerBlock(expr);
@@ -2910,75 +2748,72 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
         setCurrentBlock(newBlock());
         current_fn_->blocks[current_block_].insts = memory::DynArray<hir::HirExprId>(arena_);
         return true;
-    case frontend::StmtKind::Marker: {
-        if (!current_fn_is_flow_) {
-            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
-                          "marker is only allowed inside a flow fn", {});
-            return false;
-        }
-        // Local marker declarations are lowered lazily from `jump`/`dock` sites.
-        last_value = hir::kInvalidHirExpr;
-        return true;
-    }
     case frontend::StmtKind::Jump: {
-        if (!current_fn_is_flow_) {
+        if (!current_fn_is_state_) {
             diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
-                          "jump is only allowed inside a flow fn", {});
+                          "jump is only allowed inside a state function", {});
             return false;
         }
-        const auto marker_id = resolveMarker(statement.label);
-        if (marker_id == ~0U) {
+        const frontend::Declaration *target = nullptr;
+        if (current_module_ != nullptr && current_module_->frontend != nullptr) {
+            for (const auto &decl : current_module_->frontend->declarations()) {
+                if (decl.kind != frontend::DeclKind::Function || decl.name != statement.label ||
+                    decl.functionKind != frontend::FunctionKind::State) {
+                    continue;
+                }
+                target = &decl;
+                break;
+            }
+        }
+        if (target == nullptr) {
             diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
-                          "jump to undefined marker: '" + statement.label + "'", {});
+                          "jump target must be a state function: '" + statement.label + "'", {});
+            return false;
+        }
+        const auto target_key = internFunctionKey(interner_, current_module_->key, target->id);
+        const auto *function_index = function_index_by_key_.get(target_key);
+        if (function_index == nullptr) {
+            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                          "state target was not predeclared: '" + statement.label + "'", {});
+            return false;
+        }
+
+        auto *module_sema = sema_.findModuleSema(current_module_->key);
+        if (module_sema == nullptr ||
+            module_sema->stateMachineIdFor(*target) != current_state_machine_id_) {
+            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                          "state transition target is in a different state machine", {});
+            return false;
+        }
+
+        hir::HirStateTailCall tail(arena_);
+        const auto target_fn_type = module_sema->typeOfDecl(target->id);
+        const auto *target_fn = sema_.typeTable().function(target_fn_type);
+        if (target_fn == nullptr) {
+            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                          "state target has no function type: '" + statement.label + "'", {});
+            return false;
+        }
+        if (statement.arguments.size() != target_fn->params.size()) {
+            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                          "state transition arity mismatch for '" + statement.label + "'", {});
             return false;
         }
         for (size_t index = 0; index < statement.arguments.size(); ++index) {
-            hir::HirMarkerStore store;
-            store.marker      = marker_id;
-            store.param_index = static_cast<uint32_t>(index);
-            store.value       = lowerExpr(statement.arguments[index]);
-            if (store.value != hir::kInvalidHirExpr)
-                current_fn_->blocks[current_block_].insts.push(addExpr(std::move(store)));
+            auto argument = lowerExpr(statement.arguments[index]);
+            if (argument == hir::kInvalidHirExpr)
+                return false;
+            argument = lowerCoerceToSliceIfArray(
+                lowerType(target_fn->params[index]), statement.arguments[index], argument);
+            tail.call.argument_types.push(lowerType(target_fn->params[index]));
+            tail.call.args.push(argument);
         }
-        const auto entry = markerSampleEntry(marker_id);
-        hir::HirMarkerJump marker_jump;
-        marker_jump.marker_entry = static_cast<hir::HirDeclId>(entry);
-        setTerminator(addExpr(std::move(marker_jump)));
-        // Anything after a jump is unreachable; give it a fresh block.
+        tail.call.resolved_fn = functions_[*function_index].sym_id;
+        tail.call.musttail    = true;
+        setTerminator(addExpr(std::move(tail)));
         setCurrentBlock(newBlock());
         current_fn_->blocks[current_block_].insts = memory::DynArray<hir::HirExprId>(arena_);
         last_value                                = hir::kInvalidHirExpr;
-        return true;
-    }
-    case frontend::StmtKind::Dock: {
-        if (!current_fn_is_flow_) {
-            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
-                          "dock is only allowed inside a flow fn", {});
-            return false;
-        }
-        const auto marker_id = resolveMarker(statement.label);
-        if (marker_id == ~0U) {
-            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
-                          "dock to undefined marker: '" + statement.label + "'", {});
-            return false;
-        }
-        const size_t continuation = newBlock();
-        markerContinuations_.push_back(continuation);
-        for (size_t index = 0; index < statement.arguments.size(); ++index) {
-            hir::HirMarkerStore store;
-            store.marker      = marker_id;
-            store.param_index = static_cast<uint32_t>(index);
-            store.value       = lowerExpr(statement.arguments[index]);
-            current_fn_->blocks[current_block_].insts.push(addExpr(std::move(store)));
-        }
-        const auto entry = markerSampleEntry(marker_id);
-        hir::HirMarkerDock dock;
-        dock.marker_entry = static_cast<hir::HirDeclId>(entry);
-        dock.continuation = static_cast<hir::HirDeclId>(continuation);
-        setTerminator(addExpr(std::move(dock)));
-        setCurrentBlock(continuation);
-        current_fn_->blocks[continuation].insts = memory::DynArray<hir::HirExprId>(arena_);
-        last_value                              = hir::kInvalidHirExpr;
         return true;
     }
     case frontend::StmtKind::Error:
@@ -3008,35 +2843,6 @@ size_t HirLowerModern::newBlock() {
     const auto block = current_fn_->blocks.size();
     current_fn_->blocks.emplace(arena_);
     return block;
-}
-
-void HirLowerModern::collectMarkers(frontend::ExprId id) {
-    if (!id || current_module_ == nullptr ||
-        id.value > current_module_->frontend->expressions().size())
-        return;
-    if (current_module_->frontend->isMacroTemplateExpr(id))
-        return;
-    const auto &expr = current_module_->frontend->expressions()[id.value - 1U];
-    // Expanded macro nodes are ordinary expression/statement trees at the
-    // call site; marker declarations and uses inside them must be discoverable
-    // during the pre-scan just like directly written markers.
-    if (expr.kind == frontend::ExprKind::MacroCall && expr.expansion) {
-        collectMarkers(expr.expansion);
-        return;
-    }
-    if (expr.kind != frontend::ExprKind::Block)
-        return;
-    for (const auto &stmt_id : expr.statements) {
-        if (!stmt_id || stmt_id.value > current_module_->frontend->statements().size())
-            continue;
-        const auto &stmt = current_module_->frontend->statements()[stmt_id.value - 1U];
-        if (stmt.kind == frontend::StmtKind::Marker && !stmt.label.empty()) {
-            marker_decl_stmts_.insert(stmt.label, stmt_id.value);
-            addMarkerMetadata(*current_module_, stmt.label, stmt.isStackful, nullptr, &stmt);
-        }
-        if (stmt.expression)
-            collectMarkers(stmt.expression);
-    }
 }
 
 void HirLowerModern::setCurrentBlock(const size_t block) {

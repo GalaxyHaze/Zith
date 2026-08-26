@@ -9,21 +9,10 @@ namespace zith::hir {
 
 namespace {
 
-void appendMarkerRetTerminator(std::string &buffer, const HirMarkerRet &ret) {
-    buffer += "  marker_ret {";
-    for (size_t i = 0; i < ret.continuations.size(); ++i) {
-        if (i > 0)
-            buffer += ", ";
-        buffer += "bb";
-        buffer += std::to_string(ret.continuations[i]);
-    }
-    buffer += "}\n";
-}
-
 } // namespace
 
 HirModule::HirModule(memory::Arena &arena)
-    : exprs_(arena), fns_(arena), globals_(arena), marker_layout_(arena), attrs_(arena) {}
+    : exprs_(arena), fns_(arena), globals_(arena), attrs_(arena) {}
 
 HirExprId HirModule::addExpr(HirExpr expr) {
     HirExprId id = static_cast<HirExprId>(exprs_.size());
@@ -50,29 +39,9 @@ const HirFunction &HirModule::getFn(size_t idx) const {
     return fns_[idx];
 }
 
-HirMarker &HirModule::addMarker() {
-    marker_layout_.markers.emplace(exprs_.arena());
-    return marker_layout_.markers.back();
-}
-
 HirGlobalConst &HirModule::addGlobalConst() {
     globals_.emplace(exprs_.arena());
     return globals_.back();
-}
-
-const HirMarker &HirModule::getMarker(size_t idx) const {
-    return marker_layout_.markers[idx];
-}
-
-HirMarker &HirModule::getMarkerMut(size_t idx) {
-    return marker_layout_.markers[idx];
-}
-
-const HirMarker *HirModule::findMarker(memory::InternedId name) const {
-    for (const auto &marker : marker_layout_.markers)
-        if (marker.name == name)
-            return &marker;
-    return nullptr;
 }
 
 const HirGlobalConst &HirModule::getGlobalConst(size_t idx) const {
@@ -123,6 +92,10 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
         buffer += ")";
         buffer += " -> %t";
         buffer += std::to_string(fn.return_type);
+        if (fn.isState) {
+            buffer += " state m";
+            buffer += std::to_string(fn.machineId);
+        }
         buffer += " {\n";
         for (size_t bi = 0; bi < fn.blocks.size(); ++bi) {
             auto &block = fn.blocks[bi];
@@ -190,6 +163,8 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                            buffer += std::to_string(call.args[ai]);
                                        }
                                        buffer += ")";
+                                       if (call.musttail)
+                                           buffer += " musttail";
                                        if (call.fn_type != types::kInvalidType) {
                                            buffer += " fn_type %t";
                                            buffer += std::to_string(call.fn_type);
@@ -205,10 +180,6 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                    [&](const HirJump &jump) {
                                        buffer += "jump bb";
                                        buffer += std::to_string(jump.target);
-                                       if (jump.flowReturn) {
-                                           buffer += " ret bb";
-                                           buffer += std::to_string(jump.return_block);
-                                       }
                                    },
                                    [&](const HirBranch &branch) {
                                        buffer += "branch %e";
@@ -325,33 +296,21 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                        buffer += " %t";
                                        buffer += std::to_string(i.type);
                                    },
-                                   [&](const HirMarkerStore &s) {
-                                       buffer += "marker_store m";
-                                       buffer += std::to_string(s.marker);
-                                       buffer += "[";
-                                       buffer += std::to_string(s.param_index);
-                                       buffer += "] = %e";
-                                       buffer += std::to_string(s.value);
+                                   [&](const HirStateTailCall &tail) {
+                                       if (tail.call.resolved_fn != symbols::kInvalidSym)
+                                           buffer += "state_tail_call <resolved>(";
+                                       else
+                                           buffer += "state_tail_call %e";
+                                       buffer += std::to_string(tail.call.callee);
+                                       buffer += "(";
+                                       for (size_t ai = 0; ai < tail.call.args.size(); ++ai) {
+                                           if (ai > 0)
+                                               buffer += ", ";
+                                           buffer += "%e";
+                                           buffer += std::to_string(tail.call.args[ai]);
+                                       }
+                                       buffer += ")";
                                    },
-                                   [&](const HirMarkerLoad &s) {
-                                       buffer += "marker_load m";
-                                       buffer += std::to_string(s.marker);
-                                       buffer += "[";
-                                       buffer += std::to_string(s.param_index);
-                                       buffer += "] : %t";
-                                       buffer += std::to_string(s.type);
-                                   },
-                                   [&](const HirMarkerDock &d) {
-                                       buffer += "marker_dock -> bb";
-                                       buffer += std::to_string(d.marker_entry);
-                                       buffer += " cont bb";
-                                       buffer += std::to_string(d.continuation);
-                                   },
-                                   [&](const HirMarkerJump &j) {
-                                       buffer += "marker_jump -> bb";
-                                       buffer += std::to_string(j.marker_entry);
-                                   },
-                                   [&](const HirMarkerRet &) { buffer += "marker_ret"; },
                                    [&](const HirGlobalConstLoad &g) {
                                        auto n = interner.lookup(g.name);
                                        buffer += "global_const_load ";
@@ -376,10 +335,6 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                          [&](const HirJump &jump) {
                                              buffer += "  jump bb";
                                              buffer += std::to_string(jump.target);
-                                             if (jump.flowReturn) {
-                                                 buffer += " ret bb";
-                                                 buffer += std::to_string(jump.return_block);
-                                             }
                                              buffer += "\n";
                                          },
                                          [&](const HirBranch &branch) {
@@ -391,8 +346,10 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                              buffer += std::to_string(branch.else_block);
                                              buffer += "\n";
                                          },
-                                         [&](const HirMarkerRet &ret) {
-                                             appendMarkerRetTerminator(buffer, ret);
+                                         [&](const HirStateTailCall &tail) {
+                                             buffer += "  state_tail_call musttail -> ret %e";
+                                             buffer += std::to_string(tail.call.args.size());
+                                             buffer += "\n";
                                          },
                                          [&](const auto &) {
                                              buffer += "  terminal %e";

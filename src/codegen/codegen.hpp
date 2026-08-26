@@ -44,8 +44,6 @@ public:
 
 private:
     llvm::Function *declareFn(const hir::HirFunction &fn);
-    void emitMarkerRuntime(hir::HirModuleMarkerLayout &markers);
-    void emitMarkerOffsets(hir::HirModuleMarkerLayout &markers);
     void emitConstGlobals(hir::HirModule &hirModule);
     void emitFnBody(const hir::HirFunction &fn, const hir::HirModule &mod);
     void llvmError(const std::string &msg);

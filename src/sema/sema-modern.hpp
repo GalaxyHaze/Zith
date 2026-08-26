@@ -124,6 +124,16 @@ private:
 
     /// Function kind of the declaration currently being lowered/inferred.
     frontend::FunctionKind currentFunctionKind_ = frontend::FunctionKind::Standard;
+    /// True while inferring inside a `state` function body.
+    bool inStateBody_ = false;
+    /// Machine id assigned to the enclosing `state` function's prototype.
+    uint32_t currentStateMachineId_ = 0;
+    /// Machine ids assigned to state declarations by canonical prototype.
+    std::unordered_map<uint32_t, uint32_t> stateMachineByDecl_;
+    /// Canonical prototype key -> machine id for the current module.
+    std::unordered_map<uint64_t, uint32_t> stateMachineByPrototype_;
+    /// Next state machine id for the current module.
+    uint32_t nextStateMachineId_ = 1;
 
     /// Generic parameter bindings per declaration (decl id → param name/type pairs).
     /// Populated while lowering declaration types; consulted by `lowerTypeExpr` so
@@ -143,33 +153,16 @@ private:
     /// Whether the resolved binding's function accepts a trailing variadic tail.
     [[nodiscard]] static bool bindingIsVariadic(const session::ResolvedName &binding) noexcept;
 
-    struct LocalMarker {
-        const frontend::Statement *statement = nullptr;
-        bool stackful                        = false;
-    };
-
-    /// Collects `marker` statement names within a function body.
-    void collectMarkers(frontend::ExprId id);
-    /// Module-scoped marker declarations visible to every flow fn in this file.
-    std::unordered_map<std::string, const frontend::Declaration *> global_markers_;
-    /// Marker declarations visible in the current flow fn. A local marker shadows
-    /// a same-named global marker.
-    std::unordered_map<std::string, LocalMarker> local_markers_;
-    /// True while inferring the body of a marker (local or global).
-    bool inMarkerBody_ = false;
-    /// True while inferring a module-scoped marker body; `return` is rejected there.
-    bool inGlobalMarker_ = false;
-    /// True while inferring a marker that cannot allocate host-slot locals.
-    bool currentStacklessMarker_ = false;
-
-    void validateMarkerReference(frontend::TextSpan span, std::string_view name,
-                                 const frontend::Statement &use);
-    [[nodiscard]] TypeId markerParamType(const frontend::Parameter &param);
-
     friend class SemaPipeline;
     friend class HirLowerModern;
 
     void checkReturnStatement(const frontend::Statement &stmt);
+    void inferDockCall(frontend::ExprId id);
+    void inferJump(const frontend::Statement &stmt);
+    /// Canonical prototype key for state-machine grouping.
+    [[nodiscard]] uint64_t statePrototypeKey(TypeId return_type,
+                                             const memory::DynArray<TypeId> &params) const;
+    uint32_t stateMachineIdFor(const frontend::Declaration &decl);
     TypeId lowerTypeExpr(frontend::TypeExprId id);
     /// Lowers `type` ignoring its own memory qualifier; `lowerTypeExpr` wraps the result.
     TypeId lowerBareTypeExpr(const frontend::TypeExpression &type);

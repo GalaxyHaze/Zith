@@ -26,19 +26,7 @@
 
 #include <llvm/TargetParser/Host.h>
 
-#include <algorithm>
-
 namespace zith::codegen {
-
-namespace {
-
-uint32_t alignUpU32(uint32_t value, uint32_t align) noexcept {
-    if (align == 0)
-        return value;
-    return static_cast<uint32_t>((value + align - 1U) & ~(align - 1U));
-}
-
-} // namespace
 
 CodeGen::CodeGen(const memory::StringInterner &interner, const types::TypeIntern &types,
                  std::string_view targetTriple, uint8_t optLevel,
@@ -207,17 +195,31 @@ void CodeGen::emit(hir::HirModule &hirModule, std::string_view moduleName) {
                                              *ctx_);
     ensureTargetInfo();
 
+    const bool has_states = [&] {
+        for (size_t index = 0; index < hirModule.getFnCount(); ++index)
+            if (hirModule.getFn(index).isState)
+                return true;
+        return false;
+    }();
+    if (has_states) {
+        const auto triple = effectiveTriple();
+        const bool supported =
+            triple.starts_with("x86_64") || triple.starts_with("i386") ||
+            triple.starts_with("i486") || triple.starts_with("i586") ||
+            triple.starts_with("i686") || triple.starts_with("wasm32") ||
+            triple.starts_with("wasm64");
+        if (!supported) {
+            invalidIR_ = true;
+            llvmError("state machines require an LLVM target with musttail support; "
+                      "unsupported target '" +
+                      triple + "'");
+            return;
+        }
+    }
+
     // Const globals must exist before function bodies reference them. Predeclare
     // first so forward references between globals resolve, then fill initializers.
     emitConstGlobals(hirModule);
-
-    // Marker samples are embedded in the flow fn that reaches them, so the
-    // thread-local blob is module-global and shared by all flow fns.
-    if (hirModule.getMarkerCount() > 0) {
-        auto &markers = hirModule.markers();
-        emitMarkerOffsets(markers);
-        emitMarkerRuntime(markers);
-    }
 
     // First pass: declare all functions (so forward references resolve)
     for (size_t i = 0; i < hirModule.getFnCount(); i++)
@@ -285,65 +287,6 @@ llvm::Function *CodeGen::declareFn(const hir::HirFunction &fn) {
     return llvmFn;
 }
 
-void CodeGen::emitMarkerRuntime(hir::HirModuleMarkerLayout &markers) {
-    if (markers.blob_align == 0)
-        return;
-
-    uint64_t blob_size  = markers.blob_size != 0 ? markers.blob_size : 1;
-    uint64_t blob_align = markers.blob_align != 0 ? markers.blob_align : 1;
-
-    auto *i8       = llvm::Type::getInt8Ty(*ctx_);
-    auto *blobType = llvm::ArrayType::get(i8, static_cast<uint64_t>(blob_size));
-    auto *blob =
-        new llvm::GlobalVariable(*module_, blobType, false, llvm::GlobalValue::InternalLinkage,
-                                 llvm::ConstantAggregateZero::get(blobType), "__zith_marker_blob");
-    blob->setThreadLocal(true);
-    blob->setAlignment(llvm::Align(static_cast<uint64_t>(blob_align)));
-
-    auto *contType = llvm::Type::getInt32Ty(*ctx_);
-    auto *address =
-        new llvm::GlobalVariable(*module_, contType, false, llvm::GlobalValue::InternalLinkage,
-                                 llvm::ConstantInt::get(contType, 0), "__zith_dock_address");
-    address->setThreadLocal(true);
-
-    auto *exitType = llvm::FunctionType::get(llvm::Type::getVoidTy(*ctx_), false);
-    auto *exitFn   = llvm::Function::Create(exitType, llvm::Function::InternalLinkage,
-                                            "__zith_marker_exit", module_.get());
-    auto *exitBB   = llvm::BasicBlock::Create(*ctx_, "entry", exitFn);
-    llvm::IRBuilder<> exitBuilder(exitBB);
-    auto exitCallee = module_->getOrInsertFunction(
-        "exit", llvm::FunctionType::get(llvm::Type::getVoidTy(*ctx_), llvm::Type::getInt32Ty(*ctx_),
-                                        false));
-    exitBuilder.CreateCall(exitCallee, exitBuilder.getInt32(1));
-    exitBuilder.CreateUnreachable();
-}
-
-void CodeGen::emitMarkerOffsets(hir::HirModuleMarkerLayout &markers) {
-    CodeGenType typeGen(*ctx_, types_, &module_->getDataLayout());
-    uint32_t blob_size  = 0;
-    uint32_t blob_align = 1;
-    for (auto &marker : markers.markers) {
-        uint32_t offset = 0;
-        for (size_t index = 0; index < marker.params.size(); ++index) {
-            const auto &param = marker.params[index];
-            const auto size   = static_cast<uint32_t>(typeGen.sizeOf(param.type));
-            const auto align  = static_cast<uint32_t>(typeGen.alignOf(param.type));
-            if (size == 0 || align == 0)
-                continue;
-            offset                      = alignUpU32(offset, align);
-            marker.params[index].offset = static_cast<uint32_t>(offset);
-            marker.params[index].size   = static_cast<uint32_t>(size);
-            marker.params[index].align  = static_cast<uint32_t>(align);
-            offset += size;
-            blob_align = std::max(blob_align, align);
-        }
-        marker.blob_offset = static_cast<uint32_t>(offset);
-        blob_size          = std::max(blob_size, offset);
-    }
-    markers.blob_size  = blob_size == 0 ? 1U : blob_size;
-    markers.blob_align = blob_align;
-}
-
 void CodeGen::emitFnBody(const hir::HirFunction &fn, const hir::HirModule &mod) {
     auto name    = interner_.lookup(fn.name);
     auto *llvmFn = module_->getFunction(llvm::StringRef(name.data(), name.size()));
@@ -367,7 +310,6 @@ void CodeGen::emitFnBody(const hir::HirFunction &fn, const hir::HirModule &mod) 
     llvm::IRBuilder<> builder(firstBB);
 
     CodeGenEmit emit(builder, typeGen, interner_, types_);
-    emit.setMarkerRuntime(module_.get(), mod.markers());
     emit.setBlocks(&llvmBlocks);
     emit.registerParams(fn, llvmFn);
     emit.emitBody(fn, mod);

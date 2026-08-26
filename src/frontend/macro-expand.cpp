@@ -52,9 +52,6 @@ struct TemplateMarker {
             expr(s.binding.initializer);
         for (const auto argument : s.arguments)
             expr(argument);
-        for (const auto &parameter : s.parameters)
-            if (parameter.defaultValue)
-                expr(parameter.defaultValue);
     }
 };
 

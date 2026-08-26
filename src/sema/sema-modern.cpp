@@ -238,8 +238,6 @@ void PerModuleSema::registerNamedTypes() {
         case frontend::DeclKind::Trait:
             (void)type_table.findOrCreateNamed(decl.name, TypeKind::Trait);
             break;
-        case frontend::DeclKind::Marker:
-            break;
         case frontend::DeclKind::TypeAlias:
             (void)type_table.findOrCreateNamed(decl.name, TypeKind::Alias);
             break;
@@ -289,16 +287,6 @@ void PerModuleSema::lowerDeclarationTypes() {
             genericParams_[decl.id.value] = std::move(bindings);
         }
         switch (decl.kind) {
-        case frontend::DeclKind::Marker: {
-            for (const auto &param : decl.parameters) {
-                TypeId ptype = lowerTypeExpr(param.type);
-                if (!ptype)
-                    ptype = error_type;
-                setLocalType(param.id, ptype);
-            }
-            setDeclType(decl.id, void_type);
-            break;
-        }
         case frontend::DeclKind::Function: {
             auto &params_storage = type_table.makeTypeStorage();
             bool is_method       = !decl.ownerName.empty();
@@ -657,24 +645,25 @@ void PerModuleSema::inferExpressionTypes() {
 }
 
 void PerModuleSema::inferExpressionTypesForDecls() {
-    // Global markers can jump to markers declared later in the same module.
-    for (const auto &decl : snapshot.declarations()) {
-        if (decl.kind == frontend::DeclKind::Marker)
-            global_markers_.insert({decl.name, &decl});
-    }
-    local_markers_.clear();
-    for (const auto &decl : snapshot.declarations())
-        if (decl.kind == frontend::DeclKind::Function && decl.body)
-            collectMarkers(decl.body);
+    stateMachineByDecl_.clear();
+    stateMachineByPrototype_.clear();
+    nextStateMachineId_ = 1;
     for (const auto &decl : snapshot.declarations()) {
         // A macro declaration is a template, not code: its body only becomes
         // real code once cloned into a call site.
         if (decl.kind == frontend::DeclKind::Macro)
             continue;
+        if (decl.kind == frontend::DeclKind::Function &&
+            decl.functionKind == frontend::FunctionKind::State) {
+            (void)stateMachineIdFor(decl);
+        }
         currentDeclId_       = decl.id.value;
         currentFunctionKind_ = decl.kind == frontend::DeclKind::Function
                                    ? decl.functionKind
                                    : frontend::FunctionKind::Standard;
+        inStateBody_ = decl.kind == frontend::DeclKind::Function &&
+                       decl.functionKind == frontend::FunctionKind::State;
+        currentStateMachineId_ = inStateBody_ ? stateMachineIdFor(decl) : 0;
         if (decl.kind == frontend::DeclKind::Function) {
             TypeId fn_type     = typeOfDecl(decl.id);
             const auto *fn     = type_table.function(fn_type);
@@ -684,19 +673,7 @@ void PerModuleSema::inferExpressionTypesForDecls() {
         }
         if (decl.body) {
             currentDeclId_ = decl.id.value;
-            if (decl.kind == frontend::DeclKind::Function) {
-                inMarkerBody_ = false;
-            } else if (decl.kind == frontend::DeclKind::Marker) {
-                inMarkerBody_           = true;
-                inGlobalMarker_         = true;
-                currentStacklessMarker_ = true;
-                currentFunctionKind_    = frontend::FunctionKind::Flow;
-                currentReturnType_      = kInvalidTypeId;
-            }
             (void)inferExpr(decl.body);
-            inMarkerBody_           = false;
-            inGlobalMarker_         = false;
-            currentStacklessMarker_ = false;
         }
         if (decl.initializer) {
             (void)inferExpr(decl.initializer);
@@ -724,87 +701,8 @@ void PerModuleSema::inferExpressionTypesForDecls() {
     }
     currentDeclId_       = 0;
     currentFunctionKind_ = frontend::FunctionKind::Standard;
-    inMarkerBody_        = false;
-}
-
-void PerModuleSema::collectMarkers(frontend::ExprId id) {
-    if (!id || id.value > snapshot.expressions().size())
-        return;
-    const auto &expr = snapshot.expressions()[id.value - 1U];
-    // A macro body is a template, but once it is expanded its nodes carry the
-    // call-site ID and must be visible to marker collection just like any
-    // regular expression tree.
-    if (expr.kind == frontend::ExprKind::MacroCall && expr.expansion) {
-        collectMarkers(expr.expansion);
-        return;
-    }
-    if (expr.kind == frontend::ExprKind::Block) {
-        for (const auto &stmt_id : expr.statements) {
-            if (!stmt_id || stmt_id.value > snapshot.statements().size())
-                continue;
-            const auto &stmt = snapshot.statements()[stmt_id.value - 1U];
-            if (stmt.kind == frontend::StmtKind::Marker && !stmt.label.empty())
-                local_markers_.insert({stmt.label, LocalMarker{&stmt, stmt.isStackful}});
-            if (stmt.expression)
-                collectMarkers(stmt.expression);
-        }
-    } else {
-        for (const auto operand : expr.operands)
-            collectMarkers(operand);
-    }
-}
-
-TypeId PerModuleSema::markerParamType(const frontend::Parameter &param) {
-    TypeId param_type = lowerTypeExpr(param.type);
-    if (!param_type)
-        param_type = error_type;
-    setLocalType(param.id, param_type);
-    return param_type;
-}
-
-void PerModuleSema::validateMarkerReference(frontend::TextSpan span, std::string_view name,
-                                            const frontend::Statement &use) {
-    const frontend::Declaration *global = nullptr;
-    if (const auto found = global_markers_.find(std::string(name)); found != global_markers_.end())
-        global = found->second;
-
-    const frontend::Statement *declaration = nullptr;
-    bool stackful                          = false;
-    if (const auto found = local_markers_.find(std::string(name)); found != local_markers_.end()) {
-        declaration = found->second.statement;
-        stackful    = found->second.stackful;
-    } else if (global != nullptr) {
-        declaration = nullptr;
-    }
-
-    if (global == nullptr && declaration == nullptr) {
-        report(span, "jump to undefined marker '" + std::string(name) + "'",
-               diagnostics::err::UndefinedIdent);
-        return;
-    }
-
-    const auto *params = declaration != nullptr ? &declaration->parameters : &global->parameters;
-    if (use.arguments.size() != params->size()) {
-        report(use.span,
-               "marker '" + std::string(name) + "' expects " + std::to_string(params->size()) +
-                   " argument(s), got " + std::to_string(use.arguments.size()),
-               diagnostics::err::NoMatchingFn);
-        return;
-    }
-    for (size_t index = 0; index < use.arguments.size(); ++index) {
-        TypeId arg_type = inferExpr(use.arguments[index]);
-        if (!arg_type)
-            continue;
-        TypeId param_type = declaration != nullptr ? markerParamType((*params)[index])
-                                                   : markerParamType((*params)[index]);
-        if (!coerceValue(use.arguments[index], param_type, arg_type))
-            reportCoercionFailure(use.arguments[index].value <= snapshot.expressions().size()
-                                      ? snapshot.expressions()[use.arguments[index].value - 1U].span
-                                      : use.span,
-                                  param_type, arg_type, "marker argument type mismatch",
-                                  diagnostics::err::NoMatchingFn);
-    }
-    (void)stackful;
+    inStateBody_       = false;
+    currentStateMachineId_ = 0;
 }
 
 void PerModuleSema::checkReturnsAndCalls() {
@@ -1113,6 +1011,10 @@ TypeId PerModuleSema::inferExpr(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     TypeId result;
     switch (expr.kind) {
+    case frontend::ExprKind::DockCall:
+        inferDockCall(id);
+        result = typeOfExpr(id);
+        break;
     case frontend::ExprKind::Literal:
         result = inferLiteral(id, expr.text);
         break;
@@ -1949,6 +1851,62 @@ bool PerModuleSema::bindingIsVariadic(const session::ResolvedName &binding) noex
 TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     TypeId last      = void_type;
+    if (inStateBody_) {
+        // A `jump` consumes the block terminator. The standalone sweep still
+        // visits expressions after it, so stop inferring once we have lowered
+        // a terminating state transfer.
+        bool terminated_by_state_transfer = false;
+        for (const auto &stmt_id : expr.statements) {
+            if (!stmt_id)
+                continue;
+            if (stmt_id.value > snapshot.statements().size())
+                continue;
+            const auto &stmt = snapshot.statements()[stmt_id.value - 1U];
+            if (snapshot.isMacroTemplateStmt(stmt.id))
+                continue;
+            if (terminated_by_state_transfer)
+                break;
+            if (stmt.kind == frontend::StmtKind::Expression && stmt.expression) {
+                last = inferExpr(stmt.expression);
+            } else if (stmt.kind == frontend::StmtKind::Binding) {
+                TypeId ann_type = lowerTypeExpr(stmt.binding.type);
+                TypeId init_type =
+                    stmt.binding.initializer ? inferExpr(stmt.binding.initializer) : invalid_type;
+                if (ann_type && stmt.binding.initializer &&
+                    !coerceValue(stmt.binding.initializer, ann_type, init_type)) {
+                    reportCoercionFailure(stmt.span, ann_type, init_type,
+                                          "binding initializer type does not match annotation");
+                }
+                if (!ann_type && stmt.binding.initializer) {
+                    if (resolve(init_type) == null_type) {
+                        report(stmt.span, "null requires an optional type annotation",
+                               diagnostics::err::TypeMismatch);
+                        init_type = error_type;
+                    }
+                }
+                const TypeId existing_type = typeOfLocal(stmt.binding.id);
+                if (ann_type || stmt.binding.initializer)
+                    setLocalType(stmt.binding.id, ann_type ? ann_type : init_type);
+                else if (!existing_type)
+                    setLocalType(stmt.binding.id, invalid_type);
+                last = void_type;
+            } else if (stmt.kind == frontend::StmtKind::Return) {
+                checkReturnStatement(stmt);
+                last = void_type;
+            } else if (stmt.kind == frontend::StmtKind::Jump) {
+                inferJump(stmt);
+                terminated_by_state_transfer = true;
+                last                         = void_type;
+            } else if (stmt.kind == frontend::StmtKind::Expression &&
+                       stmt.expression && stmt.expression.value <= snapshot.expressions().size() &&
+                       snapshot.expressions()[stmt.expression.value - 1U].kind ==
+                           frontend::ExprKind::DockCall) {
+                // Handled by the regular expression case above; keep the code
+                // structure simple and let the fallthrough infer the call.
+            }
+        }
+        return last;
+    }
     for (const auto &stmt_id : expr.statements) {
         if (!stmt_id)
             continue;
@@ -1991,47 +1949,9 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
         } else if (stmt.kind == frontend::StmtKind::Return) {
             checkReturnStatement(stmt);
             last = void_type;
-        } else if (stmt.kind == frontend::StmtKind::Marker) {
-            if (currentFunctionKind_ != frontend::FunctionKind::Flow) {
-                report(stmt.span, "marker is only allowed inside a flow fn",
-                       diagnostics::err::UnsupportedSyntax);
-            }
-            if (!inMarkerBody_) {
-                for (const auto &param : stmt.parameters)
-                    (void)markerParamType(param);
-                if (stmt.expression) {
-                    const bool saved_marker = inMarkerBody_;
-                    const bool saved_global = inGlobalMarker_;
-                    inMarkerBody_           = true;
-                    currentStacklessMarker_ = !stmt.isStackful;
-                    (void)inferExpr(stmt.expression);
-                    currentStacklessMarker_ = false;
-                    inGlobalMarker_         = saved_global;
-                    inMarkerBody_           = saved_marker;
-                }
-            }
-            last = void_type;
-        } else if (stmt.kind == frontend::StmtKind::Dock) {
-            if (currentFunctionKind_ != frontend::FunctionKind::Flow) {
-                report(stmt.span, "dock is only allowed inside a flow fn",
-                       diagnostics::err::UnsupportedSyntax);
-            }
-            if (inMarkerBody_)
-                report(stmt.span, "dock is only allowed outside a marker body",
-                       diagnostics::err::UnsupportedSyntax);
-            if (!stmt.label.empty())
-                validateMarkerReference(stmt.span, stmt.label, stmt);
-            last = void_type;
         } else if (stmt.kind == frontend::StmtKind::Jump) {
-            if (currentFunctionKind_ != frontend::FunctionKind::Flow) {
-                report(stmt.span, "jump is only allowed inside a flow fn",
-                       diagnostics::err::UnsupportedSyntax);
-            }
-            if (!inMarkerBody_) {
-                report(stmt.span, "jump is only allowed inside a marker body",
-                       diagnostics::err::UnsupportedSyntax);
-            }
-            validateMarkerReference(stmt.span, stmt.label, stmt);
+            report(stmt.span, "jump is only allowed inside a state function",
+                   diagnostics::err::UnsupportedSyntax);
             last = void_type;
         }
     }
@@ -2575,12 +2495,145 @@ void PerModuleSema::reportCoercionFailure(frontend::TextSpan span, TypeId target
     report(span, std::string(context), fallback_code);
 }
 
-void PerModuleSema::checkReturnStatement(const frontend::Statement &stmt) {
-    if (inGlobalMarker_) {
-        report(stmt.span, "return is not allowed in a global marker",
+uint64_t PerModuleSema::statePrototypeKey(const TypeId return_type,
+                                          const memory::DynArray<TypeId> &params) const {
+    uint64_t key = 0x9E3779B97F4A7C15ULL ^ static_cast<uint64_t>(return_type.intern_seq);
+    for (const TypeId param : params)
+        key = (key << 5U) - key + static_cast<uint64_t>(param.intern_seq);
+    return key != 0U ? key : 1U;
+}
+
+uint32_t PerModuleSema::stateMachineIdFor(const frontend::Declaration &decl) {
+    const auto existing = stateMachineByDecl_.find(decl.id.value);
+    if (existing != stateMachineByDecl_.end())
+        return existing->second;
+    const TypeId fn_type = typeOfDecl(decl.id);
+    const auto *fn       = type_table.function(fn_type);
+    if (fn == nullptr)
+        return 0;
+    const uint64_t key = statePrototypeKey(fn->result, fn->params);
+    auto &machine_id   = stateMachineByPrototype_[key];
+    if (machine_id == 0)
+        machine_id = nextStateMachineId_++;
+    stateMachineByDecl_[decl.id.value] = machine_id;
+    return machine_id;
+}
+
+namespace {
+
+const frontend::Declaration *
+findDeclarationForResolved(const PerModuleSema &sema,
+                           const session::ResolvedName &resolved) {
+    const session::ModuleKey target_module =
+        resolved.target.module.empty() ? sema.module : resolved.target.module;
+    PerModuleSema *target = sema.owner != nullptr ? sema.owner->findModuleSema(target_module)
+                                                  : nullptr;
+    if (target == nullptr)
+        return nullptr;
+    frontend::DeclId decl_id = resolved.declaration;
+    if (!decl_id && resolved.target.localSymbol)
+        decl_id = frontend::DeclId{resolved.target.localSymbol.value};
+    if (!decl_id || decl_id.value > target->snapshot.declarations().size())
+        return nullptr;
+    return &target->snapshot.declarations()[decl_id.value - 1U];
+}
+
+} // namespace
+
+void PerModuleSema::inferDockCall(frontend::ExprId id) {
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    TypeId result    = error_type;
+    if (!expr.operands.empty()) {
+        const auto &target_expr = snapshot.expressions()[expr.operands[0].value - 1U];
+        const auto *resolved    = findResolvedExpr(expr.operands[0]);
+        const frontend::Declaration *target = nullptr;
+        if (resolved != nullptr) {
+            target = findDeclarationForResolved(*this, *resolved);
+        }
+        if (target == nullptr || target->kind != frontend::DeclKind::Function ||
+            target->functionKind != frontend::FunctionKind::State) {
+            report(expr.span, "dock target must be a state function",
+                   diagnostics::err::UnsupportedSyntax);
+        } else {
+            const TypeId target_type = typeOfResolvedName(expr.operands[0]);
+            if (const auto *fn = type_table.function(target_type)) {
+                result = fn->result;
+                if (expr.operands.size() - 1U != fn->params.size()) {
+                    report(expr.span, "dock call arity mismatch",
+                           diagnostics::err::NoMatchingFn);
+                    result = fn->result;
+                } else {
+                    for (size_t index = 0; index < fn->params.size(); ++index) {
+                        const TypeId arg_type = inferExpr(expr.operands[index + 1U]);
+                        if (!coerceValue(expr.operands[index + 1U], fn->params[index], arg_type)) {
+                            reportCoercionFailure(expr.span, fn->params[index], arg_type,
+                                                  "dock argument type mismatch",
+                                                  diagnostics::err::NoMatchingFn);
+                        }
+                    }
+                }
+                setExprType(expr.operands[0], target_type);
+                setResolvedCallTarget(expr.operands[0],
+                                      resolved != nullptr ? resolved->target.module
+                                                          : session::ModuleKey{},
+                                      target->id);
+                if (resolved != nullptr && resolved->target.module.empty())
+                    setResolvedCallTarget(expr.operands[0], module, target->id);
+            }
+        }
+    }
+    setExprType(id, result);
+}
+
+void PerModuleSema::inferJump(const frontend::Statement &stmt) {
+    if (!inStateBody_) {
+        report(stmt.span, "jump is only allowed inside a state function",
                diagnostics::err::UnsupportedSyntax);
         return;
     }
+    const auto *resolved = stmt.label.empty()
+                               ? nullptr
+                               : session::lookupBinding(resolution, stmt.label,
+                                                 frontend::ScopeId{}, snapshot.scopes());
+    const frontend::Declaration *target = nullptr;
+    if (resolved != nullptr)
+        target = findDeclarationForResolved(*this, *resolved);
+    if (target == nullptr) {
+        report(stmt.span, "jump target must be a state function: '" + stmt.label + "'",
+               diagnostics::err::UndefinedIdent);
+        return;
+    }
+    if (target->functionKind != frontend::FunctionKind::State) {
+        report(stmt.span, "jump target must be a state function",
+               diagnostics::err::UnsupportedSyntax);
+        return;
+    }
+    const uint32_t target_machine = stateMachineIdFor(*target);
+    if (target_machine != currentStateMachineId_) {
+        report(stmt.span, "jump target must be in the same state machine",
+               diagnostics::err::UnsupportedSyntax);
+        return;
+    }
+    const TypeId target_type = typeOfResolvedBinding(*resolved);
+    const auto *fn           = type_table.function(target_type);
+    if (fn == nullptr)
+        return;
+    if (stmt.arguments.size() != fn->params.size()) {
+        report(stmt.span, "state transition arity mismatch",
+               diagnostics::err::NoMatchingFn);
+        return;
+    }
+    for (size_t index = 0; index < fn->params.size(); ++index) {
+        const TypeId arg_type = inferExpr(stmt.arguments[index]);
+        if (!coerceValue(stmt.arguments[index], fn->params[index], arg_type)) {
+            reportCoercionFailure(stmt.span, fn->params[index], arg_type,
+                                  "state transition argument type mismatch",
+                                  diagnostics::err::NoMatchingFn);
+        }
+    }
+}
+
+void PerModuleSema::checkReturnStatement(const frontend::Statement &stmt) {
     if (!stmt.expression) {
         // `return;` in a function that promises a value is still a mismatch.
         if (currentReturnType_ && resolve(currentReturnType_) != void_type &&
@@ -2600,12 +2653,6 @@ void PerModuleSema::checkReturnStatement(const frontend::Statement &stmt) {
 }
 
 TypeId PerModuleSema::inferReturn(frontend::ExprId id) {
-    if (inGlobalMarker_) {
-        const auto &expr = snapshot.expressions()[id.value - 1U];
-        report(expr.span, "return is not allowed in a global marker",
-               diagnostics::err::UnsupportedSyntax);
-        return type_table.internName("never", TypeKind::Never);
-    }
     const auto &expr = snapshot.expressions()[id.value - 1U];
     TypeId value     = expr.operands.empty() ? void_type : inferExpr(expr.operands[0]);
     if (currentReturnType_ && value && value != error_type && !expr.operands.empty() &&
