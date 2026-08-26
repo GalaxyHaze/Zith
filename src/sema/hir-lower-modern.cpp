@@ -7,6 +7,7 @@
 #include "hir/hir-attrs.hpp"
 #include "sema/nra-facts.hpp"
 #include "sema/op-mapping.hpp"
+#include "support/debug-print.hpp"
 #include "support/int-literal.hpp"
 #include "types/type-kind.hpp"
 
@@ -807,6 +808,8 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     inMarkerBody_ = false;
     local_slots_.clear();
     local_slots_.resize(1U);
+    current_for_in_binding_stmt_  = {};
+    current_for_in_binding_local_ = {};
 
     current_fn_->blocks.emplace(arena_);
     current_fn_->blocks[0].insts = memory::DynArray<hir::HirExprId>(arena_);
@@ -1261,6 +1264,8 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
         return lowerWhile(expr);
     case frontend::ExprKind::For:
         return lowerFor(expr);
+    case frontend::ExprKind::ForIn:
+        return lowerForIn(expr);
     case frontend::ExprKind::Assign:
         return lowerAssign(expr, type);
     case frontend::ExprKind::OptionalProp:
@@ -1939,6 +1944,114 @@ hir::HirExprId HirLowerModern::lowerFor(const frontend::Expression &expr) {
     return hir::kInvalidHirExpr;
 }
 
+hir::HirExprId HirLowerModern::lowerForIn(const frontend::Expression &expr) {
+    if (expr.operands.size() < 2U)
+        return hir::kInvalidHirExpr;
+
+    // Keep the iterable alive for the whole loop. A value receiver is copied
+    // into a slot and its address is passed as the implicit self argument; a
+    // pointer receiver can pass the loaded value directly.
+    const auto iterable = lowerExpr(expr.operands[0]);
+    if (iterable == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+    const auto iterable_type = typeOfExpr(expr.operands[0]);
+    const sema::modern::TypeId sema_iterable = semaTypeOfExpr(expr.operands[0]);
+    const auto iterable_slot = next_slot_++;
+    current_fn_->blocks[current_block_].insts.push(
+        emitSlotAlloca(iterable_slot, iterable_type));
+    current_fn_->blocks[current_block_].insts.push(
+        emitSlotStore(iterable_slot, iterable));
+    const auto iterable_addr = addExpr(hir::HirSlotAddr{iterable_slot, iterable_type});
+
+    const auto *done_ptr =
+        current_types_ != nullptr ? current_types_->forInDone.get(expr.id.value) : nullptr;
+    const auto *value_ptr =
+        current_types_ != nullptr ? current_types_->forInValue.get(expr.id.value) : nullptr;
+    const auto *next_ptr =
+        current_types_ != nullptr ? current_types_->forInNext.get(expr.id.value) : nullptr;
+
+    const frontend::DeclId done_decl  = done_ptr != nullptr ? *done_ptr : frontend::DeclId{};
+    const frontend::DeclId value_decl = value_ptr != nullptr ? *value_ptr : frontend::DeclId{};
+    const frontend::DeclId next_decl  = next_ptr != nullptr ? *next_ptr : frontend::DeclId{};
+
+    const auto makeMethodCall = [&](const frontend::DeclId decl_id) -> hir::HirExprId {
+        if (!decl_id)
+            return hir::kInvalidHirExpr;
+        const auto *method_decl = findDecl(*current_module_, decl_id);
+        if (method_decl == nullptr)
+            return hir::kInvalidHirExpr;
+        const auto key = internFunctionKey(interner_, current_module_->key, decl_id);
+        const auto *function_index = function_index_by_key_.get(key);
+        if (function_index == nullptr)
+            return hir::kInvalidHirExpr;
+
+        memory::DynArray<hir::HirExprId> args(arena_);
+        memory::DynArray<types::TypeId> arg_types(arena_);
+        (void)sema_iterable;
+        const auto self_type = iterable_type;
+        args.push(iterable_addr);
+        arg_types.push(self_type);
+
+        hir::HirCall call{hir::kInvalidHirExpr, std::move(args), std::move(arg_types)};
+        call.resolved_fn = functions_[*function_index].sym_id;
+        return addExpr(std::move(call));
+    };
+
+    const auto header_block = newBlock();
+    const auto body_block   = newBlock();
+    const auto step_block   = newBlock();
+    const auto exit_block   = newBlock();
+
+    emitJump(header_block);
+
+    // Header: `if (iter.done()) break;`.
+    setCurrentBlock(header_block);
+    current_fn_->blocks[header_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    const auto done_call = makeMethodCall(done_decl);
+    if (done_call == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+    hir::HirBranch branch;
+    branch.cond       = done_call;
+    branch.then_block = static_cast<hir::HirDeclId>(exit_block);
+    branch.else_block = static_cast<hir::HirDeclId>(body_block);
+    setTerminator(addExpr(std::move(branch)));
+
+    // Body: slot = iter.value(); lower the user block.
+    setCurrentBlock(body_block);
+    current_fn_->blocks[body_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    const auto value_call = makeMethodCall(value_decl);
+    if (value_call == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+    const auto loop_slot = localSlot(expr.forInBinding);
+    const auto loop_type = typeOfLocal(expr.forInBinding);
+    current_fn_->blocks[body_block].insts.push(emitSlotAlloca(loop_slot, loop_type));
+    current_fn_->blocks[body_block].insts.push(emitSlotStore(loop_slot, value_call));
+
+    loop_stack_.push_back({step_block, exit_block});
+    const frontend::StmtId saved_for_in_stmt = current_for_in_binding_stmt_;
+    current_for_in_binding_stmt_             = expr.forInBindingStmt;
+    current_for_in_binding_local_            = expr.forInBinding;
+    (void)lowerExpr(expr.operands[1]);
+    current_for_in_binding_stmt_             = saved_for_in_stmt;
+    current_for_in_binding_local_            = {};
+    if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
+        emitJump(step_block);
+    loop_stack_.pop_back();
+
+    // Step: `iter.next(); goto header;`.
+    setCurrentBlock(step_block);
+    current_fn_->blocks[step_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    const auto next_call = makeMethodCall(next_decl);
+    if (next_call != hir::kInvalidHirExpr)
+        current_fn_->blocks[step_block].insts.push(next_call);
+    if (current_fn_->blocks[step_block].terminator == hir::kInvalidHirExpr)
+        emitJump(header_block);
+
+    setCurrentBlock(exit_block);
+    current_fn_->blocks[exit_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    return hir::kInvalidHirExpr;
+}
+
 hir::HirExprId HirLowerModern::lowerAssign(const frontend::Expression &expr,
                                            const types::TypeId type) {
     (void)type;
@@ -1958,11 +2071,14 @@ hir::HirExprId HirLowerModern::lowerAssign(const frontend::Expression &expr,
         }
     }
     // For field/arrow lvalue targets, lower the lhs normally (produces HirField) then assign.
-    if (lhs_expr.kind == frontend::ExprKind::Field || lhs_expr.kind == frontend::ExprKind::Arrow) {
+    if (lhs_expr.kind == frontend::ExprKind::Field || lhs_expr.kind == frontend::ExprKind::Arrow ||
+        lhs_expr.kind == frontend::ExprKind::Index) {
         const auto target_type = typeOfExpr(expr.operands[0]);
         const auto target      = lhs_expr.kind == frontend::ExprKind::Field
                                      ? lowerField(lhs_expr, target_type)
-                                     : lowerArrow(lhs_expr, target_type);
+                                 : lhs_expr.kind == frontend::ExprKind::Arrow
+                                     ? lowerArrow(lhs_expr, target_type)
+                                     : lowerIndex(lhs_expr, target_type);
         const auto value       = lowerExpr(expr.operands[1]);
         if (target == hir::kInvalidHirExpr || value == hir::kInvalidHirExpr)
             return hir::kInvalidHirExpr;
@@ -2727,6 +2843,15 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
         }
         return true;
     case frontend::StmtKind::Binding: {
+        // A for-in element binding is materialized by the loop lowering: it
+        // only stores the per-iteration `value()` result, so allocating the
+        // same slot again here would clobber that store in codegen.
+        if (statement.id == current_for_in_binding_stmt_ ||
+            (current_for_in_binding_local_ &&
+             statement.binding.id == current_for_in_binding_local_)) {
+            last_value = hir::kInvalidHirExpr;
+            return true;
+        }
         const auto slot = localSlot(statement.binding.id);
         const auto type = typeOfLocal(statement.binding.id);
         current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, type));

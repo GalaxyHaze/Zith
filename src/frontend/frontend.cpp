@@ -1868,6 +1868,7 @@ private:
                     ++index_; // '_'
                     ++index_; // ')'
                     is_default = true;
+                    expression.conditions.push_back(ExprId{});
                 } else {
                     range_mode_ = true;
                     condition   = parseExpression();
@@ -1891,6 +1892,7 @@ private:
                     else
                         snapshot_.diagnostics_.push_back(
                             {range(case_start, index_), "expected ')' after when case condition"});
+                    expression.conditions.push_back(condition);
                 }
             } else {
                 snapshot_.diagnostics_.push_back(
@@ -1898,6 +1900,7 @@ private:
                 while (index_ < token_count_ && !punctuation(index_, ',') &&
                        !punctuation(index_, '}'))
                     ++index_;
+                expression.conditions.push_back(ExprId{});
             }
             if (isOperatorToken("~") && index_ + 1U < token_count_ &&
                 snapshot_.tokens_[index_ + 1U].kind == TokenKind::Operator &&
@@ -1907,7 +1910,6 @@ private:
                 snapshot_.diagnostics_.push_back(
                     {range(case_start, index_), "expected '~>' after when case condition"});
             }
-            expression.conditions.push_back(is_default ? ExprId{} : condition);
             expression.operands.push_back(parseExpression()); // case body
             if (punctuation(index_, ','))
                 ++index_;
@@ -1921,8 +1923,8 @@ private:
         return parsePostfix(addExpression(std::move(expression)), start);
     }
 
-    /// `for` is the canonical loop: `for { }` (infinite) and `for (cond) { }` (conditional).
-    /// Iterator forms are not implemented yet and report a dedicated diagnostic.
+    /// `for` is the canonical loop: `for { }` (infinite), `for (cond) { }`
+    /// (conditional), comma separated 3-clause forms, and `for (x in xs) { }`.
     [[nodiscard]] ExprId parseFor() {
         const uint32_t start = index_++;
         Expression expression;
@@ -1940,11 +1942,16 @@ private:
         } else if (punctuation(index_, '(')) {
             ++index_;
             const uint32_t clause_start = index_;
-            // init clause: `var x = e`, a bare expression, or empty (`;`).
             StmtId init_stmt;
             ExprId init_expr;
             if (index_ < token_count_ && text(index_) == "var") {
                 ++index_;
+                if (index_ >= token_count_ ||
+                    (snapshot_.tokens_[index_].kind != TokenKind::Identifier &&
+                     snapshot_.tokens_[index_].kind != TokenKind::Keyword)) {
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_), "expected a loop variable name"});
+                }
                 Statement stmt;
                 stmt.kind                = StmtKind::Binding;
                 stmt.binding.bindingKind = BindingKind::Var;
@@ -1961,32 +1968,34 @@ private:
                 }
                 stmt.span = range(clause_start, index_);
                 init_stmt = addStatement(std::move(stmt));
-            } else if (!punctuation(index_, ';')) {
+            } else if (!punctuation(index_, ',') && !punctuation(index_, ')')) {
                 init_expr = parseExpression();
             }
-            if (punctuation(index_, ';')) {
-                // 3-clause form: for (init; cond; step) { body }.  Init desugars to a
-                // preceding statement of the enclosing block; cond defaults to `true`.
-                // The step runs after each body iteration (and after `continue`), so it
-                // is kept as a dedicated operand of the For node, not merged into the body.
+
+            // Flat 3-clause form: `for (init, cond, step)`.  The first comma
+            // inside the paren group is the discriminator from the iterator and
+            // conditional forms.
+            if (punctuation(index_, ',')) {
                 ++index_;
-                if (bool(init_expr)) {
+                if (init_expr) {
                     Statement stmt;
                     stmt.kind       = StmtKind::Expression;
                     stmt.expression = init_expr;
                     stmt.span       = tokenSpan(clause_start);
                     init_stmt       = addStatement(std::move(stmt));
                 }
-                // cond clause (default `true`).
                 ExprId cond_expr;
-                if (!punctuation(index_, ';'))
+                bool cond_omitted = false;
+                if (!punctuation(index_, ',') && !punctuation(index_, ')')) {
                     cond_expr = parseExpression();
-                if (punctuation(index_, ';'))
-                    ++index_;
-                else
+                } else {
+                    cond_omitted = true;
+                }
+                if (!punctuation(index_, ','))
                     snapshot_.diagnostics_.push_back(
-                        {range(start, index_), "expected ';' after for condition"});
-                // step clause (optional).
+                        {range(start, index_), "expected ',' between for clauses"});
+                else
+                    ++index_;
                 ExprId step_expr;
                 if (!punctuation(index_, ')'))
                     step_expr = parseExpression();
@@ -1998,7 +2007,7 @@ private:
                 if (!punctuation(index_, '{'))
                     snapshot_.diagnostics_.push_back({range(start, index_), "expected for body"});
                 const ExprId body = parseBlock();
-                if (!bool(cond_expr)) {
+                if (cond_omitted || !bool(cond_expr)) {
                     Expression always;
                     always.kind  = ExprKind::Literal;
                     always.text  = "true";
@@ -2027,21 +2036,161 @@ private:
                 outer.statements.push_back(addStatement(std::move(loop_stmt)));
                 return addExpression(std::move(outer));
             }
+
             if (isKeywordToken("in")) {
-                snapshot_.diagnostics_.push_back(
-                    {range(clause_start, index_), "for iterator form is not implemented yet"});
+                ++index_;
+                const ExprId iterable = parseExpression();
+                if (punctuation(index_, ')'))
+                    ++index_;
+                else
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_), "expected ')' after for iterable"});
+                if (!punctuation(index_, '{')) {
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_), "expected for body"});
+                    expression.kind = ExprKind::Error;
+                    expression.span = range(start, index_);
+                    return addExpression(std::move(expression));
+                }
+                const ExprId body = parseBlock();
+                expression.kind   = ExprKind::ForIn;
+                expression.span   = range(start, index_);
+                expression.operands.push_back(iterable);
+                expression.operands.push_back(body);
+                const ExprId for_in_id = addExpression(std::move(expression));
+
+                const LocalId local = init_stmt
+                                          ? snapshot_.statements_[init_stmt.value - 1U]
+                                                .binding.id
+                                          : LocalId{statementCountLocals_++};
+                auto &for_in = snapshot_.expressions_[for_in_id.value - 1U];
+                for_in.forInBinding = local;
+                if (init_stmt) {
+                    for_in.text = snapshot_.statements_[init_stmt.value - 1U].binding.name;
+                    for_in.cast_type =
+                        snapshot_.statements_[init_stmt.value - 1U].binding.type;
+                }
+                if (init_expr) {
+                    auto &name_expr = snapshot_.expressions_[init_expr.value - 1U];
+                    if (name_expr.kind != ExprKind::Name) {
+                        snapshot_.diagnostics_.push_back(
+                            {name_expr.span, "expected a loop variable name before 'in'"});
+                        for_in.kind = ExprKind::Error;
+                        for_in.span = range(start, index_);
+                        return for_in_id;
+                    }
+                    for_in.text = name_expr.text;
+                    // The header name is the loop variable, not a lookup in the
+                    // enclosing scope: point it at the body block so the
+                    // synthetic binding below resolves both occurrences.
+                    name_expr.scope = snapshot_.expressions_[body.value - 1U].scope;
+                }
+
+                // Materialize a synthetic `let` in the loop body so local
+                // resolution, sema, and HIR slots all see the element binding.
+                Statement binding;
+                binding.kind                = StmtKind::Binding;
+                binding.binding.bindingKind = BindingKind::Let;
+                binding.binding.id          = local;
+                binding.binding.name        = for_in.text;
+                binding.binding.span =
+                    init_stmt ? snapshot_.statements_[init_stmt.value - 1U].binding.span
+                              : tokenSpan(clause_start);
+                binding.binding.type =
+                    init_stmt ? snapshot_.statements_[init_stmt.value - 1U].binding.type
+                              : TypeExprId{};
+                binding.span                  = binding.binding.span;
+                const StmtId binding_stmt     = addStatement(std::move(binding));
+                for_in.forInBindingStmt       = binding_stmt;
+                snapshot_.expressions_[body.value - 1U].statements.insert(
+                    snapshot_.expressions_[body.value - 1U].statements.begin(),
+                    binding_stmt);
+                return for_in_id;
+            }
+
+            if (punctuation(index_, ')')) {
+                ++index_;
+                if (punctuation(index_, ',')) {
+                    // Parenthesized clause form: `for (init), (cond), (step)`.
+                    ++index_;
+                    ExprId cond_expr;
+                    ExprId step_expr;
+                    auto parseGroup = [&]() -> ExprId {
+                        if (!punctuation(index_, '('))
+                            return {};
+                        ++index_;
+                        const ExprId group = parseExpression();
+                        if (punctuation(index_, ')'))
+                            ++index_;
+                        else
+                            snapshot_.diagnostics_.push_back(
+                                {range(start, index_), "expected ')' after for clause"});
+                        if (punctuation(index_, ','))
+                            ++index_;
+                        return group;
+                    };
+                    cond_expr = parseGroup();
+                    step_expr = parseGroup();
+                    if (!punctuation(index_, '{'))
+                        snapshot_.diagnostics_.push_back(
+                            {range(start, index_), "expected for body"});
+                    const ExprId body = parseBlock();
+                    if (!bool(cond_expr)) {
+                        Expression always;
+                        always.kind  = ExprKind::Literal;
+                        always.text  = "true";
+                        always.scope = current_scope_;
+                        always.span  = range(start, index_);
+                        cond_expr    = addExpression(std::move(always));
+                    }
+                    if (init_expr) {
+                        Statement stmt;
+                        stmt.kind       = StmtKind::Expression;
+                        stmt.expression = init_expr;
+                        stmt.span       = tokenSpan(clause_start);
+                        init_stmt       = addStatement(std::move(stmt));
+                    }
+                    Expression outer;
+                    outer.kind      = ExprKind::Block;
+                    outer.scope     = current_scope_;
+                    outer.span      = range(start, index_);
+                    expression.kind = ExprKind::For;
+                    expression.span = range(start, index_);
+                    expression.operands.push_back(cond_expr);
+                    expression.operands.push_back(body);
+                    expression.operands.push_back(step_expr);
+                    const ExprId for_id = addExpression(std::move(expression));
+                    if (bool(init_stmt))
+                        outer.statements.push_back(init_stmt);
+                    Statement loop_stmt;
+                    loop_stmt.kind       = StmtKind::Expression;
+                    loop_stmt.expression = for_id;
+                    loop_stmt.span       = range(start, index_);
+                    outer.statements.push_back(addStatement(std::move(loop_stmt)));
+                    return addExpression(std::move(outer));
+                }
+
+                // Conditional form: `for (cond) { }`.
+                if (!bool(init_expr)) {
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_), "expected a condition after 'for ('"});
+                    expression.kind = ExprKind::Error;
+                    expression.span = range(start, index_);
+                    return addExpression(std::move(expression));
+                }
+                expression.operands.push_back(init_expr);
+                if (punctuation(index_, '{'))
+                    expression.operands.push_back(parseBlock());
+                else
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_), "expected for body"});
                 expression.span = range(start, index_);
-                expression.kind = ExprKind::Error;
                 return addExpression(std::move(expression));
             }
-            if (punctuation(index_, ')'))
-                ++index_;
-            else
-                snapshot_.diagnostics_.push_back(
-                    {range(start, index_), "expected ')' after condition"});
+
             if (!bool(init_expr))
                 snapshot_.diagnostics_.push_back(
-                    {range(start, index_), "expected a condition after 'for ('"});
+                    {range(start, index_), "expected a condition or clause after 'for ('"});
             expression.operands.push_back(init_expr);
         } else {
             snapshot_.diagnostics_.push_back(

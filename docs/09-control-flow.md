@@ -1,10 +1,11 @@
 ## 9. Control Flow
 
 > **Implementation status:** `if`/`else`, `break`, `continue`, and `return` are **working**.
-> `for` is the canonical loop: `for { ... }` and `for (cond) { ... }` are **working** and lower to
-> the same CFG as the old `while`. The iterator (`in`) and 3-clause (`init`, `cond`, `step`) forms
-> are recognised but report "not implemented yet". `while` still works but emits a deprecation
-> warning (`W1008`) pointing at `for (cond) { }`. `when` pattern matching is a **parse error** —
+> `for` is the canonical loop: `for { ... }`, `for (cond) { ... }`, the comma-based 3-clause form,
+> and duck-typed `for (x in iterable)` are **working** and lower to the same CFG machinery as the
+> old `while`. `while` still works but emits a deprecation warning (`W1008`) pointing at
+> `for (cond) { }`. The literal range forms (`0..4`) are not implemented yet. `when` pattern
+> matching is a **parse error** —
 > arm syntax `0 => { }` is not recognised. `flow fn` parses as a function declaration;
 > `dock`, `jump`, and global/local `marker` lowering with typed arguments is tested, along with
 > stackless marker execution and stackful local bindings. Cycle detection and marker return
@@ -24,8 +25,7 @@ let mask = a &. b |. c ^. d;
 
 ```zith
 for { ... }                                     // infinite
-for (i in 0..=9) { @println(i); }               // inclusive range
-for (i in 0..9)  { @println(i); }               // exclusive range
+for (i in iterable) { @println(i); }            // user iterator with done/value/next
 for (i = 0), (i < 10), (i += 1) { ... }         // init / cond / step
 for (v in range(0, 100)) { @println(v); }       // over a generator
 
@@ -35,7 +35,7 @@ let r = for ([acc, i]: i32), (i in 0..n) { acc *= i + 1 } or 0;
 
 > If the loop body may never run, its return value is deduced as optional — unless `or` collapses it to a non-optional value.
 
-> The init/cond/step form accepts comma-separated, parenthesized expressions — `for (i = 0), (i < 10), (i += 1)` — or the flat alternative, `for (i = 0, i < 10, i += 1)`.
+> The init/cond/step form accepts comma-separated, parenthesized expressions — `for (i = 0), (i < 10), (i += 1)` — or the flat alternative, `for (i = 0, i < 10, i += 1)`. The iterator form expects a value whose type exposes `done(self): bool`, `value(self): T`, and `next(self)` methods.
 
 ### 9.3 Chain Flow (`->`)
 

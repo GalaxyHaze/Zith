@@ -1,10 +1,25 @@
-// Exercises: 3-clause `for (init; cond; step)`, conditional `for (cond)`,
-// bare `for { ... break }`, and the compound assignments `+=`, `-=`, `*=`.
+// Exercises: 3-clause `for (init, cond, step)`, conditional `for (cond)`,
+// iterator `for (x in iterable)`, bare `for { ... break }`, and the compound
+// assignments `+=`, `-=`, `*=`.
 // Expected exit code: 10
+
+struct Counter {
+    current: i32,
+    limit: i32,
+    fn done(self): bool {
+        return self->current >= self->limit;
+    }
+    fn value(self): i32 {
+        return self->current;
+    }
+    fn next(self) {
+        self->current = self->current + 1;
+    }
+}
 
 fn main(): i32 {
     var sum: i32 = 0;
-    for (var i: i32 = 0; i < 5; i += 1) {
+    for (var i: i32 = 0, i < 5, i += 1) {
         sum += i;
     }
     // sum == 10
@@ -15,6 +30,15 @@ fn main(): i32 {
     }
     if (countdown != 0) {
         return 1;
+    }
+
+    var total: i32 = 0;
+    let counter: Counter = Counter { current: 0, limit: 5 };
+    for (n in counter) {
+        total += n;
+    }
+    if (total != 10) {
+        return 4;
     }
 
     var doubled: i32 = 1;

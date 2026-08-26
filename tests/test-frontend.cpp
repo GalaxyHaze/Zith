@@ -358,8 +358,13 @@ static void test_for_loop_forms() {
                                     "    }\n"
                                     "    return 1;\n"
                                     "}\n");
-    CHECK(!iterator.diagnostics().empty(),
-          "the iterator form of 'for' reports it is unimplemented");
+    CHECK(iterator.diagnostics().empty(), "the iterator form of 'for' parses without diagnostics");
+    bool found_for_in = false;
+    for (const auto &expression : iterator.expressions()) {
+        if (expression.kind == frontend::ExprKind::ForIn)
+            found_for_in = true;
+    }
+    CHECK(found_for_in, "the iterator form lowers to a ForIn expression");
 }
 
 static void test_structured_imports() {

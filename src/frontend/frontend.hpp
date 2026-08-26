@@ -134,9 +134,13 @@ enum class ExprKind : uint8_t {
     If,
     /// `for { }` (infinite) and `for (cond) { }` (conditional).
     While,
-    /// 3-clause `for (init; cond; step) { body }`: operands are [cond, body, step];
+    /// 3-clause `for (init, cond, step) { body }`: operands are [cond, body, step];
     /// `init` is desugared into a preceding statement of the enclosing block.
     For,
+    /// `for (name in iterable) { body }`: operands are [iterable, body]; `text`
+    /// holds the loop variable and `bindingKind` (via `cast_type`) an optional
+    /// type annotation.
+    ForIn,
     Return,
     Assign,
     OptionalProp,
@@ -249,6 +253,12 @@ struct Expression {
     std::vector<ExprId> conditions;
     // Used by ExprKind::Cast: the target type written after `as`
     TypeExprId cast_type;
+    /// Used by ExprKind::ForIn: the local binding that receives `value()` each
+    /// iteration. It is a synthetic statement inside the body block.
+    LocalId forInBinding;
+    /// The synthetic binding statement inserted at the front of the ForIn body.
+    /// HIR lowering uses this to avoid allocating the loop slot a second time.
+    StmtId forInBindingStmt;
     // Used by ExprKind::Call: explicit generic arguments `name<A, B>(...)`.
     std::vector<TypeExprId> genericArgs;
     /// For MacroCall: the result of expansion (a Block expression for normal

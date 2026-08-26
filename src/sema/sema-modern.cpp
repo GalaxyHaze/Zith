@@ -662,6 +662,10 @@ void PerModuleSema::inferExpressionTypesForDecls() {
         if (decl.kind == frontend::DeclKind::Marker)
             global_markers_.insert({decl.name, &decl});
     }
+    local_markers_.clear();
+    for (const auto &decl : snapshot.declarations())
+        if (decl.kind == frontend::DeclKind::Function && decl.body)
+            collectMarkers(decl.body);
     for (const auto &decl : snapshot.declarations()) {
         // A macro declaration is a template, not code: its body only becomes
         // real code once cloned into a call site.
@@ -681,8 +685,6 @@ void PerModuleSema::inferExpressionTypesForDecls() {
         if (decl.body) {
             currentDeclId_ = decl.id.value;
             if (decl.kind == frontend::DeclKind::Function) {
-                local_markers_.clear();
-                collectMarkers(decl.body);
                 inMarkerBody_ = false;
             } else if (decl.kind == frontend::DeclKind::Marker) {
                 inMarkerBody_           = true;
@@ -695,14 +697,25 @@ void PerModuleSema::inferExpressionTypesForDecls() {
             inMarkerBody_           = false;
             inGlobalMarker_         = false;
             currentStacklessMarker_ = false;
-            if (decl.kind == frontend::DeclKind::Function)
-                local_markers_.clear();
         }
         if (decl.initializer) {
             (void)inferExpr(decl.initializer);
         }
     }
-    // Also infer standalone expressions, skipping macro template bodies.
+    // Infer iterator loops before the standalone sweep: the synthetic binding
+    // in the loop body must be typed by the iterable before a body read is
+    // visited as an independent expression.
+    for (const auto &expr : snapshot.expressions()) {
+        if (snapshot.isMacroTemplateExpr(expr.id))
+            continue;
+        if (expr.kind == frontend::ExprKind::ForIn) {
+            setExprType(expr.id, inferForIn(expr.id));
+        }
+    }
+    // Also infer standalone expressions, skipping macro template bodies.  The
+    // expanded clones of imported markers are excluded separately: local marker
+    // context is only valid during their declaration pass, not when a detached
+    // clone is re-validated out of order.
     for (const auto &expr : snapshot.expressions()) {
         if (snapshot.isMacroTemplateExpr(expr.id))
             continue;
@@ -711,6 +724,7 @@ void PerModuleSema::inferExpressionTypesForDecls() {
     }
     currentDeclId_       = 0;
     currentFunctionKind_ = frontend::FunctionKind::Standard;
+    inMarkerBody_        = false;
 }
 
 void PerModuleSema::collectMarkers(frontend::ExprId id) {
@@ -1125,6 +1139,9 @@ TypeId PerModuleSema::inferExpr(frontend::ExprId id) {
         break;
     case frontend::ExprKind::For:
         result = inferFor(id);
+        break;
+    case frontend::ExprKind::ForIn:
+        result = inferForIn(id);
         break;
     case frontend::ExprKind::Return:
         result = inferReturn(id);
@@ -1962,7 +1979,14 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
                     init_type = error_type;
                 }
             }
-            setLocalType(stmt.binding.id, ann_type ? ann_type : init_type);
+            const TypeId existing_type = typeOfLocal(stmt.binding.id);
+            // A for-in element binding is typed by the loop before the body is
+            // lowered; keep that type rather than marking the synthetic
+            // binding untyped.
+            if (ann_type || stmt.binding.initializer)
+                setLocalType(stmt.binding.id, ann_type ? ann_type : init_type);
+            else if (!existing_type)
+                setLocalType(stmt.binding.id, invalid_type);
             last = void_type;
         } else if (stmt.kind == frontend::StmtKind::Return) {
             checkReturnStatement(stmt);
@@ -2075,6 +2099,115 @@ TypeId PerModuleSema::inferFor(frontend::ExprId id) {
         (void)inferExpr(expr.operands[1]);
     if (expr.operands.size() >= 3U && expr.operands[2])
         (void)inferExpr(expr.operands[2]);
+    return void_type;
+}
+
+TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.operands.size() < 2U)
+        return void_type;
+
+    const TypeId iterable_type = inferExpr(expr.operands[0]);
+    if (!iterable_type || type_table.kindOf(resolve(iterable_type)) == TypeKind::Error)
+        return void_type;
+
+    TypeId pointee    = resolve(type_table.stripQualifiers(iterable_type));
+    bool is_pointer   = false;
+    if (type_table.kindOf(pointee) == TypeKind::Pointer) {
+        if (const auto *ptr = type_table.pointer(pointee)) {
+            pointee    = resolve(type_table.stripQualifiers(ptr->pointee));
+            is_pointer = true;
+        }
+    } else if (type_table.kindOf(pointee) == TypeKind::Optional) {
+        if (const auto *opt = type_table.optional(pointee)) {
+            pointee = resolve(type_table.stripQualifiers(opt->inner));
+            if (type_table.kindOf(pointee) == TypeKind::Pointer) {
+                if (const auto *ptr = type_table.pointer(pointee))
+                    pointee = resolve(type_table.stripQualifiers(ptr->pointee));
+            }
+        }
+    }
+
+    const StructType *st = type_table.struct_type(pointee);
+    if (st == nullptr) {
+        report(expr.span, "iterated value is not a struct with iterator methods",
+               diagnostics::err::TypeMismatch);
+        return void_type;
+    }
+    std::string owner_name(st->name);
+    if (const size_t angle = owner_name.find('<'); angle != std::string::npos)
+        owner_name.resize(angle);
+
+    auto findMethod = [&](const std::string_view name) -> const frontend::Declaration * {
+        for (const auto &decl : snapshot.declarations()) {
+            if (decl.kind != frontend::DeclKind::Function)
+                continue;
+            if (decl.ownerName != owner_name || decl.name != name)
+                continue;
+            if (!decl.parameters.empty() && decl.parameters.front().name == "self")
+                return &decl;
+        }
+        return nullptr;
+    };
+    const auto *done_decl  = findMethod("done");
+    const auto *value_decl = findMethod("value");
+    const auto *next_decl  = findMethod("next");
+
+    if (done_decl == nullptr || value_decl == nullptr || next_decl == nullptr)
+        report(expr.span, "iterator type '" + type_table.typeToString(iterable_type) +
+                              "' is missing done/value/next methods",
+               diagnostics::err::TypeMismatch);
+
+    TypeId element_type = error_type;
+    if (done_decl != nullptr) {
+        const TypeId done_fn = typeOfDecl(done_decl->id);
+        if (const auto *fn = type_table.function(done_fn)) {
+            if (!sameType(resolve(fn->result), bool_type))
+                report(expr.span, "iterator 'done' method must return bool",
+                       diagnostics::err::TypeMismatch);
+        } else {
+            report(expr.span, "iterator 'done' method has no function type",
+                   diagnostics::err::TypeMismatch);
+        }
+    }
+    if (next_decl != nullptr) {
+        const TypeId next_fn = typeOfDecl(next_decl->id);
+        if (const auto *fn = type_table.function(next_fn)) {
+            if (!sameType(resolve(fn->result), void_type))
+                report(expr.span, "iterator 'next' method must return void",
+                       diagnostics::err::TypeMismatch);
+        } else {
+            report(expr.span, "iterator 'next' method has no function type",
+                   diagnostics::err::TypeMismatch);
+        }
+    }
+    if (value_decl != nullptr) {
+        const TypeId value_fn = typeOfDecl(value_decl->id);
+        if (const auto *fn = type_table.function(value_fn)) {
+            element_type = fn->result;
+        } else {
+            report(expr.span, "iterator 'value' method has no function type",
+                   diagnostics::err::TypeMismatch);
+        }
+    }
+
+    if (done_decl == nullptr || value_decl == nullptr || next_decl == nullptr)
+        return void_type;
+
+    typed_map.forInDone.insert(id.value, done_decl->id);
+    typed_map.forInValue.insert(id.value, value_decl->id);
+    typed_map.forInNext.insert(id.value, next_decl->id);
+
+    if (expr.forInBinding) {
+        const TypeId ann     = lowerTypeExpr(expr.cast_type);
+        const TypeId actual  = element_type;
+        if (ann && !coerceValue(expr.operands[0], ann, actual)) {
+            report(expr.span, "iterator element type does not match loop variable annotation",
+                   diagnostics::err::TypeMismatch);
+        }
+        setLocalType(expr.forInBinding, ann ? ann : actual);
+    }
+    (void)inferExpr(expr.operands[1]);
     return void_type;
 }
 

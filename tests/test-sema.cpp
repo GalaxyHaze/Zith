@@ -1435,11 +1435,64 @@ static void test_modern_loop_body_infers_locals() {
     CHECK(f.ok, "the body of a 'for' loop infers its own locals");
 }
 
+static void test_modern_for_flat_and_parenthesized_forms() {
+    ModernSemaTest flat;
+    auto a = flat.run("fn main(): i32 {\n"
+                      "    var total: i32 = 0;\n"
+                      "    for (var i: i32 = 0, i < 5, i = i + 1) {\n"
+                      "        total = total + i;\n"
+                      "    }\n"
+                      "    return total;\n"
+                      "}\n");
+    CHECK(a.ok, "flat 3-clause for with var init type-checks");
+
+    ModernSemaTest flat_omissions;
+    auto b = flat_omissions.run("fn main(): i32 {\n"
+                                "    var n: i32 = 3;\n"
+                                "    for (, n > 0, n = n - 1) {\n"
+                                "    }\n"
+                                "    return n;\n"
+                                "}\n");
+    CHECK(b.ok, "flat 3-clause for with omitted init comma type-checks");
+
+    ModernSemaTest grouped;
+    auto c = grouped.run("fn main(): i32 {\n"
+                         "    var total: i32 = 0;\n"
+                         "    var i: i32 = 0;\n"
+                         "    for (i = 0), (i < 5), (i = i + 1) {\n"
+                         "        total = total + i;\n"
+                         "    }\n"
+                         "    return total;\n"
+                         "}\n");
+    CHECK(c.ok, "parenthesized 3-clause for type-checks");
+
+    ModernSemaTest missing_step;
+    auto d = missing_step.run("fn main(): i32 {\n"
+                              "    var i: i32 = 0;\n"
+                              "    var total: i32 = 0;\n"
+                              "    for (i = 0, i < 5,) {\n"
+                              "        total = total + i;\n"
+                              "        i = i + 1;\n"
+                              "    }\n"
+                              "    return total;\n"
+                              "}\n");
+    CHECK(d.ok, "flat 3-clause for with trailing comma omitted step type-checks");
+
+    ModernSemaTest bad_sep;
+    auto e = bad_sep.run("fn main(): i32 {\n"
+                         "    var i: i32 = 0;\n"
+                         "    for (i = 0, i < 5, i = i + 1) {\n"
+                         "    }\n"
+                         "    return i;\n"
+                         "}\n");
+    CHECK(e.ok, "flat for separator is still comma-based");
+}
+
 static void test_modern_for_three_clause() {
     ModernSemaTest ok;
     auto r = ok.run("fn sum_to(n: i32): i32 {\n"
                     "    var total: i32 = 0;\n"
-                    "    for (var i: i32 = 0; i < n; i = i + 1) {\n"
+                    "    for (var i: i32 = 0, i < n, i = i + 1) {\n"
                     "        total = total + i;\n"
                     "    }\n"
                     "    return total;\n"
@@ -1453,7 +1506,7 @@ static void test_modern_for_three_clause() {
     auto e = expr_init.run("fn main(): i32 {\n"
                            "    var i: i32 = 0;\n"
                            "    var total: i32 = 0;\n"
-                           "    for (i = 0; i < 5; i = i + 1) {\n"
+                           "    for (i = 0, i < 5, i = i + 1) {\n"
                            "        total = total + i;\n"
                            "    }\n"
                            "    return total;\n"
@@ -1463,7 +1516,7 @@ static void test_modern_for_three_clause() {
     ModernSemaTest empty_clauses;
     auto c = empty_clauses.run("fn main(): i32 {\n"
                                "    var n: i32 = 3;\n"
-                               "    for (; n > 0; n = n - 1) {\n"
+                               "    for (, n > 0, n = n - 1) {\n"
                                "    }\n"
                                "    return n;\n"
                                "}\n");
@@ -1472,7 +1525,7 @@ static void test_modern_for_three_clause() {
     ModernSemaTest bad_cond;
     auto b = bad_cond.run("fn main(): i32 {\n"
                           "    var i: i32 = 0;\n"
-                          "    for (var j: i32 = 0; 42; j = j + 1) {\n"
+                          "    for (var j: i32 = 0, 42, j = j + 1) {\n"
                           "        i = i + 1;\n"
                           "    }\n"
                           "    return i;\n"
@@ -1480,6 +1533,99 @@ static void test_modern_for_three_clause() {
     CHECK(!b.ok, "a non-boolean for condition is rejected");
     CHECK(b.hasMessage("loop condition must be boolean"),
           "the non-boolean 3-clause condition reports a type mismatch");
+}
+
+static void test_modern_for_in_iterators() {
+    ModernSemaTest ok;
+    auto a = ok.run("struct Range {\n"
+                    "    current: i32,\n"
+                    "    limit: i32,\n"
+                    "    fn done(self): bool {\n"
+                    "        return self->current >= self->limit;\n"
+                    "    }\n"
+                    "    fn value(self): i32 {\n"
+                    "        return self->current;\n"
+                    "    }\n"
+                    "    fn next(self) {\n"
+                    "        self->current = self->current + 1;\n"
+                    "    }\n"
+                    "}\n"
+                    "fn main(): i32 {\n"
+                    "    var total: i32 = 0;\n"
+                    "    let r: Range = Range { current: 0, limit: 5 };\n"
+                    "    for (x in r) {\n"
+                    "        total = total + x;\n"
+                    "    }\n"
+                    "    return total;\n"
+                    "}\n");
+    CHECK(a.ok, "for-in with done/value/next methods type-checks");
+
+    ModernSemaTest typed_binding;
+    auto b = typed_binding.run("struct Range {\n"
+                               "    current: i32,\n"
+                               "    limit: i32,\n"
+                               "    fn done(self): bool { return self->current >= self->limit; }\n"
+                               "    fn value(self): i32 { return self->current; }\n"
+                               "    fn next(self) { self->current = self->current + 1; }\n"
+                               "}\n"
+                               "fn main(): i32 {\n"
+                               "    var total: i32 = 0;\n"
+                               "    let r: Range = Range { current: 0, limit: 2 };\n"
+                               "    for (var x: i32 in r) {\n"
+                               "        total = total + x;\n"
+                               "    }\n"
+                               "    return total;\n"
+                               "}\n");
+    CHECK(b.ok, "for-in with an annotated loop variable type-checks");
+
+    ModernSemaTest missing_method;
+    auto c = missing_method.run("struct Empty {}\n"
+                                "fn main(): i32 {\n"
+                                "    var total: i32 = 0;\n"
+                                "    let e: Empty = Empty {};\n"
+                                "    for (x in e) {\n"
+                                "        total = total + 1;\n"
+                                "    }\n"
+                                "    return total;\n"
+                                "}\n");
+    CHECK(!c.ok, "for-in rejects an iterable without done/value/next");
+    CHECK(c.hasMessage("is missing done/value/next methods"), "reports the missing methods");
+
+    ModernSemaTest bad_value;
+    auto d = bad_value.run("struct Bad {\n"
+                           "    fn done(self): bool { return true; }\n"
+                           "    fn value(self): bool { return false; }\n"
+                           "    fn next(self) { }\n"
+                           "}\n"
+                           "fn main(): i32 {\n"
+                           "    var total: i32 = 0;\n"
+                           "    let b: Bad = Bad {};\n"
+                           "    for (var x: i32 in b) {\n"
+                           "        total = total + 1;\n"
+                           "    }\n"
+                           "    return total;\n"
+                           "}\n");
+    CHECK(!d.ok, "for-in rejects a value type that does not match the annotation");
+    CHECK(d.hasMessage("iterator element type does not match loop variable annotation"),
+          "reports the annotation mismatch");
+
+    ModernSemaTest bad_done;
+    auto e = bad_done.run("struct Bad {\n"
+                          "    fn done(self): i32 { return 1; }\n"
+                          "    fn value(self): i32 { return 1; }\n"
+                          "    fn next(self) { }\n"
+                          "}\n"
+                          "fn main(): i32 {\n"
+                          "    var total: i32 = 0;\n"
+                          "    let b: Bad = Bad {};\n"
+                          "    for (x in b) {\n"
+                          "        total = total + 1;\n"
+                          "    }\n"
+                          "    return total;\n"
+                          "}\n");
+    CHECK(!e.ok, "for-in rejects a non-boolean done method");
+    CHECK(e.hasMessage("iterator 'done' method must return bool"),
+          "reports the done return-type mismatch");
 }
 
 static void test_modern_generic_params() {
@@ -2271,7 +2417,9 @@ static void test_sema() {
     test_modern_integer_literal_overflow_reported();
     test_modern_pointer_compared_to_integer_literal_fails();
     test_modern_loop_body_infers_locals();
+    test_modern_for_flat_and_parenthesized_forms();
     test_modern_for_three_clause();
+    test_modern_for_in_iterators();
     test_modern_generic_params();
     test_modern_generic_struct_literal_inference();
     test_modern_array_literal();

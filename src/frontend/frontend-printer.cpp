@@ -81,6 +81,8 @@ namespace {
         return "While";
     case ExprKind::For:
         return "For";
+    case ExprKind::ForIn:
+        return "ForIn";
     case ExprKind::Return:
         return "Return";
     case ExprKind::Assign:

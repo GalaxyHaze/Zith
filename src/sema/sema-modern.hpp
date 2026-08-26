@@ -42,8 +42,15 @@ struct TypedMap {
     memory::FlatMap<uint32_t, TypeId> exprTypes;
     memory::FlatMap<uint32_t, TypeId> declTypes;
     memory::FlatMap<uint32_t, TypeId> localTypes;
+    /// Iterator methods resolved for a `ForIn` expression, keyed by the
+    /// expression id. HIR lowering uses these to emit direct `done`/`value`/
+    /// `next` calls without re-resolving the receiver type.
+    memory::FlatMap<uint32_t, frontend::DeclId> forInDone;
+    memory::FlatMap<uint32_t, frontend::DeclId> forInValue;
+    memory::FlatMap<uint32_t, frontend::DeclId> forInNext;
 
-    explicit TypedMap(memory::Arena &) : exprTypes(), declTypes(), localTypes() {}
+    explicit TypedMap(memory::Arena &)
+        : exprTypes(), declTypes(), localTypes(), forInDone(), forInValue(), forInNext() {}
 };
 
 class SemaPipeline;
@@ -195,6 +202,8 @@ private:
     TypeId inferIf(frontend::ExprId id);
     TypeId inferWhile(frontend::ExprId id);
     TypeId inferFor(frontend::ExprId id);
+    /// Duck-typed iterator check for `for (name in iterable) { body }`.
+    TypeId inferForIn(frontend::ExprId id);
     TypeId inferReturn(frontend::ExprId id);
     TypeId inferAssign(frontend::ExprId id);
     /// Root name of a place expression (`p.inner.x` -> `p`), or an empty id.

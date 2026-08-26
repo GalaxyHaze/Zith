@@ -111,8 +111,8 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `break`, `continue` | **Working** | |
 | `return` (void and typed) | **Working** | |
 | `for (cond) { }`, `for { }` | **Working** | Conditional and infinite loop forms lower to the same CFG as `while` |
-| `for (init; cond; step) { }` | **Working** | Three clauses separated by semicolons. `init` and `step` are both optional; `continue` still runs the step before the next test |
-| `for (x in xs)` | **Parse error** | The iterator form is recognised and reported as not implemented yet |
+| `for (init, cond, step) { }` | **Working** | Flat and parenthesized clause forms are accepted. `init` and `step` are both optional; `continue` still runs the step before the next test |
+| `for (x in xs)` | **Working** | Duck-typed iterator over a struct with `done`/`value`/`next` methods; the loop variable has the type returned by `value()` |
 | `when` / `match` pattern match | **Working** | Arms are written `(pattern) ~> body`, comma-separated; `match` is a parser synonym for `when`. Equality, boolean and range (`1..3`) patterns lower through HIR to codegen. `(_)` is the default arm and must come last; a value-producing `when` without a default reports non-exhaustive. Covered by the runtime test `test_when_expression_runtime` |
 | `marker` / `jump` | **Working** | `marker name(params)` declares a typed marker; `jump target(args)` transfers control from inside a marker. Global markers are module-scoped and local markers may shadow them |
 | `dock` | **Working** | `dock target(args)` stores marker arguments in the module TLS blob and starts a marker flow; the old `dock { ... }` block form is rejected |
@@ -221,7 +221,7 @@ Recorded deliberately; each item is a follow-up, not an unknown.
 | Unchecked `?*T` -> `*T` coercion | Every C pointer is `?*T`, but without flow-sensitive narrowing it is accepted unchecked where `*T` is expected. Isolated in `PerModuleSema::allowsUncheckedNullablePointer`; delete it when narrowing lands |
 | No flow-sensitive narrowing after `is null` | `p->field` on a `?*T` requires NonNull proof from `if (p is null) { } else { p->field }` or `for (not (p is null))`. Error code `E3005` |
 | `is` limited to `is null` | Union/type narrowing is not addressed |
-| `for` iterator form unimplemented | `for (x in xs)` is reported as an error rather than parsed; the 3-clause form works |
+| Ranges and range syntax in `for (x in 0..4)` | The iterator protocol supports user types with `done`/`value`/`next`; literal range syntax is future work |
 | User-defined casts | To be added as a new branch in `classifyCast` |
 | No C struct-by-value ABI | `struct` parameters/results import as named foreign types, but there is no verified ABI and no Zith-visible layout, so constructing/passing records to C remains unsupported |
 | `..` lexes per character | Its `precedence()` is -1 and the when-case range pattern depends on the two `.` tokens. Every other multi-char operator is munched longest-first as one token and wired through the parser, sema and formatter |

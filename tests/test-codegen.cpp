@@ -417,14 +417,14 @@ static void test_for_three_clause_runtime() {
     CodegenTest t;
     auto r = t.run("codegen-for3.zith", "fn sum_to(n: i32): i32 {\n"
                                         "    var total: i32 = 0;\n"
-                                        "    for (var i: i32 = 0; i < n; i = i + 1) {\n"
+                                        "    for (var i: i32 = 0, i < n, i = i + 1) {\n"
                                         "        total = total + i;\n"
                                         "    }\n"
                                         "    return total;\n"
                                         "}\n"
                                         "fn count_down(n: i32): i32 {\n"
                                         "    var hits: i32 = 0;\n"
-                                        "    for (var i: i32 = n; i > 0; i = i - 1) {\n"
+                                        "    for (var i: i32 = n, i > 0, i = i - 1) {\n"
                                         "        if (i == 3) {\n"
                                         "            continue;\n"
                                         "        }\n"
@@ -441,6 +441,36 @@ static void test_for_three_clause_runtime() {
     CHECK(r.ok, "for 3-clause form with init/cond/step compiles and runs");
     printf("EXIT CODE: %d\n", r.exitCode);
     CHECK_EQ(r.exitCode, 106, "init runs before the loop and step after each iteration");
+}
+
+static void test_for_in_runtime() {
+    CodegenTest t;
+    auto r = t.run("codegen-for-in.zith", "struct Range {\n"
+                                          "    current: i32,\n"
+                                          "    limit: i32,\n"
+                                          "    fn done(self): bool {\n"
+                                          "        return self->current >= self->limit;\n"
+                                          "    }\n"
+                                          "    fn value(self): i32 {\n"
+                                          "        return self->current;\n"
+                                          "    }\n"
+                                          "    fn next(self) {\n"
+                                          "        self->current = self->current + 1;\n"
+                                          "    }\n"
+                                          "}\n"
+                                          "fn main(): i32 {\n"
+                                          "    var total: i32 = 0;\n"
+                                          "    let r: Range = Range { current: 0, limit: 6 };\n"
+                                          "    for (x in r) {\n"
+                                          "        total = total + x;\n"
+                                          "    }\n"
+                                          "    if (total != 15) {\n"
+                                          "        return 1;\n"
+                                          "    }\n"
+                                          "    return total;\n"
+                                          "}\n");
+    CHECK(r.ok, "for-in runtime test compiles, links, and executes");
+    CHECK_EQ(r.exitCode, 15, "for-in iterates done/value/next in order");
 }
 
 static void test_named_struct_literal_and_defaults_runtime() {
@@ -1585,6 +1615,7 @@ static void test_codegen() {
     test_when_expression_runtime();
     test_tagged_union_pointer_is_type_runtime();
     test_for_three_clause_runtime();
+    test_for_in_runtime();
     printf("Running test_named_struct_literal_and_defaults_runtime\n");
     test_named_struct_literal_and_defaults_runtime();
     printf("Running test_trailing_void_call_is_emitted_once\n");

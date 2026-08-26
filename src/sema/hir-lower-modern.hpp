@@ -119,6 +119,13 @@ private:
     void lowerMarkerSample(MarkerSample &sample);
     /// True while lowering a marker sample body.
     bool inMarkerBody_ = false;
+    /// Synthetic for-in binding statement currently being skipped by
+    /// `lowerStatement`; set while lowering the loop body.
+    frontend::StmtId current_for_in_binding_stmt_;
+    /// The for-in element local currently being skipped by `lowerStatement`.
+    /// Compared by id so the synthetic statement is skipped even when the
+    /// frontend statement id is unavailable.
+    frontend::LocalId current_for_in_binding_local_;
 
     uint32_t lowerTypeSize(types::TypeId type) noexcept;
     uint32_t lowerTypeAlign(types::TypeId type) noexcept;
@@ -165,6 +172,7 @@ private:
                                       types::TypeId subject_type);
     hir::HirExprId lowerWhile(const frontend::Expression &expr);
     hir::HirExprId lowerFor(const frontend::Expression &expr);
+    hir::HirExprId lowerForIn(const frontend::Expression &expr);
     hir::HirExprId lowerAssign(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerOptionalProp(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerIndex(const frontend::Expression &expr, types::TypeId type);

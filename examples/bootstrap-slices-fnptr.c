@@ -16,6 +16,6 @@ int apply(int (*fn)(int), int value) {
     return fn(value) + 10;
 }
 
-int double(int value) {
+int twice(int value) {
     return value * 2;
 }

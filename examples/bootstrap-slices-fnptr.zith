@@ -6,6 +6,6 @@ extern fn double(x: i32): i32
 
 fn main(): i32 {
     var values: []i32 = make_slice();
-    var f: fn(i32): i32 = double;
+    var f: fn(i32): i32 = twice;
     return apply(f, raw values[0]);
 }
