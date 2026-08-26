@@ -48,6 +48,10 @@ private:
     struct Narrowing {
         frontend::LocalId local = {};
         types::TypeId type      = types::kInvalidType;
+        /// Optional aggregate (`?T`, not `?*T`) from which `type` is the
+        /// narrowed payload. `true` only while lowering the branch where the
+        /// null check proved the payload is present.
+        bool optionalPayload = false;
     };
 
     memory::Arena &arena_;
@@ -94,6 +98,10 @@ private:
     /// Compared by id so the synthetic statement is skipped even when the
     /// frontend statement id is unavailable.
     frontend::LocalId current_for_in_binding_local_;
+    /// True while lowering the root, non-public, non-extern `fn main` whose
+    /// sema return type is void.  The HIR signature is promoted to i32 so the
+    /// C runtime sees a well-defined success code.
+    bool current_main_void_ = false;
 
     uint32_t lowerTypeSize(types::TypeId type) noexcept;
     uint32_t lowerTypeAlign(types::TypeId type) noexcept;
@@ -115,12 +123,19 @@ private:
     types::TypeId lowerForeignType(const cinterop::Type &type);
     types::TypeId typeOfExpr(frontend::ExprId id);
     types::TypeId typeOfLocal(frontend::LocalId id);
+    sema::modern::TypeId semaTypeOfLocal(frontend::LocalId id);
 
     const frontend::Declaration *findDecl(const session::ModuleArtifact &module,
                                           frontend::DeclId id) const noexcept;
     const session::ResolvedName *findResolvedExpr(frontend::ExprId id) const noexcept;
     /// Declaration sema selected for an overloaded call at this callee, if any.
     const PerModuleSema::CallTarget *overloadTarget(frontend::ExprId callee) const noexcept;
+    /// Finds the sema call target for a method callee, walking the current
+    /// module and then every other module in snapshot order. Used to replace
+    /// the old owner-name fallback for imported methods.
+    const frontend::Declaration *
+    methodDeclFromTarget(frontend::ExprId callee,
+                         const session::ModuleArtifact **module_out = nullptr) const noexcept;
     const frontend::Declaration *
     resolvedFunctionDecl(const session::ResolvedName &resolved,
                          const session::ModuleArtifact **module_out = nullptr) const noexcept;

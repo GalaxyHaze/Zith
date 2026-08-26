@@ -163,6 +163,17 @@ void test_pipeline_if_else_lowers() {
           "modern pipeline lowers if/else with no errors");
 }
 
+const hir::HirFunction *findHirFunction(session::CompilationSession &session,
+                                        std::string_view name) {
+    const auto &hir = session.hirModule();
+    for (size_t i = 0; i < hir.getFnCount(); ++i) {
+        const auto &fn = hir.getFn(i);
+        if (session.interner().lookup(fn.name) == name)
+            return &fn;
+    }
+    return nullptr;
+}
+
 void test_c_header_import_lowers_external_function() {
     Workspace workspace;
     workspace.write("fixture.h", "int c_add(int left, int right);\n");
@@ -377,6 +388,148 @@ void test_modern_imported_static_method_hir() {
     CHECK(session.hirModule().getFnCount() >= 2u, "HIR includes both the imported method and main");
 }
 
+void test_modern_imported_receiver_method_hir() {
+    Workspace workspace;
+    workspace.write("lib.zith", "pub struct Counter { value: i32 }\n"
+                                "implement Counter {\n"
+                                "    fn get(self: view Counter): i32 { self.value }\n"
+                                "}\n");
+    workspace.write("main.zith", "from lib\n"
+                                 "fn main(): i32 {\n"
+                                 "    let c = Counter { value: 42 };\n"
+                                 "    c.get()\n"
+                                 "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "imported receiver method lowers through the modern pipeline");
+    CHECK(session.hirModule().getFnCount() >= 2u,
+          "HIR includes both the imported receiver method and main");
+}
+
+void test_modern_imported_method_struct_literal_body_hir() {
+    Workspace workspace;
+    workspace.write("lib.zith", "pub struct Box { value: i32 }\n"
+                                "implement Box {\n"
+                                "    fn make(v: i32): Box { Box { value: v } }\n"
+                                "}\n");
+    workspace.write("main.zith", "from lib\n"
+                                 "fn main(): i32 {\n"
+                                 "    let b = Box.make(42);\n"
+                                 "    b.value\n"
+                                 "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "imported method body with a struct literal lowers through the modern pipeline");
+    CHECK(session.snapshot() != nullptr && session.snapshot()->diagnostics().empty(),
+          "imported method body with a struct literal produces no diagnostics");
+}
+
+void test_modern_optional_method_narrowing_hir() {
+    Workspace workspace;
+    workspace.write("lib.zith", "pub struct Box { value: i32 }\n"
+                                "implement Box {\n"
+                                "    fn get(self: view Box): i32 { self.value }\n"
+                                "}\n");
+    workspace.write("main.zith", "from lib\n"
+                                 "fn main(): i32 {\n"
+                                 "    var b: ?Box = null;\n"
+                                 "    if (b is null) { return 1; }\n"
+                                 "    return b.get();\n"
+                                 "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "optional method after 'is null' lowers through the modern pipeline");
+    CHECK(session.hirModule().getFnCount() >= 2u, "HIR includes the imported Box method and main");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findHirFunction(session, "main");
+    CHECK(main != nullptr, "main function is present after optional lowering");
+    if (main == nullptr)
+        return;
+    bool saw_payload_receiver = false;
+    for (size_t index = 0; index < hir.exprCount(); ++index) {
+        const auto *call =
+            std::get_if<hir::HirCall>(&hir.getExpr(static_cast<hir::HirExprId>(index)));
+        if (call == nullptr)
+            continue;
+        CHECK_EQ(call->args.size(), 1u, "receiver methods pass exactly one self argument");
+        if (call->args.empty())
+            continue;
+        const auto *unary = std::get_if<hir::HirUnary>(&hir.getExpr(call->args[0]));
+        if (unary != nullptr && unary->op == hir::HirUnaryOp::Ref) {
+            const auto *field = std::get_if<hir::HirField>(&hir.getExpr(unary->operand));
+            saw_payload_receiver |= field != nullptr && field->index == 0U;
+        }
+    }
+    CHECK(saw_payload_receiver,
+          "optional receiver calls pass the address of optional payload field 0");
+}
+
+void test_modern_optional_method_not_is_null_narrowing_hir() {
+    Workspace workspace;
+    workspace.write("lib.zith", "pub struct Box { value: i32 }\n"
+                                "implement Box {\n"
+                                "    fn get(self: view Box): i32 { self.value }\n"
+                                "}\n");
+    workspace.write("main.zith", "from lib\n"
+                                 "fn main(): i32 {\n"
+                                 "    var b: ?Box = null;\n"
+                                 "    if (not (b is null)) { return b.get(); }\n"
+                                 "    return 1;\n"
+                                 "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "optional method after 'not (is null)' lowers through the modern pipeline");
+    CHECK(session.hirModule().getFnCount() >= 2u, "HIR includes the imported Box method and main");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findHirFunction(session, "main");
+    CHECK(main != nullptr, "main function is present after not-is-null optional lowering");
+    if (main == nullptr)
+        return;
+    bool saw_payload_receiver = false;
+    for (size_t index = 0; index < hir.exprCount(); ++index) {
+        const auto *call =
+            std::get_if<hir::HirCall>(&hir.getExpr(static_cast<hir::HirExprId>(index)));
+        if (call == nullptr)
+            continue;
+        CHECK_EQ(call->args.size(), 1u, "receiver methods pass exactly one self argument");
+        if (call->args.empty())
+            continue;
+        const auto *unary = std::get_if<hir::HirUnary>(&hir.getExpr(call->args[0]));
+        if (unary != nullptr && unary->op == hir::HirUnaryOp::Ref) {
+            const auto *field = std::get_if<hir::HirField>(&hir.getExpr(unary->operand));
+            saw_payload_receiver |= field != nullptr && field->index == 0U;
+        }
+    }
+    CHECK(saw_payload_receiver,
+          "not-is-null receiver calls pass the address of optional payload field 0");
+}
+
 void test_pipeline_imported_macro_lowers() {
     Workspace workspace;
     workspace.write("helper.zith", "pub macro twice(v: expr) { v + v }\n"
@@ -496,6 +649,10 @@ static void test_frontend_modern_pipeline() {
     test_pipeline_tag_macro_is_rejected();
     test_pipeline_imported_state_machine_lowers();
     test_modern_imported_static_method_hir();
+    test_modern_imported_receiver_method_hir();
+    test_modern_imported_method_struct_literal_body_hir();
+    test_modern_optional_method_narrowing_hir();
+    test_modern_optional_method_not_is_null_narrowing_hir();
     test_pipeline_imported_macro_lowers();
     test_imported_macro_unknown_without_import();
     test_imported_macro_selector_alias();

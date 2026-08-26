@@ -2139,6 +2139,7 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
     frontend::LocalId narrowed_local;
     TypeId original_local_type = kInvalidTypeId;
     TypeId narrowed_type       = kInvalidTypeId;
+    bool narrow_then           = false;
     if (condition.kind == frontend::ExprKind::IsType && !condition.operands.empty() &&
         condition.cast_type) {
         const auto *resolved = findResolvedExpr(condition.operands[0]);
@@ -2146,15 +2147,49 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
             narrowed_local      = resolved->local;
             original_local_type = typeOfLocal(narrowed_local);
             narrowed_type       = lowerTypeExpr(condition.cast_type);
-            if (narrowed_type)
-                setLocalType(narrowed_local, narrowed_type);
+            if (narrowed_type) {
+                narrow_then = true;
+            }
+        }
+    } else if (condition.kind == frontend::ExprKind::IsNull && !condition.operands.empty()) {
+        const auto *resolved = findResolvedExpr(condition.operands[0]);
+        if (resolved != nullptr && resolved->local) {
+            const TypeId optional = resolve(typeOfLocal(resolved->local));
+            if (const auto *opt = type_table.optional(optional)) {
+                narrowed_local      = resolved->local;
+                original_local_type = typeOfLocal(narrowed_local);
+                narrowed_type       = type_table.stripQualifiers(opt->inner);
+                // `x is null` proves the payload type in the `else` branch.
+            }
+        }
+    } else if (condition.kind == frontend::ExprKind::Unary &&
+               (condition.text == "not" || condition.text == "!") && !condition.operands.empty()) {
+        const auto &inner = snapshot.expressions()[condition.operands[0].value - 1U];
+        if (inner.kind == frontend::ExprKind::IsNull && !inner.operands.empty()) {
+            const auto *resolved = findResolvedExpr(inner.operands[0]);
+            if (resolved != nullptr && resolved->local) {
+                const TypeId optional = resolve(typeOfLocal(resolved->local));
+                if (const auto *opt = type_table.optional(optional)) {
+                    narrowed_local      = resolved->local;
+                    original_local_type = typeOfLocal(narrowed_local);
+                    narrowed_type       = type_table.stripQualifiers(opt->inner);
+                    narrow_then         = true;
+                }
+            }
         }
     }
+
+    if (narrowed_local && narrowed_type && narrow_then)
+        setLocalType(narrowed_local, narrowed_type);
     TypeId then_type = inferExpr(expr.operands[1]);
+    if (narrowed_local && narrowed_type)
+        setLocalType(narrowed_local, original_local_type);
+    if (narrowed_local && narrowed_type && !narrow_then)
+        setLocalType(narrowed_local, narrowed_type);
+    TypeId else_type = expr.operands.size() >= 3 ? inferExpr(expr.operands[2]) : void_type;
     if (narrowed_local && narrowed_type) {
         setLocalType(narrowed_local, original_local_type);
     }
-    TypeId else_type = expr.operands.size() >= 3 ? inferExpr(expr.operands[2]) : void_type;
     // An `if` without `else` is a statement even when its body has a value; only
     // an `if/else` expression can produce a value for the surrounding expression.
     if (expr.operands.size() < 3U || !expr.operands[2])

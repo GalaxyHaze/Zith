@@ -142,6 +142,26 @@ static void test_return_literal() {
     CHECK_EQ(r.exitCode, 7, "Literal return value is preserved");
 }
 
+static void test_void_main_implicit_return_exits_zero() {
+    CodegenTest t;
+    auto r = t.run("codegen-void-main.zith", "extern fn putchar(c: i32): i32\n"
+                                             "fn main() {\n"
+                                             "    putchar(65);\n"
+                                             "}\n");
+    CHECK(r.ok, "void main compiles, links and runs");
+    CHECK_EQ(r.exitCode, 0, "void main returns success without an explicit return");
+}
+
+static void test_void_main_bare_return_exits_zero() {
+    CodegenTest t;
+    auto r = t.run("codegen-void-main-return.zith", "fn main() {\n"
+                                                    "    if (true) { return; }\n"
+                                                    "    return;\n"
+                                                    "}\n");
+    CHECK(r.ok, "void main with bare returns compiles, links and runs");
+    CHECK_EQ(r.exitCode, 0, "bare return from void main returns success");
+}
+
 static void test_ref_deref_local() {
     CodegenTest t;
     auto r = t.run("codegen-ref-deref-local.zith", "fn main(): i32 {\n"
@@ -1333,6 +1353,44 @@ static void test_implement_block_method_runtime() {
     CHECK_EQ(r.exitCode, 13, "The implicit self argument reaches the method body");
 }
 
+static void test_optional_method_after_is_null_runtime() {
+    ModernFileCodegenTest t;
+    t.write("lib.zith", "pub struct Box { value: i32 }\n"
+                        "implement Box {\n"
+                        "    fn get(self: view Box): i32 { self.value }\n"
+                        "}\n");
+    t.write("main.zith", "from lib\n"
+                         "fn main(): i32 {\n"
+                         "    var b: ?Box = Box { value: 14 };\n"
+                         "    if (b is null) { return 1; }\n"
+                         "    return b.get();\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "optional narrowing uses the modern codegen pipeline");
+    CHECK(r.ok, "optional method after 'is null' compiles, links and runs");
+    CHECK_EQ(r.exitCode, 14, "the non-null optional payload reaches the receiver method");
+}
+
+static void test_optional_method_after_not_is_null_runtime() {
+    ModernFileCodegenTest t;
+    t.write("lib.zith", "pub struct Box { value: i32 }\n"
+                        "implement Box {\n"
+                        "    fn get(self: view Box): i32 { self.value }\n"
+                        "}\n");
+    t.write("main.zith", "from lib\n"
+                         "fn main(): i32 {\n"
+                         "    var b: ?Box = Box { value: 14 };\n"
+                         "    if (not (b is null)) { return b.get(); }\n"
+                         "    return 1;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "not-is-null narrowing uses the modern codegen pipeline");
+    CHECK(r.ok, "optional method after 'not (is null)' compiles, links and runs");
+    CHECK_EQ(r.exitCode, 14, "the non-null optional payload reaches the guarded receiver");
+}
+
 static void test_overloaded_functions_link_and_run() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
@@ -1656,6 +1714,10 @@ static void test_codegen() {
     setbuf(stdout, NULL);
     printf("Running test_return_literal\n");
     test_return_literal();
+    printf("Running test_void_main_implicit_return_exits_zero\n");
+    test_void_main_implicit_return_exits_zero();
+    printf("Running test_void_main_bare_return_exits_zero\n");
+    test_void_main_bare_return_exits_zero();
     printf("Running test_ref_deref_local\n");
     test_ref_deref_local();
     printf("Running test_ref_deref_param\n");
@@ -1746,6 +1808,10 @@ static void test_codegen() {
     test_var_self_and_var_parameter_runtime();
     printf("Running test_implement_block_method_runtime\n");
     test_implement_block_method_runtime();
+    printf("Running test_optional_method_after_is_null_runtime\n");
+    test_optional_method_after_is_null_runtime();
+    printf("Running test_optional_method_after_not_is_null_runtime\n");
+    test_optional_method_after_not_is_null_runtime();
     printf("Running test_extern_variadic_call_runs\n");
     test_extern_variadic_call_runs();
     printf("Running test_c_default_arguments_and_string_escapes\n");

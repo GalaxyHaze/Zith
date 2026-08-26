@@ -223,7 +223,14 @@ bool HirLowerModern::predeclareFunctions() {
 
             const auto fn_type = module_sema->typeOfDecl(decl.id);
             if (const auto *fn = sema_.typeTable().function(fn_type)) {
-                hir_fn.return_type = lowerType(fn->result);
+                hir_fn.return_type      = lowerType(fn->result);
+                const bool is_main_void = decl.name == "main" && !decl.isExtern &&
+                                          decl.ownerName.empty() &&
+                                          decl.visibility != frontend::Visibility::Public &&
+                                          module.key == snapshot_.rootModuleKey() &&
+                                          hir_fn.return_type == types::kVoidType;
+                if (is_main_void)
+                    hir_fn.return_type = types_.internInt(types::IntWidth::I32);
                 if (hir_fn.isState) {
                     hir_fn.machineId  = decl.parentScope ? module_sema->stateMachineIdOf(decl)
                                                          : module_sema->stateMachineIdFor(decl);
@@ -670,6 +677,12 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     local_slots_.resize(1U);
     current_for_in_binding_stmt_  = {};
     current_for_in_binding_local_ = {};
+    const bool is_main_void =
+        info.decl->name == "main" && !info.decl->isExtern && info.decl->ownerName.empty() &&
+        info.decl->visibility != frontend::Visibility::Public && info.module != nullptr &&
+        info.module->key == snapshot_.rootModuleKey() &&
+        current_fn_->return_type == types_.internInt(types::IntWidth::I32);
+    current_main_void_ = is_main_void;
 
     current_fn_->blocks.emplace(arena_);
     current_fn_->blocks[0].insts = memory::DynArray<hir::HirExprId>(arena_);
@@ -699,9 +712,29 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     const auto body_expr = lowerExpr(info.decl->body);
     if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
         hir::HirRet ret;
-        if (current_fn_->return_type != types::kVoidType && body_expr != hir::kInvalidHirExpr)
+        const bool is_main_void = info.decl->name == "main" && current_main_void_ &&
+                                  info.decl->ownerName.empty() &&
+                                  info.decl->visibility != frontend::Visibility::Public;
+        if (is_main_void) {
+            hir::HirLiteral zero;
+            zero.type = types_.internInt(types::IntWidth::I32);
+            zero.i    = 0;
+            ret.value = addExpr(std::move(zero));
+        } else if (current_fn_->return_type != types::kVoidType &&
+                   body_expr != hir::kInvalidHirExpr) {
+            if (types_.kindOf(current_fn_->return_type) == types::TypeKind::Optional &&
+                info.decl->body) {
+                const auto val_sema_type = semaTypeOfExpr(info.decl->body);
+                if (sema_.typeTable().kindOf(val_sema_type) != TypeKind::Optional)
+                    ret.value = lowerCoerceToOptional(current_fn_->return_type, body_expr);
+                else
+                    ret.value = body_expr;
+            } else {
+                ret.value = body_expr;
+            }
             ret.value =
-                lowerCoerceToSliceIfArray(current_fn_->return_type, info.decl->body, body_expr);
+                lowerCoerceToSliceIfArray(current_fn_->return_type, info.decl->body, ret.value);
+        }
         current_fn_->blocks[current_block_].terminator = addExpr(std::move(ret));
     }
 
@@ -714,6 +747,7 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     current_fn_               = nullptr;
     current_fn_is_state_      = false;
     current_state_machine_id_ = 0;
+    current_main_void_        = false;
     return true;
 }
 
@@ -994,6 +1028,17 @@ types::TypeId HirLowerModern::typeOfLocal(frontend::LocalId id) {
     return lowerType(sema_type);
 }
 
+sema::modern::TypeId HirLowerModern::semaTypeOfLocal(frontend::LocalId id) {
+    if (!id || current_types_ == nullptr)
+        return kInvalidTypeId;
+    const auto *type = current_types_->localTypes.get(id.value);
+    if (type == nullptr)
+        return kInvalidTypeId;
+    return current_instantiation_ != nullptr && current_instance_ != nullptr
+               ? current_instantiation_->substituteType(*type, current_instance_->args)
+               : *type;
+}
+
 sema::modern::TypeId HirLowerModern::semaTypeOfExpr(frontend::ExprId id) {
     if (!id || current_types_ == nullptr)
         return kInvalidTypeId;
@@ -1018,6 +1063,23 @@ HirLowerModern::overloadTarget(frontend::ExprId callee) const noexcept {
         return nullptr;
     const auto *module_sema = sema_.findModuleSema(current_module_->key);
     return module_sema == nullptr ? nullptr : module_sema->resolvedCallTarget(callee);
+}
+
+const frontend::Declaration *
+HirLowerModern::methodDeclFromTarget(frontend::ExprId callee,
+                                     const session::ModuleArtifact **module_out) const noexcept {
+    const auto *target = overloadTarget(callee);
+    if (target == nullptr)
+        return nullptr;
+    const auto *module = snapshot_.findModule(target->module);
+    if (module == nullptr)
+        return nullptr;
+    const auto *decl = findDecl(*module, target->decl);
+    if (decl == nullptr || decl->kind != frontend::DeclKind::Function)
+        return nullptr;
+    if (module_out != nullptr)
+        *module_out = module;
+    return decl;
 }
 
 const session::ResolvedName *HirLowerModern::findResolvedExpr(frontend::ExprId id) const noexcept {
@@ -1242,6 +1304,12 @@ hir::HirExprId HirLowerModern::lowerName(const frontend::Expression &expr) {
             const auto expr_type = typeOfExpr(expr.id);
             for (auto it = narrowing_stack_.rbegin(); it != narrowing_stack_.rend(); ++it) {
                 if (it->local == resolved->local) {
+                    if (it->optionalPayload) {
+                        // The slot still stores `?T`; extract field 0 so reads
+                        // after `is null` use the payload type.
+                        return addExpr(hir::HirField{addExpr(hir::HirSlotAddr{slot, local_ty}), 0U,
+                                                     it->type, local_ty});
+                    }
                     const auto narrowed = emitSlotLoad(slot, it->type);
                     if (types_.kindOf(local_ty) == types::TypeKind::Union &&
                         types_.kindOf(it->type) != types::TypeKind::Union) {
@@ -1340,9 +1408,19 @@ hir::HirExprId HirLowerModern::lowerLValueAddr(frontend::ExprId id) {
         return hir::kInvalidHirExpr;
     const auto &expr = current_module_->frontend->expressions()[id.value - 1U];
     if (expr.kind == frontend::ExprKind::Name) {
-        if (const auto *resolved = findResolvedExpr(id); resolved != nullptr && resolved->local)
-            return addExpr(
-                hir::HirSlotAddr{localSlot(resolved->local), typeOfLocal(resolved->local)});
+        if (const auto *resolved = findResolvedExpr(id); resolved != nullptr && resolved->local) {
+            const auto slot     = localSlot(resolved->local);
+            const auto local_ty = typeOfLocal(resolved->local);
+            for (auto it = narrowing_stack_.rbegin(); it != narrowing_stack_.rend(); ++it) {
+                if (it->local == resolved->local && it->optionalPayload) {
+                    const auto payload_field = addExpr(hir::HirField{
+                        addExpr(hir::HirSlotAddr{slot, local_ty}), 0U, it->type, local_ty});
+                    return addExpr(hir::HirUnary{hir::HirUnaryOp::Ref, payload_field,
+                                                 types_.internPtr(it->type)});
+                }
+            }
+            return addExpr(hir::HirSlotAddr{slot, local_ty});
+        }
         return hir::kInvalidHirExpr;
     }
     if (expr.kind == frontend::ExprKind::Field || expr.kind == frontend::ExprKind::Index) {
@@ -1459,15 +1537,10 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
 
     // Sema records the exact overload target across module boundaries. Prefer
     // it so overload selection and generic instantiation use the same decl
-    // (and module) that type-checked the call.
-    if (const auto *target = overloadTarget(callee_id); target != nullptr) {
-        if (const auto *module_artifact = snapshot_.findModule(target->module);
-            module_artifact != nullptr) {
-            if (const auto *decl = findDecl(*module_artifact, target->decl)) {
-                method_decl    = decl;
-                owner_artifact = module_artifact;
-            }
-        }
+    // (and module) that type-checked the call. This is also the only path that
+    // accepts trait methods, which sema has already filtered by conformance.
+    if (const auto *decl = methodDeclFromTarget(callee_id, &owner_artifact); decl != nullptr) {
+        method_decl = decl;
     }
     // A method with a `self` receiver receives an implicit owner pointer
     // argument. Methods without self are static in this compiler.
@@ -1495,11 +1568,31 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
         hir::HirExprId self_arg = hir::kInvalidHirExpr;
         const auto base_sema_ty = semaTypeOfExpr(base_id);
         const auto base_hir_ty  = typeOfExpr(base_id);
-        const bool base_is_ptr  = base_hir_ty != types::kErrorType &&
+        const sema::modern::TypeId base_sema_resolved =
+            sema_.typeTable().stripQualifiers(base_sema_ty);
+        const auto *base_optional = sema_.typeTable().optional(base_sema_resolved);
+        const bool base_optional_aggregate =
+            base_optional != nullptr &&
+            sema_.typeTable().kindOf(sema_.typeTable().stripQualifiers(base_optional->inner)) !=
+                TypeKind::Pointer;
+        const bool base_is_ptr = base_hir_ty != types::kErrorType &&
                                  base_hir_ty != types::kInvalidType &&
                                  (types_.kindOf(base_hir_ty) == types::TypeKind::Ptr ||
                                   types_.kindOf(base_hir_ty) == types::TypeKind::Optional);
-        if (callee_expr.kind == frontend::ExprKind::Arrow || base_is_ptr)
+        if (base_optional_aggregate) {
+            // The receiver points at the stored payload, never at the
+            // aggregate `{payload, tag}` wrapper.
+            const auto slot = next_slot_++;
+            current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, base_hir_ty));
+            const auto base_value = lowerExpr(base_id);
+            current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, base_value));
+            const auto payload_type =
+                lowerType(sema_.typeTable().stripQualifiers(base_optional->inner));
+            const auto payload_field = addExpr(hir::HirField{
+                addExpr(hir::HirSlotAddr{slot, base_hir_ty}), 0U, payload_type, base_hir_ty});
+            self_arg                 = addExpr(
+                hir::HirUnary{hir::HirUnaryOp::Ref, payload_field, types_.internPtr(payload_type)});
+        } else if (callee_expr.kind == frontend::ExprKind::Arrow || base_is_ptr)
             self_arg = lowerExpr(base_id);
         else
             self_arg = lowerLValueAddr(base_id);
@@ -1690,9 +1783,46 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
     branch.else_block = static_cast<hir::HirDeclId>(has_else ? else_block : merge_block);
     setTerminator(addExpr(std::move(branch)));
 
+    frontend::LocalId narrowed_local = {};
+    types::TypeId narrowed_type      = types::kInvalidType;
+    bool narrow_then                 = false;
+    bool narrowed_optional_payload   = false;
+    const auto &condition = current_module_->frontend->expressions()[expr.operands[0].value - 1U];
+    const auto makeOptionalNarrowing = [&](frontend::ExprId operand) {
+        const auto *resolved = findResolvedExpr(operand);
+        if (resolved == nullptr || !resolved->local)
+            return;
+        const sema::modern::TypeId local_sema = semaTypeOfLocal(resolved->local);
+        const auto *optional =
+            sema_.typeTable().optional(sema_.typeTable().stripQualifiers(local_sema));
+        if (optional == nullptr || sema_.typeTable().kindOf(sema_.typeTable().stripQualifiers(
+                                       optional->inner)) == TypeKind::Pointer)
+            return;
+        narrowed_local            = resolved->local;
+        narrowed_type             = lowerType(sema_.typeTable().stripQualifiers(optional->inner));
+        narrowed_optional_payload = true;
+    };
+    if (condition.kind == frontend::ExprKind::IsNull && !condition.operands.empty()) {
+        makeOptionalNarrowing(condition.operands[0]);
+    } else if (condition.kind == frontend::ExprKind::Unary &&
+               (condition.text == "not" || condition.text == "!") && !condition.operands.empty()) {
+        const auto &inner =
+            current_module_->frontend->expressions()[condition.operands[0].value - 1U];
+        if (inner.kind == frontend::ExprKind::IsNull && !inner.operands.empty()) {
+            makeOptionalNarrowing(inner.operands[0]);
+            narrow_then = true;
+        }
+    }
+
     setCurrentBlock(then_block);
     current_fn_->blocks[then_block].insts = memory::DynArray<hir::HirExprId>(arena_);
-    const auto then_value                 = lowerExpr(expr.operands[1]);
+    if (narrowed_local && narrow_then) {
+        narrowing_stack_.push_back(
+            Narrowing{narrowed_local, narrowed_type, narrowed_optional_payload});
+    }
+    const auto then_value = lowerExpr(expr.operands[1]);
+    if (narrowed_local && narrow_then)
+        narrowing_stack_.pop_back();
     if (has_value && then_value != hir::kInvalidHirExpr &&
         current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
         current_fn_->blocks[current_block_].insts.push(emitSlotStore(result_slot, then_value));
@@ -1703,7 +1833,12 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
     if (has_else) {
         setCurrentBlock(else_block);
         current_fn_->blocks[else_block].insts = memory::DynArray<hir::HirExprId>(arena_);
-        const auto else_value                 = lowerExpr(expr.operands[2]);
+        if (narrowed_local && !narrow_then)
+            narrowing_stack_.push_back(
+                Narrowing{narrowed_local, narrowed_type, narrowed_optional_payload});
+        const auto else_value = lowerExpr(expr.operands[2]);
+        if (narrowed_local && !narrow_then)
+            narrowing_stack_.pop_back();
         if (has_value && else_value != hir::kInvalidHirExpr &&
             current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
             current_fn_->blocks[current_block_].insts.push(emitSlotStore(result_slot, else_value));
@@ -1785,7 +1920,8 @@ hir::HirExprId HirLowerModern::lowerWhen(const frontend::Expression &expr,
             }
         }
         if (narrowed_local) {
-            narrowing_stack_.push_back(Narrowing{narrowed_local, narrowed_type});
+            narrowing_stack_.push_back(
+                Narrowing{narrowed_local, narrowed_type, /*optionalPayload=*/false});
         }
         const auto body_value = lowerExpr(expr.operands[body_index]);
         if (narrowed_local) {
@@ -2913,6 +3049,14 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
             value =
                 lowerCoerceToSliceIfArray(current_fn_->return_type, statement.expression, value);
             ret.value = value;
+        }
+        if (!statement.expression && current_main_void_) {
+            // The bare `return;` in a void main returns success from the C
+            // entry point, whose HIR signature is i32 for the linker.
+            hir::HirLiteral zero;
+            zero.type = types_.internInt(types::IntWidth::I32);
+            zero.i    = 0;
+            ret.value = addExpr(std::move(zero));
         }
         setTerminator(addExpr(std::move(ret)));
         return true;

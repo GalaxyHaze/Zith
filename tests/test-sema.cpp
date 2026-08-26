@@ -1534,6 +1534,51 @@ static void test_modern_is_null_requires_optional() {
           "'is null' reports the optional-operand requirement");
 }
 
+static void test_modern_optional_method_narrowing_after_is_null() {
+    ModernSemaTest t;
+    t.write("lib.zith", "pub struct Box { value: i32 }\n"
+                        "implement Box {\n"
+                        "    fn get(self: view Box): i32 { self.value }\n"
+                        "}\n");
+    auto r = t.run("from lib\n"
+                   "fn main(): i32 {\n"
+                   "    var b: ?Box = null;\n"
+                   "    if (b is null) { return 1; }\n"
+                   "    return b.get();\n"
+                   "}\n");
+    CHECK(r.ok, "'x is null' narrows the optional payload in the else branch");
+}
+
+static void test_modern_optional_method_narrowing_after_not_is_null() {
+    ModernSemaTest t;
+    t.write("lib.zith", "pub struct Box { value: i32 }\n"
+                        "implement Box {\n"
+                        "    fn get(self: view Box): i32 { self.value }\n"
+                        "}\n");
+    auto r = t.run("from lib\n"
+                   "fn main(): i32 {\n"
+                   "    var b: ?Box = null;\n"
+                   "    if (not (b is null)) { return b.get(); }\n"
+                   "    return 1;\n"
+                   "}\n");
+    CHECK(r.ok, "'not (x is null)' narrows the optional payload in the then branch");
+}
+
+static void test_modern_optional_method_still_rejects_is_null_then_branch() {
+    ModernSemaTest t;
+    t.write("lib.zith", "pub struct Box { value: i32 }\n"
+                        "implement Box {\n"
+                        "    fn get(self: view Box): i32 { self.value }\n"
+                        "}\n");
+    auto r = t.run("from lib\n"
+                   "fn main(): i32 {\n"
+                   "    var b: ?Box = null;\n"
+                   "    if (b is null) { return b.value; }\n"
+                   "    return 1;\n"
+                   "}\n");
+    CHECK(!r.ok, "reading the optional payload in the null branch is rejected");
+}
+
 static void test_modern_radix_integer_literals() {
     ModernSemaTest t;
     auto r = t.run("fn main(): i32 {\n"
@@ -2688,6 +2733,9 @@ static void test_sema() {
     test_modern_null_needs_optional_pointer();
     test_modern_is_null_on_optional_pointer();
     test_modern_is_null_requires_optional();
+    test_modern_optional_method_narrowing_after_is_null();
+    test_modern_optional_method_narrowing_after_not_is_null();
+    test_modern_optional_method_still_rejects_is_null_then_branch();
     test_modern_radix_integer_literals();
     test_modern_integer_literal_overflow_reported();
     test_modern_pointer_compared_to_integer_literal_fails();
