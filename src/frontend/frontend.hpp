@@ -94,8 +94,6 @@ enum class DeclKind : uint8_t {
     Macro,
     Import,
     Function,
-    /// `marker name(params) { body }` — module-scoped reusable flow block.
-    Marker,
     TypeAlias,
     Struct,
     Enum,
@@ -111,14 +109,14 @@ enum class DeclKind : uint8_t {
 enum class BindingKind : uint8_t { Let, Var, Const };
 
 /// Parse-level function kind for `fn`, `const fn`, `raw fn`, `extern fn`, and
-/// `flow fn`.  All five share `DeclKind::Function`; this metadata is retained for
+/// `state`.  All five share `DeclKind::Function`; this metadata is retained for
 /// frontend tooling and formatter output.
 enum class FunctionKind : uint8_t {
     Standard,
     Const,
     Raw,
     Extern,
-    Flow,
+    State,
 };
 
 enum class ExprKind : uint8_t {
@@ -129,6 +127,9 @@ enum class ExprKind : uint8_t {
     /// `@name(args)` call to a user-defined macro; expansion is in `Expression::expansion`.
     MacroCall,
     Binary,
+    /// `dock State(args)` starts a state machine and evaluates to its eventual
+    /// `return` value.
+    DockCall,
     Call,
     Block,
     If,
@@ -173,8 +174,6 @@ enum class StmtKind : uint8_t {
     Return,
     Break,
     Continue,
-    Dock,
-    Marker,
     Jump,
 };
 
@@ -228,14 +227,10 @@ struct Statement {
     TextSpan span;
     ExprId expression;
     Binding binding;
-    /// Name of a marker (StmtKind::Marker) or jump target (StmtKind::Jump).
+    /// Name of the `jump` target.
     std::string label;
-    /// Parameters of a local `marker name(params) { ... }`.
-    std::vector<Parameter> parameters;
-    /// Arguments written after `dock target(args);` or `jump target(args);`.
+    /// Arguments written after `jump target(args);`.
     std::vector<ExprId> arguments;
-    /// True for `stackful marker name { }`.
-    bool isStackful = false;
 };
 
 struct Expression {
@@ -351,8 +346,6 @@ struct Declaration {
     bool isExtern = false;
     /// True when the declaration ends its parameter list with `...` (`extern fn` only).
     bool isVariadic = false;
-    /// True for `stackful marker Name(...) { ... }`.
-    bool isStackful = false;
     /// True for `type Name = T`; the declaration creates a nominal wrapper.
     /// `alias Name = T` remains a transparent type alias.
     bool isNominalType = false;

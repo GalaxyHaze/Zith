@@ -378,13 +378,14 @@ void FmtVisitor::emitFunctionDecl(const frontend::Declaration &decl) {
     case frontend::FunctionKind::Extern:
         emit("extern ");
         break;
-    case frontend::FunctionKind::Flow:
-        emit("flow ");
+    case frontend::FunctionKind::State:
+        emit("state ");
         break;
     case frontend::FunctionKind::Standard:
         break;
     }
-    emit("fn ");
+    if (decl.functionKind != frontend::FunctionKind::State)
+        emit("fn ");
     emit(decl.name);
     if (!decl.genericParams.empty()) {
         emit("<");
@@ -447,33 +448,6 @@ void FmtVisitor::emitVariableDecl(const frontend::Declaration &decl) {
         visitExpr(decl.initializer);
     }
     emit(";");
-}
-
-void FmtVisitor::emitMarkerDecl(const frontend::Declaration &decl) {
-    if (containsComment(decl.span)) {
-        emitDeclPrefix(decl.span);
-        emitOriginal(decl.span);
-        return;
-    }
-
-    emitDeclPrefix(decl.span);
-    emit("marker ");
-    emit(decl.name);
-    emit("(");
-    for (std::size_t index = 0; index < decl.parameters.size(); ++index) {
-        if (index != 0U)
-            emit(", ");
-        emit(decl.parameters[index].name);
-        if (decl.parameters[index].type) {
-            emit(": ");
-            emitType(decl.parameters[index].type);
-        }
-    }
-    emit(")");
-    if (decl.body) {
-        emit(" ");
-        visitExpr(decl.body);
-    }
 }
 
 void FmtVisitor::emitNominalDecl(const frontend::Declaration &decl) {
@@ -599,9 +573,6 @@ void FmtVisitor::visitDecl(const frontend::DeclId id) {
     case frontend::DeclKind::Function:
         emitFunctionDecl(*decl);
         break;
-    case frontend::DeclKind::Marker:
-        emitMarkerDecl(*decl);
-        break;
     case frontend::DeclKind::Variable:
         emitVariableDecl(*decl);
         break;
@@ -666,42 +637,6 @@ void FmtVisitor::visitStmt(const frontend::StmtId id) {
         break;
     case frontend::StmtKind::Continue:
         emit("continue;");
-        break;
-    case frontend::StmtKind::Dock:
-        emit("dock");
-        if (!stmt->label.empty()) {
-            emit(" ");
-            emit(stmt->label);
-            emit("(");
-            for (std::size_t index = 0; index < stmt->arguments.size(); ++index) {
-                if (index != 0U)
-                    emit(", ");
-                visitExpr(stmt->arguments[index]);
-            }
-            emit(")");
-        }
-        emit(";");
-        break;
-    case frontend::StmtKind::Marker:
-        if (stmt->isStackful)
-            emit("stackful ");
-        emit("marker ");
-        emit(stmt->label);
-        emit("(");
-        for (std::size_t index = 0; index < stmt->parameters.size(); ++index) {
-            if (index != 0U)
-                emit(", ");
-            emit(stmt->parameters[index].name);
-            if (stmt->parameters[index].type) {
-                emit(": ");
-                emitType(stmt->parameters[index].type);
-            }
-        }
-        emit(")");
-        if (stmt->expression) {
-            emit(" ");
-            visitExpr(stmt->expression);
-        }
         break;
     case frontend::StmtKind::Jump:
         emit("jump ");

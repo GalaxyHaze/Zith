@@ -48,7 +48,7 @@ namespace {
         "raw",     "unsafe", "union",  "trait",   "interface", "extends", "dyn",       "implement",
         "fn",      "import", "use",    "context", "macro",     "export",  "extern",    "from",
         "alias",   "as",     "let",    "var",     "auto",      "const",   "mut",       "global",
-        "lend",    "share",  "view",   "unique",  "belong",    "yield",   "async",     "flow",
+        "lend",    "share",  "view",   "unique",  "belong",    "yield",   "async",     "state",
         "dock",    "never",  "pub",    "mod",     "if",        "else",    "for",       "in",
         "when",    "match",  "return", "break",   "continue",  "jump",    "while",     "marker",
         "spawn",   "await",  "with",   "catch",   "must",      "throw",   "fail",      "drop",
@@ -328,8 +328,8 @@ namespace {
 [[nodiscard]] std::optional<DeclKind> declarationKind(const std::string_view word) {
     if (word == "fn")
         return DeclKind::Function;
-    if (word == "marker")
-        return DeclKind::Marker;
+    if (word == "state")
+        return DeclKind::Function;
     if (word == "type" || word == "alias")
         return DeclKind::TypeAlias;
     if (word == "struct" || word == "component")
@@ -351,8 +351,8 @@ namespace {
     return std::nullopt;
 }
 
-/// Parses a valid function-kind prefix: `fn`, `const fn`, `raw fn`, `extern fn`,
-/// or `flow fn`.  Returns false without consuming tokens when the current token is
+/// Parses a valid function-kind prefix: `fn`, `const fn`, `raw fn`, or `extern fn`.
+/// Returns false without consuming tokens when the current token is
 /// not `fn` or a kind prefix followed by `fn`.
 [[nodiscard]] std::optional<FunctionKind>
 functionKindPrefix(const FrontendSnapshot &snapshot, uint32_t &index, uint32_t token_count) {
@@ -362,7 +362,7 @@ functionKindPrefix(const FrontendSnapshot &snapshot, uint32_t &index, uint32_t t
     if (word == "fn")
         return FunctionKind::Standard;
 
-    static constexpr std::string_view kFunctionKindPrefixes[] = {"const", "raw", "extern", "flow"};
+    static constexpr std::string_view kFunctionKindPrefixes[] = {"const", "raw", "extern"};
     for (const auto prefix : kFunctionKindPrefixes) {
         if (word != prefix || index + 1U >= token_count || tokenText(snapshot, index + 1U) != "fn")
             continue;
@@ -373,7 +373,6 @@ functionKindPrefix(const FrontendSnapshot &snapshot, uint32_t &index, uint32_t t
             return FunctionKind::Raw;
         if (prefix == "extern")
             return FunctionKind::Extern;
-        return FunctionKind::Flow;
     }
     return std::nullopt;
 }
@@ -462,10 +461,45 @@ public:
                 continue;
             }
 
-            if (word == "stackful" && index_ + 1 < token_count_ && text(index_ + 1) == "marker") {
+            if (word == "state") {
                 flushBadRun();
-                lowerMarkerDeclaration(start, visibility, true);
+                lowerDeclaration(start, DeclKind::Function, visibility, {}, {}, is_extern,
+                                 FunctionKind::State);
+                declaration_is_nominal_ = false;
+                visibility              = Visibility::Private;
+                is_extern               = false;
+                continue;
+            }
+
+            if (word == "flow" && index_ + 1U < token_count_ && text(index_ + 1U) == "fn") {
+                flushBadRun();
+                snapshot_.diagnostics_.push_back(
+                    {range(start, index_ + 2U),
+                     "Zith--: 'flow fn' is not supported; use a 'state' function",
+                     false, diagnostics::err::UnsupportedSyntax});
+                ++index_;
+                lowerDeclaration(start, DeclKind::Function, visibility, {}, {}, is_extern,
+                                 FunctionKind::Standard);
                 visibility = Visibility::Private;
+                is_extern  = false;
+                continue;
+            }
+
+            if (word == "marker" || (word == "stackful" && index_ + 1U < token_count_ &&
+                                     text(index_ + 1U) == "marker")) {
+                flushBadRun();
+                snapshot_.diagnostics_.push_back(
+                    {range(start, index_ + (word == "stackful" ? 2U : 1U)),
+                     "Zith--: 'marker' is not supported; declare a 'state' function instead",
+                     false, diagnostics::err::UnsupportedSyntax});
+                if (word == "stackful")
+                    ++index_;
+                ++index_;
+                lowerDeclaration(start, DeclKind::Function, visibility, {}, {}, is_extern,
+                                 FunctionKind::Standard);
+                declaration_is_nominal_ = false;
+                visibility              = Visibility::Private;
+                is_extern               = false;
                 continue;
             }
 
@@ -484,11 +518,7 @@ public:
             if (kind) {
                 flushBadRun();
                 declaration_is_nominal_ = word == "type";
-                if (*kind == DeclKind::Marker) {
-                    lowerMarkerDeclaration(start, visibility, false);
-                } else {
-                    lowerDeclaration(start, *kind, visibility, {}, {}, is_extern);
-                }
+                lowerDeclaration(start, *kind, visibility, {}, {}, is_extern);
                 declaration_is_nominal_ = false;
                 visibility              = Visibility::Private;
                 is_extern               = false;
@@ -902,6 +932,59 @@ private:
         const uint32_t start = index_;
         if (punctuation(index_, '{'))
             return parseBlock();
+
+        // `dock State(args)` is a primary call expression whose result is the
+        // state machine's eventual return value.
+        if (isKeywordToken("dock")) {
+            const uint32_t dock_start = index_++;
+            Expression dock;
+            dock.kind  = ExprKind::DockCall;
+            dock.scope = current_scope_;
+            if (index_ < token_count_ &&
+                (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
+                 snapshot_.tokens_[index_].kind == TokenKind::Keyword)) {
+                Expression callee;
+                callee.kind  = ExprKind::Name;
+                callee.scope = current_scope_;
+                callee.text  = std::string(text(index_));
+                callee.span  = tokenSpan(index_);
+                dock.operands.push_back(addExpression(std::move(callee)));
+                ++index_;
+            } else {
+                snapshot_.diagnostics_.push_back(
+                    {range(dock_start, index_), "dock syntax is 'dock State(args)'", false,
+                     diagnostics::err::UnsupportedSyntax});
+            }
+            if (punctuation(index_, '(')) {
+                ++index_;
+                while (index_ < token_count_ && !punctuation(index_, ')')) {
+                    if (punctuation(index_, ',')) {
+                        ++index_;
+                        continue;
+                    }
+                    dock.operands.push_back(parseExpression());
+                    if (punctuation(index_, ','))
+                        ++index_;
+                    else if (!punctuation(index_, ')'))
+                        break;
+                }
+                if (punctuation(index_, ')'))
+                    ++index_;
+                else
+                    snapshot_.diagnostics_.push_back(
+                        {range(dock_start, index_), "expected ')' after dock arguments", false,
+                         diagnostics::err::ExpectedExpr});
+            } else if (!punctuation(index_, ';') && !punctuation(index_, '}')) {
+                snapshot_.diagnostics_.push_back(
+                    {range(dock_start, index_), "dock syntax is 'dock State(args)'", false,
+                     diagnostics::err::UnsupportedSyntax});
+                while (index_ < token_count_ && !punctuation(index_, ';') &&
+                       !punctuation(index_, '}'))
+                    ++index_;
+            }
+            dock.span = range(dock_start, index_);
+            return parsePostfix(addExpression(std::move(dock)), dock_start);
+        }
 
         // `<Name ...> ... </Name>` tag-macro invocation in expression position is
         // parsed as a MacroCall so value-position checks can reject it cleanly.
@@ -1727,54 +1810,6 @@ private:
         return addExpression(std::move(block));
     }
 
-    /// Marker bodies are rooted at the module scope, so they never see the
-    /// parameters or locals of the flow function that declared them.
-    [[nodiscard]] ExprId parseMarkerBlock() {
-        const ScopeId saved = current_scope_;
-        current_scope_      = root_scope_;
-        const ExprId body   = parseBlock();
-        current_scope_      = saved;
-        return body;
-    }
-
-    void parseParameterList(std::vector<Parameter> &out) {
-        if (!punctuation(index_, '(')) {
-            snapshot_.diagnostics_.push_back({tokenSpan(index_), "expected '(' after marker name"});
-            return;
-        }
-        ++index_;
-        while (index_ < token_count_ && !punctuation(index_, ')')) {
-            if (punctuation(index_, ',')) {
-                ++index_;
-                continue;
-            }
-            if (snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
-                Parameter parameter;
-                parameter.id   = LocalId{statementCountLocals_++};
-                parameter.name = std::string(text(index_));
-                parameter.span = tokenSpan(index_++);
-                if (punctuation(index_, ':')) {
-                    ++index_;
-                    parameter.type = parseType();
-                }
-                out.push_back(std::move(parameter));
-            } else {
-                snapshot_.diagnostics_.push_back(
-                    {tokenSpan(index_), "expected a marker parameter name"});
-                ++index_;
-            }
-            if (punctuation(index_, ','))
-                ++index_;
-            else if (!punctuation(index_, ')'))
-                break;
-        }
-        if (punctuation(index_, ')'))
-            ++index_;
-        else
-            snapshot_.diagnostics_.push_back(
-                {range(index_ - 5, index_), "expected ')' after marker parameters"});
-    }
-
     void parseArgumentList(std::vector<ExprId> &out) {
         if (!punctuation(index_, '(')) {
             snapshot_.diagnostics_.push_back(
@@ -2389,49 +2424,19 @@ private:
         } else if (word == "continue") {
             statement.kind = StmtKind::Continue;
             ++index_;
-        } else if (word == "dock") {
-            statement.kind = StmtKind::Dock;
-            ++index_;
-            if (punctuation(index_, '{')) {
-                statement.kind = StmtKind::Error;
-                snapshot_.diagnostics_.push_back({range(start, index_),
-                                                  "dock syntax is 'dock target(args);'", false,
-                                                  diagnostics::err::ExpectedExpr});
-                while (index_ < token_count_ && !punctuation(index_, ';') &&
-                       !punctuation(index_, '}'))
-                    ++index_;
-            } else if (index_ < token_count_ &&
-                       snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
-                statement.label = std::string(text(index_));
-                ++index_;
-                parseArgumentList(statement.arguments);
-            } else {
-                statement.kind = StmtKind::Error;
-                snapshot_.diagnostics_.push_back({range(start, index_),
-                                                  "dock syntax is 'dock target(args);'", false,
-                                                  diagnostics::err::ExpectedExpr});
-                while (index_ < token_count_ && !punctuation(index_, ';') &&
-                       !punctuation(index_, '}'))
-                    ++index_;
-            }
         } else if (word == "marker" || (word == "stackful" && index_ + 1U < token_count_ &&
                                         text(index_ + 1U) == "marker")) {
-            bool is_stackful = false;
-            if (word == "stackful") {
-                is_stackful = true;
+            statement.kind = StmtKind::Error;
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_ + (word == "stackful" ? 2U : 1U)),
+                 "Zith--: 'marker' is not supported; use a 'state' function",
+                 false, diagnostics::err::UnsupportedSyntax});
+            if (word == "stackful")
                 ++index_;
-            }
-            statement.kind       = StmtKind::Marker;
-            statement.isStackful = is_stackful;
             ++index_;
-            if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
-                statement.label = std::string(text(index_));
+            while (index_ < token_count_ && !punctuation(index_, ';') &&
+                   !punctuation(index_, '}'))
                 ++index_;
-            } else {
-                snapshot_.diagnostics_.push_back({range(start, index_), "expected a marker name"});
-            }
-            parseParameterList(statement.parameters);
-            statement.expression = parseMarkerBlock();
         } else if (word == "jump") {
             statement.kind = StmtKind::Jump;
             ++index_;
@@ -2872,30 +2877,6 @@ private:
                 {range(start, index_), "expected '}' after implement block"});
     }
 
-    /// Parse `marker name(params) { body }` at module scope.
-    void lowerMarkerDeclaration(const uint32_t start, const Visibility visibility,
-                                const bool stackful) {
-        Declaration declaration;
-        declaration.id         = DeclId{static_cast<uint32_t>(snapshot_.declarations_.size() + 1U)};
-        declaration.kind       = DeclKind::Marker;
-        declaration.visibility = visibility;
-        if (stackful)
-            ++index_; // consume `stackful`
-        ++index_;     // consume `marker`
-        if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
-            declaration.name = std::string(text(index_++));
-        } else {
-            snapshot_.diagnostics_.push_back({tokenSpan(index_), "expected a marker name"});
-            declaration.kind = DeclKind::Error;
-        }
-        parseParameterList(declaration.parameters);
-        declaration.body = parseBlock();
-        if (punctuation(index_, ';'))
-            ++index_;
-        declaration.span = range(start, index_);
-        snapshot_.declarations_.push_back(std::move(declaration));
-    }
-
     void lowerDeclaration(const uint32_t start, const DeclKind kind, const Visibility visibility,
                           std::string ownerName = {}, std::string traitName = {},
                           const bool isExtern                              = false,
@@ -3011,11 +2992,16 @@ private:
         if (punctuation(index_, ':') || isOperatorToken("->")) {
             ++index_; // `:` or `->` arrow return type
             declaration.declaredType = parseType();
+        } else if (kind == DeclKind::Function && functionKind == FunctionKind::State) {
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_),
+                 "state declarations require a return type after ':'", false,
+                 diagnostics::err::ExpectedExpr});
         } else if (kind == DeclKind::TypeAlias && index_ < token_count_ && text(index_) == "=") {
             ++index_;
             declaration.declaredType = parseType();
         }
-        if (kind == DeclKind::Function && punctuation(index_, '{')) {
+        if ((kind == DeclKind::Function) && punctuation(index_, '{')) {
             declaration.body = parseBlock();
         } else if (kind == DeclKind::Variable && index_ < token_count_ && text(index_) == "=") {
             ++index_;

@@ -52,7 +52,6 @@ namespace {
 symbols::SymKind mapFrontendDeclKind(const frontend::DeclKind kind) {
     switch (kind) {
     case frontend::DeclKind::Function:
-    case frontend::DeclKind::Marker:
         return symbols::SymKind::Fn;
     case frontend::DeclKind::TypeAlias:
         return symbols::SymKind::Alias;

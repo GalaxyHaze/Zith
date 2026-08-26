@@ -983,8 +983,7 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
             // Struct fields, enum variants, interface members, union fields, and
             // parameters of other composites live in the type's own lookup table,
             // not in the module resolution scope.
-            const bool params_are_bindings = declaration.kind == frontend::DeclKind::Function ||
-                                             declaration.kind == frontend::DeclKind::Marker;
+            const bool params_are_bindings = declaration.kind == frontend::DeclKind::Function;
             if (params_are_bindings && declaration.body) {
                 for (const auto &parameter : declaration.parameters) {
                     ResolvedName parameter_binding{parameter.name,
@@ -1030,23 +1029,6 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 local_binding.declKind    = frontend::DeclKind::Variable;
                 local_binding.bindingKind = statement.binding.bindingKind;
                 add_binding(std::move(local_binding), statement_scope);
-            } else if (statement.kind == frontend::StmtKind::Marker) {
-                frontend::ScopeId marker_scope;
-                if (statement.expression &&
-                    statement.expression.value <= module->frontend->expressions().size()) {
-                    marker_scope =
-                        module->frontend->expressions()[statement.expression.value - 1U].scope;
-                }
-                for (const auto &parameter : statement.parameters) {
-                    add_binding({parameter.name,
-                                 ResolutionKind::Declaration,
-                                 parameter.span,
-                                 {},
-                                 {},
-                                 parameter.id,
-                                 {}},
-                                marker_scope);
-                }
             }
         }
 

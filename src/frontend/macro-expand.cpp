@@ -52,10 +52,6 @@ struct TemplateMarker {
             expr(s.binding.initializer);
         for (const auto argument : s.arguments)
             expr(argument);
-        // Local marker declarations are blocks whose jump/dock statements and
-        // parameter expressions are still template nodes.
-        if (s.kind == StmtKind::Marker)
-            expr(s.expression);
         for (const auto &parameter : s.parameters)
             if (parameter.defaultValue)
                 expr(parameter.defaultValue);
