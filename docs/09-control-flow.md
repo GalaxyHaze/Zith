@@ -44,7 +44,7 @@ union RangeStep { i32, End }
 struct Range {
     current: i32,
     limit: i32,
-    fn next(self): RangeStep {
+    fn next(var self): RangeStep {
         if (self->current >= self->limit) {
             return RangeStep { End {} };
         }

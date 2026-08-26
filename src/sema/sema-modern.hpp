@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace zith::sema::modern {
@@ -45,7 +46,11 @@ struct TypedMap {
     /// Iterator data resolved for a `ForIn` expression, keyed by the expression
     /// id. HIR lowering uses these to emit the `next` call and union extraction
     /// without re-resolving the receiver type.
-    memory::FlatMap<uint32_t, frontend::DeclId> forInNext;
+    struct ForInNext {
+        session::ModuleKey module;
+        frontend::DeclId decl;
+    };
+    memory::FlatMap<uint32_t, ForInNext> forInNext;
     memory::FlatMap<uint32_t, uint32_t> forInElementIndex;
     memory::FlatMap<uint32_t, uint32_t> forInEndIndex;
     memory::FlatMap<uint32_t, TypeId> forInUnionType;
@@ -121,6 +126,10 @@ private:
     /// Local ids whose uninitialized `let` was typed by its first assignment.
     std::vector<uint32_t> typeInferredByAssignment_;
     TypeId currentReturnType_ = kInvalidTypeId;
+    /// Logical move state for parameter/local bindings while inferring a body.
+    /// A move invalidates only the binding for later reads; the ABI and storage
+    /// remain the same until real move tracking lands.
+    std::unordered_set<uint32_t> movedLocals_;
 
     /// True when the callee's signature mentions a generic parameter.
     [[nodiscard]] bool typeContainsGeneric(const FunctionType *fn) const noexcept;
@@ -178,6 +187,9 @@ private:
     /// type `*Owner` (with the written ownership preserved on the pointee).
     /// Other explicit self parameter types pass through unchanged.
     TypeId methodSelfParamType(const frontend::Parameter &param);
+    /// True when an expression resolves to a method's receiver parameter. Used
+    /// to auto-deref `self.field` without enabling `.field` for arbitrary pointers.
+    [[nodiscard]] bool isSelfReceiver(frontend::ExprId id) const noexcept;
     /// Builds/returns the named concrete type for a template application. Shared
     /// by type expressions and generic struct literals.
     TypeId instantiateTypeExpr(frontend::TextSpan span, std::string_view name,
@@ -213,6 +225,9 @@ private:
     TypeId inferAssign(frontend::ExprId id);
     /// Root name of a place expression (`p.inner.x` -> `p`), or an empty id.
     frontend::ExprId assignmentRoot(frontend::ExprId id) const noexcept;
+    /// Reports `E4001 UseAfterMove` when the root of `target` is an already
+    /// invalidated local. Assigning to the dead local itself revives it.
+    void checkMovedRoot(const frontend::Expression &target);
     /// Reports `WriteThroughView` when the assignment target is rooted at a `view` binding.
     void checkAssignableOwnership(frontend::ExprId target, frontend::TextSpan span);
     /// Reports `UnsupportedSyntax` when an assignment target rooted at a `let`/`const`
@@ -220,6 +235,10 @@ private:
     /// nested struct/union storage; `view` is reported separately by
     /// `checkAssignableOwnership`, and `lend` remains mutable.
     void checkImmutableRootFieldWrite(frontend::ExprId target, frontend::TextSpan span);
+    /// Marks the logical base of a place expression as moved after a receiver
+    /// call whose `self` is implicit or `var self`. `view`/`lend` receivers do
+    /// not invalidate the caller binding in this phase.
+    void invalidateReceiverRoot(frontend::ExprId base);
     TypeId inferOptionalProp(frontend::ExprId id);
     TypeId inferIndex(frontend::ExprId id);
     TypeId inferSliceRange(frontend::ExprId id);

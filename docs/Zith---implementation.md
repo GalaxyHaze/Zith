@@ -14,6 +14,7 @@ O AST modela bindings com `BindingKind`:
 
 `Declaration.bindingKind` é definido para `DeclKind::Variable`. `Binding.bindingKind` é definido para `StmtKind::Binding`. O parser:
 
+- Aplica `Parameter.bindingKind` com default `Let` e lê `var p: T` ou `let p: T` antes do nome do parâmetro; `var self`/`let self` usam o mesmo campo no receiver.
 - Aplica o default `BindingKind::Let` e corrige com a palavra-chave real.
 - Rejeita `global` antes de baixar a declaração, com recovery para `DeclKind::Variable`.
 - Rejeita `const fn` em `functionKindPrefix`.
@@ -50,6 +51,22 @@ place expression e rejeita escritas de campo, arrow ou index cuja raiz seja `let
 (local ou global) com `Zith--: cannot write through immutable binding '<name>'` (`E2010`).
 O check dedicado `checkConstFieldAssignments`/`targetFieldIsConst` continua responsável por
 campos `const`; `view` e `lend` mantêm o tratamento de ownership anterior.
+
+`checkImmutableRootFieldWrite` trata também parâmetros de função. Parâmetros comuns têm
+`bindingKind == Let` e são read-only; `var p` tem `BindingKind::Var` e permite escrita através
+do parâmetro. Receivers explícitos com tipo pointer ou qualificador `lend`/`view` saem do default
+read-only (o check de `view` continua em `checkAssignableOwnership`). Bare `self` é read-only,
+mas `var self` permite escrita in-place nos campos.
+
+O acesso `self.field` auto-derefs um receiver implícito `*Owner`: `inferField` resolve o pointee
+quando o tipo do objeto é pointer, e `HirLowerModern::lowerField` emite um `HirUnaryOp::Deref`
+antes de ler/escrever o campo. `self->field` continua no caminho legacy e produz o mesmo acesso.
+
+`PerModuleSema` mantém `movedLocals_`, um dead-state lógico por corpo de função. Ao chamar um
+método com `self` implícito ou `var self`, `inferMethodCall` marca a raiz do receiver como movida;
+leituras posteriores do nome reportam `E4001 UseAfterMove` e escritas através de campos/índices
+do local movido também. Atribuir diretamente ao nome do local (o próprio root) revive a ligação.
+Esta fase não altera ABI nem storage e não implementa exclusividade de `lend`/`view` no chamador.
 
 Discriminantes de enum são avaliados em `lowerDeclarationTypes`, não como literais fixos.
 O evaluator percorre recursivamente literais inteiros, unários `-`/`~`, binários aritméticos,
@@ -103,6 +120,7 @@ Os seguintes testes cobrem a iteração:
 - `test-codegen`: execução runtime de um const global e de uma maquina de estados com `musttail tailcc`, incluindo parâmetros divergentes.
 - `test-cache`/`test-zirl-sections`: pool de expressões, globals e state machine metadata persistidos.
 - `test-memory-qualifiers`: lend/view aceites; unique/share/belong e mut rejeitados.
+- `test-sema`/`test-codegen`: `var p`/`var self`, `self.field` com auto-deref e dead-state `E4001` de receivers pós-método.
 
 Para regressões, usar a suíte completa:
 

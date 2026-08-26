@@ -994,7 +994,8 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                                                    {},
                                                    parameter.id,
                                                    {}};
-                    parameter_binding.declKind = declaration.kind;
+                    parameter_binding.declKind    = declaration.kind;
+                    parameter_binding.bindingKind = parameter.bindingKind;
                     add_binding(std::move(parameter_binding), parameter_scope);
                 }
             }

@@ -1704,7 +1704,7 @@ static void test_modern_for_in_iterators() {
                     "struct Range {\n"
                     "    current: i32,\n"
                     "    limit: i32,\n"
-                    "    fn next(self): RangeStep {\n"
+                    "    fn next(var self): RangeStep {\n"
                     "        if (self->current >= self->limit) {\n"
                     "            return RangeStep { End {} };\n"
                     "        }\n"
@@ -1729,7 +1729,7 @@ static void test_modern_for_in_iterators() {
                                "struct Range {\n"
                                "    current: i32,\n"
                                "    limit: i32,\n"
-                               "    fn next(self): RangeStep {\n"
+                               "    fn next(var self): RangeStep {\n"
                                "        if (self->current >= self->limit) {\n"
                                "            return RangeStep { End {} };\n"
                                "        }\n"
@@ -2039,6 +2039,83 @@ static void test_modern_struct_method_decl() {
                    "    return c.bump(3);\n"
                    "}\n");
     CHECK(r.ok, "a method declared in a struct body type-checks and is callable");
+}
+
+static void test_modern_parameter_mutability() {
+    ModernSemaTest t;
+    auto immutable_param = t.run("struct P { x: i32 }\n"
+                                 "fn set(p: P) { p.x = 1; }\n"
+                                 "fn main() {}\n");
+    CHECK(!immutable_param.ok, "a plain struct parameter cannot be written through");
+    CHECK(immutable_param.hasMessage("cannot write through immutable binding 'p'"),
+          "plain parameters are immutable by default");
+
+    auto var_param = t.run("struct P { x: i32 }\n"
+                           "fn set(var p: P) { p.x = 1; }\n"
+                           "fn main() {}\n");
+    CHECK(var_param.ok, "`var p` permits direct field assignment through the parameter");
+
+    auto let_param = t.run("struct P { x: i32 }\n"
+                           "fn set(let p: P) { p.x = 1; }\n"
+                           "fn main() {}\n");
+    CHECK(!let_param.ok, "`let p` keeps the parameter immutable");
+    CHECK(let_param.hasMessage("cannot write through immutable binding 'p'"),
+          "explicit `let` is the same as the default");
+}
+
+static void test_modern_self_mutability_and_auto_deref() {
+    ModernSemaTest ok;
+    auto r = ok.run("struct Counter {\n"
+                    "    value: i32,\n"
+                    "    fn get(self): i32 { return self.value; }\n"
+                    "    fn bump(var self): i32 { self.value += 1; return self.value; }\n"
+                    "}\n"
+                    "fn main(): i32 {\n"
+                    "    let c: Counter = Counter { value: 2 };\n"
+                    "    var total: i32 = c.get();\n"
+                    "    var d: Counter = Counter { value: 3 };\n"
+                    "    total += d.bump();\n"
+                    "    return total;\n"
+                    "}\n");
+    CHECK(r.ok, "`self.field` auto-derefs and `var self` permits in-place mutation");
+
+    ModernSemaTest read_only_self;
+    auto b = read_only_self.run("struct Counter { value: i32 }\n"
+                                "fn bad(self) { self.value = 3; }\n"
+                                "fn main() {}\n");
+    CHECK(!b.ok, "a plain `self` receiver cannot write through its fields");
+    CHECK(b.hasMessage("cannot write through immutable binding 'self'"),
+          "bare self is read-only even though it lowers to *Owner");
+}
+
+static void test_modern_logical_move_for_method_receivers() {
+    ModernSemaTest mutating;
+    auto r = mutating.run("struct Counter {\n"
+                          "    value: i32,\n"
+                          "    fn bump(var self): i32 { self.value += 1; return self.value; }\n"
+                          "}\n"
+                          "fn main(): i32 {\n"
+                          "    var c: Counter = Counter { value: 1 };\n"
+                          "    let r1: i32 = c.bump();\n"
+                          "    return c.value;\n"
+                          "}\n");
+    CHECK(!r.ok, "using a receiver after a `var self` call is rejected");
+    CHECK(r.hasErrorCode(diagnostics::err::UseAfterMove),
+          "the read after mutation reports E4001 UseAfterMove");
+    CHECK(r.hasMessage("cannot use 'c' after it was moved"), "the move reports on the dead name");
+
+    ModernSemaTest original_by_value;
+    auto s = original_by_value.run("struct Counter {\n"
+                                   "    value: i32,\n"
+                                   "    fn get(self): i32 { return self.value; }\n"
+                                   "}\n"
+                                   "fn main(): i32 {\n"
+                                   "    let c: Counter = Counter { value: 1 };\n"
+                                   "    return c.get() + c.value;\n"
+                                   "}\n");
+    CHECK(!s.ok, "an implicit-by-value self call also invalidates the caller binding");
+    CHECK(s.hasErrorCode(diagnostics::err::UseAfterMove),
+          "getting `c.value` after `c.get()` is a logical use after move");
 }
 
 static void test_modern_implement_block_method() {
@@ -2625,6 +2702,9 @@ static void test_sema() {
     test_modern_array_literal_empty();
     test_modern_char_literal_and_escapes();
     test_modern_struct_method_decl();
+    test_modern_parameter_mutability();
+    test_modern_self_mutability_and_auto_deref();
+    test_modern_logical_move_for_method_receivers();
     test_modern_implement_block_method();
     test_modern_method_call_arity_mismatch();
     test_modern_method_call_arg_type_mismatch();

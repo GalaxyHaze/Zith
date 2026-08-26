@@ -2996,6 +2996,13 @@ private:
                     break;
                 }
                 Parameter parameter;
+                if (isKeywordToken("var")) {
+                    parameter.bindingKind = BindingKind::Var;
+                    ++index_;
+                } else if (isKeywordToken("let")) {
+                    parameter.bindingKind = BindingKind::Let;
+                    ++index_;
+                }
                 if (snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
                     parameter.id   = LocalId{statementCountLocals_++};
                     parameter.name = std::string(text(index_));

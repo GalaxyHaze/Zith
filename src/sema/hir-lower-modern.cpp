@@ -1952,17 +1952,18 @@ hir::HirExprId HirLowerModern::lowerForIn(const frontend::Expression &expr) {
         current_types_ != nullptr ? current_types_->forInEndIndex.get(expr.id.value) : nullptr;
     const auto *union_sema_type_ptr =
         current_types_ != nullptr ? current_types_->forInUnionType.get(expr.id.value) : nullptr;
-    if (next_ptr == nullptr || element_index_ptr == nullptr || end_index_ptr == nullptr ||
-        union_sema_type_ptr == nullptr || !expr.forInBinding) {
+    if (next_ptr == nullptr || !next_ptr->decl || element_index_ptr == nullptr ||
+        end_index_ptr == nullptr || union_sema_type_ptr == nullptr || !expr.forInBinding) {
         return hir::kInvalidHirExpr;
     }
 
-    const frontend::DeclId next_decl = *next_ptr;
-    const uint32_t element_index     = *element_index_ptr;
-    const uint32_t end_index         = *end_index_ptr;
-    const auto union_sema_type       = *union_sema_type_ptr;
-    const auto union_type            = lowerType(union_sema_type);
-    const auto loop_type             = typeOfLocal(expr.forInBinding);
+    const frontend::DeclId next_decl     = next_ptr->decl;
+    const session::ModuleKey next_module = next_ptr->module;
+    const uint32_t element_index         = *element_index_ptr;
+    const uint32_t end_index             = *end_index_ptr;
+    const auto union_sema_type           = *union_sema_type_ptr;
+    const auto union_type                = lowerType(union_sema_type);
+    const auto loop_type                 = typeOfLocal(expr.forInBinding);
     if (types_.kindOf(union_type) != types::TypeKind::Union || loop_type == types::kErrorType)
         return hir::kInvalidHirExpr;
 
@@ -1979,13 +1980,16 @@ hir::HirExprId HirLowerModern::lowerForIn(const frontend::Expression &expr) {
     current_fn_->blocks[current_block_].insts.push(emitSlotStore(iterable_slot, iterable));
     const auto iterable_addr = addExpr(hir::HirSlotAddr{iterable_slot, iterable_type});
 
-    const auto makeMethodCall = [&](const frontend::DeclId decl_id) -> hir::HirExprId {
-        if (!decl_id)
+    const auto makeMethodCall = [&](const session::ModuleKey &decl_module,
+                                    const frontend::DeclId decl_id) -> hir::HirExprId {
+        if (decl_module.empty() || !decl_id)
             return hir::kInvalidHirExpr;
-        const auto *method_decl = findDecl(*current_module_, decl_id);
-        if (method_decl == nullptr)
+        const auto *module_artifact = snapshot_.findModule(decl_module);
+        const auto *method_decl =
+            module_artifact != nullptr ? findDecl(*module_artifact, decl_id) : nullptr;
+        if (module_artifact == nullptr || method_decl == nullptr)
             return hir::kInvalidHirExpr;
-        const auto key             = internFunctionKey(interner_, current_module_->key, decl_id);
+        const auto key             = internFunctionKey(interner_, module_artifact->key, decl_id);
         const auto *function_index = function_index_by_key_.get(key);
         if (function_index == nullptr)
             return hir::kInvalidHirExpr;
@@ -2011,7 +2015,7 @@ hir::HirExprId HirLowerModern::lowerForIn(const frontend::Expression &expr) {
     // Header: `let step = iter.next(); if (step is End) break;`.
     setCurrentBlock(header_block);
     current_fn_->blocks[header_block].insts = memory::DynArray<hir::HirExprId>(arena_);
-    const auto next_call                    = makeMethodCall(next_decl);
+    const auto next_call                    = makeMethodCall(next_module, next_decl);
     if (next_call == hir::kInvalidHirExpr)
         return hir::kInvalidHirExpr;
     const auto next_slot = next_slot_++;
@@ -2685,13 +2689,21 @@ hir::HirExprId HirLowerModern::lowerField(const frontend::Expression &expr,
     // `Color.Green` resolves to an enum variant constant, not a struct field read.
     if (const auto variant = enumVariantValue(expr.operands[0], expr.text))
         return addExpr(hir::HirEnumValue{*variant, type});
-    const auto object      = lowerExpr(expr.operands[0]);
-    const auto object_type = typeOfExpr(expr.operands[0]);
+    auto object      = lowerExpr(expr.operands[0]);
+    auto object_type = typeOfExpr(expr.operands[0]);
     if (object == hir::kInvalidHirExpr)
         return hir::kInvalidHirExpr;
     // Resolve the sema struct type to find the field index by name
-    const auto sema_type = sema_.typeTable().stripQualifiers(semaTypeOfExpr(expr.operands[0]));
-    const int idx        = sema_.typeTable().fieldIndex(sema_type, expr.text);
+    auto sema_type = sema_.typeTable().stripQualifiers(semaTypeOfExpr(expr.operands[0]));
+    // `self.field` auto-derefs an implicit `*Owner` receiver in sema; mirror it
+    // here so the field access still lowers to a loaded value.
+    if (const auto *sem_ptr = sema_.typeTable().pointer(sema_type)) {
+        const auto struct_type = lowerType(sema_.typeTable().stripQualifiers(sem_ptr->pointee));
+        object      = addExpr(hir::HirUnary{hir::HirUnaryOp::Deref, object, struct_type});
+        object_type = struct_type;
+        sema_type   = sema_.typeTable().stripQualifiers(sem_ptr->pointee);
+    }
+    const int idx = sema_.typeTable().fieldIndex(sema_type, expr.text);
     if (idx < 0)
         return hir::kInvalidHirExpr;
     return addExpr(hir::HirField{object, static_cast<uint32_t>(idx), type, object_type});

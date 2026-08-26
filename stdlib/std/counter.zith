@@ -1,0 +1,23 @@
+union Next { i32, End }
+
+pub struct Counter {
+    index: i32 = 0,
+    limit: i32 = 0,
+    step: i32 = 1,
+    inclusive: bool = false,
+
+    fn next(var self): Next {
+        if (self->inclusive) {
+            if (self->index > self->limit) {
+                return Next { End {} };
+            }
+        } else {
+            if (self->index >= self->limit) {
+                return Next { End {} };
+            }
+        }
+        let value = Next { self->index };
+        self->index = self->index + self->step;
+        return value;
+    }
+}

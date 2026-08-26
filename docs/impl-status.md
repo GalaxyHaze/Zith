@@ -196,7 +196,7 @@ Codes are grouped by pipeline stage. `E0000` remains the generic user-reported d
 | 2001-2010 | Semantic | `E2001` UndefinedIdent, `E2002` DuplicateDecl, `E2003` WrongArity, `E2004` UnusedDecl, `E2005` NotNamespace, `E2006` NoMember, `E2007` NoMatchingFn, `E2008` AmbiguousCall, `E2009` NotImplemented, `E2010` UnsupportedSyntax |
 | 2021-2025 | Frontend/interface | `E2023` NotATrait, `E2025` InterfaceMethodNotAllowed |
 | 3001-3008 | Types | `E3001` TypeMismatch, `E3002` CannotInfer, `E3003` InvalidCast, `E3004` CyclicType, `E3005` NullDerefUnproven, `E3006` CoercionFailure, `E3007` WidthMismatch, `E3008` OptionalViolation |
-| 4001-4004 | NRA / ownership | `E4001` UseAfterMove, `E4002` BorrowConflict, `E4003` DoubleBorrow, `E4004` WriteThroughView — only `E4004` is emitted today |
+| 4001-4004 | NRA / ownership | `E4001` UseAfterMove (logical receiver move in sema), `E4002` BorrowConflict, `E4003` DoubleBorrow, `E4004` WriteThroughView — `E4001` is emitted for post-method receiver use; `E4004` remains emitted for views |
 | 5001-5002 | Lowering | `E5001` InvalidIR, `E5002` Unreachable |
 | 10001-10004 | Runtime | `R10001` IndexOutOfBounds, `R10002` DivisionByZero, `R10003` NullDeref, `R10004` Panic |
 

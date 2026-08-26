@@ -180,6 +180,14 @@ void PerModuleSema::registerPrimitiveTypes() {
     end_type     = type_table.lookupNamed("End");
     if (!end_type)
         end_type = type_table.findOrCreateNamed("End", TypeKind::Struct);
+    if (type_table.struct_type(end_type) == nullptr) {
+        // The canonical marker is a real zero-field struct so `End {}` is
+        // constructible in any module without a user-level declaration.
+        auto &fields = type_table.makeTypeStorage();
+        auto &names  = type_table.makeStringStorage();
+        end_type     = type_table.internStruct("End", fields, &names);
+        type_table.registerNamed("End", end_type);
+    }
     void_type = registerPrimitive("void", TypeKind::Void, 0, false);
     bool_type = registerPrimitive("bool", TypeKind::Bool, 0, false);
     char_type = registerPrimitive("char", TypeKind::Char, 0, false);
@@ -686,7 +694,8 @@ void PerModuleSema::inferExpressionTypesForDecls() {
         currentBodyScope_    = decl.kind == frontend::DeclKind::Function && decl.body
                                    ? snapshot.expressions()[decl.body.value - 1U].scope
                                    : frontend::ScopeId{};
-        inStateBody_         = decl.kind == frontend::DeclKind::Function &&
+        movedLocals_.clear();
+        inStateBody_ = decl.kind == frontend::DeclKind::Function &&
                        decl.functionKind == frontend::FunctionKind::State;
         currentStateMachineId_ =
             inStateBody_ ? (decl.parentScope ? stateMachineIdOf(decl) : stateMachineIdFor(decl))
@@ -896,6 +905,21 @@ TypeId PerModuleSema::methodSelfParamType(const frontend::Parameter &param) {
         type_table.internQualified(inner, qualifier->ownership, qualifier->isMut));
 }
 
+bool PerModuleSema::isSelfReceiver(frontend::ExprId id) const noexcept {
+    if (!id || id.value > snapshot.expressions().size())
+        return false;
+    const auto *resolved = findResolvedExpr(id);
+    if (resolved == nullptr || !resolved->local)
+        return false;
+    for (const auto &decl : snapshot.declarations()) {
+        if (decl.kind != frontend::DeclKind::Function || decl.ownerName.empty() ||
+            decl.parameters.empty() || decl.parameters.front().id != resolved->local)
+            continue;
+        return decl.parameters.front().name == "self";
+    }
+    return false;
+}
+
 TypeId PerModuleSema::lowerForeignType(const cinterop::Type &type) {
     switch (type.kind) {
     case cinterop::TypeKind::Void:
@@ -1067,6 +1091,15 @@ TypeId PerModuleSema::inferExpr(frontend::ExprId id) {
     if (id.value > snapshot.expressions().size())
         return error_type;
     const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.kind == frontend::ExprKind::Name) {
+        if (const auto *resolved = findResolvedExpr(id);
+            resolved != nullptr && resolved->local &&
+            movedLocals_.contains(resolved->local.value)) {
+            report(expr.span,
+                   "cannot use '" + expr.text + "' after it was moved by a previous call",
+                   diagnostics::err::UseAfterMove);
+        }
+    }
     TypeId result;
     switch (expr.kind) {
     case frontend::ExprKind::DockCall:
@@ -1956,7 +1989,21 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         setExprType(callee.id, method_type);
     else
         setExprType(callee.id, result);
+    const bool implicit_self = has_receiver && !fn_params.front().type;
+    const bool var_self =
+        has_receiver && fn_params.front().bindingKind == frontend::BindingKind::Var;
+    if (implicit_self || var_self)
+        invalidateReceiverRoot(callee.operands[0]);
     return result;
+}
+
+void PerModuleSema::invalidateReceiverRoot(frontend::ExprId base) {
+    if (!base || base.value > snapshot.expressions().size())
+        return;
+    const auto *resolved = findResolvedExpr(base);
+    if (resolved == nullptr || !resolved->local)
+        return;
+    movedLocals_.insert(resolved->local.value);
 }
 
 bool PerModuleSema::typeContainsGeneric(const FunctionType *fn) const noexcept {
@@ -2181,18 +2228,18 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
     if (const size_t angle = owner_name.find('<'); angle != std::string::npos)
         owner_name.resize(angle);
 
-    auto findMethod = [&](const std::string_view name) -> const frontend::Declaration * {
-        for (const auto &decl : snapshot.declarations()) {
-            if (decl.kind != frontend::DeclKind::Function)
-                continue;
-            if (decl.ownerName != owner_name || decl.name != name)
-                continue;
-            if (!decl.parameters.empty() && decl.parameters.front().name == "self")
-                return &decl;
-        }
-        return nullptr;
-    };
-    const auto *next_decl = findMethod("next");
+    const auto resolved_methods            = findMethodsForOwner(owner_name, "next");
+    const frontend::Declaration *next_decl = nullptr;
+    session::ModuleKey next_module;
+    for (const auto &method : resolved_methods) {
+        if (method.decl == nullptr || method.decl->parameters.empty())
+            continue;
+        if (method.decl->parameters.front().name != "self")
+            continue;
+        next_decl   = method.decl;
+        next_module = method.module;
+        break;
+    }
 
     if (next_decl == nullptr)
         report(expr.span,
@@ -2207,8 +2254,11 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
     bool found_end         = false;
     bool valid_union       = false;
     if (next_decl != nullptr) {
-        const TypeId next_fn = typeOfDecl(next_decl->id);
-        const auto *fn       = type_table.function(next_fn);
+        const PerModuleSema *next_sema =
+            owner != nullptr ? owner->findModuleSema(next_module) : nullptr;
+        const TypeId next_fn =
+            next_sema != nullptr ? next_sema->typeOfDecl(next_decl->id) : typeOfDecl(next_decl->id);
+        const auto *fn = type_table.function(next_fn);
         if (fn == nullptr) {
             report(expr.span, "iterator 'next' method has no function type",
                    diagnostics::err::TypeMismatch);
@@ -2253,7 +2303,7 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
     if (next_decl == nullptr || !valid_union)
         return void_type;
 
-    typed_map.forInNext.insert(id.value, next_decl->id);
+    typed_map.forInNext.insert(id.value, TypedMap::ForInNext{next_module, next_decl->id});
     typed_map.forInElementIndex.insert(id.value, element_index);
     typed_map.forInEndIndex.insert(id.value, end_index);
     typed_map.forInUnionType.insert(id.value, union_type);
@@ -2929,11 +2979,41 @@ void PerModuleSema::checkAssignableOwnership(frontend::ExprId target, frontend::
 void PerModuleSema::checkImmutableRootFieldWrite(frontend::ExprId target, frontend::TextSpan span) {
     const frontend::ExprId root = assignmentRoot(target);
     const auto *root_resolved   = root ? findResolvedExpr(root) : nullptr;
-    if (root_resolved == nullptr ||
-        (root_resolved->bindingKind != frontend::BindingKind::Let &&
-         root_resolved->bindingKind != frontend::BindingKind::Const) ||
-        root_resolved->declKind == frontend::DeclKind::Function)
+    if (root_resolved == nullptr || (root_resolved->bindingKind != frontend::BindingKind::Let &&
+                                     root_resolved->bindingKind != frontend::BindingKind::Const))
         return;
+    // Parameters are immutable by default. `var p` is locally mutable; `lend`
+    // and explicit pointer/`view` receivers keep their own ownership checks.
+    if (root_resolved->local && root_resolved->declKind == frontend::DeclKind::Function &&
+        root_resolved->bindingKind == frontend::BindingKind::Let) {
+        TypeId param_type     = typeOfLocal(root_resolved->local);
+        const TypeId stripped = type_table.stripQualifiers(param_type);
+        if (type_table.kindOf(resolve(stripped)) == TypeKind::Pointer) {
+            // Explicit `self: *Owner` and `self: lend/view Owner` stay mutable
+            // through the pointer path. Bare `self`/`var self` map to *Owner
+            // too, but bare self is read-only and var self is mutable; the
+            // binding kind distinguishes them.
+            bool explicit_pointer = false;
+            for (const auto &decl : snapshot.declarations()) {
+                if (decl.kind != frontend::DeclKind::Function || decl.parameters.empty() ||
+                    decl.parameters.front().id != root_resolved->local)
+                    continue;
+                // Bare `self` is read-only even though it lowers to *Owner.
+                explicit_pointer =
+                    !(decl.parameters.front().name == "self" && !decl.parameters.front().type);
+                break;
+            }
+            if (explicit_pointer)
+                return;
+        } else if (const auto *param_qual =
+                       type_table.qualified(type_table.canonical(param_type))) {
+            // `lend`/`view` parameters opt out of the default immutable local
+            // binding; view is still reported by `checkAssignableOwnership`.
+            if (param_qual->ownership == types::OwnershipKind::Lend ||
+                param_qual->ownership == types::OwnershipKind::View)
+                return;
+        }
+    }
     bool has_field_path = false;
     for (frontend::ExprId current = target;
          current && current.value <= snapshot.expressions().size() && current != root;) {
@@ -2956,6 +3036,7 @@ TypeId PerModuleSema::inferAssign(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     if (expr.operands.size() < 2)
         return error_type;
+    checkMovedRoot(expr);
     TypeId left_type = kInvalidTypeId;
     prepareLValueIndexTypes(expr.operands[0]);
     const auto *left_resolved = findResolvedExpr(expr.operands[0]);
@@ -3023,6 +3104,27 @@ TypeId PerModuleSema::inferAssign(frontend::ExprId id) {
         result = error_type;
     }
     return result;
+}
+
+void PerModuleSema::checkMovedRoot(const frontend::Expression &target) {
+    if (target.kind != frontend::ExprKind::Assign || target.operands.size() < 2U)
+        return;
+    const frontend::ExprId root = assignmentRoot(target.operands[0]);
+    if (!root)
+        return;
+    const auto *resolved = findResolvedExpr(root);
+    if (resolved == nullptr || !resolved->local || !movedLocals_.contains(resolved->local.value))
+        return;
+
+    bool direct_rebind = target.operands[0] == root;
+    if (direct_rebind) {
+        movedLocals_.erase(resolved->local.value);
+        return;
+    }
+    const auto &root_expr = snapshot.expressions()[root.value - 1U];
+    report(target.span,
+           "cannot assign through '" + root_expr.text + "' after it was moved by a previous call",
+           diagnostics::err::UseAfterMove);
 }
 
 TypeId PerModuleSema::inferOptionalProp(frontend::ExprId id) {
@@ -3276,7 +3378,13 @@ TypeId PerModuleSema::inferField(frontend::ExprId id) {
     }
     TypeId object_type = inferExpr(expr.operands[0]);
     TypeId resolved    = resolve(object_type);
-    const auto *st     = type_table.struct_type(resolved);
+    // `self.field` is canonical for an implicit `*Owner` receiver. Sema treats
+    // it like the legacy `self->field`; lowering still emits a deref/HirField.
+    if (type_table.kindOf(resolved) == TypeKind::Pointer && isSelfReceiver(expr.operands[0])) {
+        if (const auto *ptr = type_table.pointer(resolved))
+            resolved = resolve(ptr->pointee);
+    }
+    const auto *st = type_table.struct_type(resolved);
     if (st == nullptr) {
         report(expr.span,
                "field access on non-struct type having type '" +

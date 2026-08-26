@@ -10,7 +10,7 @@ union CounterStep { End, i32 }
 struct Counter {
     current: i32,
     limit: i32,
-    fn next(self): CounterStep {
+    fn next(var self): CounterStep {
         if (self->current >= self->limit) {
             return CounterStep { End {} };
         }

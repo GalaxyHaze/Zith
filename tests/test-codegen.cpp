@@ -491,7 +491,7 @@ static void test_for_in_runtime() {
                                           "struct Range {\n"
                                           "    current: i32,\n"
                                           "    limit: i32,\n"
-                                          "    fn next(self): RangeStep {\n"
+                                          "    fn next(var self): RangeStep {\n"
                                           "        if (self->current >= self->limit) {\n"
                                           "            return RangeStep { End {} };\n"
                                           "        }\n"
@@ -513,6 +513,28 @@ static void test_for_in_runtime() {
                                           "}\n");
     CHECK(r.ok, "for-in runtime test compiles, links, and executes");
     CHECK_EQ(r.exitCode, 15, "for-in extracts the union element until End");
+}
+
+static void test_imported_counter_runtime() {
+    CodegenTest t;
+    auto r =
+        t.run("codegen-imported-counter.zith",
+              "import std/counter\n"
+              "fn main(): i32 {\n"
+              "    var total: i32 = 0;\n"
+              "    let half: Counter = Counter { index: 0, limit: 5, step: 1, inclusive: false };\n"
+              "    for (x in half) {\n"
+              "        total = total + x;\n"
+              "    }\n"
+              "    let full: Counter = Counter { index: 0, limit: 5, step: 1, inclusive: true };\n"
+              "    for (y in full) {\n"
+              "        total = total + y;\n"
+              "    }\n"
+              "    return total;\n"
+              "}\n");
+    CHECK(r.ok, "the stdlib Counter imports, lowers, and runs");
+    CHECK_EQ(r.exitCode, 25,
+             "Counter excludes the limit by default and includes it when requested");
 }
 
 static void test_named_struct_literal_and_defaults_runtime() {
@@ -1072,7 +1094,7 @@ static void test_slice_abi_matches_c_runtime() {
 /// An array coerced to `[]i32` is a zero-copy view of the original storage.
 static void test_array_to_slice_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn write(s: []i32): i32 { s[1] = 9; raw s[1] }\n"
+    t.write("main.zith", "fn write(var s: []i32): i32 { s[1] = 9; raw s[1] }\n"
                          "fn sum(s: []i32): i32 { raw s[0] + raw s[1] }\n"
                          "fn main(): i32 {\n"
                          "    var values: [3]i32 = [10, 20, 30];\n"
@@ -1264,6 +1286,31 @@ static void test_struct_method_call_runtime() {
                                                       "}\n");
     CHECK(r.ok, "A struct-body method call compiles and runs");
     CHECK_EQ(r.exitCode, 8, "The method receives self and returns value + by");
+}
+
+static void test_var_self_and_var_parameter_runtime() {
+    CodegenTest t;
+    auto r = t.run("codegen-var-self.zith",
+                   "struct Counter {\n"
+                   "    value: i32,\n"
+                   "    fn get(self): i32 { return self.value; }\n"
+                   "    fn bump(var self): i32 { self.value += 1; return self.value; }\n"
+                   "    fn set(var self, v: i32): i32 { self.value = v; return self.value; }\n"
+                   "}\n"
+                   "fn add_one(var p: Counter): i32 { p.value += 1; return p.value; }\n"
+                   "fn main(): i32 {\n"
+                   "    var a: Counter = Counter { value: 2 };\n"
+                   "    let r1: i32 = a.bump();\n"
+                   "    var b: Counter = Counter { value: 7 };\n"
+                   "    let r2: i32 = b.set(9);\n"
+                   "    var c: Counter = Counter { value: 4 };\n"
+                   "    let r3: i32 = add_one(c);\n"
+                   "    let d: Counter = Counter { value: r1 + r2 + r3 };\n"
+                   "    return d.get();\n"
+                   "}\n");
+    CHECK(r.ok, "var self and var parameters compile, link, and execute");
+    printf("EXIT CODE: %d\n", r.exitCode);
+    CHECK_EQ(r.exitCode, 17, "bump and set mutate in place; a var parameter mutates its copy");
 }
 
 static void test_implement_block_method_runtime() {
@@ -1646,6 +1693,7 @@ static void test_codegen() {
     test_when_narrowing_runtime();
     test_for_three_clause_runtime();
     test_for_in_runtime();
+    test_imported_counter_runtime();
     printf("Running test_named_struct_literal_and_defaults_runtime\n");
     test_named_struct_literal_and_defaults_runtime();
     printf("Running test_trailing_void_call_is_emitted_once\n");
@@ -1694,6 +1742,8 @@ static void test_codegen() {
     test_emit_hir_static_method_dump();
     printf("Running test_struct_method_call_runtime\n");
     test_struct_method_call_runtime();
+    printf("Running test_var_self_and_var_parameter_runtime\n");
+    test_var_self_and_var_parameter_runtime();
     printf("Running test_implement_block_method_runtime\n");
     test_implement_block_method_runtime();
     printf("Running test_extern_variadic_call_runs\n");

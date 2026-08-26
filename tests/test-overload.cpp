@@ -178,7 +178,8 @@ void overloadedMethodsInOneImplementBlock() {
                                  "}\n"
                                  "fn main(): i32 {\n"
                                  "    let p: P = P { x: 1, y: 2 };\n"
-                                 "    return p.get() + p.get(5);\n"
+                                 "    let q: P = P { x: 1, y: 2 };\n"
+                                 "    return p.get() + q.get(5);\n"
                                  "}\n");
     auto r = check(workspace);
     CHECK(r.ok, "two same-named methods in one implement block resolve by arity");

@@ -295,6 +295,10 @@ struct Parameter {
     LocalId id;
     std::string name;
     TextSpan span;
+    /// `var p: T` makes a parameter locally mutable; parameters default to
+    /// immutable. `self` keeps its implicit receiver semantics for the first
+    /// method parameter; `var self` additionally permits in-place mutation.
+    BindingKind bindingKind = BindingKind::Let;
     TypeExprId type;
     /// Optional default expression for a struct field: `left: i32 = 3`.
     ExprId defaultValue;
