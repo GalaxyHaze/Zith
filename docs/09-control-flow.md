@@ -5,11 +5,10 @@
 > and duck-typed `for (x in iterable)` are **working** and lower to the same CFG machinery as the
 > old `while`. `while` still works but emits a deprecation warning (`W1008`) pointing at
 > `for (cond) { }`. The literal range forms (`0..4`) are not implemented yet. `when` pattern
-> matching is a **parse error** —
-> arm syntax `0 => { }` is not recognised. `flow fn` parses as a function declaration;
-> `dock`, `jump`, and global/local `marker` lowering with typed arguments is tested, along with
-> stackless marker execution and stackful local bindings. Cycle detection and marker return
-> values remain future work. See [impl-status.md](impl-status.md).
+> matching is **working**, including equality, boolean, range, and tagged-union type-narrowing
+> arms. `state` declarations, `dock` calls, and `jump` terminating transfers are **working**
+> and compile to direct LLVM `musttail` calls; the old `flow fn`/`marker`/TLS-blob model is
+> removed. See [impl-status.md](impl-status.md).
 
 ### 9.1 Syntax Rules
 
@@ -25,7 +24,7 @@ let mask = a &. b |. c ^. d;
 
 ```zith
 for { ... }                                     // infinite
-for (i in iterable) { @println(i); }            // user iterator with done/value/next
+for (i in iterable) { @println(i); }            // user iterator with next() and End
 for (i = 0), (i < 10), (i += 1) { ... }         // init / cond / step
 for (v in range(0, 100)) { @println(v); }       // over a generator
 
@@ -35,7 +34,33 @@ let r = for ([acc, i]: i32), (i in 0..n) { acc *= i + 1 } or 0;
 
 > If the loop body may never run, its return value is deduced as optional — unless `or` collapses it to a non-optional value.
 
-> The init/cond/step form accepts comma-separated, parenthesized expressions — `for (i = 0), (i < 10), (i += 1)` — or the flat alternative, `for (i = 0, i < 10, i += 1)`. The iterator form expects a value whose type exposes `done(self): bool`, `value(self): T`, and `next(self)` methods.
+> The init/cond/step form accepts comma-separated, parenthesized expressions — `for (i = 0), (i < 10), (i += 1)` — or the flat alternative, `for (i = 0, i < 10, i += 1)`. The iterator form expects a value whose type exposes `next(self)`. `next` must return a tagged union with exactly two members: the element type and the empty `End` marker. `for` calls `next` once per iteration, exits when the result is `End`, and otherwise binds the non-End member as the loop variable.
+
+```zith
+struct End {}
+
+union RangeStep { i32, End }
+
+struct Range {
+    current: i32,
+    limit: i32,
+    fn next(self): RangeStep {
+        if (self->current >= self->limit) {
+            return RangeStep { End {} };
+        }
+        let value = RangeStep { self->current };
+        self->current = self->current + 1;
+        return value;
+    }
+}
+
+fn main() {
+    let range = Range { current: 0, limit: 3 };
+    for (x in range) {
+        println(x);
+    }
+}
+```
 
 ### 9.3 Chain Flow (`->`)
 
@@ -68,94 +93,43 @@ foo(), ( f1(..) -> f2() ) -> f3(..);
 
 > Comma sub-chains are useful for side effects — logging, validation — without disrupting the main data flow.
 
-### 9.4 `flow` Functions & Markers
+### 9.4 `state` Functions & State Machines
 
-A `flow fn` lets you write control flow using **markers**, **docks**, and **jumps**:
+A `state` function declares one state in a machine. `dock` starts a machine and evaluates to
+its eventual return value; `jump` terminates the current state and tail-calls the next state.
+Every state in one machine shares the same return type, while parameter lists may differ
+between states. The return type drives machine grouping; each transition validates arity and
+argument types against its individual target. LLVM `tailcc` plus `musttail` lets transitions
+between different signatures still compile to direct, stackless calls.
 
-> The code below documents the full language contract. Today `marker`, `dock`, and
-> `jump target(...)` are parsed, typed, and lowered. `jump` is a **restarting transfer**: control
-> starts at the target marker, stores its arguments in the module-local marker blob, and resumes
-> immediately after the originating `dock` when the marker body falls through. Stackless markers
-> cannot capture bindings from the host flow function; stackful markers may use their own local
-> bindings.
-
-- **`marker`**: A named block of code with typed parameters. Global markers are module-scoped and usable from any `flow fn` in the same module; local markers may shadow a global within their `flow fn`. Marker bodies run from a shared sample inside each host flow function. Markers are `void`; there is no marker return value yet.
-- **`dock`**: A statement that grants permission to use `jump` and records the continuation of the enclosing `flow fn`. The accepted form is `dock target(args);`; the old `dock { ... }` block form is rejected. Docks are only valid inside a `flow fn` and cannot appear inside a marker body.
-- **`jump`**: The transfer operator: `jump target(args);` is only valid inside a marker. It stores new argument values into the module-local TLS marker blob and transfers to the target marker without changing the continuation. When the outermost marker body finishes without an explicit `return`, control resumes at the point after the `dock` that started the flow.
-
-```zith
-flow fn run(data: Stream): void {
-    marker Process(chunk: Chunk, count: i32) {
-        transform(chunk);
-        // count carries over from the last jump unless you update it
-    }
-
-    for ( i = 0, item in data ) {
-        if (item.isValid()) {
-            dock Process(item, i);      // start marker flow with arguments
-        }
-        i += 1;
-    }
-}
-
-// Global marker — usable from any flow fn
-marker ContextSwitch(next: TaskId) {
-    saveRegisters();
-    loadTask(next);
-}
-
-// never: the return point is not altered — no resumption to protect
-flow fn scheduler(): never { ... }
-```
-
-#### Marker Rules
-
-| Rule | Detail |
-|---|---|
-| Hoisting | **Working.** Markers are registered module-scope and their bodies are lowered as shared samples into each reachable host `flow fn`. |
-| Return point | **Working.** `dock` records the continuation of its enclosing flow. If a marker jumps to another marker, the inner marker still falls through to the original dock, not to the marker that ran it. |
-| Marker values | Markers are `void`; marker return values are not implemented yet. |
-| Scope | **Working.** Global markers are module-scoped; local markers shadow globals within their `flow fn`. Marker bodies do not see host parameters or locals. |
-| Arguments | **Working.** Markers have typed parameters. `dock target(args)` and `jump target(args)` validate arity and argument types. Stackless markers cannot capture host locals. |
-| Input from dock | `dock target(args);` is parsed, typed, lowered, and materialized into the module-local TLS marker blob. |
-| Function kind | `marker`, `dock`, and `jump` are restricted to `flow fn` context; using them elsewhere reports the appropriate semantic error. `dock` outside a `flow fn`, `dock` inside a marker, and `jump` outside a marker are rejected. |
-| Global markers | May call regular functions, but not `flow` functions. Marker bodies root in module scope and are shared across flow functions that dock or jump to them. |
+- **`state`**: `state Name(params): ReturnType { ... }`. Each state is a normal function body
+  and may use module/global state and ordinary locals.
+- **`dock`**: `dock Start(args)` is an expression. It calls a state and returns the value
+  produced by `return` in the final state.
+- **`jump`**: `jump Next(args);` is terminating and only valid inside a state. It may target a
+  state with a different parameter list from the same machine, and it lowers to `musttail tailcc`
+  followed by `ret`.
+- **`return`**: `return value;` inside a state completes the machine and supplies the result
+  to the originating `dock` call.
 
 ```zith
-flow fn foo() {
-    marker Test() {
-        printf("Second\n");
+state Count(n: i32): i32 {
+    if (n == 0) {
+        return n;
     }
-    printf("First\n");
-    dock Test();
-    printf("Third\n");
+    jump Count(n - 1);
+}
+
+fn main(): i32 {
+    let result = dock Count(3);
+    return result;
 }
 ```
 
-The example prints `First`, `Second`, then `Third`: `jump Test` transfers to the marker, and
-falling out of `Test` returns to the continuation of the enclosing `dock`.
-
-> **Future work:** `never` markers are not implemented. The restarting transfer description
-> assumes markers always resume; a `never` marker would need its own rule and is not accepted
-> in this iteration. Marker cycle detection and marker return values are also not implemented
-> yet.
-
-#### Stackful vs Stackless
-
-A `stackful marker` may declare and use its own local bindings. A **stackless** marker cannot
-declare local bindings or capture bindings from the host flow function. Stackless markers
-therefore only touch their parameters and module/global state; stackful markers may also use
-ordinary stack allocation inside the marker body.
-
-```zith
-flow fn run(data: Stream): void {
-    stackful marker Process(chunk: Chunk) {
-        let buffer = allocate(chunk.size);  // local — dropped before jump
-        jump transform(buffer);
-        // chunk and buffer cross the jump only within this marker's own frame
-    }
-}
-```
+Transitions never grow the stack on targets with backend `musttail` support. All states in a
+machine use LLVM `tailcc`, including ordinary `dock` calls into them, so transitions between
+different parameter lists keep one consistent ABI. The compiler diagnoses unsupported targets
+instead of silently falling back to a marker runtime.
 
 ---
 

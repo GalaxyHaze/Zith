@@ -50,7 +50,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 |---|---|---|
 | `fn` | **Working** | Parameters, return type, body. The return type is written `fn f(x: T): R` or `fn f(x: T) -> R`; both spellings parse. Overloading by parameter count and types (F-33); linkage names are qualified as `<module>.<Owner>.<name>(<params>)`, except `extern fn` and `main` |
 | generic parameter lists `<T, U>` | **Working (step 04)** | Accepted on `fn`, `struct`, `type` alias, `enum`, `union` and `trait` declarations. Generic calls and concrete type uses instantiate monomorphically, including inferred type arguments and generic methods. Cache artifacts carry an instantiation summary. `T: Trait` constraints parse but are not yet enforced |
-| `flow fn` | **Working** | Parsed and lowers; `dock`, `marker`, and `jump target(args)` CFG is tested. Markers have typed parameters, module-scoped globals and per-flow locals are supported, and stackless execution is real. Marker cycle detection and return values remain future work |
+| `state` machine | **Working** | `state` declarations, `dock State(args)` expressions, and `jump Next(args)` terminating transitions are parsed, typed, and lowered. States in one machine share a return type but may have different parameter lists. State functions and calls use LLVM `tailcc`; transitions emit direct `musttail tailcc` calls followed by `ret`; old `flow fn`/`marker` syntax is rejected |
 | `raw fn` | **Working** | Parsed and lowers |
 | `const fn` | **Parse-level in progress** | Parsed as a function declaration with `FunctionKind::Const`; compile-time evaluation is not implemented |
 | `extern fn` | **Working** | C ABI interop |
@@ -95,9 +95,9 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `->` chain operator | **Working** | Arrow access on struct pointers (`p->field`) |
 | index `a[i]` | **Working** | On arrays, slices, pointers; array/slice reads return `?T` with bounds checks. `raw a[i]` skips bounds handling and returns `T` |
 | `?` postfix propagation | **Working** | Requires optional operand in optional-returning function |
-| `as` cast | **Working** | Dedicated `ExprKind::Cast` -> `HirCast` -> LLVM conversion. Numeric pairs plus `raw opaque` <-> `*T` (`classifyCast`); pointer-to-pointer between concrete pointees, integer/pointer mixes and user-defined casts stay rejected. No narrowing overflow check |
+| `as` cast | **Working** | Dedicated `ExprKind::Cast` -> `HirCast` -> LLVM conversion. Numeric pairs plus `raw opaque` <-> `*T` (`classifyCast`); pointer-to-pointer between concrete pointees, integer/pointer mixes and user-defined casts stay rejected. Tagged-union member extraction outside a narrowed/checked context requires `raw`; raw-union member casts remain free. No numeric narrowing overflow check |
 | `is null` | **Working** | Dedicated `ExprKind::IsNull`. Requires an optional operand; `?*T` uses the nullptr niche, `?T` reads the discriminant |
-| `is <type>` | **Parse error** | Only `is null` is supported; any other operand reports a dedicated diagnostic |
+| `is <type>` | **Working (tagged unions)** | Tagged-union member tests lower to a runtime tag check; inside `if`/`when` they narrow the tested local to the member type |
 | range `1..5` | **Check only** | Parsed as binary `..`; no dedicated sema |
 | struct literal `Foo { x: 1, y: 2 }` | **Working** | Struct literal with named fields via `{}` syntax |
 | `@sizeOf`, `@offsetOf`, `@alignOf` | **Working** | `@` parses in expression position. `@sizeOf(T)` accepts any complete type and types as `u64`; `@offsetOf(S, field)` and `@alignOf(S)` are struct-only and type as `i32`. `@sizeOf(void)` reports `E3001` ("requires a complete type") |
@@ -112,11 +112,10 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `return` (void and typed) | **Working** | |
 | `for (cond) { }`, `for { }` | **Working** | Conditional and infinite loop forms lower to the same CFG as `while` |
 | `for (init, cond, step) { }` | **Working** | Flat and parenthesized clause forms are accepted. `init` and `step` are both optional; `continue` still runs the step before the next test |
-| `for (x in xs)` | **Working** | Duck-typed iterator over a struct with `done`/`value`/`next` methods; the loop variable has the type returned by `value()` |
-| `when` / `match` pattern match | **Working** | Arms are written `(pattern) ~> body`, comma-separated; `match` is a parser synonym for `when`. Equality, boolean and range (`1..3`) patterns lower through HIR to codegen. `(_)` is the default arm and must come last; a value-producing `when` without a default reports non-exhaustive. Covered by the runtime test `test_when_expression_runtime` |
-| `marker` / `jump` | **Working** | `marker name(params)` declares a typed marker; `jump target(args)` transfers control from inside a marker. Global markers are module-scoped and local markers may shadow them |
-| `dock` | **Working** | `dock target(args)` stores marker arguments in the module TLS blob and starts a marker flow; the old `dock { ... }` block form is rejected |
-| `stackful marker` | **Working** | `stackful marker name(params)` may use local bindings inside the marker body; stackless markers reject host capture and local bindings |
+| `for (x in xs)` | **Working** | Duck-typed iterator over a struct with `next(self)`; `next` returns a tagged union containing the element and the empty `End` marker, and the loop exits when the returned member is `End` |
+| `when` / `match` pattern match | **Working** | Arms are written `(pattern) ~> body`, comma-separated; `match` is a parser synonym for `when`. Equality, boolean and range (`1..3`) patterns lower through HIR to codegen. An `(f is Member)` arm narrows `f` for that arm's body. `(_)` is the default arm and must come last; a value-producing `when` without a default reports non-exhaustive. Covered by runtime tests |
+| `state` / `jump` | **Working** | `state Name(params): ReturnType` declares a state with the machine return type; `jump Next(args)` terminates the current block and validates arity/types against the target's own parameters before a direct `musttail tailcc` transfer |
+| `dock` | **Working** | `dock State(args)` is a `tailcc` call expression that returns the machine's final `state` return value; the old `dock { ... }` block form is rejected |
 
 ### Words, Contexts, Macros
 
@@ -218,10 +217,10 @@ Recorded deliberately; each item is a follow-up, not an unknown.
 |---|---|
 | Formatter re-prints `for (cond)` as `while` | `for` reuses `ExprKind::While`; a distinct node is needed to round-trip the spelling |
 | No overflow check on narrowing conversions | Neither `as` nor numeric-literal adaptation validates that the value fits the target |
-| Unchecked `?*T` -> `*T` coercion | Every C pointer is `?*T`, but without flow-sensitive narrowing it is accepted unchecked where `*T` is expected. Isolated in `PerModuleSema::allowsUncheckedNullablePointer`; delete it when narrowing lands |
+| Unchecked `?*T` -> `*T` coercion | Every C pointer is `?*T`, but without flow-sensitive narrowing it is accepted unchecked where `*T` is expected. Isolated in `PerModuleSema::allowsUncheckedNullablePointer`; delete it when pointer narrowing after `is null` lands |
 | No flow-sensitive narrowing after `is null` | `p->field` on a `?*T` requires NonNull proof from `if (p is null) { } else { p->field }` or `for (not (p is null))`. Error code `E3005` |
-| `is` limited to `is null` | Union/type narrowing is not addressed |
-| Ranges and range syntax in `for (x in 0..4)` | The iterator protocol supports user types with `done`/`value`/`next`; literal range syntax is future work |
+| `is` outside `null`/tagged-union contexts | Non-union `is Type` remains unsupported and reports a dedicated diagnostic |
+| Ranges and range syntax in `for (x in 0..4)` | The iterator protocol supports user types with `next(self) -> union { T, End }`; literal range syntax is future work |
 | User-defined casts | To be added as a new branch in `classifyCast` |
 | No C struct-by-value ABI | `struct` parameters/results import as named foreign types, but there is no verified ABI and no Zith-visible layout, so constructing/passing records to C remains unsupported |
 | `..` lexes per character | Its `precedence()` is -1 and the when-case range pattern depends on the two `.` tokens. Every other multi-char operator is munched longest-first as one token and wired through the parser, sema and formatter |

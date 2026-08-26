@@ -24,11 +24,15 @@ struct HirFunction {
     memory::DynArray<memory::InternedId> param_names;
     HirTypeId return_type;
     /// True for `state` functions; their jumps are LLVM musttail transitions.
-    bool isState    = false;
-    uint32_t machineId = 0;
-    bool isVariadic       = false;
-    ast::DeclId decl_id   = ast::kInvalidDecl;
-    symbols::SymId sym_id = symbols::kInvalidSym;
+    bool isState = false;
+    /// True for `state` functions and calls targeting them: LLVM `tailcc`.
+    bool usesTailCC = false;
+    /// Canonical return type shared by every state in this machine.
+    HirTypeId machineReturnType = types::kInvalidType;
+    uint32_t machineId          = 0;
+    bool isVariadic             = false;
+    ast::DeclId decl_id         = ast::kInvalidDecl;
+    symbols::SymId sym_id       = symbols::kInvalidSym;
     /// Source span of the `fn` declaration; empty for foreign/synthesized functions.
     memory::Span fnSpan{};
     memory::DynArray<HirBasicBlock> blocks;

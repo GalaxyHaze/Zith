@@ -112,7 +112,9 @@ let ready: bool;
 
 ## Ownership
 
-`lend` e `view` continuam parseados, tipados e com o comportamento residual atual. `view` bloqueia escrita e as factas NRA continuam a ser emitidas.
+`lend` e `view` continuam parseados, tipados e com o comportamento residual atual. `view` bloqueia escrita e as factas NRA continuam a ser emitidas. Em receiver explícitos, `self: lend Owner` e `self: view Owner` têm ABI e corpo de ponteiro para `Owner`; chamadas com `.` passam o endereço do receiver, por isso mutações via `lend`/`*` são visíveis no chamador.
+
+Em unions tagged, `is Tipo` estreita o local testado para o membro dentro do braço `if`/`when` correspondente, sem `as`. Extrair um membro tagged fora desse contexto exige `raw f as Tipo`; unions `raw` mantêm casts livres entre membros.
 
 `unique`, `share` e `belong` são rejeitados com `E2010 UnsupportedSyntax` e mensagem `Zith--: unique/share/belong ownership is not supported; use lend or view`.
 

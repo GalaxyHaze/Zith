@@ -108,8 +108,7 @@ public:
     }
 
 private:
-    static uint64_t internFunctionKey(memory::StringInterner &interner,
-                                      std::string_view module,
+    static uint64_t internFunctionKey(memory::StringInterner &interner, std::string_view module,
                                       frontend::DeclId id) noexcept {
         const auto module_id = interner.intern(module);
         return (static_cast<uint64_t>(module_id) << 32U) | id.value;
@@ -150,7 +149,7 @@ private:
     const session::ModuleArtifact *current_module_ = nullptr;
     const PerModuleSema *current_sema_             = nullptr;
     const TypedMap *current_typed_                 = nullptr;
-    uint64_t current_key_ = 0;
+    uint64_t current_key_                          = 0;
     std::vector<frontend::LocalId> current_params_;
     frontend::ExprId current_condition_ = {};
     bool any_return_                    = false;

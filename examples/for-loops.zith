@@ -3,17 +3,20 @@
 // assignments `+=`, `-=`, `*=`.
 // Expected exit code: 10
 
+struct End {}
+
+union CounterStep { End, i32 }
+
 struct Counter {
     current: i32,
     limit: i32,
-    fn done(self): bool {
-        return self->current >= self->limit;
-    }
-    fn value(self): i32 {
-        return self->current;
-    }
-    fn next(self) {
+    fn next(self): CounterStep {
+        if (self->current >= self->limit) {
+            return CounterStep { End {} };
+        }
+        let value = CounterStep { self->current };
         self->current = self->current + 1;
+        return value;
     }
 }
 

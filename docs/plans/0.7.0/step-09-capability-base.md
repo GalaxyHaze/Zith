@@ -39,8 +39,8 @@ capability behavior. No capability changes compilation behavior in 0.7.0.
    `Fail`. `Behavior::None` for all of them.
 3. `Arithmetic` requires the binary operator signatures for `+ - * / %`;
    `Index` requires `operator [](self, index) : T`; `Iterator` requires
-   `next(self)` returning an iteration state and `done(self)`/`value(self)` or an
-   equivalent fixed shape recorded in the registry; `Range` requires
+   `next(self)` returning a tagged union with one value member and the empty
+   `End` marker; `Range` requires
    `contains(self, value) : bool`. Exact shapes are written explicitly in the
    registry implementation and must be copied by future capability activations.
 4. Capability names cannot be used as user trait names; duplicate/well-formedness

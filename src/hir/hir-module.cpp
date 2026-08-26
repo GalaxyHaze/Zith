@@ -7,9 +7,7 @@
 
 namespace zith::hir {
 
-namespace {
-
-} // namespace
+namespace {} // namespace
 
 HirModule::HirModule(memory::Arena &arena)
     : exprs_(arena), fns_(arena), globals_(arena), attrs_(arena) {}

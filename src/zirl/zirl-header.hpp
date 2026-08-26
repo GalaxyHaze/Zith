@@ -19,7 +19,8 @@ namespace zith::zirl {
 
 inline constexpr uint32_t kMagic = 0x5A49524Cu; // "ZIRL"
 // Bumped to 5 when module marker metadata and marker IR nodes were added to
-// the cache.
+// the cache. Version 9 removes that marker format in favour of `state`
+// functions whose transitions serialize as musttail direct calls.
 // Bumped to 4 when HIR expressions and residual HirAttrs were added to the
 // cache.
 // Bumped to 3 when module_name was added to the metadata section.
@@ -31,7 +32,11 @@ inline constexpr uint32_t kMagic = 0x5A49524Cu; // "ZIRL"
 /// Version 7: plain unions carry a runtime tag and store member payload first.
 /// Version 8: HIR module-level `const` globals and their load nodes are
 /// serialized in the Code section.
-inline constexpr uint32_t kFormatVersion = 8;
+/// Version 9: state machine metadata and musttail calls replace the marker
+/// blob runtime in the cache format.
+/// Version 10: state machine callers use tailcc and caches persist the
+/// machine return type alongside the machine id.
+inline constexpr uint32_t kFormatVersion = 10;
 inline constexpr uint8_t kEndianLittle   = 1;
 
 enum class SectionId : uint8_t {

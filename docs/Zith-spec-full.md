@@ -7,7 +7,7 @@
 
 Zith gives you full control with a minimal & clean syntax — you don't have to choose between verbose but safe or readable but slow. Its memory model, Node Resource Analysis (NRA), proves ownership and lifetime safety using five keywords: `lend`, `view`, `unique`, `share`, and `belong` — plus a `default` (no keyword) modifier.
 
-Beyond memory safety, Zith has a general-purpose core with a much larger toolbox: markers, contexts (DSLs), words (custom operators), comptime. You choose when to use them. Zith also follows the **Rule of Three**: "if a function needs more than three specialized tools, something went wrong."
+Beyond memory safety, Zith has a general-purpose core with a much larger toolbox: state machines, contexts (DSLs), words (custom operators), comptime. You choose when to use them. Zith also follows the **Rule of Three**: "if a function needs more than three specialized tools, something went wrong."
 
 This document is a draft of the language specification, currently v0.9.
 Not every feature described here is implemented in the compiler.
@@ -68,7 +68,7 @@ The compiler is a copilot: it gives you the tools, and you build the systems.
 
 | Everyday | Domain-specific |
 |---|---|
-| `struct`, `fn`, `lend`, `view`, `trait`, `interface` | `marker`, `dock`, `jump` — for Games, State Machine, OS & embedded |
+| `struct`, `fn`, `lend`, `view`, `trait`, `interface` | `state`, `dock`, `jump` — for Games, State Machine, OS & embedded |
 | `?T`, `T!`, `or` | `context`, `word` — for DSLs and APIs |
 | `when`, `for`, `->` | runtime/stdlib concurrency APIs — for parallel work without special syntax |
 
@@ -79,7 +79,7 @@ The compiler is a copilot: it gives you the tools, and you build the systems.
 - Composable behavior through traits, capabilities, and interfaces.
 - Static, zero-overhead error handling with rich recovery semantics.
 - Compile-time computation (`comptime`) as a first-class feature.
-- Low-level control — flow functions, markers — without sacrificing safety in everyday code.
+- Low-level control — state functions and musttail state transitions — without sacrificing safety in everyday code.
 - Extensibility through words and macros, ideally scoped inside contexts rather than polluting the global namespace.
 
 ### 1.4 Context-Bound Extensibility (Best Practice)
@@ -701,7 +701,7 @@ fn first<T>(slice: []T): ?T {
 |---|---|
 | `fn` | Standard runtime function. |
 | `const fn` | Compile-time function; parsing is in progress, evaluation is not implemented yet. |
-| `flow fn` | Structured control flow; parsing and lowering are in progress. `marker`, `dock`, and `jump target(args)` are tested with typed marker arguments and module-scoped markers ([§9.4](09-control-flow.md#94-flow-functions--markers)). |
+| `state` | Direct state functions; `dock` starts a state machine and `jump target(args)` is a terminating LLVM `tailcc`/`musttail` transition. States in one machine share a return type but may have different parameter lists ([§9.4](09-control-flow.md#94-state-functions-and-state-machines)). |
 | `raw fn` | Always unchecked, bypassing NRA and safety checks for C interop. |
 | `extern fn` | Fixed C ABI linkage; never name-qualified and never overloaded. |
 
@@ -1216,70 +1216,62 @@ foo(), ( f1(..) -> f2() ) -> f3(..);
 
 > Comma sub-chains are useful for side effects — logging, validation — without disrupting the main data flow.
 
-### 9.4 `flow` Functions & Markers
+### 9.4 `state` Functions & State Machines
 
-A `flow fn` lets you write control flow using **markers**, **docks**, and **jumps**:
+A `state` function is a normal function that belongs to a state machine. `dock` starts a state
+machine and returns its eventual `state` return value; `jump` is a terminating transfer to
+another state in the same machine. The compiler emits LLVM `musttail tailcc` calls for direct
+state-to-state transitions and rejects old `flow`/`marker` spellings.
 
-> The code below documents the full language contract. Today `marker`, `dock`, and
-> `jump target(args)` are parsed, typed, and lowered. Marker bodies use a module-local TLS blob
-> for arguments and are stackless by default; cycle detection and marker return values remain
-> future work.
-
-- **`marker`**: A named block of code with typed parameters. Global markers are module-scoped and usable from `flow fn`s in the same module; local markers may shadow a global within their `flow fn`. Marker bodies do not see the host function parameters or locals.
-- **`dock`**: A statement that grants permission to use `jump` and records the continuation of the enclosing `flow fn`. The accepted form is `dock target(args);`; the old `dock { ... }` block form is rejected.
-- **`jump`**: The transfer operator: `jump target(args);` is only valid inside a marker. It writes new argument values into the module-local TLS marker blob and transfers to the target marker without changing the continuation.
+- **`state`**: `state Name(params): ReturnType { ... }` declares one state in a machine.
+  All states in the same machine share the same return type; their parameter lists may differ.
+  LLVM `tailcc` lets a `jump` between different signatures transfer without growing the call
+  stack or introducing a hidden context frame.
+- **`dock`**: `dock Start(args)` is an expression that calls a state and evaluates to the
+  value returned by the last state in the machine. It may be assigned to a binding and
+  returned by an ordinary function.
+- **`jump`**: `jump Next(args);` terminates the current state and tail-calls the named state
+  from the same machine. It is only valid inside a `state` body, validates against the target
+  state's own parameter list, and lowers to `musttail tailcc` followed by `ret`.
+- **`return`**: `return value;` inside a state returns from the whole state machine and gives
+  the `dock` call its result. State functions are ordinary LLVM functions, and each transition
+  is a direct `musttail` call immediately followed by `ret`.
 
 ```zith
-flow fn run(data: Stream): void {
-    marker Process(chunk: Chunk, count: i32) {
-        transform(chunk);
-        // count carries over from the last jump unless you update it
+state Count(n: i32): i32 {
+    if (n == 0) {
+        return n;
     }
-
-    for ( i = 0, item in data ) {
-        if (item.isValid()) {
-            dock Process(item, i);      // start marker flow with arguments
-        }
-        i += 1;
-    }
+    jump Count(n - 1);
 }
 
-// Global marker — usable from any flow fn
-marker ContextSwitch(next: TaskId) {
-    saveRegisters();
-    loadTask(next);
+fn main(): i32 {
+    let result = dock Count(3);
+    return result;
 }
-
-// never: the return point is not altered — no resumption to protect
-flow fn scheduler(): never { ... }
 ```
 
-#### Marker Rules
+States can read module/global state and declare ordinary local bindings. The restrictions are
+that every state in a machine must share the machine return type, `jump` must be the last
+statement of a state block because it is a terminating transition, and `jump` arguments must
+match the target state's own arity and parameter types.
+
+#### State Machine Rules
 
 | Rule | Detail |
 |---|---|
-| Hoisting | **Working.** Marker bodies are registered module-scope and lowered as shared samples into each reachable host `flow fn`. |
-| Scope | **Working.** Global markers are module-scoped; local markers shadow globals within their `flow fn`. Marker bodies do not see host parameters or locals. |
-| Arguments | **Working.** Markers have typed parameters. `dock target(args)` and `jump target(args)` validate arity and argument types. |
-| Input from dock | `dock target(args);` stores arguments in the module-local TLS marker blob and records the flow continuation. |
-| Global markers | May call regular functions, but not `flow` functions. Marker bodies root in module scope and are shared across flow functions that dock or jump to them. |
+| Return type | **Required.** Every `state` in the same machine has the same return type. |
+| Parameters | **Diverging allowed.** States may use different parameter lists; `jump` and `dock` validate against the specific target state. |
+| Entry | **Working.** `dock State(args)` reuses normal call argument coercion and returns the machine return type. |
+| Transition | **Working.** `jump Next(args)` resolves a direct state symbol and lowers to a `musttail` call followed by `ret`. |
+| Stack use | **Working.** Declarations and calls use LLVM `tailcc`; transitions compile to `musttail tailcc` calls, so recursive state loops and diverging transitions do not grow the stack on supported targets. |
+| Scope | **Working.** State bodies are ordinary function bodies; they can use module/global state and local bindings. |
+| Legacy syntax | **Rejected.** `flow fn`, `marker`, `stackful marker`, and old `dock { ... }` blocks are removed. |
 
-#### Stackful vs Stackless
-
-A `stackful marker` may declare and use its own local bindings. A **stackless** marker cannot
-declare local bindings or capture bindings from the host flow function. Stackless markers
-therefore only touch their parameters and module/global state; stackful markers may also use
-ordinary stack allocation inside the marker body.
-
-```zith
-flow fn run(data: Stream): void {
-    stackful marker Process(chunk: Chunk) {
-        let buffer = allocate(chunk.size);  // local — dropped before jump
-        jump transform(buffer);
-        // chunk and buffer cross the jump only within this marker's own frame
-    }
-}
-```
+State machines use `musttail tailcc`, so support is limited to targets that preserve tail-call
+guarantees in the backend. Diverging parameters do not create an implicit context, frame, or
+runtime blob. The compiler emits an unsupported-target diagnostic instead of claiming
+arbitrary-target support.
 
 ---
 
@@ -1981,18 +1973,21 @@ fn write(self: lend File, data: []u8): void!;
 
 ### 21.6 Rule of Three
 
-If a function needs more than three specialized tools (markers, words, contexts, macros, comptime, inline error handling), something went wrong. Split the function or reconsider your abstraction.
+If a function needs more than three specialized tools (state machines, words, contexts, macros, comptime, inline error handling), something went wrong. Split the function or reconsider your abstraction.
 
 ```
-// Good — two tools: marker + word
-flow fn process() {
-    dock init { ... }
+// Good — two tools: state machine + word
+state Init() {
+    jump Ready();
+}
+fn process() {
+    dock Init();
     step1 -> step2
 }
 
 // Warning sign — four tools in one function
-flow fn process() {
-    dock init { ... }          // marker
+fn process() {
+    dock spinning();           // state machine
     use Math;                  // context
     use assert AS CHECK;       // word
     risky()!                   // inline error handling
@@ -2039,13 +2034,12 @@ The Rule of Three keeps code readable. Zith gives you many tools — you don't h
 | `pub` / `mod` / `mod(..)` / `mod(N)` | Visibility | Public / module-local, with optional depth. |
 | `let` / `var` / `global` / `const` | Bindings | Immutable / mutable / static storage / compile-time constant. |
 | `default` / `lend` / `view` / `unique` / `share` / `belong` | Memory | NRA memory modifiers — `default` is implicit when no keyword is written ([§7](07-memory-model.md)). |
-| `fn` / `const fn` / `flow fn` / `raw fn` / `extern fn` | Functions | Five exclusive function kinds; cannot be combined. |
+| `fn` / `const fn` / `state` / `raw fn` / `extern fn` | Functions | Five exclusive function kinds; cannot be combined. |
 | `trait` / `interface` / `extends` / `requires` / `dyn` | OOP | Nominal traits, structural interfaces, extension, constraints, dynamic dispatch. |
 | `Copy` / `Functor` / `Arithmetic` / `Error` | Capabilities | Operator and behavior capabilities. |
 | `Null` / `Fail` | Capabilities | Negative — activate only in proven-invalid states. |
 | `Allocator` / `Generator` / `Share` / `Lent` / `Trust` / `Unique` | Capabilities | Memory, runtime protocol, and safety capabilities. |
-| `marker` / `dock` / `jump` | Flow | Hoisted blocks, jump sites, and invocations for `flow fn`. |
-| `stackful` | Flow | Opt-in modifier for stackful markers (stackless is the default). |
+| `state` / `dock` / `jump` | State machines | `state` declarations, a state entry call, and terminating transitions. |
 | `->` / `..` | Chain | Chain flow / placeholder for the previous value. Left-to-right. |
 | `,` (in a chain) | Chain | Sub-chain — applies but does not advance the main chain value. |
 | `operator` / `token` | Words | Custom operator definition / token word definition ([§16](16-words.md)). Must be defined inside a `context` — global operator overloading is prohibited. |

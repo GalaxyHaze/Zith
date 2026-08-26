@@ -140,8 +140,8 @@ struct TypeIncomplete {
 using TypeData =
     std::variant<TypeError, TypeNever, TypeVoid, TypeBool, TypeChar, TypeInt, TypeFloat, TypePtr,
                  TypeArray, TypeStruct, TypeFn, TypeTypeVar, TypeOptional, TypeFailable, TypeAlias,
-                 TypeNominal, TypeTrait, TypeOpaque, TypeUnknown, TypeQualified, TypeSlice, TypeEnum,
-                 TypeUnion, TypePack, TypeSum, TypeGenericParam, TypeIncomplete>;
+                 TypeNominal, TypeTrait, TypeOpaque, TypeUnknown, TypeQualified, TypeSlice,
+                 TypeEnum, TypeUnion, TypePack, TypeSum, TypeGenericParam, TypeIncomplete>;
 
 enum class TypeKind : uint8_t {
     Error,

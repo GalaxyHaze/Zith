@@ -92,7 +92,8 @@ PerModuleSema::PerModuleSema(session::ModuleKey mod, const frontend::FrontendSna
       typed_map(tm), arena(a), diagnostics(a), owner(owner_), error_type(kInvalidTypeId),
       invalid_type(kInvalidTypeId), void_type(kInvalidTypeId), bool_type(kInvalidTypeId),
       char_type(kInvalidTypeId), i32_type(kInvalidTypeId), i64_type(kInvalidTypeId),
-      f32_type(kInvalidTypeId), f64_type(kInvalidTypeId) {}
+      f32_type(kInvalidTypeId), f64_type(kInvalidTypeId), null_type(kInvalidTypeId),
+      end_type(kInvalidTypeId) {}
 
 bool PerModuleSema::run() {
     if (!prepareTypes())
@@ -176,9 +177,12 @@ void PerModuleSema::registerPrimitiveTypes() {
     error_type   = type_table.internName("error", TypeKind::Error);
     invalid_type = type_table.internInvalid();
     null_type    = type_table.internName("null", TypeKind::Never);
-    void_type    = registerPrimitive("void", TypeKind::Void, 0, false);
-    bool_type    = registerPrimitive("bool", TypeKind::Bool, 0, false);
-    char_type    = registerPrimitive("char", TypeKind::Char, 0, false);
+    end_type     = type_table.lookupNamed("End");
+    if (!end_type)
+        end_type = type_table.findOrCreateNamed("End", TypeKind::Struct);
+    void_type = registerPrimitive("void", TypeKind::Void, 0, false);
+    bool_type = registerPrimitive("bool", TypeKind::Bool, 0, false);
+    char_type = registerPrimitive("char", TypeKind::Char, 0, false);
 
     struct IntSpelling {
         std::string_view name;
@@ -305,9 +309,13 @@ void PerModuleSema::lowerDeclarationTypes() {
                     ptype = error_type;
                 // A first parameter named 'self' with no explicit type in a
                 // method gets the owner pointer type implicitly.
-                if (is_method && i == 0 && param.name == "self" && !decl.parameters.front().type &&
-                    owner_type) {
-                    ptype = type_table.internPointer(owner_type);
+                if (is_method && i == 0 && param.name == "self" && owner_type) {
+                    if (!decl.parameters.front().type) {
+                        // `self` (without a type) is shorthand for `*Owner`.
+                        ptype = type_table.internPointer(owner_type);
+                    } else {
+                        ptype = methodSelfParamType(param);
+                    }
                 }
                 setLocalType(param.id, ptype);
                 params_storage.push(ptype);
@@ -646,24 +654,43 @@ void PerModuleSema::inferExpressionTypes() {
 
 void PerModuleSema::inferExpressionTypesForDecls() {
     stateMachineByDecl_.clear();
-    stateMachineByPrototype_.clear();
-    nextStateMachineId_ = 1;
+    stateMachineByReturn_.clear();
+    localStateMachineByParent_.clear();
+    nextStateMachineId_        = 1;
+    bool has_non_template_code = false;
     for (const auto &decl : snapshot.declarations()) {
         // A macro declaration is a template, not code: its body only becomes
         // real code once cloned into a call site.
         if (decl.kind == frontend::DeclKind::Macro)
             continue;
+        if (decl.kind != frontend::DeclKind::Import)
+            has_non_template_code = true;
         if (decl.kind == frontend::DeclKind::Function &&
-            decl.functionKind == frontend::FunctionKind::State) {
+            decl.functionKind == frontend::FunctionKind::State && !decl.parentScope) {
             (void)stateMachineIdFor(decl);
+        }
+        if (decl.kind == frontend::DeclKind::Function && decl.parentScope &&
+            decl.functionKind == frontend::FunctionKind::State) {
+            // Local states form one machine per parent body, independent of the
+            // top-level return-type grouping.
+            const auto [it, inserted] =
+                localStateMachineByParent_.emplace(decl.parentScope.value, 0U);
+            if (inserted)
+                it->second = nextStateMachineId_++;
+            stateMachineByDecl_[decl.id.value] = it->second;
         }
         currentDeclId_       = decl.id.value;
         currentFunctionKind_ = decl.kind == frontend::DeclKind::Function
                                    ? decl.functionKind
                                    : frontend::FunctionKind::Standard;
-        inStateBody_ = decl.kind == frontend::DeclKind::Function &&
+        currentBodyScope_    = decl.kind == frontend::DeclKind::Function && decl.body
+                                   ? snapshot.expressions()[decl.body.value - 1U].scope
+                                   : frontend::ScopeId{};
+        inStateBody_         = decl.kind == frontend::DeclKind::Function &&
                        decl.functionKind == frontend::FunctionKind::State;
-        currentStateMachineId_ = inStateBody_ ? stateMachineIdFor(decl) : 0;
+        currentStateMachineId_ =
+            inStateBody_ ? (decl.parentScope ? stateMachineIdOf(decl) : stateMachineIdFor(decl))
+                         : 0;
         if (decl.kind == frontend::DeclKind::Function) {
             TypeId fn_type     = typeOfDecl(decl.id);
             const auto *fn     = type_table.function(fn_type);
@@ -673,11 +700,22 @@ void PerModuleSema::inferExpressionTypesForDecls() {
         }
         if (decl.body) {
             currentDeclId_ = decl.id.value;
+            if (decl.parentScope && decl.functionKind == frontend::FunctionKind::State) {
+                currentStateMachineId_ = stateMachineIdOf(decl);
+            }
             (void)inferExpr(decl.body);
         }
         if (decl.initializer) {
             (void)inferExpr(decl.initializer);
         }
+    }
+    if (!has_non_template_code) {
+        currentDeclId_         = 0;
+        currentBodyScope_      = {};
+        currentFunctionKind_   = frontend::FunctionKind::Standard;
+        inStateBody_           = false;
+        currentStateMachineId_ = 0;
+        return;
     }
     // Infer iterator loops before the standalone sweep: the synthetic binding
     // in the loop body must be typed by the iterable before a body read is
@@ -690,18 +728,19 @@ void PerModuleSema::inferExpressionTypesForDecls() {
         }
     }
     // Also infer standalone expressions, skipping macro template bodies.  The
-    // expanded clones of imported markers are excluded separately: local marker
-    // context is only valid during their declaration pass, not when a detached
-    // clone is re-validated out of order.
+    // expanded clones of imported state declarations are validated in their
+    // own module context, so a detached clone re-validated out of order does
+    // not carry this module's state-machine grouping.
     for (const auto &expr : snapshot.expressions()) {
         if (snapshot.isMacroTemplateExpr(expr.id))
             continue;
         if (!typeOfExpr(expr.id))
             (void)inferExpr(expr.id);
     }
-    currentDeclId_       = 0;
-    currentFunctionKind_ = frontend::FunctionKind::Standard;
-    inStateBody_       = false;
+    currentDeclId_         = 0;
+    currentBodyScope_      = {};
+    currentFunctionKind_   = frontend::FunctionKind::Standard;
+    inStateBody_           = false;
     currentStateMachineId_ = 0;
 }
 
@@ -836,6 +875,25 @@ TypeId PerModuleSema::lowerBareTypeExpr(const frontend::TypeExpression &type) {
         return kInvalidTypeId;
     }
     return kInvalidTypeId;
+}
+
+TypeId PerModuleSema::methodSelfParamType(const frontend::Parameter &param) {
+    const TypeId declared = lowerTypeExpr(param.type);
+    if (!declared)
+        return declared;
+    const auto *qualifier = type_table.qualified(type_table.canonical(declared));
+    if (qualifier == nullptr || (qualifier->ownership != types::OwnershipKind::Lend &&
+                                 qualifier->ownership != types::OwnershipKind::View)) {
+        return declared;
+    }
+    // `self: lend Owner` / `self: view Owner` is a borrow receiver: the
+    // method body receives a pointer to Owner, and the qualifier remains on
+    // the pointee so ownership/read-only checks still recognize it.
+    const TypeId inner = type_table.stripQualifiers(declared);
+    if (!inner || type_table.kindOf(resolve(inner)) != TypeKind::Struct)
+        return declared;
+    return type_table.internPointer(
+        type_table.internQualified(inner, qualifier->ownership, qualifier->isMut));
 }
 
 TypeId PerModuleSema::lowerForeignType(const cinterop::Type &type) {
@@ -1459,6 +1517,8 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
                 candidate.type    = typeOfResolvedBinding(*binding);
                 candidate.fn      = type_table.function(candidate.type);
                 candidate.span    = binding->span;
+                candidate.module = binding->target.module.empty() ? module : binding->target.module;
+                candidate.decl   = binding->declaration;
                 if (candidate.fn != nullptr && !typeContainsGeneric(candidate.fn))
                     candidates.push_back(candidate);
             }
@@ -1608,6 +1668,35 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
     return fn->result;
 }
 
+std::vector<PerModuleSema::ResolvedMethod>
+PerModuleSema::findMethodsForOwner(std::string_view owner_name,
+                                   std::string_view method_name) const {
+    std::vector<ResolvedMethod> methods;
+    const auto matches = [&](const frontend::Declaration &decl) {
+        return decl.kind == frontend::DeclKind::Function && decl.ownerName == owner_name &&
+               decl.name == method_name;
+    };
+
+    // Keep the existing local-first behavior: a method declared in the current
+    // module must continue to take precedence over same-named imports.
+    for (const auto &decl : snapshot.declarations()) {
+        if (matches(decl))
+            methods.push_back(ResolvedMethod{module, &decl});
+    }
+    if (owner != nullptr) {
+        for (const auto &artifact_ptr : owner->modules()) {
+            const auto &artifact = *artifact_ptr;
+            if (artifact.key == module || artifact.frontend == nullptr)
+                continue;
+            for (const auto &decl : artifact.frontend->declarations()) {
+                if (matches(decl))
+                    methods.push_back(ResolvedMethod{artifact.key, &decl});
+            }
+        }
+    }
+    return methods;
+}
+
 /// Try to resolve `expr` (a Call whose callee is a Field/Arrow) as a
 /// method call on the base type. Returns the result TypeId on success,
 /// or `kInvalidTypeId` (with a diagnostic already reported) when the
@@ -1640,22 +1729,24 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
     std::string owner_name(st->name);
     if (const size_t angle = owner_name.find('<'); angle != std::string::npos)
         owner_name.resize(angle);
+    const auto resolved_methods = findMethodsForOwner(owner_name, callee.text);
     std::vector<const frontend::Declaration *> method_decls;
-    for (const auto &decl : snapshot.declarations()) {
-        if (decl.kind != frontend::DeclKind::Function)
-            continue;
-        if (decl.ownerName != owner_name || decl.name != callee.text)
-            continue;
-        method_decls.push_back(&decl);
+    std::vector<session::ModuleKey> method_modules;
+    for (const auto &method : resolved_methods) {
+        method_decls.push_back(method.decl);
+        method_modules.push_back(method.module);
     }
     if (method_decls.empty())
         return kInvalidTypeId; // no such method: may still be a callable field
 
     if (method_decls.size() == 1U && !method_decls.front()->genericParams.empty()) {
         const frontend::Declaration *method_decl = method_decls.front();
-        const auto saved_decl_id                 = currentDeclId_;
-        const auto saved_kind                    = currentFunctionKind_;
-        const size_t provided_args               = call.operands.size() - 1U;
+        const session::ModuleKey method_module   = method_modules.front();
+        PerModuleSema *method_sema =
+            owner != nullptr ? owner->findModuleSema(method_module) : nullptr;
+        const auto saved_decl_id   = currentDeclId_;
+        const auto saved_kind      = currentFunctionKind_;
+        const size_t provided_args = call.operands.size() - 1U;
         const bool has_receiver_entry =
             !method_decl->parameters.empty() && method_decl->parameters.front().name == "self";
         const size_t expected_args = has_receiver_entry ? method_decl->parameters.size() - 1U
@@ -1687,7 +1778,7 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         if (has_receiver_entry) {
             const TypeId self_type =
                 method_decl->parameters.front().type
-                    ? lowerTypeExpr(method_decl->parameters.front().type)
+                    ? methodSelfParamType(method_decl->parameters.front())
                     : (is_pointer ? base_type : type_table.internPointer(pointee));
             argument_types.push_back(self_type);
         }
@@ -1697,7 +1788,9 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
                 argument_types.push_back(inferExpr(call.operands[index + 1U]));
         }
 
-        const auto *method_fn = type_table.function(typeOfDecl(method_decl->id));
+        const auto *method_fn = method_sema != nullptr
+                                    ? type_table.function(method_sema->typeOfDecl(method_decl->id))
+                                    : nullptr;
         std::vector<TypeId> inferred_args;
         comptime::GenericResolveStatus resolved = comptime::GenericResolveStatus::CannotInfer;
         if (method_fn != nullptr) {
@@ -1728,7 +1821,10 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
 
         if (method_fn != nullptr) {
             const size_t instance_index =
-                instantiations->bindCall(module, callee.id, module, method_decl->id, inferred_args);
+                instantiations != nullptr
+                    ? instantiations->bindCall(module, callee.id, method_module, method_decl->id,
+                                               inferred_args)
+                    : ~size_t{0};
             if (instance_index == ~size_t{0}) {
                 report(call.span, "too many generic instantiations",
                        diagnostics::err::GenericExplosion);
@@ -1737,7 +1833,7 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
             const TypeId instance_type =
                 instantiations->substituteFunction(*method_fn, inferred_args);
             setExprType(callee.id, instance_type);
-            setResolvedCallTarget(callee.id, module, method_decl->id);
+            setResolvedCallTarget(callee.id, method_module, method_decl->id);
             const auto *instance_fn = type_table.function(instance_type);
             return instance_fn != nullptr ? instance_fn->result : error_type;
         }
@@ -1745,16 +1841,23 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
     }
 
     const frontend::Declaration *method_decl = method_decls.front();
+    session::ModuleKey method_module         = method_modules.front();
     if (method_decls.size() > 1U) {
         // The lowered method type carries the receiver as its first parameter, so
         // selection runs with one implicit argument.
         std::vector<OverloadCandidate> candidates;
         candidates.reserve(method_decls.size());
-        for (const auto *decl : method_decls) {
+        for (size_t index = 0; index < method_decls.size(); ++index) {
+            const auto *decl    = method_decls[index];
+            const auto decl_mod = method_modules[index];
             OverloadCandidate candidate;
-            candidate.type = typeOfDecl(decl->id);
-            candidate.fn   = type_table.function(candidate.type);
-            candidate.span = decl->span;
+            const auto *decl_sema = owner != nullptr ? owner->findModuleSema(decl_mod) : nullptr;
+            candidate.type =
+                decl_sema != nullptr ? decl_sema->typeOfDecl(decl->id) : typeOfDecl(decl->id);
+            candidate.fn     = type_table.function(candidate.type);
+            candidate.span   = decl->span;
+            candidate.module = decl_mod;
+            candidate.decl   = decl->id;
             if (candidate.fn != nullptr && !typeContainsGeneric(candidate.fn))
                 candidates.push_back(candidate);
         }
@@ -1769,9 +1872,15 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
                     break;
                 }
             }
-            setResolvedCallTarget(callee.id, module, method_decl->id);
+            const auto found = std::find(method_decls.begin(), method_decls.end(), method_decl);
+            if (found != method_decls.end()) {
+                const size_t chosen_index = static_cast<size_t>(found - method_decls.begin());
+                method_module             = method_modules[chosen_index];
+            }
         }
     }
+    setResolvedCallTarget(callee.id, method_module, method_decl->id);
+    PerModuleSema *method_sema = owner != nullptr ? owner->findModuleSema(method_module) : nullptr;
 
     // Build the effective argument list. A method only receives an implicit
     // self argument when it actually declares a receiver parameter (either
@@ -1797,7 +1906,7 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         self_type = is_pointer ? base_type : type_table.internPointer(pointee);
     } else if (has_receiver) {
         // Explicit self param: use its declared type.
-        self_type = lowerTypeExpr(fn_params.front().type);
+        self_type = methodSelfParamType(fn_params.front());
     }
 
     // Check explicit arguments against remaining params.
@@ -1812,16 +1921,30 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         return error_type;
     }
     for (size_t i = 0; i < provided_args; ++i) {
-        TypeId arg_type = inferExpr(call.operands[i + 1]);
-        TypeId param_type =
-            i + 1 < fn_params.size() ? lowerTypeExpr(fn_params[i + 1].type) : error_type;
+        TypeId arg_type             = inferExpr(call.operands[i + 1]);
+        TypeId param_type           = error_type;
+        const TypeId method_fn_type = method_sema != nullptr
+                                          ? method_sema->typeOfDecl(method_decl->id)
+                                          : typeOfDecl(method_decl->id);
+        const auto *method_ffn      = type_table.function(method_fn_type);
+        if (method_ffn != nullptr && i + 1U < method_ffn->params.size()) {
+            param_type = method_ffn->params[i + 1U];
+        } else if (i + 1 < fn_params.size()) {
+            param_type = lowerTypeExpr(fn_params[i + 1].type);
+        }
         if (param_type && arg_type && !coerceValue(call.operands[i + 1], param_type, arg_type))
             reportCoercionFailure(call.span, param_type, arg_type,
                                   "method call argument type mismatch",
                                   diagnostics::err::NoMatchingFn);
     }
 
-    TypeId result = lowerTypeExpr(method_decl->declaredType);
+    const TypeId method_type = method_sema != nullptr ? method_sema->typeOfDecl(method_decl->id)
+                                                      : typeOfDecl(method_decl->id);
+    const auto *method_fn    = type_table.function(method_type);
+    TypeId result =
+        method_fn != nullptr
+            ? method_fn->result
+            : (method_sema != nullptr ? kInvalidTypeId : lowerTypeExpr(method_decl->declaredType));
     if (!result)
         result = void_type;
     currentDeclId_       = saved_decl_id;
@@ -1829,7 +1952,7 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
     // Record a type for the Field/Arrow callee: it is a resolved method, not a
     // struct field, and the later standalone-expression sweep would otherwise
     // re-infer it as a field access and report "unknown field".
-    if (const TypeId method_type = typeOfDecl(method_decl->id))
+    if (method_type)
         setExprType(callee.id, method_type);
     else
         setExprType(callee.id, result);
@@ -1897,8 +2020,10 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
                 inferJump(stmt);
                 terminated_by_state_transfer = true;
                 last                         = void_type;
-            } else if (stmt.kind == frontend::StmtKind::Expression &&
-                       stmt.expression && stmt.expression.value <= snapshot.expressions().size() &&
+            } else if (stmt.kind == frontend::StmtKind::Declaration) {
+                last = void_type;
+            } else if (stmt.kind == frontend::StmtKind::Expression && stmt.expression &&
+                       stmt.expression.value <= snapshot.expressions().size() &&
                        snapshot.expressions()[stmt.expression.value - 1U].kind ==
                            frontend::ExprKind::DockCall) {
                 // Handled by the regular expression case above; keep the code
@@ -1918,10 +2043,6 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
         if (stmt.kind == frontend::StmtKind::Expression && stmt.expression) {
             last = inferExpr(stmt.expression);
         } else if (stmt.kind == frontend::StmtKind::Binding) {
-            if (currentStacklessMarker_) {
-                report(stmt.span, "bindings are not allowed in a stackless marker",
-                       diagnostics::err::UnsupportedSyntax);
-            }
             TypeId ann_type = lowerTypeExpr(stmt.binding.type);
             TypeId init_type =
                 stmt.binding.initializer ? inferExpr(stmt.binding.initializer) : invalid_type;
@@ -1952,6 +2073,8 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
         } else if (stmt.kind == frontend::StmtKind::Jump) {
             report(stmt.span, "jump is only allowed inside a state function",
                    diagnostics::err::UnsupportedSyntax);
+            last = void_type;
+        } else if (stmt.kind == frontend::StmtKind::Declaration) {
             last = void_type;
         }
     }
@@ -2031,8 +2154,8 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
     if (!iterable_type || type_table.kindOf(resolve(iterable_type)) == TypeKind::Error)
         return void_type;
 
-    TypeId pointee    = resolve(type_table.stripQualifiers(iterable_type));
-    bool is_pointer   = false;
+    TypeId pointee  = resolve(type_table.stripQualifiers(iterable_type));
+    bool is_pointer = false;
     if (type_table.kindOf(pointee) == TypeKind::Pointer) {
         if (const auto *ptr = type_table.pointer(pointee)) {
             pointee    = resolve(type_table.stripQualifiers(ptr->pointee));
@@ -2069,63 +2192,82 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
         }
         return nullptr;
     };
-    const auto *done_decl  = findMethod("done");
-    const auto *value_decl = findMethod("value");
-    const auto *next_decl  = findMethod("next");
+    const auto *next_decl = findMethod("next");
 
-    if (done_decl == nullptr || value_decl == nullptr || next_decl == nullptr)
-        report(expr.span, "iterator type '" + type_table.typeToString(iterable_type) +
-                              "' is missing done/value/next methods",
+    if (next_decl == nullptr)
+        report(expr.span,
+               "iterator type '" + type_table.typeToString(iterable_type) +
+                   "' is missing a 'next' method",
                diagnostics::err::TypeMismatch);
 
-    TypeId element_type = error_type;
-    if (done_decl != nullptr) {
-        const TypeId done_fn = typeOfDecl(done_decl->id);
-        if (const auto *fn = type_table.function(done_fn)) {
-            if (!sameType(resolve(fn->result), bool_type))
-                report(expr.span, "iterator 'done' method must return bool",
-                       diagnostics::err::TypeMismatch);
-        } else {
-            report(expr.span, "iterator 'done' method has no function type",
-                   diagnostics::err::TypeMismatch);
-        }
-    }
+    TypeId element_type    = error_type;
+    TypeId union_type      = error_type;
+    uint32_t element_index = 0;
+    uint32_t end_index     = static_cast<uint32_t>(-1);
+    bool found_end         = false;
+    bool valid_union       = false;
     if (next_decl != nullptr) {
         const TypeId next_fn = typeOfDecl(next_decl->id);
-        if (const auto *fn = type_table.function(next_fn)) {
-            if (!sameType(resolve(fn->result), void_type))
-                report(expr.span, "iterator 'next' method must return void",
-                       diagnostics::err::TypeMismatch);
-        } else {
+        const auto *fn       = type_table.function(next_fn);
+        if (fn == nullptr) {
             report(expr.span, "iterator 'next' method has no function type",
                    diagnostics::err::TypeMismatch);
-        }
-    }
-    if (value_decl != nullptr) {
-        const TypeId value_fn = typeOfDecl(value_decl->id);
-        if (const auto *fn = type_table.function(value_fn)) {
-            element_type = fn->result;
         } else {
-            report(expr.span, "iterator 'value' method has no function type",
-                   diagnostics::err::TypeMismatch);
+            const TypeId result = resolve(fn->result);
+            const auto *uf      = type_table.union_type(result);
+            if (uf == nullptr || !uf->is_tagged) {
+                report(expr.span,
+                       "iterator 'next' method must return a tagged union with one value member "
+                       "and 'End'",
+                       diagnostics::err::TypeMismatch);
+            } else if (uf->members.size() != 2U) {
+                report(
+                    expr.span,
+                    "iterator 'next' return union must have exactly two members: a value and 'End'",
+                    diagnostics::err::TypeMismatch);
+            } else {
+                union_type = fn->result;
+                for (uint32_t index = 0; index < uf->members.size(); ++index) {
+                    const TypeId member_type = resolve(uf->members[index]);
+                    if (sameType(member_type, end_type)) {
+                        end_index = index;
+                        found_end = true;
+                    } else {
+                        element_index = index;
+                        element_type  = uf->members[index];
+                    }
+                }
+                const bool has_end   = found_end;
+                const bool has_value = element_type != error_type;
+                if (has_end && has_value) {
+                    valid_union = true;
+                } else {
+                    report(expr.span,
+                           "iterator 'next' return union must contain a value member and 'End'",
+                           diagnostics::err::TypeMismatch);
+                }
+            }
         }
     }
 
-    if (done_decl == nullptr || value_decl == nullptr || next_decl == nullptr)
+    if (next_decl == nullptr || !valid_union)
         return void_type;
 
-    typed_map.forInDone.insert(id.value, done_decl->id);
-    typed_map.forInValue.insert(id.value, value_decl->id);
     typed_map.forInNext.insert(id.value, next_decl->id);
+    typed_map.forInElementIndex.insert(id.value, element_index);
+    typed_map.forInEndIndex.insert(id.value, end_index);
+    typed_map.forInUnionType.insert(id.value, union_type);
 
     if (expr.forInBinding) {
-        const TypeId ann     = lowerTypeExpr(expr.cast_type);
-        const TypeId actual  = element_type;
-        if (ann && !coerceValue(expr.operands[0], ann, actual)) {
+        const TypeId ann    = lowerTypeExpr(expr.cast_type);
+        const TypeId actual = element_type;
+        if (ann && !sameType(ann, actual)) {
             report(expr.span, "iterator element type does not match loop variable annotation",
                    diagnostics::err::TypeMismatch);
+            setLocalType(expr.forInBinding, actual);
+        } else {
+            setLocalType(expr.forInBinding, ann ? ann : actual);
         }
-        setLocalType(expr.forInBinding, ann ? ann : actual);
     }
     (void)inferExpr(expr.operands[1]);
     return void_type;
@@ -2226,8 +2368,18 @@ TypeId PerModuleSema::inferCast(frontend::ExprId id) {
         }
         const TypeId from_resolved = resolve(source);
         const TypeId to_resolved   = resolve(target);
-        if (type_table.kindOf(from_resolved) == TypeKind::Union)
+        if (type_table.kindOf(from_resolved) == TypeKind::Union) {
+            const auto *union_data = type_table.union_type(from_resolved);
+            const bool is_tagged   = union_data != nullptr && union_data->is_tagged;
+            if (is_tagged && !expr.is_raw) {
+                report(expr.span,
+                       "member access on a tagged union requires a checked/narrowed context; "
+                       "use 'raw f as Member' to bypass the tag check",
+                       diagnostics::err::InvalidCast);
+                return error_type;
+            }
             return unionMemberType(expr.span, from_resolved, to_resolved);
+        }
         if (type_table.kindOf(to_resolved) == TypeKind::Union) {
             const auto *union_type = type_table.union_type(to_resolved);
             if (union_type == nullptr)
@@ -2371,7 +2523,25 @@ TypeId PerModuleSema::inferWhen(frontend::ExprId id) {
                        diagnostics::err::TypeMismatch);
             }
         }
+        // An `(f is Member)` case narrows `f` to the member type for the body,
+        // matching the existing `if` flow-typing rule.
+        frontend::LocalId narrowed_local;
+        TypeId original_local_type = kInvalidTypeId;
+        TypeId narrowed_type       = kInvalidTypeId;
+        if (cond_node.kind == frontend::ExprKind::IsType && !cond_node.operands.empty() &&
+            cond_node.cast_type) {
+            if (const auto *resolved = findResolvedExpr(cond_node.operands[0]);
+                resolved != nullptr && resolved->local) {
+                narrowed_local      = resolved->local;
+                original_local_type = typeOfLocal(narrowed_local);
+                narrowed_type       = lowerTypeExpr(cond_node.cast_type);
+                if (narrowed_type)
+                    setLocalType(narrowed_local, narrowed_type);
+            }
+        }
         const TypeId case_type = inferExpr(expr.operands[i + 1U]);
+        if (narrowed_local && narrowed_type)
+            setLocalType(narrowed_local, original_local_type);
         if (i == 0U) {
             body_type = case_type;
         } else if (!sameType(body_type, case_type) && case_type != error_type) {
@@ -2495,39 +2665,46 @@ void PerModuleSema::reportCoercionFailure(frontend::TextSpan span, TypeId target
     report(span, std::string(context), fallback_code);
 }
 
-uint64_t PerModuleSema::statePrototypeKey(const TypeId return_type,
-                                          const memory::DynArray<TypeId> &params) const {
-    uint64_t key = 0x9E3779B97F4A7C15ULL ^ static_cast<uint64_t>(return_type.intern_seq);
-    for (const TypeId param : params)
-        key = (key << 5U) - key + static_cast<uint64_t>(param.intern_seq);
-    return key != 0U ? key : 1U;
-}
-
 uint32_t PerModuleSema::stateMachineIdFor(const frontend::Declaration &decl) {
     const auto existing = stateMachineByDecl_.find(decl.id.value);
     if (existing != stateMachineByDecl_.end())
         return existing->second;
+    if (decl.parentScope) {
+        const auto local = localStateMachineByParent_.find(decl.parentScope.value);
+        if (local != localStateMachineByParent_.end() && local->second != 0U) {
+            stateMachineByDecl_[decl.id.value] = local->second;
+            return local->second;
+        }
+        const uint32_t machine_id = nextStateMachineId_++;
+        localStateMachineByParent_.emplace(decl.parentScope.value, machine_id);
+        stateMachineByDecl_[decl.id.value] = machine_id;
+        return machine_id;
+    }
     const TypeId fn_type = typeOfDecl(decl.id);
     const auto *fn       = type_table.function(fn_type);
     if (fn == nullptr)
         return 0;
-    const uint64_t key = statePrototypeKey(fn->result, fn->params);
-    auto &machine_id   = stateMachineByPrototype_[key];
+    const uint32_t key = fn->result.intern_seq;
+    auto &machine_id   = stateMachineByReturn_[key];
     if (machine_id == 0)
         machine_id = nextStateMachineId_++;
     stateMachineByDecl_[decl.id.value] = machine_id;
     return machine_id;
 }
 
+uint32_t PerModuleSema::stateMachineIdOf(const frontend::Declaration &decl) const noexcept {
+    const auto existing = stateMachineByDecl_.find(decl.id.value);
+    return existing != stateMachineByDecl_.end() ? existing->second : 0U;
+}
+
 namespace {
 
-const frontend::Declaration *
-findDeclarationForResolved(const PerModuleSema &sema,
-                           const session::ResolvedName &resolved) {
+const frontend::Declaration *findDeclarationForResolved(const PerModuleSema &sema,
+                                                        const session::ResolvedName &resolved) {
     const session::ModuleKey target_module =
         resolved.target.module.empty() ? sema.module : resolved.target.module;
-    PerModuleSema *target = sema.owner != nullptr ? sema.owner->findModuleSema(target_module)
-                                                  : nullptr;
+    PerModuleSema *target =
+        sema.owner != nullptr ? sema.owner->findModuleSema(target_module) : nullptr;
     if (target == nullptr)
         return nullptr;
     frontend::DeclId decl_id = resolved.declaration;
@@ -2544,8 +2721,8 @@ void PerModuleSema::inferDockCall(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     TypeId result    = error_type;
     if (!expr.operands.empty()) {
-        const auto &target_expr = snapshot.expressions()[expr.operands[0].value - 1U];
-        const auto *resolved    = findResolvedExpr(expr.operands[0]);
+        const auto &target_expr             = snapshot.expressions()[expr.operands[0].value - 1U];
+        const auto *resolved                = findResolvedExpr(expr.operands[0]);
         const frontend::Declaration *target = nullptr;
         if (resolved != nullptr) {
             target = findDeclarationForResolved(*this, *resolved);
@@ -2559,8 +2736,7 @@ void PerModuleSema::inferDockCall(frontend::ExprId id) {
             if (const auto *fn = type_table.function(target_type)) {
                 result = fn->result;
                 if (expr.operands.size() - 1U != fn->params.size()) {
-                    report(expr.span, "dock call arity mismatch",
-                           diagnostics::err::NoMatchingFn);
+                    report(expr.span, "dock call arity mismatch", diagnostics::err::NoMatchingFn);
                     result = fn->result;
                 } else {
                     for (size_t index = 0; index < fn->params.size(); ++index) {
@@ -2591,10 +2767,10 @@ void PerModuleSema::inferJump(const frontend::Statement &stmt) {
                diagnostics::err::UnsupportedSyntax);
         return;
     }
-    const auto *resolved = stmt.label.empty()
-                               ? nullptr
-                               : session::lookupBinding(resolution, stmt.label,
-                                                 frontend::ScopeId{}, snapshot.scopes());
+    const auto *resolved =
+        stmt.label.empty()
+            ? nullptr
+            : session::lookupBinding(resolution, stmt.label, currentBodyScope_, snapshot.scopes());
     const frontend::Declaration *target = nullptr;
     if (resolved != nullptr)
         target = findDeclarationForResolved(*this, *resolved);
@@ -2619,8 +2795,7 @@ void PerModuleSema::inferJump(const frontend::Statement &stmt) {
     if (fn == nullptr)
         return;
     if (stmt.arguments.size() != fn->params.size()) {
-        report(stmt.span, "state transition arity mismatch",
-               diagnostics::err::NoMatchingFn);
+        report(stmt.span, "state transition arity mismatch", diagnostics::err::NoMatchingFn);
         return;
     }
     for (size_t index = 0; index < fn->params.size(); ++index) {
@@ -2693,13 +2868,57 @@ frontend::ExprId PerModuleSema::assignmentRoot(frontend::ExprId id) const noexce
 }
 
 void PerModuleSema::checkAssignableOwnership(frontend::ExprId target, frontend::TextSpan span) {
-    const frontend::ExprId root = assignmentRoot(target);
+    frontend::ExprId root = assignmentRoot(target);
     if (!root)
         return;
+
+    // `self: view Owner` lowers to `*view Owner`, so `self->x = ...` still
+    // reports the same read-only write as the old `view` parameter spelling.
+    const bool via_arrow = [&]() {
+        for (frontend::ExprId current = target;
+             current && current.value <= snapshot.expressions().size() && current != root;) {
+            const auto &cursor = snapshot.expressions()[current.value - 1U];
+            if (cursor.kind == frontend::ExprKind::Arrow) {
+                root = cursor.operands[0];
+                return true;
+            }
+            if (cursor.kind != frontend::ExprKind::Field &&
+                cursor.kind != frontend::ExprKind::Index)
+                break;
+            if (cursor.operands.empty())
+                break;
+            current = cursor.operands[0];
+        }
+        return false;
+    }();
+
     const TypeId declared = typeOfExpr(root) ? typeOfExpr(root) : typeOfResolvedName(root);
     if (!declared)
         return;
+
     const auto *qual = type_table.qualified(type_table.canonical(declared));
+    if (via_arrow) {
+        // The root may be `*view Owner`; strip the pointer layer before
+        // checking the pointee qualifier.
+        const TypeId resolved_root = resolve(declared);
+        if (type_table.kindOf(resolved_root) == TypeKind::Pointer) {
+            const auto *pointer = type_table.pointer(resolved_root);
+            if (pointer != nullptr) {
+                const auto *pointee_qual =
+                    type_table.qualified(type_table.canonical(pointer->pointee));
+                if (pointee_qual != nullptr &&
+                    pointee_qual->ownership == types::OwnershipKind::View) {
+                    const auto &root_expr = snapshot.expressions()[root.value - 1U];
+                    report(span,
+                           "cannot write through '" + root_expr.text +
+                               "': a 'view' binding is read-only",
+                           diagnostics::err::WriteThroughView);
+                }
+            }
+        }
+        return;
+    }
+
     if (qual == nullptr || qual->ownership != types::OwnershipKind::View)
         return;
     const auto &root_expr = snapshot.expressions()[root.value - 1U];
@@ -2713,8 +2932,7 @@ void PerModuleSema::checkImmutableRootFieldWrite(frontend::ExprId target, fronte
     if (root_resolved == nullptr ||
         (root_resolved->bindingKind != frontend::BindingKind::Let &&
          root_resolved->bindingKind != frontend::BindingKind::Const) ||
-        root_resolved->declKind == frontend::DeclKind::Function ||
-        root_resolved->declKind == frontend::DeclKind::Marker)
+        root_resolved->declKind == frontend::DeclKind::Function)
         return;
     bool has_field_path = false;
     for (frontend::ExprId current = target;
@@ -3961,12 +4179,8 @@ bool SemaPipeline::run() {
             has_errors_ = true;
     }
     for (auto *sema : modules_) {
-        // Imported modules are declaration sources, not entry programs: their
-        // public bodies become real code only when expanded/called from the
-        // root module, so only the root is expression-checked here.
-        if (sema->module == snapshot_.rootModuleKey())
-            if (!sema->checkExpressions())
-                has_errors_ = true;
+        if (!sema->checkExpressions())
+            has_errors_ = true;
     }
 
     for (const auto *sema : modules_) {

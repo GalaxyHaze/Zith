@@ -7,6 +7,7 @@
 #include <llvm/ADT/SmallString.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/Config/llvm-config.h>
+#include <llvm/IR/CallingConv.h>
 #include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
@@ -202,12 +203,11 @@ void CodeGen::emit(hir::HirModule &hirModule, std::string_view moduleName) {
         return false;
     }();
     if (has_states) {
-        const auto triple = effectiveTriple();
-        const bool supported =
-            triple.starts_with("x86_64") || triple.starts_with("i386") ||
-            triple.starts_with("i486") || triple.starts_with("i586") ||
-            triple.starts_with("i686") || triple.starts_with("wasm32") ||
-            triple.starts_with("wasm64");
+        const auto triple    = effectiveTriple();
+        const bool supported = triple.starts_with("x86_64") || triple.starts_with("i386") ||
+                               triple.starts_with("i486") || triple.starts_with("i586") ||
+                               triple.starts_with("i686") || triple.starts_with("wasm32") ||
+                               triple.starts_with("wasm64");
         if (!supported) {
             invalidIR_ = true;
             llvmError("state machines require an LLVM target with musttail support; "
@@ -257,6 +257,7 @@ void CodeGen::emitConstGlobals(hir::HirModule &hirModule) {
             continue;
         llvm::IRBuilder<> builder(module_->getContext());
         CodeGenEmit emit(builder, typeGen, interner_, types_);
+        emit.setModule(module_.get());
         auto *initializer =
             llvm::dyn_cast_or_null<llvm::Constant>(emit.emitExpr(global.init, hirModule));
         if (initializer == nullptr) {
@@ -282,6 +283,8 @@ llvm::Function *CodeGen::declareFn(const hir::HirFunction &fn) {
     auto *fnType = llvm::FunctionType::get(retType, paramTypes, fn.isVariadic);
     auto *llvmFn = llvm::Function::Create(fnType, llvm::Function::ExternalLinkage,
                                           llvm::StringRef(name.data(), name.size()), module_.get());
+    if (fn.isState)
+        llvmFn->setCallingConv(llvm::CallingConv::Tail);
     if (fn.blocks.empty())
         llvmFn->setDoesNotThrow();
     return llvmFn;
@@ -311,6 +314,7 @@ void CodeGen::emitFnBody(const hir::HirFunction &fn, const hir::HirModule &mod) 
 
     CodeGenEmit emit(builder, typeGen, interner_, types_);
     emit.setBlocks(&llvmBlocks);
+    emit.setModule(module_.get());
     emit.registerParams(fn, llvmFn);
     emit.emitBody(fn, mod);
 

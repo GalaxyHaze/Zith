@@ -164,9 +164,7 @@ bool Unifier::unify(TypeId a, TypeId b, memory::Span span) {
             [&](const TypeNominal &na, const TypeNominal &nb) -> bool {
                 return na.name == nb.name && unify(na.target, nb.target, span);
             },
-            [&](const TypeTrait &ta, const TypeTrait &tb) -> bool {
-                return ta.name == tb.name;
-            },
+            [&](const TypeTrait &ta, const TypeTrait &tb) -> bool { return ta.name == tb.name; },
             [&](const TypeQualified &qa, const TypeQualified &qb) -> bool {
                 if (qa.ownership != qb.ownership || qa.isMut != qb.isMut)
                     return false;
@@ -314,9 +312,7 @@ bool Unifier::isAssignable(TypeId dst, TypeId src) const {
             [&](const TypeNominal &nd, const TypeNominal &ns) -> bool {
                 return nd.name == ns.name && isAssignable(nd.target, ns.target);
             },
-            [&](const TypeTrait &td, const TypeTrait &ts) -> bool {
-                return td.name == ts.name;
-            },
+            [&](const TypeTrait &td, const TypeTrait &ts) -> bool { return td.name == ts.name; },
             [&](const TypeQualified &qd, const TypeQualified &qs) -> bool {
                 if (qd.ownership != qs.ownership || qd.isMut != qs.isMut)
                     return false;

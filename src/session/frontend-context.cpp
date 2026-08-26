@@ -950,7 +950,8 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
 
         for (const auto &declaration : module->frontend->declarations()) {
             if (declaration.kind == frontend::DeclKind::Import ||
-                declaration.kind == frontend::DeclKind::Error || declaration.name.empty())
+                declaration.kind == frontend::DeclKind::Error || declaration.name.empty() ||
+                declaration.parentScope)
                 continue;
             // Macros live in their own namespace, resolved during expansion.
             if (declaration.kind == frontend::DeclKind::Macro)
@@ -985,6 +986,40 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
             // not in the module resolution scope.
             const bool params_are_bindings = declaration.kind == frontend::DeclKind::Function;
             if (params_are_bindings && declaration.body) {
+                for (const auto &parameter : declaration.parameters) {
+                    ResolvedName parameter_binding{parameter.name,
+                                                   ResolutionKind::Declaration,
+                                                   parameter.span,
+                                                   {},
+                                                   {},
+                                                   parameter.id,
+                                                   {}};
+                    parameter_binding.declKind = declaration.kind;
+                    add_binding(std::move(parameter_binding), parameter_scope);
+                }
+            }
+        }
+        // Local `state` declarations are visible only from the body scope that
+        // contains them. Binding them outside the loop above keeps them out of
+        // the module scope and lets overloads reuse the same duplicate rules.
+        for (const auto &declaration : module->frontend->declarations()) {
+            if (declaration.kind != frontend::DeclKind::Function || !declaration.parentScope ||
+                declaration.name.empty())
+                continue;
+            ResolvedName local_state{
+                declaration.name,       ResolutionKind::Declaration,
+                declaration.span,       {module->key, frontend::SymbolId{declaration.id.value}},
+                declaration.id,         {},
+                declaration.parentScope};
+            local_state.declKind   = declaration.kind;
+            local_state.isExtern   = declaration.isExtern;
+            local_state.isVariadic = declaration.isVariadic;
+            local_state.signature  = frontend::functionSignature(*module->frontend, declaration);
+            add_binding(std::move(local_state), declaration.parentScope);
+            if (declaration.body &&
+                declaration.body.value <= module->frontend->expressions().size()) {
+                const auto parameter_scope =
+                    module->frontend->expressions()[declaration.body.value - 1U].scope;
                 for (const auto &parameter : declaration.parameters) {
                     ResolvedName parameter_binding{parameter.name,
                                                    ResolutionKind::Declaration,

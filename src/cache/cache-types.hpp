@@ -186,11 +186,7 @@ enum class CompactExprKind : uint8_t {
     MakeSlice,
     Cast,
     LayoutIntrinsic,
-    MarkerStore,
-    MarkerLoad,
-    MarkerDock,
-    MarkerJump,
-    MarkerRet,
+    StateTailCall,
     UnionCheck,
     GlobalConstLoad,
 };
@@ -246,31 +242,19 @@ struct CompactFunction {
     uint32_t return_type_id = 0;
     std::vector<CompactBasicBlock> blocks;
     std::vector<CompactExpr> exprs;
-    uint32_t instance_index = ~uint32_t{0};
-    bool is_extern          = false;
-    bool is_variadic        = false;
+    uint32_t instance_index         = ~uint32_t{0};
+    bool is_extern                  = false;
+    bool is_variadic                = false;
+    bool is_state                   = false;
+    bool uses_tailcc                = false;
+    uint32_t machine_id             = 0;
+    uint32_t machine_return_type_id = 0;
 };
 
 struct CompactGlobalConst {
     uint32_t name_id   = 0;
     uint32_t type_id   = 0;
     uint32_t init_expr = ~uint32_t{0};
-};
-
-struct CompactMarkerParam {
-    uint32_t name_id = 0;
-    uint32_t type_id = 0;
-    uint32_t offset  = 0;
-};
-
-struct CompactMarker {
-    uint32_t name_id        = 0;
-    uint32_t marker_id      = ~uint32_t{0};
-    bool stackful           = false;
-    uint32_t blob_offset    = 0;
-    uint32_t body_expr      = 0;
-    uint32_t module_name_id = 0;
-    std::vector<CompactMarkerParam> params;
 };
 
 struct HirSlotAttrsRecord {
@@ -326,7 +310,6 @@ struct Artifact {
     std::vector<CompactFunction> functions;   // sec5
     std::vector<CompactExpr> exprs;           // sec5 module-level expression pool
     std::vector<CompactGlobalConst> globals;  // sec5
-    std::vector<CompactMarker> markers;       // sec5 marker metadata
     // Definition tables used to restore composite types regardless of whether
     // they appear among exported DeclRecord entries.
     std::vector<CompactStructDef> struct_defs;

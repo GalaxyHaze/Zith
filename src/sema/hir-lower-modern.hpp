@@ -45,6 +45,11 @@ private:
         size_t break_block    = 0;
     };
 
+    struct Narrowing {
+        frontend::LocalId local = {};
+        types::TypeId type      = types::kInvalidType;
+    };
+
     memory::Arena &arena_;
     diagnostics::DiagnosticEngine &diags_;
     const session::CompilationSnapshot &snapshot_;
@@ -60,16 +65,18 @@ private:
     memory::FlatMap<uint64_t, memory::InternedId> global_const_by_key_;
     std::vector<FunctionInfo> functions_;
     std::vector<LoopTarget> loop_stack_;
+    std::vector<Narrowing> narrowing_stack_;
     const session::ModuleArtifact *current_module_                   = nullptr;
     const session::ModuleResolution *current_resolution_             = nullptr;
     const TypedMap *current_types_                                   = nullptr;
     const comptime::GenericInstantiationPass *current_instantiation_ = nullptr;
     const comptime::InstantiationInstance *current_instance_         = nullptr;
     hir::HirFunction *current_fn_                                    = nullptr;
-    bool current_fn_is_state_                                        = false;
-    uint32_t current_state_machine_id_                               = 0;
-    size_t current_block_                                            = 0;
-    hir::HirSlotId next_slot_                                        = 0;
+    frontend::ScopeId info_decl_parent_scope_;
+    bool current_fn_is_state_          = false;
+    uint32_t current_state_machine_id_ = 0;
+    size_t current_block_              = 0;
+    hir::HirSlotId next_slot_          = 0;
     std::vector<hir::HirSlotId> local_slots_;
     symbols::SymId next_sym_id_ = 1;
 
@@ -123,6 +130,10 @@ private:
     hir::HirExprId lowerExpr(frontend::ExprId id);
     hir::HirExprId lowerLiteral(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerName(const frontend::Expression &expr);
+    /// Address of an addressable frontend expression without loading its value.
+    /// Returns kInvalidHirExpr for call results and other non-addressable values;
+    /// callers spill those to a slot before taking their address.
+    hir::HirExprId lowerLValueAddr(frontend::ExprId id);
     hir::HirExprId lowerUnary(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerBinary(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerCall(const frontend::Expression &expr);

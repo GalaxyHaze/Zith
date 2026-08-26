@@ -114,11 +114,15 @@ void addCode(Artifact &art) {
 
 void addModernCode(Artifact &art) {
     CompactFunction fn;
-    fn.name           = "modern";
-    fn.name_id        = 0;
-    fn.is_extern      = false;
-    fn.is_variadic    = false;
-    fn.return_type_id = 0;
+    fn.name                   = "modern";
+    fn.name_id                = 0;
+    fn.is_extern              = false;
+    fn.is_variadic            = false;
+    fn.is_state               = true;
+    fn.uses_tailcc            = true;
+    fn.machine_id             = 7;
+    fn.machine_return_type_id = 0;
+    fn.return_type_id         = 0;
 
     CompactExpr lit;
     lit.kind    = CompactExprKind::Literal;
@@ -167,8 +171,16 @@ void addModernCode(Artifact &art) {
     layout.ref_f   = 2;
     art.exprs.push_back(layout);
 
+    CompactExpr tail;
+    tail.kind      = CompactExprKind::StateTailCall;
+    tail.ref_b     = 9;
+    tail.ref_e     = 2;
+    tail.args      = {0};
+    tail.arg_types = {0};
+    art.exprs.push_back(tail);
+
     CompactBasicBlock blk;
-    blk.terminator = 4;
+    blk.terminator = 5;
     fn.blocks.push_back(blk);
 }
 
@@ -289,8 +301,12 @@ static void test_modern_code_section_round_trip() {
     CHECK_EQ(decoded.functions.size(), 1u, "function count preserved");
     if (decoded.functions.empty())
         return;
-    CHECK_EQ(decoded.exprs.size(), 5u, "modern expression pool preserved");
-    if (decoded.exprs.size() == 5u) {
+    CHECK(decoded.functions[0].is_state, "state flag preserved");
+    CHECK(decoded.functions[0].uses_tailcc, "state tailcc flag preserved");
+    CHECK_EQ(decoded.functions[0].machine_id, 7u, "state machine id preserved");
+    CHECK_EQ(decoded.functions[0].machine_return_type_id, 0u, "machine return type preserved");
+    CHECK_EQ(decoded.exprs.size(), 6u, "modern expression pool preserved");
+    if (decoded.exprs.size() == 6u) {
         CHECK(decoded.exprs[0].kind == CompactExprKind::Literal, "literal kind preserved");
         CHECK(decoded.exprs[1].kind == CompactExprKind::Cast, "cast kind preserved");
         CHECK_EQ(decoded.exprs[1].ref_e, 0u, "cast from-type preserved");
@@ -302,40 +318,11 @@ static void test_modern_code_section_round_trip() {
         CHECK(decoded.exprs[4].kind == CompactExprKind::LayoutIntrinsic,
               "layout intrinsic kind preserved");
         CHECK_EQ(decoded.exprs[4].ref_f, 2u, "layout field index preserved");
+        CHECK(decoded.exprs[5].kind == CompactExprKind::StateTailCall,
+              "state tail call kind preserved");
+        CHECK_EQ(decoded.exprs[5].ref_b, 9u, "state tail direct callee symbol preserved");
+        CHECK_EQ(decoded.exprs[5].arg_types.size(), 1u, "state tail call arg types preserved");
     }
-}
-
-static void test_marker_code_section_round_trip() {
-    Artifact original = makeMinimalArtifact();
-    addModernCode(original);
-
-    CompactMarker marker;
-    marker.name_id        = 0;
-    marker.marker_id      = 7;
-    marker.stackful       = true;
-    marker.blob_offset    = 8;
-    marker.body_expr      = 9;
-    marker.module_name_id = 1;
-    CompactMarkerParam param;
-    param.name_id = 0;
-    param.type_id = 0;
-    param.offset  = 4;
-    marker.params.push_back(param);
-    original.markers.push_back(marker);
-
-    ByteWriter w;
-    CHECK(encodeCode(original, w), "encodeCode succeeds for marker metadata");
-    Artifact decoded;
-    ByteReader r(w.ptr(), w.size());
-    CHECK(decodeCode(r, decoded), "decodeCode succeeds for marker metadata");
-    CHECK_EQ(decoded.markers.size(), 1u, "marker count preserved");
-    if (decoded.markers.size() != 1u)
-        return;
-    CHECK_EQ(decoded.markers[0].marker_id, 7u, "marker id preserved");
-    CHECK(decoded.markers[0].stackful, "stackful flag preserved");
-    CHECK_EQ(decoded.markers[0].params.size(), 1u, "marker param count preserved");
-    if (decoded.markers[0].params.size() == 1u)
-        CHECK_EQ(decoded.markers[0].params[0].offset, 4u, "marker param offset preserved");
 }
 
 static void test_attrs_section_round_trip() {
@@ -507,7 +494,6 @@ static void test_zirl_sections() {
     test_decl_section_round_trip();
     test_code_section_round_trip();
     test_modern_code_section_round_trip();
-    test_marker_code_section_round_trip();
     test_attrs_section_round_trip();
     test_instantiation_section_round_trip();
     test_debug_section_round_trip();

@@ -35,11 +35,13 @@ public:
                 const memory::StringInterner &interner, const types::TypeIntern &types);
 
     /// Emits a direct LLVM `musttail` state call followed immediately by `ret`.
-    llvm::Value *emitStateTailCall(const hir::HirStateTailCall &tail,
-                                   const hir::HirModule &mod);
+    llvm::Value *emitStateTailCall(const hir::HirStateTailCall &tail, const hir::HirModule &mod);
 
     void setBlocks(const std::vector<llvm::BasicBlock *> *blocks) {
         blocks_ = blocks;
+    }
+    void setModule(llvm::Module *module) {
+        module_ = module;
     }
 
     llvm::Value *emitExpr(hir::HirExprId id, const hir::HirModule &mod);

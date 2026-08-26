@@ -67,8 +67,7 @@ void markMacroTemplates(FrontendSnapshot &snapshot) {
     }
 }
 
-void expandMacros(FrontendSnapshot &snapshot,
-                  const std::vector<ImportedMacroRecord> &imported) {
+void expandMacros(FrontendSnapshot &snapshot, const std::vector<ImportedMacroRecord> &imported) {
     MacroExpander expander(snapshot);
     expander.run(imported);
 }
@@ -140,8 +139,8 @@ void MacroExpander::run(const std::vector<ImportedMacroRecord> &imported) {
                 }
                 info.paramNames.push_back(p.name);
             }
-            info.body = decl.body;
-            info.span = decl.span;
+            info.body   = decl.body;
+            info.span   = decl.span;
             info.source = &snapshot_;
             macros.push_back(std::move(info));
         }
@@ -557,20 +556,27 @@ StmtId MacroExpander::cloneStmt(StmtId src, const std::vector<ExprId> &args, Tex
         if (copy.binding.initializer)
             copy.binding.initializer =
                 cloneExpr(copy.binding.initializer, args, callSpan,
-                              copy.binding.initializer
+                          copy.binding.initializer
                               ? source.expressions()[copy.binding.initializer.value - 1U].scope
                               : ScopeId{},
                           macro, map, source);
         if (copy.binding.type)
             copy.binding.type = cloneTypeExpr(copy.binding.type, source);
     }
+    if (copy.kind == StmtKind::Declaration) {
+        // Local state declarations are not template expansion targets in this
+        // iteration; keep the marker inert so an unsupported template does not
+        // leak into resolution.
+        copy.kind        = StmtKind::Error;
+        copy.declaration = {};
+    }
 
     for (size_t i = 0; i < copy.arguments.size(); ++i)
-        copy.arguments[i] = cloneExpr(copy.arguments[i], args, callSpan,
-                                      copy.arguments[i]
-                                          ? source.expressions()[copy.arguments[i].value - 1U].scope
-                                          : ScopeId{},
-                                      macro, map, source);
+        copy.arguments[i] =
+            cloneExpr(copy.arguments[i], args, callSpan,
+                      copy.arguments[i] ? source.expressions()[copy.arguments[i].value - 1U].scope
+                                        : ScopeId{},
+                      macro, map, source);
 
     return addStatement(std::move(copy));
 }
@@ -631,8 +637,8 @@ ExprId MacroExpander::substituteAttribute(ExprId src, const MacroInfo *macro, Ex
             ExprMap dummy(snapshot_.expressions_.size() + 1U);
             const size_t firstExpr = snapshot_.expressions_.size();
             const size_t firstStmt = snapshot_.statements_.size();
-            *outClone =
-                cloneExpr((*exprs)[i], {}, callSpanForAttrs_, base.scope, nullptr, dummy, snapshot_);
+            *outClone = cloneExpr((*exprs)[i], {}, callSpanForAttrs_, base.scope, nullptr, dummy,
+                                  snapshot_);
             markNonHygienic(firstExpr, firstStmt);
             return *outClone;
         }

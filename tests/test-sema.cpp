@@ -204,159 +204,208 @@ static void test_wrong_arity() {
     CHECK(r.hasErrorCode(diagnostics::err::NoMatchingFn), "Reports NoMatchingFn (2007)");
 }
 
-static void test_marker_jump_ok() {
-    SemaTest t;
-    auto r = t.run("flow fn main() {\n"
-                   "    var acc: i32 = 0;\n"
-                   "    dock loop(0);\n"
-                   "    marker loop(n: i32) {\n"
-                   "        if (n < 10) {\n"
-                   "            jump loop(n + 1);\n"
-                   "        }\n"
-                   "    }\n"
-                   "    acc;\n"
-                   "}\n",
-                   session::Stage::HirLowered);
-    CHECK(r.ok, "Valid marker and jump setup lowers successfully");
-}
-
-static void test_nested_dock_and_stackful_markers_are_accepted() {
+static void test_state_machine_ok() {
     ModernSemaTest t;
-    auto r = t.run("flow fn main(): i32 {\n"
-                   "    var x: i32 = 0;\n"
-                   "    dock host(1);\n"
-                   "    marker host(v: i32) {\n"
-                   "        jump body(v + 1);\n"
+    auto r = t.run("state Loop(n: i32): i32 {\n"
+                   "    if (n < 10) {\n"
+                   "        jump Loop(n + 1);\n"
                    "    }\n"
-                   "    stackful marker body(v: i32) {\n"
-                   "        if (v == 2) {\n"
-                   "            return v;\n"
-                   "        }\n"
-                   "    }\n"
-                   "    x = 8;\n"
+                   "    return n;\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    return dock Loop(0);\n"
                    "}\n",
                    session::Stage::HirLowered);
-    CHECK(r.ok, "docks and stackful markers lower successfully");
+    CHECK(r.ok, "same-prototype state machine lowers successfully");
 }
 
-static void test_jump_requires_dock() {
-    SemaTest t;
-    auto r = t.run("flow fn main() {\n"
-                   "    marker body() {\n"
-                   "    }\n"
-                   "    jump body();\n"
-                   "}\n",
-                   session::Stage::HirLowered);
-    CHECK(!r.ok, "jump outside a dock is rejected");
-    CHECK(r.hasMessage("jump is only allowed inside a marker body"),
-          "Explains the jump marker requirement");
-}
-
-static void test_dock_requires_flow_fn() {
-    SemaTest t;
-    auto r = t.run("fn main() {\n"
-                   "    dock target();\n"
-                   "}\n",
-                   session::Stage::HirLowered);
-    CHECK(!r.ok, "dock outside a flow fn is rejected");
-    CHECK(r.hasMessage("dock is only allowed inside a flow fn"),
-          "Explains the dock flow-fn requirement");
-}
-
-static void test_marker_jump_undefined() {
-    SemaTest t;
-    auto r = t.run("flow fn main() {\n"
-                   "    dock nonexistent_label();\n"
-                   "}\n");
-    CHECK(!r.ok, "Jump to undefined marker fails");
-    CHECK(r.hasErrorCode(diagnostics::err::UndefinedIdent), "Reports UndefinedIdent (2001)");
-}
-
-static void test_marker_argument_arity_and_type_mismatch() {
+static void test_state_machine_allows_diverging_parameters() {
     ModernSemaTest t;
-    auto bad_arity = t.run("flow fn main() {\n"
-                           "    dock body();\n"
-                           "    marker body(v: i32) {}\n"
+    auto r = t.run("state Start(n: i32): i32 {\n"
+                   "    if (n == 0) {\n"
+                   "        return 0;\n"
+                   "    }\n"
+                   "    jump Done(n, 0);\n"
+                   "}\n"
+                   "state Done(n: i32, acc: i32): i32 {\n"
+                   "    if (n == 0) {\n"
+                   "        return acc;\n"
+                   "    }\n"
+                   "    jump Start(n - 1);\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    return dock Start(3);\n"
+                   "}\n",
+                   session::Stage::HirLowered);
+    CHECK(r.ok, "state machine with differing parameter lists lowers successfully");
+}
+
+static void test_state_machine_return_type_mismatch_is_rejected() {
+    ModernSemaTest t;
+    auto r = t.run("state Start(n: i32): i32 {\n"
+                   "    jump Done(n);\n"
+                   "}\n"
+                   "state Done(n: i32): bool {\n"
+                   "    return true;\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    return dock Start(0);\n"
+                   "}\n",
+                   session::Stage::HirLowered);
+    CHECK(!r.ok, "state machine with mismatched return types is rejected");
+    CHECK(r.hasMessage("jump target must be in the same state machine"),
+          "mismatched state return types split the machine and reject the jump");
+}
+
+static void test_state_machine_rejects_mixed_return_types() {
+    ModernSemaTest t;
+    auto r = t.run("state Start(n: i32): i32 {\n"
+                   "    jump Done(n);\n"
+                   "}\n"
+                   "state Other(x: f64): f64 {\n"
+                   "    return x;\n"
+                   "}\n"
+                   "state Done(n: i32): bool {\n"
+                   "    return true;\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    return dock Start(0);\n"
+                   "}\n",
+                   session::Stage::HirLowered);
+    CHECK(!r.ok, "state declarations mixing return types are rejected");
+    CHECK(r.hasMessage("jump target must be in the same state machine"),
+          "mixed return types keep jump validation per target");
+}
+
+static void test_jump_requires_state_context() {
+    SemaTest t;
+    auto r = t.run("fn main(): i32 {\n"
+                   "    jump Loop(0);\n"
+                   "    return 0;\n"
+                   "}\n",
+                   session::Stage::HirLowered);
+    CHECK(!r.ok, "jump outside a state function is rejected");
+    CHECK(r.hasMessage("jump is only allowed inside a state function"),
+          "jump restriction mentions state functions");
+}
+
+static void test_dock_requires_state_target() {
+    SemaTest t;
+    auto r = t.run("fn target(n: i32): i32 { return n; }\n"
+                   "fn main(): i32 {\n"
+                   "    return dock target(1);\n"
+                   "}\n",
+                   session::Stage::HirLowered);
+    CHECK(!r.ok, "dock to a non-state function is rejected");
+    CHECK(r.hasMessage("dock target must be a state function"),
+          "dock restriction mentions state functions");
+}
+
+static void test_state_transition_arity_and_type_mismatch() {
+    ModernSemaTest t;
+    auto bad_arity = t.run("state Start(v: i32): i32 {\n"
+                           "    jump Done();\n"
+                           "}\n"
+                           "state Done(v: i32): i32 {\n"
+                           "    return v;\n"
+                           "}\n"
+                           "fn main(): i32 { return dock Start(1); }\n",
+                           session::Stage::HirLowered);
+    CHECK(!bad_arity.ok, "state transition arity mismatch is rejected");
+    CHECK(bad_arity.hasErrorCode(diagnostics::err::NoMatchingFn),
+          "state transition arity mismatch reports NoMatchingFn");
+
+    auto bad_type = t.run("state Start(v: i32): i32 {\n"
+                          "    jump Done(true);\n"
+                          "}\n"
+                          "state Done(v: i32): i32 {\n"
+                          "    return v;\n"
+                          "}\n"
+                          "fn main(): i32 { return dock Start(1); }\n",
+                          session::Stage::HirLowered);
+    CHECK(!bad_type.ok, "state transition type mismatch is rejected");
+    CHECK(bad_type.hasErrorCode(diagnostics::err::NoMatchingFn),
+          "state transition type mismatch reports NoMatchingFn");
+}
+
+static void test_dock_argument_arity_and_type_mismatch() {
+    ModernSemaTest t;
+    auto bad_arity = t.run("state Start(v: i32): i32 {\n"
+                           "    return v;\n"
+                           "}\n"
+                           "fn main(): i32 {\n"
+                           "    return dock Start();\n"
                            "}\n",
                            session::Stage::HirLowered);
-    CHECK(!bad_arity.ok, "marker arity mismatch is rejected");
+    CHECK(!bad_arity.ok, "dock arity mismatch is rejected");
     CHECK(bad_arity.hasErrorCode(diagnostics::err::NoMatchingFn),
-          "marker arity mismatch reports NoMatchingFn");
+          "dock arity mismatch reports NoMatchingFn");
 
-    auto bad_type = t.run("flow fn main() {\n"
-                          "    dock body(true);\n"
-                          "    marker body(v: i32) {}\n"
+    auto bad_type = t.run("state Start(v: i32): i32 {\n"
+                          "    return v;\n"
+                          "}\n"
+                          "fn main(): i32 {\n"
+                          "    return dock Start(true);\n"
                           "}\n",
                           session::Stage::HirLowered);
-    CHECK(!bad_type.ok, "marker argument type mismatch is rejected");
+    CHECK(!bad_type.ok, "dock type mismatch is rejected");
     CHECK(bad_type.hasErrorCode(diagnostics::err::NoMatchingFn),
-          "marker argument type mismatch reports NoMatchingFn");
+          "dock type mismatch reports NoMatchingFn");
 }
 
-static void test_marker_duplicate_and_shadowing() {
+static void test_state_return_type_checked_against_machine_result() {
     ModernSemaTest t;
-    auto duplicate = t.run("marker Body(x: i32) {}\n"
-                           "marker Body(y: i32) {}\n"
-                           "flow fn main() {}\n",
+    auto r = t.run("state Start(): i32 {\n"
+                   "    return true;\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    return dock Start();\n"
+                   "}\n",
+                   session::Stage::HirLowered);
+    CHECK(!r.ok, "state return value must match the declared machine result");
+    CHECK(r.hasErrorCode(diagnostics::err::TypeMismatch),
+          "state return mismatch reports TypeMismatch");
+}
+
+static void test_nested_state_machines() {
+    ModernSemaTest t;
+    auto ok = t.run("fn machine(): i32 {\n"
+                    "    state Start(n: i32): i32 {\n"
+                    "        if (n == 0) {\n"
+                    "            return 42;\n"
+                    "        }\n"
+                    "        jump Done(n - 1);\n"
+                    "    }\n"
+                    "    state Done(n: i32): i32 {\n"
+                    "        jump Start(n);\n"
+                    "    }\n"
+                    "    return dock Start(3);\n"
+                    "}\n"
+                    "fn main(): i32 {\n"
+                    "    return machine();\n"
+                    "}\n",
+                    session::Stage::HirLowered);
+    CHECK(ok.ok, "local state dock and jumps resolve within the owning function");
+
+    auto outside = t.run("fn one(): i32 {\n"
+                         "    state Start(): i32 { return 1; }\n"
+                         "    return 1;\n"
+                         "}\n"
+                         "fn other(): i32 {\n"
+                         "    return dock Start();\n"
+                         "}\n");
+    CHECK(!outside.ok, "a local state is not visible outside its owning function");
+
+    auto same_name = t.run("fn first(): i32 {\n"
+                           "    state Step(): i32 { return 1; }\n"
+                           "    return dock Step();\n"
+                           "}\n"
+                           "fn second(): i32 {\n"
+                           "    state Step(): i32 { return 2; }\n"
+                           "    return dock Step();\n"
+                           "}\n",
                            session::Stage::HirLowered);
-    CHECK(!duplicate.ok, "duplicate global markers are rejected");
-    CHECK(duplicate.hasErrorCode(diagnostics::err::DuplicateDecl),
-          "duplicate markers report DuplicateDecl");
-
-    auto local_shadows_global = t.run("marker Body() {}\n"
-                                      "flow fn main() {\n"
-                                      "    dock Body();\n"
-                                      "    marker Body() {}\n"
-                                      "}\n",
-                                      session::Stage::HirLowered);
-    CHECK(local_shadows_global.ok, "a local marker shadows a global marker in its flow fn");
-}
-
-static void test_marker_stackless_scope_and_return_rules() {
-    ModernSemaTest t;
-    auto stackless_binding = t.run("flow fn main(): i32 {\n"
-                                   "    dock body();\n"
-                                   "    marker body() {\n"
-                                   "        var slot: i32 = 1;\n"
-                                   "    }\n"
-                                   "    return 0;\n"
-                                   "}\n",
-                                   session::Stage::HirLowered);
-    CHECK(!stackless_binding.ok, "stackless marker bindings are rejected");
-    CHECK(stackless_binding.hasErrorCode(diagnostics::err::UnsupportedSyntax),
-          "stackless marker binding reports UnsupportedSyntax");
-
-    auto global_return = t.run("marker Body() {\n"
-                               "    return 1;\n"
-                               "}\n",
-                               session::Stage::HirLowered);
-    CHECK(!global_return.ok, "global marker return is rejected");
-    CHECK(global_return.hasMessage("return is not allowed in a global marker"),
-          "global marker explains the return restriction");
-
-    auto local_return = t.run("flow fn main(): i32 {\n"
-                              "    dock body();\n"
-                              "    marker body() {\n"
-                              "        return 7;\n"
-                              "    }\n"
-                              "    return 0;\n"
-                              "}\n",
-                              session::Stage::HirLowered);
-    CHECK(local_return.ok, "a local marker return returns from the host flow fn");
-}
-
-static void test_markers_are_flow_fn_only() {
-    SemaTest t;
-    auto r = t.run("fn main() {\n"
-                   "    marker my_loop() {\n"
-                   "        jump my_loop();\n"
-                   "    }\n"
-                   "}\n");
-    CHECK(!r.ok, "marker/jump are rejected outside a flow fn");
-    CHECK(r.hasErrorCode(diagnostics::err::UnsupportedSyntax), "Reports UnsupportedSyntax (2010)");
-    CHECK(r.hasMessage("marker is only allowed inside a flow fn"),
-          "Explains the marker restriction");
-    CHECK(r.hasMessage("jump is only allowed inside a flow fn"), "Explains the jump restriction");
+    CHECK(same_name.ok, "identical local state names in separate functions do not conflict");
 }
 
 static void test_extern_fn_call_ok() {
@@ -512,6 +561,77 @@ static void test_tagged_union_is_syntax() {
     CHECK(!as_result.ok, "unknown cast target still fails sema");
     CHECK(as_result.hasErrorCode(diagnostics::err::UnsupportedSyntax),
           "unknown cast target reports UnsupportedSyntax");
+}
+
+static void test_modern_tagged_union_cast_policy() {
+    ModernSemaTest narrowed;
+    auto ok = narrowed.run("union Value { *char, i32 }\n"
+                           "fn main() {\n"
+                           "    let v = Value{\"ok\"};\n"
+                           "    when (v) {\n"
+                           "        (v is *char) ~> { let p: *char = v; },\n"
+                           "        (_) ~> { }\n"
+                           "    }\n"
+                           "}\n",
+                           session::Stage::TypeChecked);
+    CHECK(ok.ok, "tagged union member is available in a narrowed when body without 'as'");
+
+    ModernSemaTest manual;
+    auto bad = manual.run("union Value { i32, f64 }\n"
+                          "fn main() {\n"
+                          "    let v = Value { 1 };\n"
+                          "    v as i32;\n"
+                          "}\n");
+    CHECK(!bad.ok, "manual tagged union member extraction outside narrowing is rejected");
+    CHECK(bad.hasMessage("requires a checked/narrowed context"),
+          "the tagged union cast diagnostic asks for a narrowed/raw context");
+
+    ModernSemaTest raw_cast;
+    auto raw = raw_cast.run("union Value { i32, f64 }\n"
+                            "fn main() {\n"
+                            "    var v: Value = Value { 1 };\n"
+                            "    var x: i32 = raw v as i32;\n"
+                            "}\n");
+    CHECK(raw.ok, "raw tagged union member extraction remains available");
+
+    ModernSemaTest raw_union;
+    auto raw_union_ok = raw_union.run("raw union Bits { u8, u32 }\n"
+                                      "fn main() {\n"
+                                      "    var b: Bits = Bits { 1u8 };\n"
+                                      "    var word: u32 = b as u32;\n"
+                                      "}\n");
+    CHECK(raw_union_ok.ok, "raw union member casts keep free reinterpretation");
+}
+
+static void test_modern_qualified_method_receivers() {
+    ModernSemaTest ok;
+    auto good = ok.run("struct Sample {\n"
+                       "    x: i32,\n"
+                       "    fn bump(self: lend Sample) { self->x = self->x + 1; }\n"
+                       "    fn read(self: view Sample): i32 { return self->x; }\n"
+                       "    fn bump_ptr(self: *Sample) { self->x = self->x + 5; }\n"
+                       "}\n"
+                       "fn main(): i32 {\n"
+                       "    var s: Sample = Sample { x: 1 };\n"
+                       "    s.bump();\n"
+                       "    s.bump_ptr();\n"
+                       "    return s.read();\n"
+                       "}\n");
+    CHECK(good.ok, "qualified lend/view and explicit pointer receivers type-check");
+
+    ModernSemaTest view_write;
+    auto bad = view_write.run("struct Sample {\n"
+                              "    x: i32,\n"
+                              "    fn bad(self: view Sample) { self->x = 3; }\n"
+                              "}\n"
+                              "fn main(): i32 {\n"
+                              "    let s: Sample = Sample { x: 1 };\n"
+                              "    s.bad();\n"
+                              "    return 0;\n"
+                              "}\n");
+    CHECK(!bad.ok, "writes through a view receiver are rejected");
+    CHECK(bad.hasErrorCode(diagnostics::err::WriteThroughView),
+          "view receiver field writes report WriteThroughView");
 }
 
 static void test_fallback_and_propagation_are_rejected() {
@@ -1092,6 +1212,48 @@ static void test_modern_static_method() {
     CHECK(r.ok, "static method called on the owner type type-checks");
 }
 
+static void test_modern_imported_static_method() {
+    ModernSemaTest t;
+    t.write("lib.zith", "pub struct Box { value: i32 }\n"
+                        "implement Box {\n"
+                        "    fn make(v: i32): Box { Box { value: v } }\n"
+                        "}\n");
+    auto r = t.run("from lib\n"
+                   "fn main(): i32 {\n"
+                   "    let b = Box.make(42);\n"
+                   "    b.value\n"
+                   "}\n");
+    CHECK(r.ok, "static method on an imported type type-checks");
+}
+
+static void test_modern_imported_receiver_method() {
+    ModernSemaTest t;
+    t.write("lib.zith", "pub struct Counter { value: i32 }\n"
+                        "implement Counter {\n"
+                        "    fn get(self): i32 { self->value }\n"
+                        "}\n");
+    auto r = t.run("from lib\n"
+                   "fn main(): i32 {\n"
+                   "    let c = Counter { value: 7 };\n"
+                   "    c.get()\n"
+                   "}\n");
+    CHECK(r.ok, "receiver method on an imported type type-checks");
+}
+
+static void test_modern_imported_method_struct_literal_body() {
+    ModernSemaTest t;
+    t.write("lib.zith", "pub struct Box { value: i32 }\n"
+                        "implement Box {\n"
+                        "    fn make(v: i32): Box { Box { value: v } }\n"
+                        "}\n");
+    auto r = t.run("from lib\n"
+                   "fn main(): i32 {\n"
+                   "    let b = Box.make(42);\n"
+                   "    b.value\n"
+                   "}\n");
+    CHECK(r.ok, "imported method body with a struct literal type-checks");
+}
+
 static void test_modern_self_resolves_to_owner() {
     ModernSemaTest t;
     auto r = t.run("struct Point { x: i32 }\n"
@@ -1537,17 +1699,18 @@ static void test_modern_for_three_clause() {
 
 static void test_modern_for_in_iterators() {
     ModernSemaTest ok;
-    auto a = ok.run("struct Range {\n"
+    auto a = ok.run("struct End {}\n"
+                    "union RangeStep { i32, End }\n"
+                    "struct Range {\n"
                     "    current: i32,\n"
                     "    limit: i32,\n"
-                    "    fn done(self): bool {\n"
-                    "        return self->current >= self->limit;\n"
-                    "    }\n"
-                    "    fn value(self): i32 {\n"
-                    "        return self->current;\n"
-                    "    }\n"
-                    "    fn next(self) {\n"
+                    "    fn next(self): RangeStep {\n"
+                    "        if (self->current >= self->limit) {\n"
+                    "            return RangeStep { End {} };\n"
+                    "        }\n"
+                    "        let value = RangeStep { self->current };\n"
                     "        self->current = self->current + 1;\n"
+                    "        return value;\n"
                     "    }\n"
                     "}\n"
                     "fn main(): i32 {\n"
@@ -1558,15 +1721,22 @@ static void test_modern_for_in_iterators() {
                     "    }\n"
                     "    return total;\n"
                     "}\n");
-    CHECK(a.ok, "for-in with done/value/next methods type-checks");
+    CHECK(a.ok, "for-in with next returning a tagged union with End type-checks");
 
     ModernSemaTest typed_binding;
-    auto b = typed_binding.run("struct Range {\n"
+    auto b = typed_binding.run("struct End {}\n"
+                               "union RangeStep { i32, End }\n"
+                               "struct Range {\n"
                                "    current: i32,\n"
                                "    limit: i32,\n"
-                               "    fn done(self): bool { return self->current >= self->limit; }\n"
-                               "    fn value(self): i32 { return self->current; }\n"
-                               "    fn next(self) { self->current = self->current + 1; }\n"
+                               "    fn next(self): RangeStep {\n"
+                               "        if (self->current >= self->limit) {\n"
+                               "            return RangeStep { End {} };\n"
+                               "        }\n"
+                               "        let value = RangeStep { self->current };\n"
+                               "        self->current = self->current + 1;\n"
+                               "        return value;\n"
+                               "    }\n"
                                "}\n"
                                "fn main(): i32 {\n"
                                "    var total: i32 = 0;\n"
@@ -1588,44 +1758,70 @@ static void test_modern_for_in_iterators() {
                                 "    }\n"
                                 "    return total;\n"
                                 "}\n");
-    CHECK(!c.ok, "for-in rejects an iterable without done/value/next");
-    CHECK(c.hasMessage("is missing done/value/next methods"), "reports the missing methods");
+    CHECK(!c.ok, "for-in rejects an iterable without next");
+    CHECK(c.hasMessage("is missing a 'next' method"), "reports the missing next method");
 
     ModernSemaTest bad_value;
-    auto d = bad_value.run("struct Bad {\n"
-                           "    fn done(self): bool { return true; }\n"
-                           "    fn value(self): bool { return false; }\n"
-                           "    fn next(self) { }\n"
+    auto d = bad_value.run("struct End {}\n"
+                           "union RangeStep { i32, End }\n"
+                           "struct Range {\n"
+                           "    current: i32,\n"
+                           "    limit: i32,\n"
+                           "    fn next(self): RangeStep { return RangeStep { 1 }; }\n"
                            "}\n"
                            "fn main(): i32 {\n"
                            "    var total: i32 = 0;\n"
-                           "    let b: Bad = Bad {};\n"
-                           "    for (var x: i32 in b) {\n"
+                           "    let r: Range = Range { current: 0, limit: 2 };\n"
+                           "    for (var x: bool in r) {\n"
                            "        total = total + 1;\n"
                            "    }\n"
                            "    return total;\n"
                            "}\n");
-    CHECK(!d.ok, "for-in rejects a value type that does not match the annotation");
+    CHECK(!d.ok, "for-in rejects a loop variable annotation that does not match the element");
     CHECK(d.hasMessage("iterator element type does not match loop variable annotation"),
           "reports the annotation mismatch");
 
-    ModernSemaTest bad_done;
-    auto e = bad_done.run("struct Bad {\n"
-                          "    fn done(self): i32 { return 1; }\n"
-                          "    fn value(self): i32 { return 1; }\n"
-                          "    fn next(self) { }\n"
-                          "}\n"
-                          "fn main(): i32 {\n"
-                          "    var total: i32 = 0;\n"
-                          "    let b: Bad = Bad {};\n"
-                          "    for (x in b) {\n"
-                          "        total = total + 1;\n"
-                          "    }\n"
-                          "    return total;\n"
-                          "}\n");
-    CHECK(!e.ok, "for-in rejects a non-boolean done method");
-    CHECK(e.hasMessage("iterator 'done' method must return bool"),
-          "reports the done return-type mismatch");
+    ModernSemaTest non_union;
+    auto e = non_union.run("struct End {}\n"
+                           "struct Range {\n"
+                           "    fn next(self): i32 { return 1; }\n"
+                           "}\n"
+                           "fn main(): i32 {\n"
+                           "    let r: Range = Range {};\n"
+                           "    for (x in r) { }\n"
+                           "    return 0;\n"
+                           "}\n");
+    CHECK(!e.ok, "for-in rejects next that does not return a tagged union");
+    CHECK(e.hasMessage("must return a tagged union with one value member and 'End'"),
+          "reports the non-union next result");
+
+    ModernSemaTest no_end;
+    auto f = no_end.run("union Step { i32, bool }\n"
+                        "struct Range {\n"
+                        "    fn next(self): Step { return Step { 1 }; }\n"
+                        "}\n"
+                        "fn main(): i32 {\n"
+                        "    let r: Range = Range {};\n"
+                        "    for (x in r) { }\n"
+                        "    return 0;\n"
+                        "}\n");
+    CHECK(!f.ok, "for-in rejects a union without an End member");
+    CHECK(f.hasMessage("must contain a value member and 'End'"), "reports the missing End member");
+
+    ModernSemaTest three_members;
+    auto g = three_members.run("struct End {}\n"
+                               "union Step { i32, bool, End }\n"
+                               "struct Range {\n"
+                               "    fn next(self): Step { return Step { 1 }; }\n"
+                               "}\n"
+                               "fn main(): i32 {\n"
+                               "    let r: Range = Range {};\n"
+                               "    for (x in r) { }\n"
+                               "    return 0;\n"
+                               "}\n");
+    CHECK(!g.ok, "for-in rejects an iterator union with more than two members");
+    CHECK(g.hasMessage("must have exactly two members: a value and 'End'"),
+          "reports the three-member union");
 }
 
 static void test_modern_generic_params() {
@@ -2277,18 +2473,16 @@ static void test_modern_enum_constant_discriminants() {
     CHECK(negative_u8.hasMessage("does not fit its underlying type"),
           "negative unsigned discriminant reports the underlying-type diagnostic");
 
-    auto int64_overflow = t.run(
-        "const BIG: i64 = 9223372036854775807;\n"
-        "enum Bad { V = BIG + 1 }\n"
-        "fn main(): Bad { Bad.V }\n");
+    auto int64_overflow = t.run("const BIG: i64 = 9223372036854775807;\n"
+                                "enum Bad { V = BIG + 1 }\n"
+                                "fn main(): Bad { Bad.V }\n");
     CHECK(!int64_overflow.ok, "int64 discriminant arithmetic overflow is rejected");
     CHECK(int64_overflow.hasMessage("constant integer expression"),
           "int64 overflow reports the constant-expr diagnostic");
 
-    auto wide_mul =
-        t.run("const BIG: i64 = 4611686018427387904;\n"
-              "enum Bad { V = BIG * 2 }\n"
-              "fn main(): Bad { Bad.V }\n");
+    auto wide_mul = t.run("const BIG: i64 = 4611686018427387904;\n"
+                          "enum Bad { V = BIG * 2 }\n"
+                          "fn main(): Bad { Bad.V }\n");
     CHECK(!wide_mul.ok, "int64 discriminant multiplication overflow is rejected");
     CHECK(wide_mul.hasMessage("constant integer expression"),
           "int64 multiplication overflow reports the constant-expr diagnostic");
@@ -2315,15 +2509,16 @@ static void test_sema() {
     test_control_flow_ok();
     test_undefined_identifier();
     test_wrong_arity();
-    test_marker_jump_ok();
-    test_nested_dock_and_stackful_markers_are_accepted();
-    test_jump_requires_dock();
-    test_dock_requires_flow_fn();
-    test_marker_jump_undefined();
-    test_marker_argument_arity_and_type_mismatch();
-    test_marker_duplicate_and_shadowing();
-    test_marker_stackless_scope_and_return_rules();
-    test_markers_are_flow_fn_only();
+    test_state_machine_ok();
+    test_state_machine_allows_diverging_parameters();
+    test_state_machine_return_type_mismatch_is_rejected();
+    test_state_machine_rejects_mixed_return_types();
+    test_jump_requires_state_context();
+    test_dock_requires_state_target();
+    test_state_transition_arity_and_type_mismatch();
+    test_dock_argument_arity_and_type_mismatch();
+    test_state_return_type_checked_against_machine_result();
+    test_nested_state_machines();
     test_extern_fn_call_ok();
     test_extern_fn_call_bad_arg();
     test_type_alias_unification();
@@ -2386,6 +2581,9 @@ static void test_sema() {
     test_modern_type_alias_use();
     test_modern_grouped_struct_fields();
     test_modern_static_method();
+    test_modern_imported_static_method();
+    test_modern_imported_receiver_method();
+    test_modern_imported_method_struct_literal_body();
     test_modern_self_resolves_to_owner();
     test_modern_unary_minus_on_literal();
     test_modern_break_in_while();
@@ -2430,6 +2628,8 @@ static void test_sema() {
     test_modern_implement_block_method();
     test_modern_method_call_arity_mismatch();
     test_modern_method_call_arg_type_mismatch();
+    test_modern_tagged_union_cast_policy();
+    test_modern_qualified_method_receivers();
     test_modern_unknown_method_still_reports_field();
     test_modern_function_value_and_call();
     test_modern_function_value_type_mismatch();

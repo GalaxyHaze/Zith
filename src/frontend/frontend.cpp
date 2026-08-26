@@ -475,8 +475,8 @@ public:
                 flushBadRun();
                 snapshot_.diagnostics_.push_back(
                     {range(start, index_ + 2U),
-                     "Zith--: 'flow fn' is not supported; use a 'state' function",
-                     false, diagnostics::err::UnsupportedSyntax});
+                     "Zith--: 'flow fn' is not supported; use a 'state' function", false,
+                     diagnostics::err::UnsupportedSyntax});
                 ++index_;
                 lowerDeclaration(start, DeclKind::Function, visibility, {}, {}, is_extern,
                                  FunctionKind::Standard);
@@ -490,8 +490,8 @@ public:
                 flushBadRun();
                 snapshot_.diagnostics_.push_back(
                     {range(start, index_ + (word == "stackful" ? 2U : 1U)),
-                     "Zith--: 'marker' is not supported; declare a 'state' function instead",
-                     false, diagnostics::err::UnsupportedSyntax});
+                     "Zith--: 'marker' is not supported; declare a 'state' function instead", false,
+                     diagnostics::err::UnsupportedSyntax});
                 if (word == "stackful")
                     ++index_;
                 ++index_;
@@ -940,9 +940,8 @@ private:
             Expression dock;
             dock.kind  = ExprKind::DockCall;
             dock.scope = current_scope_;
-            if (index_ < token_count_ &&
-                (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
-                 snapshot_.tokens_[index_].kind == TokenKind::Keyword)) {
+            if (index_ < token_count_ && (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
+                                          snapshot_.tokens_[index_].kind == TokenKind::Keyword)) {
                 Expression callee;
                 callee.kind  = ExprKind::Name;
                 callee.scope = current_scope_;
@@ -951,9 +950,9 @@ private:
                 dock.operands.push_back(addExpression(std::move(callee)));
                 ++index_;
             } else {
-                snapshot_.diagnostics_.push_back(
-                    {range(dock_start, index_), "dock syntax is 'dock State(args)'", false,
-                     diagnostics::err::UnsupportedSyntax});
+                snapshot_.diagnostics_.push_back({range(dock_start, index_),
+                                                  "dock syntax is 'dock State(args)'", false,
+                                                  diagnostics::err::UnsupportedSyntax});
             }
             if (punctuation(index_, '(')) {
                 ++index_;
@@ -971,13 +970,13 @@ private:
                 if (punctuation(index_, ')'))
                     ++index_;
                 else
-                    snapshot_.diagnostics_.push_back(
-                        {range(dock_start, index_), "expected ')' after dock arguments", false,
-                         diagnostics::err::ExpectedExpr});
+                    snapshot_.diagnostics_.push_back({range(dock_start, index_),
+                                                      "expected ')' after dock arguments", false,
+                                                      diagnostics::err::ExpectedExpr});
             } else if (!punctuation(index_, ';') && !punctuation(index_, '}')) {
-                snapshot_.diagnostics_.push_back(
-                    {range(dock_start, index_), "dock syntax is 'dock State(args)'", false,
-                     diagnostics::err::UnsupportedSyntax});
+                snapshot_.diagnostics_.push_back({range(dock_start, index_),
+                                                  "dock syntax is 'dock State(args)'", false,
+                                                  diagnostics::err::UnsupportedSyntax});
                 while (index_ < token_count_ && !punctuation(index_, ';') &&
                        !punctuation(index_, '}'))
                     ++index_;
@@ -1798,6 +1797,10 @@ private:
             ++index_;
         current_scope_ = addScope(parent, tokenSpan(start));
         block.scope    = current_scope_;
+        if (expecting_function_body_scope_) {
+            current_function_body_scope_   = block.scope;
+            expecting_function_body_scope_ = false;
+        }
         while (index_ < token_count_ && !punctuation(index_, '}'))
             block.statements.push_back(parseStatement());
         if (!punctuation(index_, '}'))
@@ -2081,8 +2084,7 @@ private:
                     snapshot_.diagnostics_.push_back(
                         {range(start, index_), "expected ')' after for iterable"});
                 if (!punctuation(index_, '{')) {
-                    snapshot_.diagnostics_.push_back(
-                        {range(start, index_), "expected for body"});
+                    snapshot_.diagnostics_.push_back({range(start, index_), "expected for body"});
                     expression.kind = ExprKind::Error;
                     expression.span = range(start, index_);
                     return addExpression(std::move(expression));
@@ -2095,15 +2097,13 @@ private:
                 const ExprId for_in_id = addExpression(std::move(expression));
 
                 const LocalId local = init_stmt
-                                          ? snapshot_.statements_[init_stmt.value - 1U]
-                                                .binding.id
+                                          ? snapshot_.statements_[init_stmt.value - 1U].binding.id
                                           : LocalId{statementCountLocals_++};
-                auto &for_in = snapshot_.expressions_[for_in_id.value - 1U];
+                auto &for_in        = snapshot_.expressions_[for_in_id.value - 1U];
                 for_in.forInBinding = local;
                 if (init_stmt) {
-                    for_in.text = snapshot_.statements_[init_stmt.value - 1U].binding.name;
-                    for_in.cast_type =
-                        snapshot_.statements_[init_stmt.value - 1U].binding.type;
+                    for_in.text      = snapshot_.statements_[init_stmt.value - 1U].binding.name;
+                    for_in.cast_type = snapshot_.statements_[init_stmt.value - 1U].binding.type;
                 }
                 if (init_expr) {
                     auto &name_expr = snapshot_.expressions_[init_expr.value - 1U];
@@ -2134,12 +2134,11 @@ private:
                 binding.binding.type =
                     init_stmt ? snapshot_.statements_[init_stmt.value - 1U].binding.type
                               : TypeExprId{};
-                binding.span                  = binding.binding.span;
-                const StmtId binding_stmt     = addStatement(std::move(binding));
-                for_in.forInBindingStmt       = binding_stmt;
+                binding.span              = binding.binding.span;
+                const StmtId binding_stmt = addStatement(std::move(binding));
+                for_in.forInBindingStmt   = binding_stmt;
                 snapshot_.expressions_[body.value - 1U].statements.insert(
-                    snapshot_.expressions_[body.value - 1U].statements.begin(),
-                    binding_stmt);
+                    snapshot_.expressions_[body.value - 1U].statements.begin(), binding_stmt);
                 return for_in_id;
             }
 
@@ -2217,8 +2216,7 @@ private:
                 if (punctuation(index_, '{'))
                     expression.operands.push_back(parseBlock());
                 else
-                    snapshot_.diagnostics_.push_back(
-                        {range(start, index_), "expected for body"});
+                    snapshot_.diagnostics_.push_back({range(start, index_), "expected for body"});
                 expression.span = range(start, index_);
                 return addExpression(std::move(expression));
             }
@@ -2413,6 +2411,37 @@ private:
                 ++index_;
                 statement.binding.initializer = parseExpression();
             }
+        } else if (word == "state") {
+            if (current_local_parent_is_state_) {
+                snapshot_.diagnostics_.push_back(
+                    {tokenSpan(index_),
+                     "Zith--: 'state' declarations cannot be nested inside another 'state' "
+                     "function",
+                     false, diagnostics::err::UnsupportedSyntax});
+                skipNestedUnsupportedDeclaration();
+                statement.kind = StmtKind::Error;
+            } else {
+                const DeclId id =
+                    lowerDeclaration(start, DeclKind::Function, Visibility::Private, {}, {}, false,
+                                     FunctionKind::State, {}, false, true,
+                                     current_function_body_scope_, current_local_parent_name_);
+                if (id) {
+                    statement.kind        = StmtKind::Declaration;
+                    statement.declaration = id;
+                } else {
+                    statement.kind = StmtKind::Error;
+                }
+            }
+        } else if (word == "fn" || word == "struct" || word == "enum" ||
+                   ((word == "const" || word == "raw" || word == "extern") &&
+                    index_ + 1U < token_count_ && text(index_ + 1U) == "fn")) {
+            snapshot_.diagnostics_.push_back(
+                {tokenSpan(index_),
+                 "Zith--: nested 'fn', 'struct' and 'enum' declarations are not supported "
+                 "inside function bodies; only 'state' may be declared here",
+                 false, diagnostics::err::UnsupportedSyntax});
+            skipNestedUnsupportedDeclaration();
+            statement.kind = StmtKind::Error;
         } else if (word == "return") {
             statement.kind = StmtKind::Return;
             ++index_;
@@ -2429,13 +2458,12 @@ private:
             statement.kind = StmtKind::Error;
             snapshot_.diagnostics_.push_back(
                 {range(start, index_ + (word == "stackful" ? 2U : 1U)),
-                 "Zith--: 'marker' is not supported; use a 'state' function",
-                 false, diagnostics::err::UnsupportedSyntax});
+                 "Zith--: 'marker' is not supported; use a 'state' function", false,
+                 diagnostics::err::UnsupportedSyntax});
             if (word == "stackful")
                 ++index_;
             ++index_;
-            while (index_ < token_count_ && !punctuation(index_, ';') &&
-                   !punctuation(index_, '}'))
+            while (index_ < token_count_ && !punctuation(index_, ';') && !punctuation(index_, '}'))
                 ++index_;
         } else if (word == "jump") {
             statement.kind = StmtKind::Jump;
@@ -2877,13 +2905,14 @@ private:
                 {range(start, index_), "expected '}' after implement block"});
     }
 
-    void lowerDeclaration(const uint32_t start, const DeclKind kind, const Visibility visibility,
-                          std::string ownerName = {}, std::string traitName = {},
-                          const bool isExtern                              = false,
-                          const FunctionKind functionKind                  = FunctionKind::Standard,
-                          const std::vector<GenericParam> &inheritedParams = {},
-                          const bool isRawUnion                            = false,
-                          const bool suppressTopLevelBindingCheck          = false) {
+    DeclId lowerDeclaration(const uint32_t start, const DeclKind kind, const Visibility visibility,
+                            std::string ownerName = {}, std::string traitName = {},
+                            const bool isExtern             = false,
+                            const FunctionKind functionKind = FunctionKind::Standard,
+                            const std::vector<GenericParam> &inheritedParams = {},
+                            const bool isRawUnion                            = false,
+                            const bool suppressTopLevelBindingCheck          = false,
+                            const ScopeId parentScope = {}, const std::string &parentName = {}) {
         Declaration declaration;
         declaration.id         = DeclId{static_cast<uint32_t>(snapshot_.declarations_.size() + 1U)};
         declaration.kind       = kind;
@@ -2894,6 +2923,8 @@ private:
         declaration.isExtern      = isExtern;
         declaration.isRawUnion    = isRawUnion;
         declaration.isNominalType = declaration_is_nominal_;
+        declaration.parentScope   = parentScope;
+        declaration.parentName    = parentName;
         if (kind == DeclKind::Variable)
             declaration.bindingKind = BindingKind::Let;
         if (kind == DeclKind::Function && functionKind == FunctionKind::Extern)
@@ -2993,16 +3024,35 @@ private:
             ++index_; // `:` or `->` arrow return type
             declaration.declaredType = parseType();
         } else if (kind == DeclKind::Function && functionKind == FunctionKind::State) {
-            snapshot_.diagnostics_.push_back(
-                {range(start, index_),
-                 "state declarations require a return type after ':'", false,
-                 diagnostics::err::ExpectedExpr});
+            snapshot_.diagnostics_.push_back({range(start, index_),
+                                              "state declarations require a return type after ':'",
+                                              false, diagnostics::err::ExpectedExpr});
         } else if (kind == DeclKind::TypeAlias && index_ < token_count_ && text(index_) == "=") {
             ++index_;
             declaration.declaredType = parseType();
         }
-        if ((kind == DeclKind::Function) && punctuation(index_, '{')) {
-            declaration.body = parseBlock();
+        if (kind == DeclKind::Function) {
+            // A function body owns any flat `state` declarations parsed inside
+            // it.  Top-level state declarations also carry this state so nested
+            // state-inside-state stays rejected and HIR sees the local owner.
+            const bool saved_parent_is_state    = current_local_parent_is_state_;
+            const std::string saved_parent_name = std::move(current_local_parent_name_);
+            const ScopeId saved_body_scope      = current_function_body_scope_;
+            if (parentScope) {
+                current_local_parent_is_state_ = functionKind == FunctionKind::State;
+                current_local_parent_name_     = parentName.empty() ? declaration.name : parentName;
+            } else {
+                current_local_parent_is_state_ = functionKind == FunctionKind::State;
+                current_local_parent_name_     = declaration.name;
+            }
+            expecting_function_body_scope_ = true;
+            if (punctuation(index_, '{'))
+                declaration.body = parseBlock();
+            expecting_function_body_scope_ = false;
+            current_function_body_scope_   = {};
+            current_local_parent_is_state_ = saved_parent_is_state;
+            current_local_parent_name_     = std::move(saved_parent_name);
+            current_function_body_scope_   = saved_body_scope;
         } else if (kind == DeclKind::Variable && index_ < token_count_ && text(index_) == "=") {
             ++index_;
             declaration.initializer = parseExpression();
@@ -3150,6 +3200,7 @@ private:
         // the id reserved on entry would collide with the first nested method.
         declaration.id = DeclId{static_cast<uint32_t>(snapshot_.declarations_.size() + 1U)};
         snapshot_.declarations_.push_back(std::move(declaration));
+        return declaration.id;
     }
 
     /// Parse one struct field (regular or grouped `[x, y]: T`). Returns false when
@@ -3413,7 +3464,54 @@ private:
         } while (index_ < token_count_ && depth != 0);
     }
 
+    /// Consume the remaining token span of an unsupported nested declaration
+    /// without lowering it, so parsing resumes at the end of the body block.
+    void skipNestedUnsupportedDeclaration() {
+        if (index_ >= token_count_)
+            return;
+        bool saw_open        = false;
+        uint32_t brace_depth = 0;
+        while (index_ < token_count_) {
+            if (punctuation(index_, '{')) {
+                saw_open = true;
+                ++brace_depth;
+                ++index_;
+                continue;
+            }
+            if (punctuation(index_, '}')) {
+                if (!saw_open || brace_depth != 0U) {
+                    if (brace_depth != 0U)
+                        --brace_depth;
+                    ++index_;
+                    if (saw_open && brace_depth == 0U) {
+                        if (punctuation(index_, ';'))
+                            ++index_;
+                        return;
+                    }
+                    continue;
+                }
+                break;
+            }
+            if (!saw_open && (punctuation(index_, ';') || punctuation(index_, '}'))) {
+                if (punctuation(index_, ';'))
+                    ++index_;
+                return;
+            }
+            ++index_;
+        }
+    }
+
     uint32_t statementCountLocals_ = 1;
+    /// Set just before parsing a function body, cleared once its top-level
+    /// block scope is materialized.
+    bool expecting_function_body_scope_ = false;
+    /// Scope of the function body currently being parsed; used as the parent
+    /// scope of flat `state` declarations inside that body.
+    ScopeId current_function_body_scope_;
+    /// True while parsing a `state` body, so `state` inside `state` is rejected.
+    bool current_local_parent_is_state_ = false;
+    /// Source name of the function currently owning nested declarations.
+    std::string current_local_parent_name_;
 };
 
 void lowerAst(FrontendSnapshot &snapshot) {

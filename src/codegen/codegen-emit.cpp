@@ -1,5 +1,7 @@
 #include "codegen-emit.hpp"
+
 #include "common/overloaded.hpp"
+#include "llvm/IR/CallingConv.h"
 
 #include "types/type-kind.hpp"
 
@@ -41,9 +43,7 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
             },
             [&](const hir::HirCall &call) { return emitCall(call, mod); },
             [&](const hir::HirRet &ret) { return emitRet(ret, mod); },
-            [&](const hir::HirStateTailCall &tail) {
-                return emitStateTailCall(tail, mod);
-            },
+            [&](const hir::HirStateTailCall &tail) { return emitStateTailCall(tail, mod); },
             [&](const hir::HirBranch &branch) { return emitBranch(branch, mod); },
             [&](const hir::HirJump &jump) { return emitJump(jump, mod); },
             [&](const hir::HirAssign &assign) -> llvm::Value * {
@@ -269,8 +269,9 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 const auto to_kind     = types_.kindOf(cast.to);
                 const bool from_signed = isSignedType(cast.from);
                 const bool to_signed   = isSignedType(cast.to);
-                const bool from_int =
-                    from_kind == types::TypeKind::Int || from_kind == types::TypeKind::Char || from_kind == types::TypeKind::Enum;
+                const bool from_int    = from_kind == types::TypeKind::Int ||
+                                      from_kind == types::TypeKind::Char ||
+                                      from_kind == types::TypeKind::Enum;
                 const bool to_int =
                     to_kind == types::TypeKind::Int || to_kind == types::TypeKind::Char;
                 if (from_int && to_int) {
@@ -399,7 +400,7 @@ llvm::Value *CodeGenEmit::emitBody(const hir::HirFunction &fn, const hir::HirMod
 
 llvm::Value *CodeGenEmit::emitStateTailCall(const hir::HirStateTailCall &tail,
                                             const hir::HirModule &mod) {
-    if (tail.call.resolved_fn == symbols::kInvalidSym)
+    if (tail.call.resolved_fn == symbols::kInvalidSym || tail.call.callee != hir::kInvalidHirExpr)
         return nullptr;
 
     llvm::Function *fn = nullptr;
@@ -421,13 +422,20 @@ llvm::Value *CodeGenEmit::emitStateTailCall(const hir::HirStateTailCall &tail,
         args.push_back(value);
     }
 
-    if (fn->arg_size() != args.size() ||
-        builder_.GetInsertBlock()->getTerminator() != nullptr) {
+    const auto *current = builder_.GetInsertBlock();
+    if (current == nullptr || current->getTerminator() != nullptr ||
+        fn->arg_size() != args.size() || fn->isVarArg()) {
+        return nullptr;
+    }
+
+    const auto *current_fn = current->getParent();
+    if (current_fn == nullptr || fn->getReturnType() != current_fn->getReturnType()) {
         return nullptr;
     }
 
     auto *call = builder_.CreateCall(fn, args);
     call->setTailCallKind(llvm::CallInst::TCK_MustTail);
+    call->setCallingConv(llvm::CallingConv::Tail);
     if (fn->getReturnType()->isVoidTy())
         return builder_.CreateRetVoid();
     return builder_.CreateRet(call);
@@ -726,6 +734,14 @@ llvm::Value *CodeGenEmit::emitCall(const hir::HirCall &call, const hir::HirModul
             break;
         }
     }
+    // Imported externs and callable fields may be represented only as a callee
+    // value. Resolve through the linkage name when emitCall has a callee var
+    // and no symbol target.
+    if (fn == nullptr && call.callee != hir::kInvalidHirExpr) {
+        if (const auto *as_var = std::get_if<hir::HirVar>(&mod.getExpr(call.callee)))
+            fn = module->getFunction(llvm::StringRef(interner_.lookup(as_var->name).data(),
+                                                     interner_.lookup(as_var->name).size()));
+    }
 
     if (fn == nullptr && call.fn_type == types::kInvalidType) {
         llvm::errs() << "ERROR: emitCall failed to resolve callee (resolved_fn=" << call.resolved_fn
@@ -781,7 +797,12 @@ llvm::Value *CodeGenEmit::emitCall(const hir::HirCall &call, const hir::HirModul
         return builder_.CreateCall(fn_type, callee, args);
     }
 
-    return builder_.CreateCall(fn, args);
+    const bool tailcc =
+        call.usesTailCC || (fn != nullptr && fn->getCallingConv() == llvm::CallingConv::Tail);
+    auto *llvm_call = builder_.CreateCall(fn, args);
+    if (tailcc)
+        llvm_call->setCallingConv(llvm::CallingConv::Tail);
+    return llvm_call;
 }
 
 llvm::Value *CodeGenEmit::emitRet(const hir::HirRet &ret, const hir::HirModule &mod) {
@@ -847,10 +868,7 @@ llvm::Value *CodeGenEmit::emitJump(const hir::HirJump &jump, const hir::HirModul
     if (!blocks_ || jump.target >= blocks_->size())
         return nullptr;
     auto *target = (*blocks_)[jump.target];
-    // Ordinary `jump` is a terminator-only edge. A flow `jump marker` carries the
-    // continuation used only when the marker body falls through; that edge is
-    // lowered when the marker clone is emitted, so only the transfer itself is
-    // needed here.
+    // Ordinary jumps are terminator-only edges between lowered CFG blocks.
     return builder_.CreateBr(target);
 }
 

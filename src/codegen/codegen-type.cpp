@@ -97,9 +97,9 @@ llvm::Type *CodeGenType::lower(types::TypeId id) {
             } else if constexpr (std::is_same_v<T, types::TypeEnum>) {
                 return lower(types_.getEnumDef(id).underlying);
             } else if constexpr (std::is_same_v<T, types::TypeUnion>) {
-                const auto *def_ptr            = types_.lookupUnionDef(t.def_id);
-                const auto &def = def_ptr != nullptr ? *def_ptr : types::emptyUnionDef();
-                uint64_t max_bytes             = 1;
+                const auto *def_ptr = types_.lookupUnionDef(t.def_id);
+                const auto &def     = def_ptr != nullptr ? *def_ptr : types::emptyUnionDef();
+                uint64_t max_bytes  = 1;
                 llvm::Type *max_aligned_member = llvm::Type::getInt8Ty(ctx_);
                 for (auto member : def.members) {
                     auto *member_type = lower(member);
@@ -117,9 +117,8 @@ llvm::Type *CodeGenType::lower(types::TypeId id) {
                         max_align = layout_->getABITypeAlign(max_aligned_member).value();
                     else if (max_aligned_member->isPointerTy())
                         max_align = 8;
-                    const auto payload_bytes =
-                        (max_bytes + max_align - 1U) / max_align * max_align;
-                    llvm::Type *tag_type = llvm::Type::getInt8Ty(ctx_);
+                    const auto payload_bytes = (max_bytes + max_align - 1U) / max_align * max_align;
+                    llvm::Type *tag_type     = llvm::Type::getInt8Ty(ctx_);
                     if (def.members.size() > 0xFFU)
                         tag_type = llvm::Type::getInt16Ty(ctx_);
                     if (def.members.size() > 0xFFFFU)
@@ -129,8 +128,7 @@ llvm::Type *CodeGenType::lower(types::TypeId id) {
                     // raises ABI alignment without consuming storage.
                     return llvm::StructType::get(
                         ctx_,
-                        {llvm::ArrayType::get(llvm::Type::getInt8Ty(ctx_), payload_bytes),
-                         tag_type,
+                        {llvm::ArrayType::get(llvm::Type::getInt8Ty(ctx_), payload_bytes), tag_type,
                          llvm::ArrayType::get(max_aligned_member, 0)},
                         false);
                 }

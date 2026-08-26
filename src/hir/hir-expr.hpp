@@ -120,9 +120,11 @@ struct HirCall {
     /// Direct calls resolved by symbol keep this invalid.
     types::TypeId fn_type      = types::kInvalidType;
     symbols::SymId resolved_fn = symbols::kInvalidSym;
+    /// True when this call targets a `state` function and must use LLVM `tailcc`.
+    bool usesTailCC = false;
     /// True when this call is a direct LLVM `musttail` state transition.
-    bool musttail              = false;
-    HirExprKind tag            = HirExprKind::Call;
+    bool musttail   = false;
+    HirExprKind tag = HirExprKind::Call;
 
     explicit HirCall(memory::Arena &arena) : args(arena), argument_types(arena) {}
     HirCall(HirExprId callee_, memory::DynArray<HirExprId> &&args_,

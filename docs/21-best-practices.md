@@ -35,18 +35,21 @@
 
 ### 21.6 Rule of Three
 
-If a function needs more than three specialized tools (markers, words, contexts, macros, comptime, inline error handling), something went wrong. Split the function or reconsider your abstraction.
+If a function needs more than three specialized tools (state machines, words, contexts, macros, comptime, inline error handling), something went wrong. Split the function or reconsider your abstraction.
 
 ```
-// Good — two tools: marker + word
-flow fn process() {
-    dock init { ... }
+// Good — two tools: state machine + word
+state Init() {
+    jump Ready();
+}
+fn process() {
+    dock Init();
     step1 -> step2
 }
 
 // Warning sign — four tools in one function
-flow fn process() {
-    dock init { ... }          // marker
+fn process() {
+    dock spinning();           // state machine
     use Math;                  // context
     use assert AS CHECK;       // word
     risky()!                   // inline error handling

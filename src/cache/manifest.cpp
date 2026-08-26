@@ -108,12 +108,10 @@ void Manifest::save() const {
     if (!output)
         return;
     for (const auto &[key, entry] : by_path_) {
-        output << escapeField(entry.canonical_path) << '\x1f'
-               << escapeField(entry.artifact_path) << '\x1f'
-               << std::hex << std::setfill('0') << std::setw(8) << entry.public_abi_hi
-               << '\x1f' << std::setw(8) << entry.public_abi_lo << '\x1f'
-               << std::setw(8) << entry.source_fp_hi << '\x1f' << std::setw(8)
-               << entry.source_fp_lo << '\x1e';
+        output << escapeField(entry.canonical_path) << '\x1f' << escapeField(entry.artifact_path)
+               << '\x1f' << std::hex << std::setfill('0') << std::setw(8) << entry.public_abi_hi
+               << '\x1f' << std::setw(8) << entry.public_abi_lo << '\x1f' << std::setw(8)
+               << entry.source_fp_hi << '\x1f' << std::setw(8) << entry.source_fp_lo << '\x1e';
         for (size_t i = 0; i < entry.dependencies.size(); ++i) {
             if (i != 0)
                 output << '\x1d';

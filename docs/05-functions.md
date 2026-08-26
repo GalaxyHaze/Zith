@@ -1,8 +1,8 @@
 ## 5. Functions
 
-> **Implementation status:** `fn`, `raw fn`, and `extern fn` are **working**. `flow fn` and
-> `const fn` are **parse-level in progress**: they parse as function declarations, but advanced
-> `flow fn` markers and compile-time evaluation are not implemented yet. Overloading
+> **Implementation status:** `fn`, `state`, `raw fn`, and `extern fn` are **working**. `const fn`
+> is **parse-level in progress**: it parses as a function declaration, but compile-time
+> evaluation is not implemented yet. Overloading
 > ([§5.4](#54-overloading)) is **working**. Concurrency is no longer a core function kind; any
 > runtime async/task model is expressed through ordinary library types and calls. See
 > [impl-status.md](impl-status.md).
@@ -28,7 +28,7 @@ fn first<T>(slice: []T): ?T {
 |---|---|
 | `fn` | Standard runtime function. |
 | `const fn` | Compile-time function; parsing is in progress, evaluation is not implemented yet. |
-| `flow fn` | Structured control flow; parsing and lowering are in progress. `marker`, `dock`, and `jump target` are tested, while advanced marker semantics are future work ([§9.4](09-control-flow.md#94-flow-functions--markers)). |
+| `state` | A state in a machine with one return type and possibly diverging parameters; `dock State(args)` starts the machine and `jump Next(args)` terminates a state with a direct LLVM `tailcc`/`musttail` transition ([§9.4](09-control-flow.md#94-state-functions-and-state-machines)). |
 | `raw fn` | Always unchecked, bypassing NRA and safety checks for C interop. |
 | `extern fn` | Fixed C ABI linkage; never name-qualified and never overloaded. |
 

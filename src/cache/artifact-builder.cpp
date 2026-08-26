@@ -303,6 +303,8 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                                  out.ref_a = call.callee;
                                  out.ref_b = call.resolved_fn;
                                  out.ref_e = internType(call.fn_type);
+                                 out.flags =
+                                     (call.musttail ? 1U : 0U) | (call.usesTailCC ? 2U : 0U);
                                  for (auto arg : call.args)
                                      out.args.push_back(arg);
                                  for (auto arg_type : call.argument_types)
@@ -321,8 +323,6 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                              [&](const hir::HirJump &jump) {
                                  out.kind  = CompactExprKind::Jump;
                                  out.ref_c = jump.target;
-                                 out.ref_d = jump.return_block;
-                                 out.flags = jump.flowReturn ? 1U : 0U;
                              },
                              [&](const hir::HirPhi &phi) {
                                  out.kind = CompactExprKind::Phi;
@@ -434,31 +434,16 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                                  out.ref_e   = static_cast<uint32_t>(li.which);
                                  out.ref_f   = li.field_index;
                              },
-                             [&](const hir::HirMarkerStore &store) {
-                                 out.kind  = CompactExprKind::MarkerStore;
-                                 out.ref_a = store.marker;
-                                 out.ref_b = store.param_index;
-                                 out.ref_c = store.value;
-                             },
-                             [&](const hir::HirMarkerLoad &load) {
-                                 out.kind    = CompactExprKind::MarkerLoad;
-                                 out.ref_a   = load.marker;
-                                 out.ref_b   = load.param_index;
-                                 out.type_id = internType(load.type);
-                             },
-                             [&](const hir::HirMarkerDock &dock) {
-                                 out.kind  = CompactExprKind::MarkerDock;
-                                 out.ref_c = dock.marker_entry;
-                                 out.ref_d = dock.continuation;
-                             },
-                             [&](const hir::HirMarkerJump &jump) {
-                                 out.kind  = CompactExprKind::MarkerJump;
-                                 out.ref_c = jump.marker_entry;
-                             },
-                             [&](const hir::HirMarkerRet &ret) {
-                                 out.kind = CompactExprKind::MarkerRet;
-                                 for (auto continuation : ret.continuations)
-                                     out.args.push_back(continuation);
+                             [&](const hir::HirStateTailCall &tail) {
+                                 out.kind  = CompactExprKind::StateTailCall;
+                                 out.ref_a = tail.call.callee;
+                                 out.ref_b = tail.call.resolved_fn;
+                                 out.ref_e = internType(tail.call.fn_type);
+                                 out.flags = tail.call.usesTailCC ? 2U : 0U;
+                                 for (auto arg : tail.call.args)
+                                     out.args.push_back(arg);
+                                 for (auto arg_type : tail.call.argument_types)
+                                     out.arg_types.push_back(internType(arg_type));
                              },
                              [&](const hir::HirGlobalConstLoad &load) {
                                  out.kind    = CompactExprKind::GlobalConstLoad;
@@ -597,12 +582,18 @@ Artifact ArtifactBuilder::build(std::string_view canonical_path, std::string_vie
     for (size_t fi = 0; fi < hir_.getFnCount(); ++fi) {
         const auto &fn = hir_.getFn(fi);
         CompactFunction cfn;
-        cfn.name           = std::string(interner_.lookup(fn.name));
-        cfn.name_id        = internString(interner_.lookup(fn.name));
-        cfn.is_extern      = fn.blocks.empty();
-        cfn.is_variadic    = fn.isVariadic;
-        cfn.return_type_id = internType(fn.return_type);
-        const auto angle   = cfn.name.find('<');
+        cfn.name                   = std::string(interner_.lookup(fn.name));
+        cfn.name_id                = internString(interner_.lookup(fn.name));
+        cfn.is_extern              = fn.blocks.empty();
+        cfn.is_variadic            = fn.isVariadic;
+        cfn.is_state               = fn.isState;
+        cfn.uses_tailcc            = fn.usesTailCC;
+        cfn.machine_id             = fn.machineId;
+        cfn.machine_return_type_id = fn.machineReturnType != types::kInvalidType
+                                         ? internType(fn.machineReturnType)
+                                         : cfn.return_type_id;
+        cfn.return_type_id         = internType(fn.return_type);
+        const auto angle           = cfn.name.find('<');
         if (angle != std::string::npos) {
             InstantiationRecord rec;
             rec.module         = std::string(module_name);
@@ -642,27 +633,6 @@ Artifact ArtifactBuilder::build(std::string_view canonical_path, std::string_vie
         cg.type_id   = internType(global.type);
         cg.init_expr = global.init;
         art.globals.push_back(std::move(cg));
-    }
-
-    // Marker metadata is module-global: blob offsets and the body expressions
-    // referenced by marker samples inside flow fns.
-    const auto &markers = hir_.markers();
-    for (const auto &marker : markers.markers) {
-        CompactMarker cm;
-        cm.name_id        = internString(interner_.lookup(marker.name));
-        cm.marker_id      = marker.marker_id;
-        cm.stackful       = marker.stackful;
-        cm.blob_offset    = marker.blob_offset;
-        cm.body_expr      = marker.body_expr;
-        cm.module_name_id = internString(module_name);
-        for (const auto &param : marker.params) {
-            CompactMarkerParam cparam;
-            cparam.name_id = internString(interner_.lookup(param.name));
-            cparam.type_id = internType(param.type);
-            cparam.offset  = param.offset;
-            cm.params.push_back(std::move(cparam));
-        }
-        art.markers.push_back(std::move(cm));
     }
 
     for (size_t slot = 0; slot < hir_.attrs().slotCount(); ++slot) {

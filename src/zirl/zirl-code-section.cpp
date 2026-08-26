@@ -67,9 +67,11 @@ bool encodeCode(const cache::Artifact &artifact, ByteWriter &w) {
         w.writeU32(fn.name_id);
         w.writeU8(fn.is_extern ? 1 : 0);
         w.writeU8(fn.is_variadic ? 1 : 0);
-        w.writeU8(fn.instance_index != ~uint32_t{0} ? 1 : 0);
-        w.writeU8(0);
+        w.writeU8(fn.is_state ? 1 : 0);
+        w.writeU8(fn.uses_tailcc ? 1 : 0);
         w.writeU32(fn.return_type_id);
+        w.writeU32(fn.machine_return_type_id);
+        w.writeU32(fn.machine_id);
         w.writeU32(fn.instance_index);
         w.writeU32(static_cast<uint32_t>(fn.param_type_ids.size()));
         for (auto id : fn.param_type_ids)
@@ -91,24 +93,6 @@ bool encodeCode(const cache::Artifact &artifact, ByteWriter &w) {
         w.writeU32(global.type_id);
         w.writeU32(global.init_expr);
     }
-    w.writeU32(static_cast<uint32_t>(artifact.markers.size()));
-    for (const auto &marker : artifact.markers) {
-        w.writeU32(marker.name_id);
-        w.writeU32(marker.marker_id);
-        w.writeU8(marker.stackful ? 1 : 0);
-        w.writeU8(0);
-        w.writeU8(0);
-        w.writeU8(0);
-        w.writeU32(marker.blob_offset);
-        w.writeU32(marker.body_expr);
-        w.writeU32(marker.module_name_id);
-        w.writeU32(static_cast<uint32_t>(marker.params.size()));
-        for (const auto &param : marker.params) {
-            w.writeU32(param.name_id);
-            w.writeU32(param.type_id);
-            w.writeU32(param.offset);
-        }
-    }
     return true;
 }
 
@@ -126,12 +110,16 @@ bool decodeCode(ByteReader &r, cache::Artifact &out) {
     for (auto &fn : out.functions) {
         uint8_t ext = 0, a = 0, b = 0, c = 0;
         if (!r.readU32(fn.name_id) || !r.readU8(ext) || !r.readU8(a) || !r.readU8(b) ||
-            !r.readU8(c) || !r.readU32(fn.return_type_id) || !r.readU32(fn.instance_index))
+            !r.readU8(c) || !r.readU32(fn.return_type_id) ||
+            !r.readU32(fn.machine_return_type_id) || !r.readU32(fn.machine_id) ||
+            !r.readU32(fn.instance_index))
             return false;
         if (fn.name_id < out.strings.size())
             fn.name = out.strings[fn.name_id];
         fn.is_extern   = ext != 0;
         fn.is_variadic = a != 0;
+        fn.is_state    = b != 0;
+        fn.uses_tailcc = c != 0;
         uint32_t k     = 0;
         if (!r.readU32(k))
             return false;
@@ -167,26 +155,6 @@ bool decodeCode(ByteReader &r, cache::Artifact &out) {
         if (!r.readU32(global.name_id) || !r.readU32(global.type_id) ||
             !r.readU32(global.init_expr))
             return false;
-    if (!r.readU32(n))
-        return false;
-    out.markers.resize(n);
-    for (auto &marker : out.markers) {
-        uint8_t f = 0, a = 0, b = 0, d = 0;
-        if (!r.readU32(marker.name_id) || !r.readU32(marker.marker_id) || !r.readU8(f) ||
-            !r.readU8(a) || !r.readU8(b) || !r.readU8(d))
-            return false;
-        marker.stackful = f != 0;
-        if (!r.readU32(marker.blob_offset) || !r.readU32(marker.body_expr) ||
-            !r.readU32(marker.module_name_id))
-            return false;
-        uint32_t m = 0;
-        if (!r.readU32(m))
-            return false;
-        marker.params.resize(m);
-        for (auto &param : marker.params)
-            if (!r.readU32(param.name_id) || !r.readU32(param.type_id) || !r.readU32(param.offset))
-                return false;
-    }
     return true;
 }
 

@@ -289,14 +289,16 @@ static void test_formatter_function_kinds_round_trip() {
     const std::string source   = "fn standard() {}\n"
                                  "raw fn unsafe_op() {}\n"
                                  "extern fn putchar(c: i32): i32;\n"
-                                 "flow fn structured() {}\n";
+                                 "state structured(): i32 { return 0; }\n";
     const std::string expected = "fn standard() {}\n"
                                  "\n"
                                  "raw fn unsafe_op() {}\n"
                                  "\n"
                                  "extern fn putchar(c: i32): i32;\n"
                                  "\n"
-                                 "flow fn structured() {}\n";
+                                 "state structured(): i32 {\n"
+                                 "    return 0;\n"
+                                 "}\n";
     auto snapshot              = frontend::parse(source);
     CHECK(snapshot.diagnostics().empty(), "function-kind source parses cleanly");
     formatter::FmtVisitor formatter(snapshot);
@@ -307,47 +309,30 @@ static void test_formatter_function_kinds_round_trip() {
     CHECK(reparsed.diagnostics().empty(), "formatted function kinds re-parse cleanly");
 }
 
-static void test_formatter_flow_marker_round_trip() {
-    const std::string source = "flow fn main(): i32 {\n"
-                               "    dock check();\n"
-                               "    marker check() {\n"
-                               "        jump body();\n"
-                               "    }\n"
-                               "    stackful marker body() {\n"
-                               "        return 1;\n"
-                               "    }\n"
+static void test_formatter_state_machine_round_trip() {
+    const std::string source = "state Start(v: i32): i32 {\n"
+                               "    jump Done(v + 1);\n"
+                               "}\n"
+                               "\n"
+                               "state Done(v: i32): i32 {\n"
+                               "    return v;\n"
+                               "}\n"
+                               "\n"
+                               "fn main(): i32 {\n"
+                               "    let result: i32 = dock Start(41);\n"
+                               "    return result;\n"
                                "}\n";
     auto snapshot            = frontend::parse(source);
-    CHECK(snapshot.diagnostics().empty(), "flow marker source parses cleanly");
+    CHECK(snapshot.diagnostics().empty(), "state-machine source parses cleanly");
     formatter::FmtVisitor formatter(snapshot);
     formatter.format();
-    CHECK_EQ(formatter.result(), source, "dock, jump, and stackful marker round-trip through fmt");
+    CHECK_EQ(formatter.result(), source, "state, dock, and jump round-trip through fmt");
 
     auto reparsed = frontend::parse(formatter.result());
-    CHECK(reparsed.diagnostics().empty(), "formatted flow markers re-parse cleanly");
+    CHECK(reparsed.diagnostics().empty(), "formatted state-machine source re-parses cleanly");
     formatter::FmtVisitor second(reparsed);
     second.format();
-    CHECK_EQ(second.result(), formatter.result(), "flow marker formatting is idempotent");
-}
-
-static void test_formatter_plain_marker_is_stackless_by_default() {
-    const std::string source = "flow fn main(): i32 {\n"
-                               "    dock body();\n"
-                               "    marker body() {\n"
-                               "        return 1;\n"
-                               "    }\n"
-                               "}\n";
-    auto snapshot            = frontend::parse(source);
-    CHECK(snapshot.diagnostics().empty(), "plain marker source parses cleanly");
-    formatter::FmtVisitor formatter(snapshot);
-    formatter.format();
-    CHECK_EQ(formatter.result(), source, "plain marker round-trips without a stackful prefix");
-
-    auto reparsed = frontend::parse(formatter.result());
-    CHECK(reparsed.diagnostics().empty(), "formatted plain marker re-parses cleanly");
-    formatter::FmtVisitor second(reparsed);
-    second.format();
-    CHECK_EQ(second.result(), formatter.result(), "plain marker formatting is idempotent");
+    CHECK_EQ(second.result(), formatter.result(), "state-machine formatting is idempotent");
 }
 
 static void test_formatter_compound_assign_round_trip() {
@@ -429,8 +414,7 @@ static void test_formatter() {
     test_formatter_memory_qualifier_round_trip();
     test_formatter_variadic_declaration_round_trip();
     test_formatter_function_kinds_round_trip();
-    test_formatter_flow_marker_round_trip();
-    test_formatter_plain_marker_is_stackless_by_default();
+    test_formatter_state_machine_round_trip();
     test_formatter_compound_assign_round_trip();
     test_formatter_bitwise_operator_round_trip();
     test_formatter_raw_opaque_round_trip();

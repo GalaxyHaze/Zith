@@ -182,6 +182,7 @@ int FmtVisitor::exprPrecedence(const frontend::Expression &expr) const noexcept 
     case frontend::ExprKind::IsType:
         return 5;
     case frontend::ExprKind::Call:
+    case frontend::ExprKind::DockCall:
     case frontend::ExprKind::Index:
     case frontend::ExprKind::SliceRange:
     case frontend::ExprKind::OptionalProp:
@@ -624,6 +625,9 @@ void FmtVisitor::visitStmt(const frontend::StmtId id) {
         }
         emit(";");
         break;
+    case frontend::StmtKind::Declaration:
+        emitOriginal(stmt->span);
+        break;
     case frontend::StmtKind::Return:
         emit("return");
         if (stmt->expression) {
@@ -729,10 +733,13 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
         break;
     }
     case frontend::ExprKind::Call:
+    case frontend::ExprKind::DockCall:
         if (expr->operands.empty()) {
             emitOriginal(expr->span);
             break;
         }
+        if (expr->kind == frontend::ExprKind::DockCall)
+            emit("dock ");
         visitExpr(expr->operands[0], current_prec);
         emit("(");
         for (std::size_t index = 1; index < expr->operands.size(); ++index) {

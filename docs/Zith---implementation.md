@@ -82,12 +82,16 @@ Referências por nome a um const global produzem `HirGlobalConstLoad` no lowerin
 
 ## Cache e ZIRL
 
-A versão de formato ZIRL passa para 8. O Code section serializa:
+A versão de formato ZIRL passa para 10. O Code section serializa:
 
 - `Artifact.exprs` como pool de expressões ao nível do módulo.
 - `Artifact.globals` como `CompactGlobalConst` com name, type e init.
+- `HirFunction` com `isState`/`machineId`/`machineReturnType`/`usesTailCC` para declaracoes `state`.
+- `HirStateTailCall` como expressao de terminacao com `musttail tailcc` direto.
 
-Isso mantém os ids de HIR estáveis entre módulos vazios de funções, const globals e loads por `HirGlobalConstLoad`.
+Isso mantém os ids de HIR estáveis entre módulos vazios de funções, const globals, loads por `HirGlobalConstLoad` e transitions `state`. Maquinas `state` agrupam por retorno canonico e permitem listas de parametros diferentes entre estados; codegen declara e chama essas funcoes com LLVM `tailcc` e sem contexto/`alloca` adicional.
+
+For-in usa o protocolo `next(self)` com retorno tagged union de dois membros: um elemento e o `End` canonico (`struct End {}`). O sema exige exatamente um membro `End`; HIR chama `next` no header do loop, ramifica por `HirUnionCheck` quando o tag é `End` e extrai o elemento com `HirUnionCast` quando não é.
 
 ## Testes
 
@@ -96,8 +100,8 @@ Os seguintes testes cobrem a iteração:
 - `test-frontend`: bindings `let`/`var`/`const`, rejeição de `global`/`mut`/ownership/tags, const fields.
 - `test-sema`: valida const global/local, campos const, propagação de imutabilidade em structs/unions, discriminantes constantes de enum e atribuições proibidas.
 - `test-hir-lower-modern`: `HirGlobalConst`, `HirGlobalConstLoad` e valores de enum calculados a partir de expressões.
-- `test-codegen`: execução runtime de um const global.
-- `test-cache`/`test-zirl-sections`: pool de expressões e globals persistidos.
+- `test-codegen`: execução runtime de um const global e de uma maquina de estados com `musttail tailcc`, incluindo parâmetros divergentes.
+- `test-cache`/`test-zirl-sections`: pool de expressões, globals e state machine metadata persistidos.
 - `test-memory-qualifiers`: lend/view aceites; unique/share/belong e mut rejeitados.
 
 Para regressões, usar a suíte completa:

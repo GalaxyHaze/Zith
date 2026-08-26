@@ -329,18 +329,17 @@ void test_pipeline_tag_macro_is_rejected() {
           "tag macro rejection surfaces a frontend diagnostic");
 }
 
-void test_pipeline_imported_jump_dock_macro_lowers() {
+void test_pipeline_imported_state_machine_lowers() {
     Workspace workspace;
-    workspace.write("helper.zith", "pub macro jump_to(v: expr) { jump target(v); }\n"
-                                   "pub macro dock_to(v: expr) { dock target(v); }\n");
+    workspace.write("helper.zith", "pub state target(v: i32): i32 {\n"
+                                   "    if (v < 1) {\n"
+                                   "        jump target(v + 1);\n"
+                                   "    }\n"
+                                   "    return v;\n"
+                                   "}\n");
     workspace.write("main.zith", "from helper\n"
-                                 "flow fn main(): i32 {\n"
-                                 "    var acc: i32 = 0;\n"
-                                 "    @dock_to(0);\n"
-                                 "    marker target(v: i32) {\n"
-                                 "        @jump_to(v + 1);\n"
-                                 "    }\n"
-                                 "    acc\n"
+                                 "fn main(): i32 {\n"
+                                 "    return dock target(0);\n"
                                  "}\n");
 
     memory::Arena arena;
@@ -350,9 +349,32 @@ void test_pipeline_imported_jump_dock_macro_lowers() {
     session::CompilationSession session(options, (workspace.root / "main.zith").string());
     session.setBuffered(true);
     const bool lowered_ok = session.runTo(session::Stage::HirLowered);
-    CHECK(lowered_ok, "imported jump/dock macros expand and lower through the modern pipeline");
+    CHECK(lowered_ok, "imported state machine lowers through the modern pipeline");
     CHECK(session.snapshot() != nullptr && session.snapshot()->diagnostics().empty(),
-          "imported jump/dock macro expansion produces no diagnostics");
+          "imported state machine produces no diagnostics");
+}
+
+void test_modern_imported_static_method_hir() {
+    Workspace workspace;
+    workspace.write("lib.zith", "pub struct Box { value: i32 }\n"
+                                "implement Box {\n"
+                                "    fn make(v: i32): Box { Box { value: v } }\n"
+                                "}\n");
+    workspace.write("main.zith", "from lib\n"
+                                 "fn main(): i32 {\n"
+                                 "    let b = Box.make(42);\n"
+                                 "    b.value\n"
+                                 "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "imported static method lowers through the modern pipeline");
+    CHECK(session.hirModule().getFnCount() >= 2u, "HIR includes both the imported method and main");
 }
 
 void test_pipeline_imported_macro_lowers() {
@@ -472,7 +494,8 @@ static void test_frontend_modern_pipeline() {
     test_pipeline_normal_macro_hygiene_and_call_site_scope();
     test_pipeline_raw_macro_sees_call_site_then_module();
     test_pipeline_tag_macro_is_rejected();
-    test_pipeline_imported_jump_dock_macro_lowers();
+    test_pipeline_imported_state_machine_lowers();
+    test_modern_imported_static_method_hir();
     test_pipeline_imported_macro_lowers();
     test_imported_macro_unknown_without_import();
     test_imported_macro_selector_alias();

@@ -59,6 +59,15 @@ const hir::HirFunction *findFunction(const hir::HirModule &hir, memory::StringIn
     return nullptr;
 }
 
+size_t countExprKind(const hir::HirModule &hir, hir::HirExprKind kind) {
+    size_t count = 0;
+    for (size_t i = 0; i < hir.exprCount(); ++i) {
+        if (hir::exprKind(hir.getExpr(static_cast<hir::HirExprId>(i))) == kind)
+            ++count;
+    }
+    return count;
+}
+
 size_t countInstKind(const hir::HirModule &hir, const hir::HirFunction &fn, hir::HirExprKind kind) {
     size_t count = 0;
     for (const auto &block : fn.blocks) {
@@ -894,102 +903,98 @@ void test_static_method_call_has_resolved_callee_only() {
     }
 }
 
-void test_flow_fn_marker_jump_lowers_to_hir() {
+void test_state_machine_lowers_to_hir() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "flow fn main(): i32 {\n"
-                                     "    dock loop(0);\n"
-                                     "    marker loop(n: i32) {\n"
-                                     "        if (n < 10) {\n"
-                                     "            jump loop(n + 1);\n"
-                                     "        }\n"
+    workspace.writeFile("main.zith", "state Loop(n: i32): i32 {\n"
+                                     "    if (n < 10) {\n"
+                                     "        jump Loop(n + 1);\n"
                                      "    }\n"
-                                     "    0;\n"
+                                     "    return n;\n"
+                                     "}\n"
+                                     "fn main(): i32 {\n"
+                                     "    let result: i32 = dock Loop(0);\n"
+                                     "    return result;\n"
                                      "}\n");
 
     memory::Arena arena;
     Options options(arena);
     auto session = makeSession(workspace, arena, options, "main.zith");
 
-    CHECK(session.runTo(session::Stage::HirLowered), "flow fn marker/jump loop lowers to HIR");
+    CHECK(session.runTo(session::Stage::HirLowered), "state machine lowers to HIR");
 
     const auto &hir  = session.hirModule();
+    const auto *loop = findFunction(hir, session.interner(), "Loop");
     const auto *main = findFunction(hir, session.interner(), "main");
-    CHECK(main != nullptr, "flow main function is present in HIR");
+    CHECK(loop != nullptr, "state function is present in HIR");
+    CHECK(main != nullptr, "main function is present in HIR");
+    if (loop != nullptr) {
+        CHECK(loop->isState, "state HIR function records isState");
+        CHECK(loop->machineId != 0u, "state HIR function records a machine id");
+        CHECK(countTerminatorKind(hir, *loop, hir::HirExprKind::StateTailCall) >= 1u,
+              "state jump lowers to a StateTailCall terminator");
+    }
     if (main != nullptr) {
-        CHECK(main->blocks.size() >= 3u, "marker samples create marker blocks plus the main body");
-        CHECK(countInstKind(hir, *main, hir::HirExprKind::MarkerStore) >= 2u,
-              "dock and jump write marker arguments into the blob");
-        CHECK(countTerminatorKind(hir, *main, hir::HirExprKind::MarkerDock) == 1u,
-              "dock lowers to a MarkerDock terminator");
-        CHECK(countTerminatorKind(hir, *main, hir::HirExprKind::MarkerJump) >= 1u,
-              "jump lowers to a MarkerJump terminator");
-        CHECK(countTerminatorKind(hir, *main, hir::HirExprKind::MarkerRet) >= 1u,
-              "marker samples terminate with MarkerRet");
+        CHECK(!main->isState, "ordinary functions remain non-state");
+        CHECK_EQ(countExprKind(hir, hir::HirExprKind::Call), 1u,
+                 "dock lowers to a plain call expression");
     }
 }
 
-void test_flow_jump_carries_origin_continuation() {
+void test_state_tail_call_is_direct_and_musttail() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
-                                     "flow fn main(): i32 {\n"
-                                     "    marker Test() {\n"
-                                     "        printf(\"Second\\n\");\n"
-                                     "        jump Done();\n"
-                                     "    }\n"
-                                     "    marker Done() {\n"
-                                     "    }\n"
-                                     "    printf(\"First\\n\");\n"
-                                     "    dock Test();\n"
-                                     "    printf(\"Third\\n\");\n"
-                                     "    0;\n"
+    workspace.writeFile("main.zith", "state Start(v: i32): i32 {\n"
+                                     "    jump Done(v + 1);\n"
+                                     "}\n"
+                                     "state Done(v: i32): i32 {\n"
+                                     "    return v;\n"
+                                     "}\n"
+                                     "fn main(): i32 {\n"
+                                     "    return dock Start(41);\n"
                                      "}\n");
 
     memory::Arena arena;
     Options options(arena);
     auto session = makeSession(workspace, arena, options, "main.zith");
 
-    CHECK(session.runTo(session::Stage::HirLowered), "flow jump continuation lowers to HIR");
+    CHECK(session.runTo(session::Stage::HirLowered), "state tail call lowers to HIR");
 
-    const auto &hir  = session.hirModule();
-    const auto *main = findFunction(hir, session.interner(), "main");
-    CHECK(main != nullptr, "flow main function is present in HIR");
-    if (main == nullptr)
+    const auto &hir   = session.hirModule();
+    const auto *start = findFunction(hir, session.interner(), "Start");
+    CHECK(start != nullptr, "start state is present in HIR");
+    if (start == nullptr)
         return;
 
-    bool saw_dock       = false;
-    bool saw_jump       = false;
-    bool saw_marker_ret = false;
-    for (const auto &block : main->blocks) {
+    bool saw_tail_call = false;
+    for (const auto &block : start->blocks) {
         if (block.terminator == hir::kInvalidHirExpr)
             continue;
         const auto &expr = hir.getExpr(block.terminator);
-        if (std::get_if<hir::HirMarkerDock>(&expr) != nullptr) {
-            saw_dock = true;
-        } else if (std::get_if<hir::HirMarkerJump>(&expr) != nullptr) {
-            saw_jump = true;
-        } else if (std::get_if<hir::HirMarkerRet>(&expr) != nullptr) {
-            saw_marker_ret = true;
+        if (const auto *tail = std::get_if<hir::HirStateTailCall>(&expr)) {
+            saw_tail_call = true;
+            CHECK(tail->call.musttail, "state tail call carries the musttail bit");
+            CHECK(tail->call.usesTailCC, "state tail call carries the tailcc bit");
+            CHECK(tail->call.resolved_fn != symbols::kInvalidSym,
+                  "state tail call resolves a direct callee symbol");
+            CHECK(tail->call.callee == hir::kInvalidHirExpr,
+                  "state tail call has no indirect callee expression");
         }
     }
-    CHECK(saw_dock, "dock Test lowers to a marker dock");
-    CHECK(saw_jump, "jump Test lowers to a marker jump");
-    CHECK(saw_marker_ret, "the marker body terminates to the same dock continuation");
+    CHECK(saw_tail_call, "jump lowers to a terminating StateTailCall");
 }
 
-void test_global_marker_lowers_into_multiple_flow_fns() {
+void test_multiple_states_share_machine_id_by_prototype() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "marker Add(x: i32, y: i32) {\n"
-                                     "    jump Done(x + y);\n"
+    workspace.writeFile("main.zith", "state Add(x: i32, y: i32): i32 {\n"
+                                     "    jump Done(x + y, y);\n"
                                      "}\n"
-                                     "marker Done(result: i32) {\n"
+                                     "state Done(x: i32, y: i32): i32 {\n"
+                                     "    return x + y;\n"
                                      "}\n"
-                                     "flow fn first(): i32 {\n"
-                                     "    dock Add(3, 4);\n"
-                                     "    return 0;\n"
+                                     "fn first(): i32 {\n"
+                                     "    return dock Add(3, 4);\n"
                                      "}\n"
-                                     "flow fn second(): i32 {\n"
-                                     "    dock Add(5, 6);\n"
-                                     "    return 0;\n"
+                                     "fn second(): i32 {\n"
+                                     "    return dock Done(5, 6);\n"
                                      "}\n");
 
     memory::Arena arena;
@@ -997,23 +1002,112 @@ void test_global_marker_lowers_into_multiple_flow_fns() {
     auto session = makeSession(workspace, arena, options, "main.zith");
 
     CHECK(session.runTo(session::Stage::HirLowered),
-          "global markers lower without being imported by the flow fn");
+          "same-prototype states lower into one machine");
 
-    const auto &hir = session.hirModule();
-    CHECK(hir.getMarkerCount() >= 1u, "module marker metadata is present in HIR");
+    const auto &hir   = session.hirModule();
+    const auto *add   = findFunction(hir, session.interner(), "Add");
+    const auto *done  = findFunction(hir, session.interner(), "Done");
+    const auto *first = findFunction(hir, session.interner(), "first");
+    CHECK(add != nullptr && done != nullptr && first != nullptr,
+          "state machine functions and caller are present in HIR");
+    if (add == nullptr || done == nullptr || first == nullptr)
+        return;
+    CHECK(add->isState && done->isState, "both machine members are state functions");
+    CHECK_EQ(add->machineId, done->machineId, "same-prototype states share a machine id");
+    CHECK_EQ(countExprKind(hir, hir::HirExprKind::Call), 2u,
+             "each dock remains a plain call expression in its caller");
+}
+
+void test_diverging_state_parameters_share_machine_id() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "state Start(n: i32): i32 {\n"
+                                     "    jump Done(n, n + 1);\n"
+                                     "}\n"
+                                     "state Done(n: i32, acc: i32): i32 {\n"
+                                     "    return acc;\n"
+                                     "}\n"
+                                     "fn main(): i32 {\n"
+                                     "    return dock Start(41);\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "states with diverging parameters lower into one machine");
+
+    const auto &hir   = session.hirModule();
+    const auto *start = findFunction(hir, session.interner(), "Start");
+    const auto *done  = findFunction(hir, session.interner(), "Done");
+    CHECK(start != nullptr && done != nullptr, "diverging state functions are present in HIR");
+    if (start == nullptr || done == nullptr)
+        return;
+    CHECK_EQ(start->machineId, done->machineId, "diverging states share a machine id");
+    CHECK(start->usesTailCC && done->usesTailCC, "state functions carry the tailcc flag");
+    CHECK_EQ(start->machineReturnType, done->machineReturnType,
+             "state functions carry the shared machine return type");
+}
+
+void test_local_states_qualify_and_lower_without_collisions() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn first(): i32 {\n"
+                                     "    state Step(n: i32): i32 {\n"
+                                     "        if (n == 0) {\n"
+                                     "            return 1;\n"
+                                     "        }\n"
+                                     "        jump Step(n - 1);\n"
+                                     "    }\n"
+                                     "    return dock Step(3);\n"
+                                     "}\n"
+                                     "fn second(): i32 {\n"
+                                     "    state Step(n: i32): i32 {\n"
+                                     "        if (n == 0) {\n"
+                                     "            return 2;\n"
+                                     "        }\n"
+                                     "        jump Step(n - 1);\n"
+                                     "    }\n"
+                                     "    return dock Step(3);\n"
+                                     "}\n"
+                                     "fn main(): i32 {\n"
+                                     "    return first() + second();\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "local states with identical names lower to HIR");
+
+    const auto &hir         = session.hirModule();
+    size_t first_local      = 0;
+    size_t second_local     = 0;
+    uint32_t first_machine  = 0;
+    uint32_t second_machine = 0;
+    for (size_t i = 0; i < hir.getFnCount(); ++i) {
+        const auto &fn = hir.getFn(i);
+        if (!fn.isState)
+            continue;
+        const auto name = internedName(session.interner(), fn.name);
+        if (name.find("first$local.Step") != std::string_view::npos) {
+            ++first_local;
+            first_machine = fn.machineId;
+            CHECK(countTerminatorKind(hir, fn, hir::HirExprKind::StateTailCall) >= 1u,
+                  "local state jump lowers to a StateTailCall");
+        } else if (name.find("second$local.Step") != std::string_view::npos) {
+            ++second_local;
+            second_machine = fn.machineId;
+        }
+    }
+    CHECK_EQ(first_local, 1u, "first local state exists with an owner-qualified HIR name");
+    CHECK_EQ(second_local, 1u, "second local state exists with an owner-qualified HIR name");
+    CHECK(first_machine != 0u && second_machine != 0u && first_machine != second_machine,
+          "local machines in different parents are distinct");
+
     const auto *first  = findFunction(hir, session.interner(), "first");
     const auto *second = findFunction(hir, session.interner(), "second");
-    CHECK(first != nullptr && second != nullptr, "both flow functions are present in HIR");
-    if (first == nullptr || second == nullptr)
-        return;
-    CHECK(countTerminatorKind(hir, *first, hir::HirExprKind::MarkerDock) == 1u,
-          "first flow fn docks the global marker");
-    CHECK(countInstKind(hir, *first, hir::HirExprKind::MarkerStore) >= 2u,
-          "first flow fn stores both marker arguments");
-    CHECK(countTerminatorKind(hir, *second, hir::HirExprKind::MarkerDock) == 1u,
-          "second flow fn docks the same global marker");
-    CHECK(countInstKind(hir, *second, hir::HirExprKind::MarkerStore) >= 2u,
-          "second flow fn stores both marker arguments");
+    CHECK(first != nullptr && second != nullptr, "parent functions lower normally");
 }
 
 void test_generic_function_lowers_to_concrete_instances() {
@@ -1470,9 +1564,11 @@ static void test_hir_lower_modern() {
     test_is_null_on_value_optional_reads_tag();
     test_for_condition_lowers_like_while();
     test_static_method_call_has_resolved_callee_only();
-    test_flow_fn_marker_jump_lowers_to_hir();
-    test_flow_jump_carries_origin_continuation();
-    test_global_marker_lowers_into_multiple_flow_fns();
+    test_state_machine_lowers_to_hir();
+    test_state_tail_call_is_direct_and_musttail();
+    test_multiple_states_share_machine_id_by_prototype();
+    test_diverging_state_parameters_share_machine_id();
+    test_local_states_qualify_and_lower_without_collisions();
     test_generic_function_lowers_to_concrete_instances();
     test_const_global_lowers_to_load();
     test_untyped_const_global_type_comes_from_initializer();

@@ -335,10 +335,10 @@ static void test_enum_values() {
                                                "}\n");
 
     auto r2 = t.run("codegen-enum-cast.zith", "enum Color: u8 { Red = 10, Green = 20 }\n"
-                                               "fn main(): i32 {\n"
-                                               "    let c: Color = Color.Green;\n"
-                                               "    return c as i32;\n"
-                                               "}\n");
+                                              "fn main(): i32 {\n"
+                                              "    let c: Color = Color.Green;\n"
+                                              "    return c as i32;\n"
+                                              "}\n");
     CHECK(r2.ok, "Enum to integer cast compiles and runs");
     CHECK_EQ(r2.exitCode, 20, "Enum cast evaluates to the underlying integer discriminant value");
 }
@@ -413,6 +413,47 @@ static void test_tagged_union_pointer_is_type_runtime() {
           "the narrowed tagged value is passed to printf");
 }
 
+static void test_qualified_receiver_mutation_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "struct Sample {\n"
+                         "    x: i32,\n"
+                         "    fn bump_lend(self: lend Sample) { self->x = self->x + 1; }\n"
+                         "    fn get(self): i32 { return self->x; }\n"
+                         "    fn read_view(self: view Sample): i32 { return self->x; }\n"
+                         "    fn bump_ptr(self: *Sample) { self->x = self->x + 5; }\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    var s: Sample = Sample { x: 10 };\n"
+                         "    s.bump_lend();\n"
+                         "    s.bump_ptr();\n"
+                         "    if (s.read_view() != 16) { return 1; }\n"
+                         "    return s.get();\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "qualified lend/view receivers and '.' mutation compile, link, and execute");
+    CHECK_EQ(r.exitCode, 16, "lend and explicit pointer receiver mutations reach the caller");
+}
+
+static void test_when_narrowing_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "import \"stdio.h\"\n"
+                         "union Value { *char, i32 }\n"
+                         "fn main(): i32 {\n"
+                         "    let v = Value{\"ok\"};\n"
+                         "    when (v) {\n"
+                         "        (v is *char) ~> { printf(\"%s\\n\", v); return 7; },\n"
+                         "        (_) ~> { return 1; }\n"
+                         "    }\n"
+                         "    return 2;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "when narrowing compiles the narrowed member without an explicit cast");
+    CHECK_EQ(r.exitCode, 7, "the narrowed union branch is selected at runtime");
+    CHECK(r.output.find("ok") != std::string::npos, "the narrowed pointer member is printed");
+}
+
 static void test_for_three_clause_runtime() {
     CodegenTest t;
     auto r = t.run("codegen-for3.zith", "fn sum_to(n: i32): i32 {\n"
@@ -445,17 +486,18 @@ static void test_for_three_clause_runtime() {
 
 static void test_for_in_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-for-in.zith", "struct Range {\n"
+    auto r = t.run("codegen-for-in.zith", "struct End {}\n"
+                                          "union RangeStep { End, i32 }\n"
+                                          "struct Range {\n"
                                           "    current: i32,\n"
                                           "    limit: i32,\n"
-                                          "    fn done(self): bool {\n"
-                                          "        return self->current >= self->limit;\n"
-                                          "    }\n"
-                                          "    fn value(self): i32 {\n"
-                                          "        return self->current;\n"
-                                          "    }\n"
-                                          "    fn next(self) {\n"
+                                          "    fn next(self): RangeStep {\n"
+                                          "        if (self->current >= self->limit) {\n"
+                                          "            return RangeStep { End {} };\n"
+                                          "        }\n"
+                                          "        let value = RangeStep { self->current };\n"
                                           "        self->current = self->current + 1;\n"
+                                          "        return value;\n"
                                           "    }\n"
                                           "}\n"
                                           "fn main(): i32 {\n"
@@ -470,7 +512,7 @@ static void test_for_in_runtime() {
                                           "    return total;\n"
                                           "}\n");
     CHECK(r.ok, "for-in runtime test compiles, links, and executes");
-    CHECK_EQ(r.exitCode, 15, "for-in iterates done/value/next in order");
+    CHECK_EQ(r.exitCode, 15, "for-in extracts the union element until End");
 }
 
 static void test_named_struct_literal_and_defaults_runtime() {
@@ -660,151 +702,137 @@ static void test_numeric_cast_codegen() {
     CHECK(r.output.find("fptosi") != std::string::npos, "f64 -> i32 emits fptosi");
 }
 
-static void test_marker_jump_loop_executes() {
+static void test_state_machine_loop_executes() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "flow fn main(): i32 {\n"
-                         "    dock loop(0);\n"
-                         "    marker loop(n: i32) {\n"
-                         "        if (n < 10) {\n"
-                         "            jump loop(n + 1);\n"
-                         "        } else {\n"
-                         "            return n;\n"
-                         "        }\n"
+    t.write("main.zith", "state Loop(n: i32): i32 {\n"
+                         "    if (n < 10) {\n"
+                         "        jump Loop(n + 1);\n"
                          "    }\n"
-                         "    return -1;\n"
-                         "}\n");
-
-    auto r = t.run();
-    CHECK(r.ok, "marker/jump loop compiles and executes");
-    CHECK_EQ(r.exitCode, 10, "marker loop returns exactly 10");
-}
-
-static void test_marker_jump_returns_to_origin_dock() {
-    ModernFileCodegenTest t;
-    t.opts.flags.emitIr(true);
-    t.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
-                         "flow fn foo(): i32 {\n"
-                         "    marker Test() {\n"
-                         "        printf(\"Second\\n\");\n"
-                         "        jump Done();\n"
-                         "    }\n"
-                         "    marker Done() {\n"
-                         "    }\n"
-                         "    printf(\"First\\n\");\n"
-                         "    dock Test();\n"
-                         "    printf(\"Third\\n\");\n"
-                         "    return 0;\n"
+                         "    return n;\n"
                          "}\n"
                          "fn main(): i32 {\n"
-                         "    foo();\n"
+                         "    return dock Loop(0);\n"
                          "}\n");
 
     auto r = t.run();
-    CHECK(r.ok, "the flow marker example compiles and runs");
-    CHECK(r.output.find("First\nSecond\nThird\n") != std::string::npos,
-          "jump marker resumes immediately after the originating dock");
-    CHECK_EQ(r.exitCode, 0, "the flow marker example exits normally");
+    CHECK(r.ok, "state/jump loop compiles and executes");
+    CHECK_EQ(r.exitCode, 10, "state loop returns exactly 10");
 }
 
-static void test_marker_jump_chain_returns_to_origin_dock() {
+static void test_state_tail_calls_emit_musttail() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
-                         "flow fn foo(): i32 {\n"
-                         "    marker A() {\n"
-                         "        printf(\"A\\n\");\n"
-                         "        jump B();\n"
-                         "    }\n"
-                         "    marker B() {\n"
-                         "        printf(\"B\\n\");\n"
-                         "    }\n"
-                         "    printf(\"Start\\n\");\n"
-                         "    dock A();\n"
-                         "    printf(\"End\\n\");\n"
-                         "    return 0;\n"
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "state Start(v: i32): i32 {\n"
+                         "    jump Done(v + 1);\n"
+                         "}\n"
+                         "state Done(v: i32): i32 {\n"
+                         "    return v;\n"
+                         "}\n"
+                         "fn foo(): i32 {\n"
+                         "    return dock Start(41);\n"
                          "}\n"
                          "fn main(): i32 {\n"
-                         "    foo();\n"
+                         "    return foo();\n"
                          "}\n");
 
     auto r = t.run();
-    CHECK(r.ok, "chained marker jumps compile and run");
-    CHECK(r.output.find("Start\nA\nB\nEnd\n") != std::string::npos,
-          "B resumes the outer dock that started A instead of resuming A");
-    CHECK_EQ(r.exitCode, 0, "chained marker jumps exit normally");
+    CHECK(r.ok, "state tail-call program compiles and runs");
+    CHECK_EQ(r.exitCode, 42, "dock receives the final state return value");
+    CHECK(r.output.find("musttail call") != std::string::npos,
+          "state transitions emit musttail calls in LLVM IR");
+    CHECK(r.output.find("ret i32") != std::string::npos,
+          "state transitions return immediately after the call");
+    CHECK(r.output.find("tailcc") != std::string::npos,
+          "state declarations and calls use LLVM tailcc in IR");
 }
 
-static void test_marker_arguments_cross_chain_frames() {
+static void test_state_machine_diverging_parameters_executes() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "flow fn main(): i32 {\n"
-                         "    marker A(v: i32) {\n"
-                         "        jump B(v + 2);\n"
+    t.write("main.zith", "state Start(n: i32): i32 {\n"
+                         "    if (n == 0) {\n"
+                         "        return 42;\n"
                          "    }\n"
-                         "    marker B(v: i32) {\n"
-                         "        return v;\n"
-                         "    }\n"
-                         "    dock A(10);\n"
-                         "    return -1;\n"
+                         "    jump Done(n - 1, n);\n"
+                         "}\n"
+                         "state Done(n: i32, step: i32): i32 {\n"
+                         "    jump Start(n);\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    return dock Start(3);\n"
                          "}\n");
 
     auto r = t.run();
-    CHECK(r.ok, "marker arguments cross a chain of jumps");
-    CHECK_EQ(r.exitCode, 12, "the last marker sees arguments from the final jump");
-    CHECK(r.output.find("__zith_marker_blob") != std::string::npos,
-          "marker blob is present in LLVM IR");
+    CHECK(r.ok, "state machine with diverging parameters compiles and runs");
+    CHECK_EQ(r.exitCode, 42, "diverging state machine returns the terminal value");
+    CHECK(r.output.find("tailcc") != std::string::npos,
+          "diverging state transitions emit tailcc in LLVM IR");
+    CHECK(r.output.find("musttail call") != std::string::npos,
+          "diverging state transitions remain direct musttail calls");
 }
 
-static void test_stackless_marker_has_no_host_slot_access() {
-    ModernFileCodegenTest t;
-    t.write("main.zith", "flow fn main(): i32 {\n"
-                         "    var host: i32 = 5;\n"
-                         "    dock body();\n"
-                         "    marker body() {\n"
-                         "        return host;\n"
-                         "    }\n"
-                         "    return 0;\n"
-                         "}\n");
-
-    auto r = t.run();
-    CHECK(!r.ok, "stackless marker cannot capture the host flow fn's local slots");
-}
-
-static void test_stackful_marker_uses_local_binding() {
+static void test_state_codegen_has_no_marker_runtime_symbols() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "flow fn main(): i32 {\n"
-                         "    marker body() {\n"
-                         "        stackful marker twice(x: i32) {\n"
-                         "            var result: i32 = x * 2;\n"
+    t.write("main.zith", "state Start(v: i32): i32 {\n"
+                         "    jump Done(v + 2);\n"
+                         "}\n"
+                         "state Done(v: i32): i32 {\n"
+                         "    return v;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    return dock Start(10);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "state machine compiles and runs without marker runtime");
+    CHECK_EQ(r.exitCode, 12, "dock receives the returned state value");
+    CHECK(r.output.find("__zith_marker_blob") == std::string::npos,
+          "marker blob symbol is absent from state-machine IR");
+    CHECK(r.output.find("__zith_dock_address") == std::string::npos,
+          "dock runtime symbol is absent from state-machine IR");
+    CHECK(r.output.find("__zith_marker_exit") == std::string::npos,
+          "marker exit runtime symbol is absent from state-machine IR");
+}
+
+static void test_state_loop_does_not_grow_stack() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "state CountDown(n: i32): i32 {\n"
+                         "    if (n > 0) {\n"
+                         "        jump CountDown(n - 1);\n"
+                         "    }\n"
+                         "    return 42;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    return dock CountDown(200000);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "large recursive state loop completes");
+    CHECK_EQ(r.exitCode, 42, "large recursive state loop reaches the terminal return value");
+}
+
+static void test_local_state_machine_executes() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn machine(): i32 {\n"
+                         "    state Start(n: i32): i32 {\n"
+                         "        if (n == 0) {\n"
+                         "            return 42;\n"
                          "        }\n"
-                         "        jump twice(3);\n"
-                         "        return 0;\n"
+                         "        jump Done(n - 1);\n"
                          "    }\n"
-                         "    dock body();\n"
-                         "    return -1;\n"
+                         "    state Done(n: i32): i32 {\n"
+                         "        jump Start(n);\n"
+                         "    }\n"
+                         "    return dock Start(200000);\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    return machine();\n"
                          "}\n");
 
     auto r = t.run();
-    CHECK(r.ok, "stackful marker with a local binding lowers and emits");
-    CHECK(r.output.find("alloca i32") != std::string::npos,
-          "stackful marker local binding becomes a real slot allocation");
-    CHECK(r.output.find("__zith_marker_exit") != std::string::npos,
-          "stackful sample falls back to marker exit instead of reaching a missing terminator");
-}
-
-static void test_stackless_marker_cannot_allocate_local_binding() {
-    ModernFileCodegenTest t;
-    t.write("main.zith", "flow fn main(): i32 {\n"
-                         "    dock body(3);\n"
-                         "    marker body(v: i32) {\n"
-                         "        var twice: i32 = v * 2;\n"
-                         "        return twice;\n"
-                         "    }\n"
-                         "    return 0;\n"
-                         "}\n");
-
-    auto r = t.run();
-    CHECK(!r.ok, "stackless marker cannot allocate a local binding");
+    CHECK(r.ok, "local state machine compiles and executes");
+    CHECK_EQ(r.exitCode, 42, "local state machine returns through dock");
 }
 
 static void test_linked_list_acceptance_program() {
@@ -1614,6 +1642,8 @@ static void test_codegen() {
     test_sizeof_intrinsic_runtime();
     test_when_expression_runtime();
     test_tagged_union_pointer_is_type_runtime();
+    test_qualified_receiver_mutation_runtime();
+    test_when_narrowing_runtime();
     test_for_three_clause_runtime();
     test_for_in_runtime();
     printf("Running test_named_struct_literal_and_defaults_runtime\n");
@@ -1636,20 +1666,18 @@ static void test_codegen() {
     test_f32_literal_stores_in_32_width();
     printf("Running test_numeric_cast_codegen\n");
     test_numeric_cast_codegen();
-    printf("Running test_marker_jump_loop_executes\n");
-    test_marker_jump_loop_executes();
-    printf("Running test_marker_jump_returns_to_origin_dock\n");
-    test_marker_jump_returns_to_origin_dock();
-    printf("Running test_marker_jump_chain_returns_to_origin_dock\n");
-    test_marker_jump_chain_returns_to_origin_dock();
-    printf("Running test_marker_arguments_cross_chain_frames\n");
-    test_marker_arguments_cross_chain_frames();
-    printf("Running test_stackless_marker_has_no_host_slot_access\n");
-    test_stackless_marker_has_no_host_slot_access();
-    printf("Running test_stackful_marker_uses_local_binding\n");
-    test_stackful_marker_uses_local_binding();
-    printf("Running test_stackless_marker_cannot_allocate_local_binding\n");
-    test_stackless_marker_cannot_allocate_local_binding();
+    printf("Running test_state_machine_loop_executes\n");
+    test_state_machine_loop_executes();
+    printf("Running test_state_tail_calls_emit_musttail\n");
+    test_state_tail_calls_emit_musttail();
+    printf("Running test_state_machine_diverging_parameters_executes\n");
+    test_state_machine_diverging_parameters_executes();
+    printf("Running test_state_codegen_has_no_marker_runtime_symbols\n");
+    test_state_codegen_has_no_marker_runtime_symbols();
+    printf("Running test_state_loop_does_not_grow_stack\n");
+    test_state_loop_does_not_grow_stack();
+    printf("Running test_local_state_machine_executes\n");
+    test_local_state_machine_executes();
     printf("Running test_linked_list_acceptance_program\n");
     test_linked_list_acceptance_program();
     printf("Running test_modern_file_pipeline_executes_program\n");

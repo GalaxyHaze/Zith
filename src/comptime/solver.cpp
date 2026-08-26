@@ -72,7 +72,8 @@ bool Solver::runPostLower(hir::HirModule &hir) {
 
 bool Solver::collectGenerics() {
     // AstBuilder removed — Solver not used by modern pipeline.
-    (void)ast_; (void)program_;
+    (void)ast_;
+    (void)program_;
     return true;
 }
 

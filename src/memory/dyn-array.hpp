@@ -74,7 +74,9 @@ public:
         size_++;
     }
 
-    void resize(size_t count) requires std::is_default_constructible_v<T> {
+    void resize(size_t count)
+        requires std::is_default_constructible_v<T>
+    {
         if (count > size_) {
             reserve(count);
             while (size_ < count)
@@ -84,7 +86,9 @@ public:
         }
     }
 
-    void resize(size_t count, const T &value) requires std::is_copy_constructible_v<T> {
+    void resize(size_t count, const T &value)
+        requires std::is_copy_constructible_v<T>
+    {
         if (count > size_) {
             reserve(count);
             while (size_ < count)
@@ -104,7 +108,6 @@ private:
     }
 
 public:
-
     template <typename... Args> void resizeEmplace(size_t count, Args &&...args) {
         if (count > size_) {
             reserve(count);
@@ -115,7 +118,9 @@ public:
         }
     }
 
-    void appendRange(const T *first, size_t count) requires std::is_copy_constructible_v<T> {
+    void appendRange(const T *first, size_t count)
+        requires std::is_copy_constructible_v<T>
+    {
         if (count == 0)
             return;
         reserve(size_ + count);
@@ -123,7 +128,9 @@ public:
             push(first[i]);
     }
 
-    void appendRange(std::span<const T> values) requires std::is_copy_constructible_v<T> {
+    void appendRange(std::span<const T> values)
+        requires std::is_copy_constructible_v<T>
+    {
         appendRange(values.data(), values.size());
     }
 

@@ -414,22 +414,22 @@ static void test_byte_stability() {
 // ── Artifact builder from session state ───────────────────────────
 static void test_format_version_bump() {
     // The format version is the forward-compat gate for stale caches.  A
-    // reader that only knows v3 must not accept a v5 artifact.
+    // reader that only knows an older format must reject a v10 artifact.
     auto art = makeMinimalArtifact("/test/main.zith", "main");
     ByteWriter writer;
     (void)Writer::write(art, writer);
 
     std::string bytes(reinterpret_cast<const char *>(writer.ptr()), writer.size());
-    CHECK_EQ(kFormatVersion, 8u, "zirl format version is bumped to 8 for const globals");
+    CHECK_EQ(kFormatVersion, 10u, "zirl format version is bumped for state tailcc metadata");
 
-    // Simulate an old reader by treating the v6 version field as v3.
+    // Simulate an old reader by treating the version field as v3.
     bytes[4]        = 3;
     auto old_reader = Reader::read(bytes);
-    CHECK(!old_reader.has_value(), "v5 artifact is rejected by a v3-only reader");
+    CHECK(!old_reader.has_value(), "v10 artifact is rejected by a v3-only reader");
 }
 
 static void test_artifact_builder() {
-    // A representative HIR module covering the 24 expression variants.
+    // A representative HIR module covering the compact expression variants.
     memory::Arena arena;
     memory::StringInterner interner(arena);
     types::TypeIntern types(arena, interner);
@@ -437,20 +437,25 @@ static void test_artifact_builder() {
     hir::HirModule hir(arena);
 
     // Declare a public function.
-    syms.declare("main", symbols::SymbolVisibility::Public, 0, symbols::SymKind::Fn);
+    const auto main_sym =
+        syms.declare("main", symbols::SymbolVisibility::Public, 0, symbols::SymKind::Fn);
+    const auto loop_sym =
+        syms.declare("Loop", symbols::SymbolVisibility::Public, 0, symbols::SymKind::Fn);
     const auto struct_sym =
         syms.declare("Point", symbols::SymbolVisibility::Public, 0, symbols::SymKind::Struct);
     const auto method_sym =
         syms.declare("scale", symbols::SymbolVisibility::Public, 0, symbols::SymKind::Fn);
     syms.get(struct_sym).members.push(method_sym);
-    // Add a concrete HIR function.
-    auto &fn       = hir.addFn(interner.intern("main"));
-    fn.return_type = types::kVoidType;
-    fn.isVariadic  = true;
 
     const auto i32 = types.internInt(types::IntWidth::I32);
     const auto f64 = types.internFloat(types::FloatWidth::F64);
     const auto opt = types.internOptional(i32);
+
+    // Add a concrete HIR function.
+    auto &fn       = hir.addFn(interner.intern("main"));
+    fn.return_type = i32;
+    fn.isVariadic  = true;
+    fn.sym_id      = main_sym;
 
     hir::HirLiteral int_lit;
     int_lit.type      = i32;
@@ -497,14 +502,15 @@ static void test_artifact_builder() {
     var.version       = 1;
     const auto var_id = hir.addExpr(var);
 
+    hir::HirExprId direct_call_id = hir::kInvalidHirExpr;
     { // Call with argument types and a resolved fn id.
         memory::DynArray<hir::HirExprId> args(arena);
         args.push(var_id);
         memory::DynArray<types::TypeId> arg_types(arena);
         arg_types.push(i32);
         hir::HirCall call(var_id, std::move(args), std::move(arg_types));
-        call.resolved_fn = 1;
-        hir.addExpr(std::move(call));
+        call.resolved_fn = loop_sym;
+        direct_call_id   = hir.addExpr(std::move(call));
     }
 
     { // Indirect call with a lowered function type and no direct symbol.
@@ -652,17 +658,23 @@ static void test_artifact_builder() {
         layout.field_index = 1;
         hir.addExpr(layout);
     }
+    hir::HirExprId state_tail_id = hir::kInvalidHirExpr;
     {
-        auto &marker_id = hir.addMarker();
-        marker_id.params.push(hir::HirMarkerParam{interner.intern("n"), i32, 0, 4, 4});
-        marker_id.params.push(hir::HirMarkerParam{interner.intern("m"), f64, 4, 8, 8});
+        hir::HirStateTailCall tail(arena);
+        tail.call.callee      = hir::kInvalidHirExpr;
+        tail.call.resolved_fn = loop_sym;
+        tail.call.musttail    = true;
+        tail.call.usesTailCC  = true;
+        tail.call.args.push(int_id);
+        tail.call.argument_types.push(i32);
+        state_tail_id = hir.addExpr(std::move(tail));
     }
 
     hir.attrs().slot(0).ownership = hir::HirOwnership::View;
     hir.attrs().slot(0).consumed  = hir::HirConsumedState::NonConsumed;
     hir.attrs().slot(0).nonNull   = true;
     {
-        auto &call_attrs      = hir.attrs().call(5);
+        auto &call_attrs      = hir.attrs().call(direct_call_id);
         call_attrs.returnsArg = 0;
         call_attrs.args.emplace(hir::HirCallArgAttr{hir::HirCallEscape::Borrow});
     }
@@ -670,7 +682,19 @@ static void test_artifact_builder() {
 
     fn.blocks.emplace(arena);
     fn.blocks[0].insts.push(int_id);
-    fn.blocks[0].terminator = 6;
+    fn.blocks[0].terminator = state_tail_id;
+
+    auto &state_fn             = hir.addFn(interner.intern("Loop"));
+    state_fn.return_type       = i32;
+    state_fn.isState           = true;
+    state_fn.usesTailCC        = true;
+    state_fn.machineId         = 77;
+    state_fn.machineReturnType = i32;
+    state_fn.sym_id            = loop_sym;
+    state_fn.params.push(i32);
+    state_fn.param_names.push(interner.intern("n"));
+    state_fn.blocks.emplace(arena);
+    state_fn.blocks[0].terminator = state_tail_id;
 
     // Private composite types and explicit non-series enum discriminants must
     // survive the artifact writer so hydration does not depend on exported decl
@@ -696,7 +720,7 @@ static void test_artifact_builder() {
     CHECK_EQ(art.canonical_path, "/test/builder.zith", "builder sets canonical path");
     CHECK(art.decls.size() >= 1, "builder extracts exported declarations");
     CHECK_EQ(art.decls[0].name, "main", "builder extracts function name");
-    CHECK_EQ(art.functions.size(), 1u, "builder extracts HIR functions");
+    CHECK_EQ(art.functions.size(), 2u, "builder extracts HIR functions");
     CHECK_EQ(art.exprs.size(), hir.exprCount(), "builder serializes module expression pool");
     CHECK_EQ(art.source_fp_hi, 0u, "builder stores source fingerprint hi");
     CHECK_EQ(art.functions[0].is_variadic, true, "builder stores HIR variadic flag");
@@ -746,8 +770,22 @@ static void test_artifact_builder() {
     CHECK_EQ(art.union_defs[0].is_raw, true, "builder serializes raw union flag");
     CHECK_EQ(art.union_defs[0].member_type_ids.size(), 2u,
              "builder serializes every union member type");
-    CHECK_EQ(art.markers.size(), 1u, "builder serializes marker metadata");
-    CHECK_EQ(art.markers[0].params.size(), 2u, "builder serializes marker parameter metadata");
+    const auto state_function =
+        std::find_if(art.functions.begin(), art.functions.end(),
+                     [](const CompactFunction &function) { return function.is_state; });
+    CHECK(state_function != art.functions.end(), "builder serializes state function metadata");
+    if (state_function != art.functions.end())
+        CHECK_EQ(state_function->machine_id, 77u, "builder serializes state machine ids");
+    if (state_function != art.functions.end())
+        CHECK(state_function->uses_tailcc, "builder serializes state tailcc flags");
+    if (state_function != art.functions.end())
+        CHECK_EQ(state_function->machine_return_type_id, state_function->return_type_id,
+                 "builder serializes the machine return type");
+    const auto state_tail =
+        std::find_if(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::StateTailCall;
+        });
+    CHECK(state_tail != art.exprs.end(), "builder serializes state tail calls");
 
     // Full zirl round-trip: the artifact from in-memory state must decode with
     // the same HIR pool, blocks, and residual attrs.
@@ -774,14 +812,23 @@ static void test_artifact_builder() {
              "round-trip preserves union name_id");
     CHECK_EQ(round->union_defs[0].member_type_ids, art.union_defs[0].member_type_ids,
              "round-trip preserves union member_type_ids");
-    CHECK_EQ(round->markers.size(), 1u, "round-trip preserves marker metadata");
-    if (!round->markers.empty()) {
-        const auto &marker = round->markers.front();
-        CHECK_EQ(marker.params.size(), 2u, "round-trip preserves marker parameter count");
-        CHECK_EQ(marker.params[0].type_id, art.markers[0].params[0].type_id,
-                 "round-trip preserves marker parameter types");
-        CHECK_EQ(marker.params[1].offset, 4u, "round-trip preserves marker parameter offsets");
-    }
+    const auto round_state_function =
+        std::find_if(round->functions.begin(), round->functions.end(),
+                     [](const CompactFunction &function) { return function.is_state; });
+    CHECK(round_state_function != round->functions.end(),
+          "round-trip preserves state function metadata");
+    if (round_state_function != round->functions.end())
+        CHECK_EQ(round_state_function->machine_id, 77u, "round-trip preserves state machine ids");
+    if (round_state_function != round->functions.end())
+        CHECK(round_state_function->uses_tailcc, "round-trip preserves state tailcc flags");
+    if (round_state_function != round->functions.end())
+        CHECK_EQ(round_state_function->machine_return_type_id, round_state_function->return_type_id,
+                 "round-trip preserves the machine return type");
+    const auto round_state_tail =
+        std::find_if(round->exprs.begin(), round->exprs.end(), [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::StateTailCall;
+        });
+    CHECK(round_state_tail != round->exprs.end(), "round-trip preserves state tail calls");
 }
 
 } // namespace

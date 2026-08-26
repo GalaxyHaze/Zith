@@ -110,97 +110,68 @@ static void test_control_flow_and_scopes() {
     CHECK(found_if && found_while, "both if and conditional-loop expressions are lowered");
 }
 
-static void test_flow_marker_and_dock_statements() {
-    auto snapshot = frontend::parse("flow fn main(): i32 {\n"
-                                    "    dock check();\n"
-                                    "    marker check() {\n"
-                                    "        dock body();\n"
+static void test_state_and_dock_jump_syntax() {
+    auto snapshot = frontend::parse("state Loop(n: i32): i32 {\n"
+                                    "    if (n < 10) {\n"
+                                    "        jump Loop(n + 1);\n"
                                     "    }\n"
-                                    "    stackful marker body(v: i32) {\n"
-                                    "        return 1;\n"
-                                    "    }\n"
+                                    "    return n;\n"
+                                    "}\n"
+                                    "fn main(): i32 {\n"
+                                    "    let result: i32 = dock Loop(0);\n"
+                                    "    return result;\n"
                                     "}\n");
 
-    CHECK(snapshot.diagnostics().empty(), "dock and marker statements parse without diagnostics");
-
-    const auto &statements = snapshot.statements();
-    CHECK(statements.size() >= 5u, "flow statements are retained in the frontend AST");
-
-    bool saw_dock  = false;
-    bool saw_jump  = false;
-    bool saw_check = false;
-    bool saw_body  = false;
-    for (const auto &statement : statements) {
-        if (statement.kind == frontend::StmtKind::Dock)
-            saw_dock = true;
-        else if (statement.kind == frontend::StmtKind::Jump)
-            saw_jump = true;
-        else if (statement.kind == frontend::StmtKind::Marker && statement.label == "check")
-            saw_check = true;
-        else if (statement.kind == frontend::StmtKind::Marker && statement.label == "body")
-            saw_body = true;
+    CHECK(snapshot.diagnostics().empty(), "state, dock, and jump parse without diagnostics");
+    CHECK_EQ(snapshot.declarations().size(), 2u,
+             "state source produces the state declaration and main");
+    if (snapshot.declarations().size() == 2u) {
+        CHECK_EQ(snapshot.declarations()[0].functionKind, frontend::FunctionKind::State,
+                 "state declaration records FunctionKind::State");
+        CHECK(snapshot.declarations()[0].declaredType,
+              "state declaration retains its explicit return type");
+        CHECK_EQ(snapshot.declarations()[1].functionKind, frontend::FunctionKind::Standard,
+                 "ordinary functions remain standard");
     }
-    CHECK(saw_dock && saw_check && saw_body, "dock and marker statements are lowered");
-    CHECK(statements.back().kind == frontend::StmtKind::Marker && statements.back().isStackful,
-          "stackful modifier is retained on marker statements");
-}
 
-static void test_dock_accepts_target_form() {
-    auto snapshot = frontend::parse("flow fn main() {\n"
-                                    "    dock target();\n"
-                                    "}\n");
+    bool saw_dock = false;
+    bool saw_jump = false;
+    for (const auto &expr : snapshot.expressions())
+        saw_dock |= expr.kind == frontend::ExprKind::DockCall;
+    for (const auto &statement : snapshot.statements())
+        saw_jump |= statement.kind == frontend::StmtKind::Jump;
+    CHECK(saw_dock, "dock lowers as a DockCall expression");
+    CHECK(saw_jump, "jump lowers as a Jump statement");
 
-    CHECK(snapshot.diagnostics().empty(), "dock target(); parses as a valid dock statement");
-    bool parsed_as_dock = false;
+    bool binding_uses_dock = false;
     for (const auto &statement : snapshot.statements()) {
-        if (statement.kind == frontend::StmtKind::Dock)
-            parsed_as_dock = true;
+        if (statement.kind != frontend::StmtKind::Binding || !statement.binding.initializer)
+            continue;
+        const auto initializer = statement.binding.initializer.value - 1U;
+        if (initializer < snapshot.expressions().size() &&
+            snapshot.expressions()[initializer].kind == frontend::ExprKind::DockCall) {
+            binding_uses_dock = true;
+        }
     }
-    CHECK(parsed_as_dock, "dock target(); is lowered as a valid dock statement");
+    CHECK(binding_uses_dock, "dock is valid in expression position");
 }
 
-static void test_plain_marker_is_stackless_by_default() {
-    auto snapshot = frontend::parse("flow fn main(): i32 {\n"
-                                    "    var x: i32 = 0;\n"
-                                    "    dock body();\n"
-                                    "    marker body() {\n"
-                                    "        return x;\n"
-                                    "    }\n"
-                                    "}\n");
+static void test_old_state_machine_syntax_is_rejected() {
+    auto old_flow = frontend::parse("flow fn main(): i32 { return 0; }\n");
+    CHECK(!old_flow.diagnostics().empty(), "flow fn syntax is rejected");
 
-    CHECK(snapshot.diagnostics().empty(), "plain marker parses without diagnostics");
-    bool saw_plain_marker = false;
-    for (const auto &statement : snapshot.statements()) {
-        if (statement.kind == frontend::StmtKind::Marker && statement.label == "body")
-            saw_plain_marker = true;
-        if (statement.kind == frontend::StmtKind::Marker)
-            CHECK(!statement.isStackful, "plain markers keep isStackful == false");
-    }
-    CHECK(saw_plain_marker, "plain marker is present in the frontend AST");
-}
+    auto old_marker = frontend::parse("marker Body() {}\n");
+    CHECK(!old_marker.diagnostics().empty(), "marker syntax is rejected");
 
-static void test_old_marker_and_dock_syntax_is_rejected() {
-    auto old_dock = frontend::parse("flow fn main() {\n"
+    auto old_stackful = frontend::parse("stackful marker Body() {}\n");
+    CHECK(!old_stackful.diagnostics().empty(), "stackful marker syntax is rejected");
+
+    auto old_dock = frontend::parse("fn main() {\n"
                                     "    dock {\n"
-                                    "        marker body() {}\n"
+                                    "        state Body(): i32 { return 0; }\n"
                                     "    }\n"
                                     "}\n");
     CHECK(!old_dock.diagnostics().empty(), "dock block syntax is rejected");
-
-    auto old_local_marker = frontend::parse("flow fn main() {\n"
-                                            "    dock body();\n"
-                                            "    marker body {\n"
-                                            "    }\n"
-                                            "}\n");
-    CHECK(!old_local_marker.diagnostics().empty(), "marker without parentheses is rejected");
-
-    auto jump_without_args = frontend::parse("flow fn main() {\n"
-                                             "    dock body();\n"
-                                             "    marker body() {\n"
-                                             "        jump body;\n"
-                                             "    }\n"
-                                             "}\n");
-    CHECK(!jump_without_args.diagnostics().empty(), "jump without target arguments is rejected");
 }
 
 static void test_while_is_deprecated() {
@@ -719,7 +690,7 @@ static void test_function_kinds() {
     auto snapshot = frontend::parse("fn standard() {}\n"
                                     "raw fn unsafe_op() {}\n"
                                     "extern fn putchar(c: i32): i32\n"
-                                    "flow fn structured() {}\n");
+                                    "state structured(): i32 { return 0; }\n");
 
     CHECK(snapshot.diagnostics().empty(),
           "supported Zith-- function kinds parse without diagnostics");
@@ -752,11 +723,11 @@ static void test_function_kinds() {
              "extern fn keeps the function name");
 
     CHECK_EQ(snapshot.declarations()[3].kind, frontend::DeclKind::Function,
-             "flow fn is a function declaration");
-    CHECK_EQ(snapshot.declarations()[3].functionKind, frontend::FunctionKind::Flow,
-             "flow fn records Flow");
+             "state is a function declaration");
+    CHECK_EQ(snapshot.declarations()[3].functionKind, frontend::FunctionKind::State,
+             "state records State");
     CHECK_EQ(snapshot.declarations()[3].name, std::string("structured"),
-             "flow fn keeps the function name");
+             "state keeps the function name");
 
     auto const_fn = frontend::parse("const fn compile_ready() {}\n");
     CHECK(!const_fn.diagnostics().empty(), "'const fn' is rejected in Zith--");
@@ -772,7 +743,7 @@ static void test_function_kinds() {
 static void test_function_kind_combinations_are_rejected() {
     for (const std::string_view source :
          {"raw const fn bad() {}\n", "const raw fn bad() {}\n", "extern raw fn bad()\n",
-          "raw extern fn bad()\n", "flow const fn bad() {}\n"}) {
+          "raw extern fn bad()\n", "state const fn bad(): i32 { return 0; }\n"}) {
         auto snapshot = frontend::parse(std::string(source));
         CHECK(!snapshot.diagnostics().empty(),
               (std::string("combined function-kind prefixes produce a diagnostic: ") +
@@ -785,35 +756,26 @@ static void test_function_kind_methods_propagate() {
     auto snapshot = frontend::parse("struct Counter {\n"
                                     "    value: i32,\n"
                                     "    raw fn unsafeTick(self): i32 { 0 }\n"
-                                    "    flow fn flowTick(self) {}\n"
                                     "}\n"
                                     "implement Counter {\n"
                                     "    raw fn implementUnsafe(self): i32 { 0 }\n"
-                                    "    flow fn implementFlow(self) {}\n"
                                     "}\n");
 
     CHECK(snapshot.diagnostics().empty(),
           "supported method function kinds parse without diagnostics");
 
-    bool saw_raw    = false;
-    bool saw_flow   = false;
-    bool saw_impl   = false;
-    bool saw_impl_f = false;
+    bool saw_raw  = false;
+    bool saw_impl = false;
     for (const auto &decl : snapshot.declarations()) {
         if (decl.kind != frontend::DeclKind::Function)
             continue;
         if (decl.name == "unsafeTick" || decl.name == "implementUnsafe")
             saw_raw |= decl.functionKind == frontend::FunctionKind::Raw;
-        if (decl.name == "flowTick" || decl.name == "implementFlow")
-            saw_flow |= decl.functionKind == frontend::FunctionKind::Flow;
         if (decl.name == "implementUnsafe")
             saw_impl = decl.functionKind == frontend::FunctionKind::Raw;
-        if (decl.name == "implementFlow")
-            saw_impl_f = decl.functionKind == frontend::FunctionKind::Flow;
     }
     CHECK(saw_raw, "raw method functions record Raw");
-    CHECK(saw_flow, "flow method functions record Flow");
-    CHECK(saw_impl && saw_impl_f, "implement-block methods propagate their function kind");
+    CHECK(saw_impl, "implement-block methods propagate their function kind");
 
     auto const_method =
         frontend::parse("struct Counter { const fn constValue(self): i32 { 0 } }\n");
@@ -868,16 +830,61 @@ static void test_struct_field_syntax_diagnostics() {
           "the unsupported-field diagnostic names the offending field");
 }
 
+static void test_nested_state_declarations() {
+    auto snapshot = frontend::parse("fn run(): i32 {\n"
+                                    "    state Loop(n: i32): i32 {\n"
+                                    "        jump Done(n + 1);\n"
+                                    "    }\n"
+                                    "    state Done(n: i32): i32 {\n"
+                                    "        return n;\n"
+                                    "    }\n"
+                                    "    return dock Loop(0);\n"
+                                    "}\n");
+
+    CHECK(snapshot.diagnostics().empty(), "local states parse without diagnostics");
+    size_t local_states = 0;
+    bool saw_marker     = false;
+    for (const auto &decl : snapshot.declarations()) {
+        if (decl.kind == frontend::DeclKind::Function &&
+            decl.functionKind == frontend::FunctionKind::State && !decl.parentName.empty()) {
+            ++local_states;
+            CHECK_EQ(decl.parentName, std::string("run"),
+                     "local state records the owning function name");
+            CHECK(decl.parentScope, "local state records the owning body scope");
+            CHECK_EQ(decl.visibility, frontend::Visibility::Private,
+                     "local states are always private");
+        }
+    }
+    CHECK_EQ(local_states, 2u, "both local states are flat frontend declarations");
+    for (const auto &stmt : snapshot.statements()) {
+        saw_marker |= stmt.kind == frontend::StmtKind::Declaration;
+    }
+    CHECK(saw_marker, "local states are represented by marker statements");
+
+    auto nested = frontend::parse("state A(): i32 {\n"
+                                  "    state B(): i32 { return 0; }\n"
+                                  "    return 1;\n"
+                                  "}\n");
+    CHECK(hasErrorCode(nested, diagnostics::err::UnsupportedSyntax),
+          "state inside state reports controlled recovery");
+
+    for (const std::string_view unsupported :
+         {"fn helper() {}\n", "struct S { x: i32 }\n", "enum E { X }\n"}) {
+        auto bad =
+            frontend::parse(std::string("fn outer() {\n") + std::string(unsupported) + "}\n");
+        CHECK(hasErrorCode(bad, diagnostics::err::UnsupportedSyntax),
+              "nested fn/struct/enum report controlled unsupported syntax");
+    }
+}
+
 static void test_frontend() {
     test_lossless_trivia_and_spans();
     test_keywords_and_module_ast();
     test_recovery_creates_error_nodes();
     test_function_body_ast();
     test_control_flow_and_scopes();
-    test_flow_marker_and_dock_statements();
-    test_dock_accepts_target_form();
-    test_plain_marker_is_stackless_by_default();
-    test_old_marker_and_dock_syntax_is_rejected();
+    test_state_and_dock_jump_syntax();
+    test_old_state_machine_syntax_is_rejected();
     test_while_is_deprecated();
     test_multi_char_operators_are_single_tokens();
     test_binary_comparison_expression();
@@ -906,6 +913,7 @@ static void test_frontend() {
     test_function_kind_methods_propagate();
     test_consecutive_garbage_coalesces_into_one_diagnostic();
     test_struct_field_syntax_diagnostics();
+    test_nested_state_declarations();
 }
 
 TEST_MAIN(frontend)

@@ -4,14 +4,12 @@
 #include <cstring>
 
 namespace {
-constexpr const char *kValidSource =
-    "fn main() {\n"
-    "}\n";
+constexpr const char *kValidSource = "fn main() {\n"
+                                     "}\n";
 
-constexpr const char *kInvalidSource =
-    "fn main() {\n"
-    "    let x: MissingType = 1;\n"
-    "}\n";
+constexpr const char *kInvalidSource = "fn main() {\n"
+                                       "    let x: MissingType = 1;\n"
+                                       "}\n";
 } // namespace
 
 void test_wasm_contract() {
@@ -50,7 +48,7 @@ void test_wasm_contract() {
     CHECK(diag_count > 0, "invalid source produces diagnostics");
     if (diag_count > 0) {
         const zithc_diagnostic diag = zithc_diag_get(session, 0);
-        const char *rendered = diag.message;
+        const char *rendered        = diag.message;
         CHECK(rendered != nullptr && rendered[0] != '\0', "diagnostic message is non-empty");
         CHECK(zithc_diag_get(session, diag_count).message == nullptr,
               "out-of-range diagnostic returns null message");

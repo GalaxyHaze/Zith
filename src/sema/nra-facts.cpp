@@ -71,7 +71,7 @@ void NraFacts::analyzeModule(const session::ModuleArtifact &module,
     current_module_ = nullptr;
     current_sema_   = nullptr;
     current_typed_  = nullptr;
-    current_key_ = 0;
+    current_key_    = 0;
 }
 
 void NraFacts::resolveCallsInFunction(const frontend::Declaration &decl) {
@@ -88,8 +88,8 @@ void NraFacts::collectFunctionFact() {
     if (!any_return_)
         return;
     NraFunctionFact fact;
-    fact.allReturnsParameter      = all_returns_same_parameter;
-    fact.parameterIndex           = returned_parameter_;
+    fact.allReturnsParameter = all_returns_same_parameter;
+    fact.parameterIndex      = returned_parameter_;
     function_facts_.insert(current_key_, fact);
 }
 

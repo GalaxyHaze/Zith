@@ -180,6 +180,9 @@ void printExpression(ExprId id, const std::vector<Expression> &expressions,
         case StmtKind::Binding:
             std::printf("Binding '%s'", stmt.binding.name.c_str());
             break;
+        case StmtKind::Declaration:
+            std::printf("Declaration '%s'", stmt.binding.name.c_str());
+            break;
         case StmtKind::Return:
             std::fputs("Return", stdout);
             break;
@@ -239,6 +242,9 @@ void printDeclarations(const FrontendSnapshot &snapshot) {
             std::printf(" path='%s'", decl.import.rawPath.c_str());
             if (!decl.import.alias.empty())
                 std::printf(" as='%s'", decl.import.alias.c_str());
+        }
+        if (decl.kind == DeclKind::Function && decl.functionKind == frontend::FunctionKind::State) {
+            std::fputs(" kind=state", stdout);
         }
         std::printf(" [%u..%u]\n", decl.span.start, decl.span.end);
 

@@ -387,10 +387,10 @@ static void test_macro() {
     }
     // 31. macro body with dock/jump arguments does not diagnose arguments as code
     {
-        auto snap             = frontend::parse("marker target(v: i32) { v }\n"
+        auto snap             = frontend::parse("state target(v: i32): i32 { return v; }\n"
                                                             "macro jump_to(v: expr) { jump target(v); }\n"
                                                             "macro dock_to(v: expr) { dock target(v); }\n"
-                                                            "fn main() { @jump_to(1); @dock_to(2); }");
+                                                            "fn main(): i32 { return @dock_to(2); }");
         bool macro_unknown    = false;
         bool template_unknown = false;
         for (const auto &d : snap.diagnostics()) {

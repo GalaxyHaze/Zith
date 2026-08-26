@@ -27,3 +27,5 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
 - [simd-intrinsics-asm.md](simd-intrinsics-asm.md): decision to prefer LLVM
   intrinsics over assembly for native/SIMD support; vector types come after
   scalar intrinsics.
+- [stalin-debug.md](stalin-debug.md): strategy for narrowing compiler bugs by
+  disabling reproducer/code paths step by step before deep debugging.

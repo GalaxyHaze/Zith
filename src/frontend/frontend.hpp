@@ -171,6 +171,10 @@ enum class StmtKind : uint8_t {
     Error,
     Expression,
     Binding,
+    /// A flat `state` declaration written inside a function body. Sema/HIR
+    /// skip the marker; the declaration itself is registered in the parent
+    /// function's scope through `Declaration::parentScope`.
+    Declaration,
     Return,
     Break,
     Continue,
@@ -227,6 +231,9 @@ struct Statement {
     TextSpan span;
     ExprId expression;
     Binding binding;
+    /// When `kind == StmtKind::Declaration`, the flat declaration lowered from
+    /// the statement (currently a local `state` function).
+    DeclId declaration;
     /// Name of the `jump` target.
     std::string label;
     /// Arguments written after `jump target(args);`.
@@ -248,8 +255,8 @@ struct Expression {
     std::vector<ExprId> conditions;
     // Used by ExprKind::Cast: the target type written after `as`
     TypeExprId cast_type;
-    /// Used by ExprKind::ForIn: the local binding that receives `value()` each
-    /// iteration. It is a synthetic statement inside the body block.
+    /// Used by ExprKind::ForIn: the local binding that receives the union
+    /// element each iteration. It is a synthetic statement inside the body block.
     LocalId forInBinding;
     /// The synthetic binding statement inserted at the front of the ForIn body.
     /// HIR lowering uses this to avoid allocating the loop slot a second time.
@@ -368,6 +375,13 @@ struct Declaration {
     /// (e.g. "Counter" for `fn inc(self: *Counter)` inside `struct Counter`).
     /// Used to mangle the symbol name and to supply the implicit self parameter.
     std::string ownerName;
+    /// Non-empty for `state` declarations written inside a function body. The
+    /// binding lives in `parentScope`, not the module scope.
+    ScopeId parentScope;
+    /// Source name of the function whose body owns this local declaration. Used
+    /// to qualify HIR linkage names so identical state names in different
+    /// functions stay distinct.
+    std::string parentName;
 };
 
 /// A macro visible to an importing module. `source` owns the expression tree

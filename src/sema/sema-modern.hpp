@@ -42,15 +42,17 @@ struct TypedMap {
     memory::FlatMap<uint32_t, TypeId> exprTypes;
     memory::FlatMap<uint32_t, TypeId> declTypes;
     memory::FlatMap<uint32_t, TypeId> localTypes;
-    /// Iterator methods resolved for a `ForIn` expression, keyed by the
-    /// expression id. HIR lowering uses these to emit direct `done`/`value`/
-    /// `next` calls without re-resolving the receiver type.
-    memory::FlatMap<uint32_t, frontend::DeclId> forInDone;
-    memory::FlatMap<uint32_t, frontend::DeclId> forInValue;
+    /// Iterator data resolved for a `ForIn` expression, keyed by the expression
+    /// id. HIR lowering uses these to emit the `next` call and union extraction
+    /// without re-resolving the receiver type.
     memory::FlatMap<uint32_t, frontend::DeclId> forInNext;
+    memory::FlatMap<uint32_t, uint32_t> forInElementIndex;
+    memory::FlatMap<uint32_t, uint32_t> forInEndIndex;
+    memory::FlatMap<uint32_t, TypeId> forInUnionType;
 
     explicit TypedMap(memory::Arena &)
-        : exprTypes(), declTypes(), localTypes(), forInDone(), forInValue(), forInNext() {}
+        : exprTypes(), declTypes(), localTypes(), forInNext(), forInElementIndex(), forInEndIndex(),
+          forInUnionType() {}
 };
 
 class SemaPipeline;
@@ -76,6 +78,7 @@ struct PerModuleSema {
     TypeId f32_type;
     TypeId f64_type;
     TypeId null_type;
+    TypeId end_type;
 
     PerModuleSema(session::ModuleKey mod, const frontend::FrontendSnapshot &snap,
                   const session::ModuleResolution &res, TypeTable &tt, TypedMap &tm,
@@ -126,12 +129,17 @@ private:
     frontend::FunctionKind currentFunctionKind_ = frontend::FunctionKind::Standard;
     /// True while inferring inside a `state` function body.
     bool inStateBody_ = false;
-    /// Machine id assigned to the enclosing `state` function's prototype.
+    /// Machine id assigned to the enclosing `state` function's machine.
     uint32_t currentStateMachineId_ = 0;
-    /// Machine ids assigned to state declarations by canonical prototype.
+    /// Scope of the body currently being inferred, used to resolve local states.
+    frontend::ScopeId currentBodyScope_;
+    /// Machine ids assigned to state declarations.
     std::unordered_map<uint32_t, uint32_t> stateMachineByDecl_;
-    /// Canonical prototype key -> machine id for the current module.
-    std::unordered_map<uint64_t, uint32_t> stateMachineByPrototype_;
+    /// Machine id per local (parent-body) scope; local states never take part
+    /// in the module-level return-type grouping.
+    std::unordered_map<uint32_t, uint32_t> localStateMachineByParent_;
+    /// Canonical return type -> machine id for the current module.
+    std::unordered_map<uint32_t, uint32_t> stateMachineByReturn_;
     /// Next state machine id for the current module.
     uint32_t nextStateMachineId_ = 1;
 
@@ -159,13 +167,17 @@ private:
     void checkReturnStatement(const frontend::Statement &stmt);
     void inferDockCall(frontend::ExprId id);
     void inferJump(const frontend::Statement &stmt);
-    /// Canonical prototype key for state-machine grouping.
-    [[nodiscard]] uint64_t statePrototypeKey(TypeId return_type,
-                                             const memory::DynArray<TypeId> &params) const;
     uint32_t stateMachineIdFor(const frontend::Declaration &decl);
+    /// Const lookup used after sema has assigned machine ids, including from HIR
+    /// lowering and codegen paths that only hold a const PerModuleSema.
+    [[nodiscard]] uint32_t stateMachineIdOf(const frontend::Declaration &decl) const noexcept;
     TypeId lowerTypeExpr(frontend::TypeExprId id);
     /// Lowers `type` ignoring its own memory qualifier; `lowerTypeExpr` wraps the result.
     TypeId lowerBareTypeExpr(const frontend::TypeExpression &type);
+    /// For `self: lend Owner` / `self: view Owner`, returns the ABI receiver
+    /// type `*Owner` (with the written ownership preserved on the pointee).
+    /// Other explicit self parameter types pass through unchanged.
+    TypeId methodSelfParamType(const frontend::Parameter &param);
     /// Builds/returns the named concrete type for a template application. Shared
     /// by type expressions and generic struct literals.
     TypeId instantiateTypeExpr(frontend::TextSpan span, std::string_view name,
@@ -246,12 +258,27 @@ private:
     TypeId inferRange(frontend::ExprId id);
     TypeId inferLayoutIntrinsic(frontend::ExprId id);
 
+    /// Resolved method declaration plus the module that owns it. Method
+    /// ownership matters at call lowering: imported methods live in the
+    /// declaring module's frontend snapshot, not in the caller's.
+    struct ResolvedMethod {
+        session::ModuleKey module;
+        const frontend::Declaration *decl = nullptr;
+    };
+    /// All methods named `method_name` on `owner_name`, searching the current
+    /// module first (preserving existing overload behavior) and then every
+    /// other available module in deterministic snapshot order.
+    std::vector<ResolvedMethod> findMethodsForOwner(std::string_view owner_name,
+                                                    std::string_view method_name) const;
+
     /// Candidate set for an overloaded call: one entry per visible declaration.
     struct OverloadCandidate {
         const session::ResolvedName *binding = nullptr;
         TypeId type                          = kInvalidTypeId;
         const FunctionType *fn               = nullptr;
         frontend::TextSpan span{};
+        session::ModuleKey module;
+        frontend::DeclId decl;
     };
 
     /// Function type of a binding (declaration, import, or foreign function).
@@ -342,6 +369,9 @@ public:
     }
     [[nodiscard]] comptime::GenericInstantiationPass *instantiations() const noexcept {
         return instantiation_pass_;
+    }
+    [[nodiscard]] const std::vector<session::ModuleArtifactPtr> &modules() const noexcept {
+        return snapshot_.modules();
     }
     TypedMap &typedMap(session::ModuleKey module) noexcept;
 

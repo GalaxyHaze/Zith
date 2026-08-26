@@ -1582,7 +1582,26 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             hir::HirCall call(ce.ref_a, std::move(args), std::move(arg_types));
             call.resolved_fn = ce.ref_b;
             call.fn_type     = compactType(ce.ref_e);
+            call.musttail    = (ce.flags & 1U) != 0U;
+            call.usesTailCC  = (ce.flags & 2U) != 0U;
             expr             = std::move(call);
+            break;
+        }
+        case cache::CompactExprKind::StateTailCall: {
+            memory::DynArray<hir::HirExprId> args(mHirArena);
+            for (auto id : ce.args)
+                args.push(id);
+            memory::DynArray<types::TypeId> arg_types(mHirArena);
+            for (auto id : ce.arg_types)
+                arg_types.push(compactType(id));
+            hir::HirCall call(ce.ref_a, std::move(args), std::move(arg_types));
+            call.resolved_fn = ce.ref_b;
+            call.fn_type     = compactType(ce.ref_e);
+            call.musttail    = true;
+            call.usesTailCC  = (ce.flags & 2U) != 0U;
+            hir::HirStateTailCall tail(mHirArena);
+            tail.call = std::move(call);
+            expr      = std::move(tail);
             break;
         }
         case cache::CompactExprKind::Ret: {
@@ -1601,10 +1620,8 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
         }
         case cache::CompactExprKind::Jump: {
             hir::HirJump jump;
-            jump.target       = ce.ref_c;
-            jump.return_block = ce.ref_d;
-            jump.flowReturn   = ce.flags != 0U;
-            expr              = jump;
+            jump.target = ce.ref_c;
+            expr        = jump;
             break;
         }
         case cache::CompactExprKind::Phi: {
@@ -1766,42 +1783,6 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             expr           = li;
             break;
         }
-        case cache::CompactExprKind::MarkerStore: {
-            hir::HirMarkerStore store;
-            store.marker      = ce.ref_a;
-            store.param_index = ce.ref_b;
-            store.value       = ce.ref_c;
-            expr              = store;
-            break;
-        }
-        case cache::CompactExprKind::MarkerLoad: {
-            hir::HirMarkerLoad load;
-            load.marker      = ce.ref_a;
-            load.param_index = ce.ref_b;
-            load.type        = compactType(ce.type_id);
-            expr             = load;
-            break;
-        }
-        case cache::CompactExprKind::MarkerDock: {
-            hir::HirMarkerDock dock;
-            dock.marker_entry = ce.ref_c;
-            dock.continuation = ce.ref_d;
-            expr              = dock;
-            break;
-        }
-        case cache::CompactExprKind::MarkerJump: {
-            hir::HirMarkerJump jump;
-            jump.marker_entry = ce.ref_c;
-            expr              = jump;
-            break;
-        }
-        case cache::CompactExprKind::MarkerRet: {
-            hir::HirMarkerRet ret(mHirArena);
-            for (auto id : ce.args)
-                ret.continuations.push(id);
-            expr = std::move(ret);
-            break;
-        }
         }
         mHirModule.addExpr(std::move(expr));
     }
@@ -1815,6 +1796,12 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
         auto &fn                        = mHirModule.addFn(mInterner->intern(cfn_name));
         fn.return_type                  = compactType(cfn.return_type_id);
         fn.isVariadic                   = cfn.is_variadic;
+        fn.isState                      = cfn.is_state;
+        fn.usesTailCC                   = cfn.uses_tailcc;
+        fn.machineId                    = cfn.machine_id;
+        fn.machineReturnType            = cfn.machine_return_type_id != 0
+                                              ? compactType(cfn.machine_return_type_id)
+                                              : fn.return_type;
         fn.sym_id                       = next_sym++;
         for (size_t pi = 0; pi < cfn.param_type_ids.size() && pi < cfn.param_name_ids.size();
              ++pi) {
@@ -1836,24 +1823,6 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
         global.name  = mInterner->intern(art.strings[cg.name_id]);
         global.type  = compactType(cg.type_id);
         global.init  = cg.init_expr;
-    }
-
-    // Marker metadata is restored before any flow-fn block is consumed by the
-    // code generator: it needs the per-parameter blob offsets and types.
-    for (const auto &cm : art.markers) {
-        auto &marker       = mHirModule.addMarker();
-        marker.name        = mInterner->intern(art.strings[cm.name_id]);
-        marker.marker_id   = cm.marker_id;
-        marker.stackful    = cm.stackful;
-        marker.blob_offset = cm.blob_offset;
-        marker.body_expr   = cm.body_expr;
-        for (const auto &cparam : cm.params) {
-            hir::HirMarkerParam param;
-            param.name   = mInterner->intern(art.strings[cparam.name_id]);
-            param.type   = compactType(cparam.type_id);
-            param.offset = cparam.offset;
-            marker.params.push(std::move(param));
-        }
     }
 
     for (const auto &slot : art.attrs_slots) {
