@@ -62,16 +62,53 @@ static void test_trait_member_storage() {
 }
 
 static void test_interface_method_diagnostic() {
+    auto snapshot =
+        frontend::parse("interface Positioned { x: f32, [y, z]: f32, fn getX(self); }\n");
+
+    CHECK(snapshot.diagnostics().empty(), "interface methods and single/grouped fields parse");
+
+    const frontend::Declaration *iface  = nullptr;
+    const frontend::Declaration *method = nullptr;
+    for (const auto &decl : snapshot.declarations()) {
+        if (decl.kind == frontend::DeclKind::Interface && decl.name == "Positioned")
+            iface = &decl;
+        if (decl.kind == frontend::DeclKind::Function && decl.ownerName == "Positioned" &&
+            decl.name == "getX")
+            method = &decl;
+    }
+    CHECK(iface != nullptr, "interface declaration is stored");
+    if (iface != nullptr) {
+        CHECK_EQ(iface->parameters.size(), 3u,
+                 "single and grouped interface fields expand to three fields");
+        CHECK_EQ(iface->parameters[0].name, std::string("x"), "single interface field is stored");
+        CHECK_EQ(iface->parameters[1].name, std::string("y"),
+                 "grouped interface fields are stored");
+        CHECK_EQ(iface->parameters[2].name, std::string("z"),
+                 "second grouped interface field is stored");
+    }
+    CHECK(method != nullptr, "interface method requirement is stored as a function declaration");
+    if (method != nullptr) {
+        CHECK_EQ(method->ownerName, std::string("Positioned"),
+                 "interface method owner matches the interface name");
+        CHECK(!method->body, "interface method is declaration-only");
+    }
+}
+
+static void test_interface_method_body_parses() {
     auto snapshot = frontend::parse("interface Bad { fn method(self); }\n");
+    CHECK(snapshot.diagnostics().empty(),
+          "interface method requirement parses without diagnostics");
 
-    CHECK_EQ(snapshot.diagnostics().size(), 1u, "interface method reports exactly one diagnostic");
-    CHECK(hasErrorCode(snapshot, diagnostics::err::InterfaceMethodNotAllowed),
-          "interface method uses E2025 InterfaceMethodNotAllowed");
+    auto ungrouped = frontend::parse("interface Ungrouped { x: i32, [y, z]: f32 }\n");
+    CHECK(ungrouped.diagnostics().empty(),
+          "single and grouped interface fields parse without diagnostics");
+}
 
-    auto ungrouped = frontend::parse("interface Ungrouped { x: i32 }\n");
-    CHECK(!ungrouped.diagnostics().empty(), "ungrouped interface field is rejected");
-    CHECK(hasErrorCode(ungrouped, diagnostics::err::UnsupportedSyntax),
-          "ungrouped interface field reports E2010 UnsupportedSyntax");
+static void test_interface_method_default_body_rejected() {
+    auto snapshot = frontend::parse("interface Bad { fn method(self) { return 1 } }\n");
+    CHECK(!snapshot.diagnostics().empty(), "interface default bodies are rejected");
+    CHECK(hasErrorCode(snapshot, diagnostics::err::UnsupportedSyntax),
+          "interface default bodies report E2010 UnsupportedSyntax");
 }
 
 static void test_implement_trait_name_checks() {
@@ -92,6 +129,7 @@ static void test_implement_trait_name_checks() {
 static void test_trait_parser() {
     test_trait_member_storage();
     test_interface_method_diagnostic();
+    test_interface_method_default_body_rejected();
     test_implement_trait_name_checks();
 }
 

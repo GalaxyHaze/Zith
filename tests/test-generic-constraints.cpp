@@ -148,11 +148,67 @@ void test_method_only_visible_with_bound() {
     CHECK(!r.ok, "trait method is not visible without the bound");
 }
 
+void test_trait_and_interface_bound_declarations_type_check() {
+    SessionRunner t;
+    auto r = t.run("trait Foo {}\n"
+                   "interface Transform { [x]: i32 }\n"
+                   "struct Point { [x,y,xi,yi]: i32 }\n"
+                   "implement Point as Foo {}\n"
+                   "fn interLab<T: Transform>(a: T) {}\n"
+                   "fn foolish<T: Foo>(a: T) {}\n"
+                   "fn main(): i32 {\n"
+                   "    interLab(Point{0,0,50,-50});\n"
+                   "    return 0;\n"
+                   "}\n");
+    CHECK(r.ok, "trait and interface bound declarations type-check without E2001");
+}
+
+void test_interface_bound_exposes_fields_and_methods() {
+    SessionRunner t;
+    auto r = t.run("interface Positioned {\n"
+                   "    x: i32,\n"
+                   "    fn getX(self): i32\n"
+                   "}\n"
+                   "struct Point {\n"
+                   "    x: i32,\n"
+                   "    fn getX(self): i32 { return self.x }\n"
+                   "}\n"
+                   "fn transform<T: Positioned>(p: T): i32 { return p.x + p.getX() }\n"
+                   "fn main(): i32 {\n"
+                   "    let p = Point { x: 4 };\n"
+                   "    return transform<Point>(p);\n"
+                   "}\n");
+    CHECK(r.ok, "interface bound exposes fields and methods to the generic body");
+}
+
+void test_interface_bound_missing_method_reports_diagnostic() {
+    SessionRunner t;
+    auto r = t.run("interface Positioned {\n"
+                   "    x: i32,\n"
+                   "    fn getX(self): i32\n"
+                   "}\n"
+                   "struct Point {\n"
+                   "    x: i32,\n"
+                   "    fn getY(self): i32 { return self.x }\n"
+                   "}\n"
+                   "fn transform<T: Positioned>(p: T): i32 { return p.getX() }\n"
+                   "fn main(): i32 {\n"
+                   "    let p = Point { x: 4 };\n"
+                   "    return transform<Point>(p);\n"
+                   "}\n");
+    CHECK(!r.ok, "a concrete type without the required interface method fails the bound");
+    CHECK(r.hasErrorCode(diagnostics::err::InterfaceNotSatisfied),
+          "missing interface method reports E2024 at the bound");
+}
+
 void test_generic_constraints() {
     test_trait_bound_accepts_conforming_type();
     test_trait_bound_rejects_nonconforming_type();
     test_multiple_bounds_all_evaluated();
     test_method_only_visible_with_bound();
+    test_trait_and_interface_bound_declarations_type_check();
+    test_interface_bound_exposes_fields_and_methods();
+    test_interface_bound_missing_method_reports_diagnostic();
 }
 
 } // namespace

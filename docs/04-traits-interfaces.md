@@ -4,11 +4,12 @@
 > **working** (parsed, resolved, and type-checked). Trait conformance is nominal: an implementation
 > is validated against every required method and the conformance edge is recorded for generic
 > bounds. Interfaces are structural: a concrete struct satisfies an interface automatically when
-> every declared field exists with the required type, and using an interface as a generic bound is
-> enforced. Trait defaults are resolved for concrete owners during sema; `dyn Trait`, dispatch
-> dynamic, `requires`/`extends` as explicit constraints, and per-owner default-method HIR
-> generation remain spec-only or pending. `Self` in implementations and trait defaults resolves to
-> the implementing type.
+> every declared field exists with the required type and every declared method requirement has a
+> compatible signature. Using an interface as a generic bound exposes the interface fields and
+> methods to the generic body. Trait defaults are resolved for concrete owners during sema; `dyn
+> Trait`, dynamic dispatch, `requires`/`extends` as explicit constraints, and per-owner
+> default-method HIR generation remain spec-only or pending. `Self` in implementations and trait
+> defaults resolves to the implementing type.
 > See [impl-status.md](impl-status.md).
 
 ### 4.1 Traits vs. Interfaces
@@ -19,6 +20,7 @@
 | **Extensible** | Yes — via `extends`, or as a precondition using `requires`. | No — interfaces cannot extend each other, though a trait may `requires` one. |
 | **Has implementation?** | Yes — default method bodies are allowed. | No — declaration only. |
 | **Field access** | Only through a trait that `requires` the interface. | Yes — directly, since interfaces are structural. |
+| **Methods** | Default bodies and requirements. | Declaration-only requirements, no default bodies. |
 
 ### 4.2 Traits
 
@@ -43,12 +45,19 @@ JsonSerializable.print(self);
 
 ### 4.3 Interfaces
 
-Interfaces are structural — if it quacks, it's a duck. Any type that has the required fields satisfies the interface automatically, without an explicit `implement` declaration. You can also add `requires` to interfaces.
+Interfaces are structural — if it quacks, it's a duck. Any type that has the required fields and
+compatible method signatures satisfies the interface automatically, without an explicit
+`implement` declaration. Interfaces accept declaration-only method requirements and both single
+and grouped field forms. You can also add `requires` to interfaces.
 
 ```zith
 // will only accept structs and reject components
 requires @isStruct
-interface iPositioned { [x, y, z]: f32 }
+interface iPositioned {
+    x: f32,
+    [y, z]: f32,
+    fn length2(self): f32
+}
 
 requires iPositioned
 trait Movable {
@@ -57,8 +66,14 @@ trait Movable {
     }
 }
 
-// Any struct with x, y, z: f32 satisfies iPositioned automatically
-struct Enemy { [x, y, z]: f32, health: i32 }
+// Any struct with x, y, z: f32 and length2(self): f32 satisfies iPositioned
+struct Enemy {
+    [x, y, z]: f32,
+    health: i32,
+    fn length2(self): f32 { self.x * self.x + self.y * self.y + self.z * self.z }
+}
+
+fn distance2<T: iPositioned>(p: T): f32 { p.length2() }
 ```
 
 ### 4.4 Capabilities — Built-in Reference

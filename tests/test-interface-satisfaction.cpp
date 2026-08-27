@@ -125,11 +125,69 @@ void test_explicit_impl_rejected() {
           "explicit interface implementation reports E2025");
 }
 
+void test_method_satisfaction() {
+    SessionRunner t;
+    auto r = t.run("interface Positioned {\n"
+                   "    x: f32,\n"
+                   "    fn getX(self): f32\n"
+                   "}\n"
+                   "struct Point {\n"
+                   "    x: f32,\n"
+                   "    fn getX(self): f32 { return self.x }\n"
+                   "}\n"
+                   "fn distance<T: Positioned>(p: T): f32 { return p.x + p.getX() }\n"
+                   "fn main(): i32 {\n"
+                   "    let p = Point{ x: 2.0 };\n"
+                   "    distance<Point>(p);\n"
+                   "    return 1;\n"
+                   "}\n");
+    CHECK(r.ok, "a type with matching interface fields and methods satisfies the bound");
+}
+
+void test_missing_method() {
+    SessionRunner t;
+    auto r = t.run("interface Positioned {\n"
+                   "    x: f32,\n"
+                   "    fn getX(self): f32\n"
+                   "}\n"
+                   "struct Point { x: f32 }\n"
+                   "fn distance<T: Positioned>(p: T): f32 { return 0.0 }\n"
+                   "fn main(): i32 {\n"
+                   "    distance<Point>(Point{ x: 1.0 });\n"
+                   "    return 1;\n"
+                   "}\n");
+    CHECK(!r.ok, "a type missing an interface method fails the bound");
+    CHECK(r.hasErrorCode(diagnostics::err::InterfaceNotSatisfied), "missing method reports E2024");
+}
+
+void test_method_signature_mismatch() {
+    SessionRunner t;
+    auto r = t.run("interface Positioned {\n"
+                   "    x: f32,\n"
+                   "    fn getX(self): f32\n"
+                   "}\n"
+                   "struct Point {\n"
+                   "    x: f32,\n"
+                   "    fn getX(self): i32 { return 1 }\n"
+                   "}\n"
+                   "fn distance<T: Positioned>(p: T): f32 { return 0.0 }\n"
+                   "fn main(): i32 {\n"
+                   "    distance<Point>(Point{ x: 1.0 });\n"
+                   "    return 1;\n"
+                   "}\n");
+    CHECK(!r.ok, "a type with an incompatible interface method fails the bound");
+    CHECK(r.hasErrorCode(diagnostics::err::InterfaceNotSatisfied),
+          "signature mismatch reports E2024");
+}
+
 void test_interface_satisfaction() {
     test_structural_satisfaction();
     test_interface_bound_accepts_conforming_struct();
     test_missing_field();
     test_explicit_impl_rejected();
+    test_method_satisfaction();
+    test_missing_method();
+    test_method_signature_mismatch();
 }
 
 } // namespace
