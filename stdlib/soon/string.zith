@@ -1,0 +1,30 @@
+import "string.h"
+import "stdlib.h"
+
+pub struct string { 
+    data: ?*char = null, 
+    length: u64 = 0 
+}
+
+implement string {
+    
+    pub fn init(str: *char): Self { 
+        let len     = strlen(str);
+        let data    = malloc(len) as ?*char;
+        if (data is null){
+            abort();
+        }
+        memcpy(data, str, len);
+        string{data, len}; 
+    }
+
+    pub fn get(self: view string): view []char {
+        return raw self.data[0u64..self.length];
+    }
+
+    pub fn len(self: view string): u64 {
+        return self.length;
+    }
+
+    
+}
