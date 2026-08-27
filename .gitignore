@@ -10,6 +10,15 @@
 *.out
 .opencode
 
+# Compiler and tool caches
+.zith-cache/
+__pycache__/
+*.py[cod]
+
+# Core dumps
+core
+core.*
+
 # Build directories
 build/
 build-wasm/
