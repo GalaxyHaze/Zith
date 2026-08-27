@@ -87,6 +87,25 @@ llvm::Type *CodeGenType::lower(types::TypeId id) {
                     result->setBody(fields, false);
                 }
                 return result;
+            } else if constexpr (std::is_same_v<T, types::TypePack>) {
+                std::string pack_name = "zith.pack";
+                for (size_t index = 0; index < t.count; ++index) {
+                    pack_name += '.';
+                    pack_name += std::to_string(t.members[index]);
+                }
+                auto *result = llvm::StructType::getTypeByName(ctx_, pack_name);
+                if (!result)
+                    result = llvm::StructType::create(ctx_, pack_name);
+                if (result->isOpaque()) {
+                    llvm::SmallVector<llvm::Type *, 8> fields;
+                    for (size_t index = 0; index < t.count; ++index)
+                        fields.push_back(lower(t.members[index]));
+                    result->setBody(fields, false);
+                }
+                return result;
+            } else if constexpr (std::is_same_v<T, types::TypeDyn>) {
+                return llvm::StructType::get(
+                    ctx_, {llvm::PointerType::get(ctx_, 0), llvm::PointerType::get(ctx_, 0)});
             } else if constexpr (std::is_same_v<T, types::TypeFn>) {
                 // A `fn(...)` value is stored and passed as a C function
                 // pointer.  The underlying signature is reconstructed by the

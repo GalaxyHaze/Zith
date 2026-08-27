@@ -50,6 +50,7 @@ enum class TypeKind : uint8_t {
     Slice,
     Failable,
     Pack,
+    Dyn,
     Alias,
     /// A `type Name = T` declaration: identity is nominal, but layout comes
     /// from the single underlying field.
@@ -124,6 +125,10 @@ struct FailableType {
 struct PackType {
     memory::DynArray<TypeId> &members;
     memory::DynArray<std::string_view> &names;
+};
+struct DynType {
+    TypeId target;
+    size_t method_count = 0;
 };
 struct AliasType {
     TypeId target;
@@ -208,6 +213,7 @@ public:
     [[nodiscard]] TypeId internFailable(TypeId inner);
     [[nodiscard]] TypeId internPack(memory::DynArray<TypeId> &members,
                                     memory::DynArray<std::string_view> &names);
+    [[nodiscard]] TypeId internDyn(TypeId target, size_t method_count = 0);
     [[nodiscard]] TypeId internAlias(TypeId target);
     [[nodiscard]] TypeId internAlias(std::string_view name, TypeId target);
     [[nodiscard]] TypeId internNominal(std::string_view name, TypeId target);
@@ -234,6 +240,7 @@ public:
     [[nodiscard]] const SliceType *slice(TypeId id) const noexcept;
     [[nodiscard]] const FailableType *failable(TypeId id) const noexcept;
     [[nodiscard]] const PackType *pack(TypeId id) const noexcept;
+    [[nodiscard]] const DynType *dyn_type(TypeId id) const noexcept;
     [[nodiscard]] const AliasType *alias(TypeId id) const noexcept;
     [[nodiscard]] const NominalType *nominal(TypeId id) const noexcept;
     [[nodiscard]] const QualifiedType *qualified(TypeId id) const noexcept;
@@ -282,6 +289,7 @@ private:
         Slice,
         Failable,
         Pack,
+        Dyn,
         Alias,
         Nominal,
         GenericParam,
@@ -309,6 +317,7 @@ private:
         SliceType slice_ty{};
         FailableType failable_ty{};
         PackType *pack_ty                                = nullptr;
+        DynType *dyn_ty                                  = nullptr;
         AliasType *alias_ty                              = nullptr;
         NominalType *nominal_ty                          = nullptr;
         QualifiedType *qualified_ty                      = nullptr;

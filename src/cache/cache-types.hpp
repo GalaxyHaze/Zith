@@ -41,6 +41,8 @@ enum class CompactTypeKind : uint8_t {
     GenericParam = 17,
     Incomplete   = 18,
     Opaque       = 19,
+    Pack         = 20,
+    Dyn          = 21,
 };
 
 struct CompactType {
@@ -190,6 +192,8 @@ enum class CompactExprKind : uint8_t {
     UnionCheck,
     Cleanup,
     GlobalConstLoad,
+    MakeDyn,
+    DynCall,
 };
 
 enum class CompactBinaryOp : uint8_t {
@@ -259,6 +263,11 @@ struct CompactGlobalConst {
     uint32_t init_expr = ~uint32_t{0};
 };
 
+struct CompactVTable {
+    uint32_t name_id = 0;
+    std::vector<uint32_t> slot_sym_ids;
+};
+
 struct HirSlotAttrsRecord {
     uint32_t slot     = 0;
     uint8_t ownership = 0;
@@ -312,6 +321,7 @@ struct Artifact {
     std::vector<CompactFunction> functions;   // sec5
     std::vector<CompactExpr> exprs;           // sec5 module-level expression pool
     std::vector<CompactGlobalConst> globals;  // sec5
+    std::vector<CompactVTable> vtables;       // sec5
     // Definition tables used to restore composite types regardless of whether
     // they appear among exported DeclRecord entries.
     std::vector<CompactStructDef> struct_defs;

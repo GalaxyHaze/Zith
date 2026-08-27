@@ -45,6 +45,7 @@ public:
 private:
     llvm::Function *declareFn(const hir::HirFunction &fn);
     void emitConstGlobals(hir::HirModule &hirModule);
+    void emitVtables(hir::HirModule &hirModule);
     void emitFnBody(const hir::HirFunction &fn, const hir::HirModule &mod);
     void llvmError(const std::string &msg);
     bool verifyCurrentFunction(llvm::Function *llvmFn);

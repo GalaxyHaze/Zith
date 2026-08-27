@@ -161,6 +161,8 @@ enum class ExprKind : uint8_t {
     IsType,
     /// `expr[lo..hi]`: a view over an array/slice. operands = [object, lo, hi].
     SliceRange,
+    /// `|value, value|` pack literal. operand order is positional.
+    PackLiteral,
     /// `when (subject) { (cond) ~> body, (_) ~> default }` — match is a synonym.
     When,
     /// A range pattern `lo..hi`, valid only inside a `when` case condition.
@@ -203,7 +205,9 @@ enum class TypeExprKind : uint8_t {
     Array,
     Function,
     Slice,
-    Opaque
+    Opaque,
+    Pack,
+    Dyn
 };
 
 /// Memory-model qualifier written as a prefix on a type (`lend T`, `view T`, ...).
@@ -224,6 +228,8 @@ struct TypeExpression {
     bool isMut = false;
     /// True when the type was written with an explicit `mut` prefix.
     bool hasMutKeyword = false;
+    /// Member names for `TypeExprKind::Pack` (`|x: i32, y: i32|`).
+    std::vector<std::string> member_names;
 };
 
 struct Parameter;

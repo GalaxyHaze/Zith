@@ -85,6 +85,24 @@ std::string renderTypeExpr(const zith::frontend::TypeExpression &te,
     }
     case zith::frontend::TypeExprKind::Opaque:
         return "raw opaque";
+    case zith::frontend::TypeExprKind::Pack: {
+        std::string result = "|";
+        for (size_t i = 0; i < te.arguments.size(); ++i) {
+            if (i > 0)
+                result += ", ";
+            if (i < te.member_names.size()) {
+                result += te.member_names[i];
+                result += ": ";
+            }
+            result += renderTypeExpr(all_types[te.arguments[i].value - 1U], all_types);
+        }
+        result += "|";
+        return result;
+    }
+    case zith::frontend::TypeExprKind::Dyn:
+        return "dyn " + (te.arguments.empty()
+                             ? "?"
+                             : renderTypeExpr(all_types[te.arguments[0].value - 1U], all_types));
     case zith::frontend::TypeExprKind::Slice: {
         std::string inner = te.arguments.empty()
                                 ? "?"

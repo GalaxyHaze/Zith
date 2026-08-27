@@ -339,6 +339,25 @@ void FmtVisitor::emitType(const frontend::TypeExprId id) {
     case frontend::TypeExprKind::Opaque:
         emit("raw opaque");
         break;
+    case frontend::TypeExprKind::Pack: {
+        emit("|");
+        for (size_t index = 0; index < type->arguments.size(); ++index) {
+            if (index != 0)
+                emit(", ");
+            if (index < type->member_names.size()) {
+                emit(type->member_names[index]);
+                emit(": ");
+            }
+            emitType(type->arguments[index]);
+        }
+        emit("|");
+        break;
+    }
+    case frontend::TypeExprKind::Dyn:
+        emit("dyn ");
+        if (!type->arguments.empty())
+            emitType(type->arguments.front());
+        break;
     case frontend::TypeExprKind::Function: {
         emit("fn(");
         for (size_t index = 0; index + 1U < type->arguments.size(); ++index) {
@@ -922,6 +941,15 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
             visitExpr(expr->operands[i]);
         }
         emit("]");
+        break;
+    case frontend::ExprKind::PackLiteral:
+        emit("|");
+        for (std::size_t i = 0; i < expr->operands.size(); ++i) {
+            if (i != 0U)
+                emit(", ");
+            visitExpr(expr->operands[i]);
+        }
+        emit("|");
         break;
     case frontend::ExprKind::When:
         if (expr->operands.empty()) {

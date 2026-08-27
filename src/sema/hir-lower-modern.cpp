@@ -654,6 +654,13 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     current_fn_             = &hir_.getFn(info.hir_index);
     current_instantiation_  = info.instance != nullptr ? sema_.instantiations() : nullptr;
     current_instance_       = info.instance;
+    current_fn_return_sema_type_ = sema::modern::kInvalidTypeId;
+    if (const auto *module_sema = sema_.findModuleSema(info.module->key);
+        module_sema != nullptr && info.decl != nullptr) {
+        sema::modern::TypeId fn_sema_type = module_sema->typeOfDecl(info.decl->id);
+        if (const auto *fn = sema_.typeTable().function(fn_sema_type))
+            current_fn_return_sema_type_ = fn->result;
+    }
     info_decl_parent_scope_ = info.decl != nullptr ? info.decl->parentScope : frontend::ScopeId{};
     current_fn_is_state_ =
         info.decl != nullptr && info.decl->functionKind == frontend::FunctionKind::State;
@@ -729,6 +736,10 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
             } else {
                 ret.value = body_expr;
             }
+            if (current_fn_return_sema_type_ != sema::modern::kInvalidTypeId)
+                ret.value =
+                    lowerCoerceToDyn(current_fn_return_sema_type_, info.decl->body, ret.value,
+                                     current_fn_return_sema_type_);
             ret.value =
                 lowerCoerceToSliceIfArray(current_fn_->return_type, info.decl->body, ret.value);
         }
@@ -740,6 +751,7 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     current_types_            = nullptr;
     current_instantiation_    = nullptr;
     current_instance_         = nullptr;
+    current_fn_return_sema_type_ = sema::modern::kInvalidTypeId;
     info_decl_parent_scope_   = {};
     current_fn_               = nullptr;
     current_fn_is_state_      = false;
@@ -940,6 +952,12 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
         for (const auto name : pack->names)
             names.push(interner_.intern(name));
         lowered = types_.internPack(members, names);
+        break;
+    }
+    case TypeKind::Dyn: {
+        const auto *dyn = sema_.typeTable().dyn_type(type);
+        lowered = dyn != nullptr ? types_.internDyn(lowerType(dyn->target), dyn->method_count)
+                                 : types::kErrorType;
         break;
     }
     case TypeKind::Alias: {
@@ -1199,6 +1217,8 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
         return lowerArrow(expr, type);
     case frontend::ExprKind::StructLiteral:
         return lowerStructLiteral(expr, type);
+    case frontend::ExprKind::PackLiteral:
+        return lowerPackLiteral(expr, type);
     case frontend::ExprKind::ArrayLiteral:
         return lowerArrayLiteral(expr, type);
     case frontend::ExprKind::Cast:
@@ -1596,6 +1616,92 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
             }
         }
     }
+
+    // `p.method()` on a `dyn`/fat-pointer receiver dispatches through the
+    // vtable embedded in the receiver. Sema resolved the call to the trait
+    // requirement, which also tells us the slot index in trait declaration
+    // order.
+    if (method_decl != nullptr && (callee_expr.kind == frontend::ExprKind::Field ||
+                                   callee_expr.kind == frontend::ExprKind::Arrow) &&
+        !callee_expr.operands.empty()) {
+        const sema::modern::TypeId dyn_base =
+            sema_.typeTable().stripQualifiers(semaTypeOfExpr(callee_expr.operands[0]));
+        if (sema_.typeTable().kindOf(dyn_base) == sema::modern::TypeKind::Dyn) {
+            const auto *dyn_ty = sema_.typeTable().dyn_type(dyn_base);
+            const sema::modern::TypeId trait_ty =
+                sema_.typeTable().canonical(dyn_ty != nullptr ? dyn_ty->target
+                                                              : sema::modern::kInvalidTypeId);
+            const auto *trait = sema_.typeTable().trait(trait_ty);
+            if (trait == nullptr)
+                return hir::kInvalidHirExpr;
+
+            uint32_t slot_index = ~0U;
+            uint32_t cursor     = 0;
+            const auto findSlot = [&](const session::ModuleArtifact &module) {
+                for (const auto &candidate : module.frontend->declarations()) {
+                    if (candidate.kind != frontend::DeclKind::Function ||
+                        candidate.ownerName != trait->name || candidate.name.empty() ||
+                        candidate.name == "self")
+                        continue;
+                    if (candidate.name == callee_expr.text)
+                        slot_index = cursor;
+                    ++cursor;
+                }
+            };
+            findSlot(*current_module_);
+            for (const auto &module_ptr : snapshot_.modules()) {
+                if (module_ptr->key == current_module_->key || module_ptr->frontend == nullptr)
+                    continue;
+                findSlot(*module_ptr);
+            }
+            if (slot_index == ~0U)
+                return hir::kInvalidHirExpr;
+
+            const auto *method_sema =
+                owner_artifact != nullptr ? sema_.findModuleSema(owner_artifact->key)
+                                          : sema_.findModuleSema(current_module_->key);
+            const auto *fn = method_sema != nullptr
+                                 ? sema_.typeTable().function(method_sema->typeOfDecl(method_decl->id))
+                                 : nullptr;
+            if (fn == nullptr)
+                return hir::kInvalidHirExpr;
+
+            const bool has_receiver =
+                !method_decl->parameters.empty() && method_decl->parameters.front().name == "self";
+            memory::DynArray<types::TypeId> lowered_params(arena_);
+            for (size_t pi = has_receiver ? 1U : 0U; pi < fn->params.size(); ++pi)
+                lowered_params.push(lowerType(fn->params[pi]));
+            const types::TypeId lowered_fn =
+                types_.internFn(lowered_params, lowerType(fn->result));
+
+            hir::HirDynCall dyncall(arena_);
+            dyncall.receiver     = lowerExpr(callee_expr.operands[0]);
+            dyncall.vtable_name  = interner_.intern(trait->name);
+            dyncall.slot_index   = slot_index;
+            dyncall.has_receiver = has_receiver;
+            dyncall.result_type  = lowerType(fn->result);
+            dyncall.fn_type      = lowered_fn;
+
+            for (size_t index = 1; index < expr.operands.size(); ++index) {
+                const size_t call_index = has_receiver ? index : index - 1U;
+                if (call_index >= fn->params.size())
+                    continue;
+                auto argument = lowerExpr(expr.operands[index]);
+                if (argument == hir::kInvalidHirExpr)
+                    return hir::kInvalidHirExpr;
+                dyncall.args.push(argument);
+                dyncall.arg_types.push(typeOfExpr(expr.operands[index]));
+                if (sema_.typeTable().kindOf(fn->params[call_index]) ==
+                    sema::modern::TypeKind::Dyn) {
+                    argument = lowerCoerceToDyn(fn->params[call_index], expr.operands[index],
+                                                argument, fn->params[call_index]);
+                    dyncall.args.back() = argument;
+                }
+            }
+            return addExpr(std::move(dyncall));
+        }
+    }
+
     // A method with a `self` receiver receives an implicit owner pointer
     // argument. Methods without self are static in this compiler.
     const bool is_receiver_method = method_decl != nullptr && !method_decl->parameters.empty() &&
@@ -1699,15 +1805,37 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
         const auto argument_type = typeOfExpr(expr.operands[index]);
         if (argument_type != types::kInvalidType)
             arg_types.push(argument_type);
-        const sema::modern::TypeId callee_sema_type = semaTypeOfExpr(callee_id);
+        sema::modern::TypeId callee_sema_type = semaTypeOfExpr(callee_id);
+        if (callee_sema_type == sema::modern::kInvalidTypeId) {
+            if (const auto *target = overloadTarget(callee_id)) {
+                const auto *target_sema = sema_.findModuleSema(target->module);
+                if (target_sema != nullptr)
+                    callee_sema_type = target_sema->typeOfDecl(target->decl);
+            } else if (const auto *resolved = findResolvedExpr(callee_id)) {
+                const session::ModuleArtifact *decl_module = nullptr;
+                const auto *decl = resolvedFunctionDecl(*resolved, &decl_module);
+                if (decl != nullptr && decl_module != nullptr) {
+                    if (const auto *decl_sema = sema_.findModuleSema(decl_module->key))
+                        callee_sema_type = decl_sema->typeOfDecl(decl->id);
+                }
+            }
+        }
         const auto *callee_fn = callee_sema_type != sema::modern::kInvalidTypeId
                                     ? sema_.typeTable().function(callee_sema_type)
                                     : nullptr;
         const auto param_type = callee_fn != nullptr && call_index < callee_fn->params.size()
                                     ? lowerType(callee_fn->params[call_index])
                                     : types::kInvalidType;
-        const auto lowered_argument =
+        hir::HirExprId lowered_argument =
             lowerCoerceToSliceIfArray(param_type, expr.operands[index], argument);
+        if (callee_fn != nullptr && call_index < callee_fn->params.size()) {
+            const sema::modern::TypeId param_sema = callee_fn->params[call_index];
+            if (sema_.typeTable().kindOf(param_sema) == sema::modern::TypeKind::Dyn ||
+                sema_.typeTable().kindOf(sema_.typeTable().canonical(param_sema)) ==
+                    sema::modern::TypeKind::Dyn)
+                lowered_argument =
+                    lowerCoerceToDyn(param_sema, expr.operands[index], lowered_argument, param_sema);
+        }
         args.push(lowered_argument);
     }
 
@@ -2644,6 +2772,21 @@ hir::HirExprId HirLowerModern::lowerIndex(const frontend::Expression &expr,
         return hir::kInvalidHirExpr;
 
     const auto object_type = typeOfExpr(expr.operands[0]);
+    const auto sema_object = sema_.typeTable().stripQualifiers(semaTypeOfExpr(expr.operands[0]));
+    if (sema_.typeTable().kindOf(sema_object) == sema::modern::TypeKind::Pack) {
+        const auto *pack = sema_.typeTable().pack(sema_object);
+        if (pack != nullptr) {
+            int64_t index_value = 0;
+            const auto *module_sema = sema_.findModuleSema(current_module_->key);
+            if (module_sema == nullptr ||
+                !module_sema->constantIntegerValue(expr.operands[1], index_value) ||
+                index_value < 0 ||
+                static_cast<uint64_t>(index_value) >= pack->members.size())
+                return hir::kInvalidHirExpr;
+            return addExpr(hir::HirField{object, static_cast<uint32_t>(index_value), type,
+                                         object_type});
+        }
+    }
     hir::HirIndex indexing;
     indexing.object   = object;
     indexing.index    = index;
@@ -2794,6 +2937,199 @@ hir::HirExprId HirLowerModern::lowerCoerceToSliceIfArray(types::TypeId target,
     slice.lo = addExpr(std::move(lo));
     slice.hi = addExpr(std::move(hi));
     return addExpr(std::move(slice));
+}
+
+hir::HirExprId HirLowerModern::lowerCoerceToDyn(sema::modern::TypeId target,
+                                                frontend::ExprId expression,
+                                                hir::HirExprId value,
+                                                sema::modern::TypeId target_sema) {
+    const types::TypeId target_hir = lowerType(target);
+    if (value == hir::kInvalidHirExpr || types_.kindOf(target_hir) != types::TypeKind::Dyn ||
+        current_module_ == nullptr)
+        return value;
+
+    const sema::modern::TypeId concrete_sema =
+        sema_.typeTable().stripQualifiers(semaTypeOfExpr(expression));
+    if (sema_.typeTable().struct_type(concrete_sema) == nullptr)
+        return value;
+
+    const sema::modern::TypeId target_ty = [&]() -> sema::modern::TypeId {
+        const sema::modern::TypeId canonical_target =
+            sema_.typeTable().stripQualifiers(sema_.typeTable().canonical(target_sema));
+        const auto *target_dyn = sema_.typeTable().dyn_type(canonical_target);
+        if (target_dyn != nullptr)
+            return sema_.typeTable().canonical(target_dyn->target);
+        return canonical_target;
+    }();
+    const auto *target_trait = sema_.typeTable().trait(target_ty);
+    if (target_trait == nullptr)
+        return value;
+
+    const auto findDeclAcrossModules = [&](std::string_view name,
+                                           frontend::DeclKind kind) {
+        for (const auto &decl : current_module_->frontend->declarations()) {
+            if (decl.kind == kind && decl.name == name)
+                return &decl;
+        }
+        for (const auto &module_ptr : snapshot_.modules()) {
+            if (module_ptr->key == current_module_->key || module_ptr->frontend == nullptr)
+                continue;
+            for (const auto &decl : module_ptr->frontend->declarations()) {
+                if (decl.kind == kind && decl.name == name)
+                    return &decl;
+            }
+        }
+        return static_cast<const frontend::Declaration *>(nullptr);
+    };
+    const bool is_interface =
+        findDeclAcrossModules(target_trait->name, frontend::DeclKind::Interface) != nullptr;
+    const frontend::Declaration *dyn_decl =
+        findDeclAcrossModules(target_trait->name,
+                              is_interface ? frontend::DeclKind::Interface
+                                           : frontend::DeclKind::Trait);
+    if (dyn_decl == nullptr)
+        return value;
+
+    struct ReqInfo {
+        const frontend::Declaration *req = nullptr;
+        const frontend::Declaration *fn  = nullptr;
+        session::ModuleKey req_module{};
+        session::ModuleKey fn_module{};
+    };
+    memory::DynArray<ReqInfo> requirements(arena_);
+    const auto reqKey = [](const ReqInfo &info) {
+        return std::make_pair(info.req_module, static_cast<uint32_t>(info.req->id.value));
+    };
+    const auto collectRequirement = [&](const session::ModuleArtifact &artifact) {
+        for (const auto &candidate : artifact.frontend->declarations()) {
+            if (candidate.kind != frontend::DeclKind::Function ||
+                candidate.ownerName != target_trait->name || candidate.name.empty() ||
+                candidate.name == "self")
+                continue;
+            bool seen = false;
+            for (const auto &info : requirements)
+                if (info.req != nullptr && info.req_module == artifact.key &&
+                    info.req->id.value == candidate.id.value)
+                    seen = true;
+            if (seen)
+                continue;
+            ReqInfo info;
+            info.req        = &candidate;
+            info.req_module = artifact.key;
+            requirements.push(info);
+            (void)reqKey;
+        }
+    };
+    collectRequirement(*current_module_);
+    for (const auto &module_ptr : snapshot_.modules()) {
+        if (module_ptr->key == current_module_->key || module_ptr->frontend == nullptr)
+            continue;
+        collectRequirement(*module_ptr);
+    }
+
+    const auto *struct_ty = sema_.typeTable().struct_type(concrete_sema);
+    std::string struct_name =
+        struct_ty != nullptr ? std::string(struct_ty->name) : std::string{};
+    if (const size_t angle = struct_name.find('<'); angle != std::string::npos)
+        struct_name.resize(angle);
+
+    const auto findMethod = [&](const session::ModuleArtifact &artifact,
+                                std::string_view name,
+                                const frontend::Declaration **out,
+                                session::ModuleKey *out_module) {
+        for (const auto &candidate : artifact.frontend->declarations()) {
+            if (candidate.kind != frontend::DeclKind::Function ||
+                candidate.ownerName != struct_name || candidate.name != name)
+                continue;
+            *out       = &candidate;
+            *out_module = artifact.key;
+            return true;
+        }
+        return false;
+    };
+    const auto findTraitMethod = [&](const session::ModuleArtifact &artifact,
+                                     std::string_view name,
+                                     const frontend::Declaration **out,
+                                     session::ModuleKey *out_module) {
+        for (const auto &candidate : artifact.frontend->declarations()) {
+            if (candidate.kind != frontend::DeclKind::Function ||
+                candidate.ownerName != target_trait->name || candidate.name != name)
+                continue;
+            *out       = &candidate;
+            *out_module = artifact.key;
+            return true;
+        }
+        return false;
+    };
+    const auto findMethodEverywhere = [&](const auto &finder, std::string_view name,
+                                          const frontend::Declaration **out,
+                                          session::ModuleKey *out_module) {
+        if (finder(*current_module_, name, out, out_module))
+            return true;
+        for (const auto &module_ptr : snapshot_.modules()) {
+            if (module_ptr->key == current_module_->key || module_ptr->frontend == nullptr)
+                continue;
+            if (finder(*module_ptr, name, out, out_module))
+                return true;
+        }
+        return false;
+    };
+
+    for (auto &info : requirements) {
+        const frontend::Declaration *concrete = nullptr;
+        session::ModuleKey concrete_module{};
+        // For nominal traits, an `implement Owner as Trait` method is the
+        // concrete override; otherwise the trait default is the slot. For
+        // structural interfaces, the concrete struct method is the slot.
+        if (is_interface) {
+            if (!findMethodEverywhere(findMethod, info.req->name, &concrete,
+                                      &concrete_module)) {
+                diags_.report(
+                    diagnostics::Severity::Error, diagnostics::err::NoMember,
+                    "dyn interface implementation has no method '" + info.req->name + "'", {});
+                return hir::kInvalidHirExpr;
+            }
+        } else if (!findMethodEverywhere(findMethod, info.req->name, &concrete,
+                                         &concrete_module)) {
+            if (!findMethodEverywhere(findTraitMethod, info.req->name, &concrete,
+                                      &concrete_module)) {
+                diags_.report(
+                    diagnostics::Severity::Error, diagnostics::err::NoMember,
+                    "dyn target implementation has no method '" + info.req->name + "'", {});
+                return hir::kInvalidHirExpr;
+            }
+        }
+        info.fn        = concrete;
+        info.fn_module = concrete_module;
+    }
+
+    const std::string vtable_name =
+        "_zith.vtable." + std::string(target_trait->name) + "." + struct_name;
+    const memory::InternedId vtable_id = interner_.intern(vtable_name);
+    hir::HirVTable *vtable = nullptr;
+    for (size_t vi = 0; vi < hir_.getVTableCount(); ++vi)
+        if (hir_.getVTable(vi).name == vtable_id) {
+            vtable = const_cast<hir::HirVTable *>(&hir_.getVTable(vi));
+            break;
+        }
+    if (vtable == nullptr) {
+        auto &added = hir_.addVTable(vtable_id);
+        for (const auto &info : requirements) {
+            if (info.fn == nullptr)
+                continue;
+            const auto key = internFunctionKey(interner_, info.fn_module, info.fn->id);
+            if (const auto *fn_index = function_index_by_key_.get(key))
+                added.slots.push(functions_[*fn_index].sym_id);
+        }
+        vtable = &added;
+    }
+
+    hir::HirMakeDyn make;
+    make.value       = value;
+    make.source_type = lowerType(concrete_sema);
+    make.dyn_type    = target_hir;
+    make.vtable_name = vtable_id;
+    return addExpr(std::move(make));
 }
 
 hir::HirExprId HirLowerModern::lowerSliceRange(const frontend::Expression &expr,
@@ -3036,6 +3372,17 @@ hir::HirExprId HirLowerModern::lowerField(const frontend::Expression &expr,
     const int idx = sema_.typeTable().fieldIndex(sema_type, expr.text);
     if (idx >= 0)
         return addExpr(hir::HirField{object, static_cast<uint32_t>(idx), type, object_type});
+    if (sema_.typeTable().kindOf(sema_type) == sema::modern::TypeKind::Pack) {
+        const auto *pack = sema_.typeTable().pack(sema_type);
+        if (pack != nullptr) {
+            for (size_t index = 0; index < pack->names.size(); ++index) {
+                if (pack->names[index] != expr.text)
+                    continue;
+                return addExpr(hir::HirField{object, static_cast<uint32_t>(index), type,
+                                             object_type});
+            }
+        }
+    }
     if (current_module_ != nullptr &&
         sema_.typeTable().kindOf(sema_type) == sema::modern::TypeKind::GenericParam) {
         const auto *module_sema = sema_.findModuleSema(current_module_->key);
@@ -3159,6 +3506,19 @@ hir::HirExprId HirLowerModern::lowerStructLiteral(const frontend::Expression &ex
     return addExpr(std::move(lit));
 }
 
+hir::HirExprId HirLowerModern::lowerPackLiteral(const frontend::Expression &expr,
+                                                const types::TypeId type) {
+    hir::HirStructLiteral lit(arena_);
+    lit.type = type;
+    for (const auto operand : expr.operands) {
+        const auto value = lowerExpr(operand);
+        if (value == hir::kInvalidHirExpr)
+            return hir::kInvalidHirExpr;
+        lit.values.push(value);
+    }
+    return addExpr(std::move(lit));
+}
+
 hir::HirExprId HirLowerModern::lowerArrayLiteral(const frontend::Expression &expr,
                                                  const types::TypeId type) {
     hir::HirArrayLiteral lit(arena_);
@@ -3253,6 +3613,12 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                 }
             }
             init = lowerCoerceToSliceIfArray(type, statement.binding.initializer, init);
+            const sema::modern::TypeId binding_sema =
+                semaTypeOfLocal(statement.binding.id);
+            if (binding_sema != sema::modern::kInvalidTypeId &&
+                sema_.typeTable().kindOf(binding_sema) == sema::modern::TypeKind::Dyn)
+                init = lowerCoerceToDyn(binding_sema, statement.binding.initializer, init,
+                                        binding_sema);
             if (init != hir::kInvalidHirExpr) {
                 const auto store = emitSlotStore(slot, init);
                 if (defer_body_sink_ != nullptr)
@@ -3321,6 +3687,9 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
             }
             value =
                 lowerCoerceToSliceIfArray(current_fn_->return_type, statement.expression, value);
+            if (current_fn_return_sema_type_ != sema::modern::kInvalidTypeId)
+                value = lowerCoerceToDyn(current_fn_return_sema_type_, statement.expression, value,
+                                         current_fn_return_sema_type_);
             ret.value = value;
         }
         if (!statement.expression && current_main_void_) {

@@ -1455,6 +1455,23 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
         case cache::CompactTypeKind::Failable:
             compact_type_ids[i] = mTypes.internFailable(compactType(ct.ref0));
             break;
+        case cache::CompactTypeKind::Pack: {
+            std::vector<types::TypeId> members;
+            members.reserve(ct.args.size());
+            for (const auto id : ct.args)
+                members.push_back(compactType(id));
+            std::vector<std::string_view> names;
+            names.reserve(ct.arg_names.size());
+            for (const auto id : ct.arg_names)
+                names.push_back(art.strings[id]);
+            compact_type_ids[i] = mTypes.internPack(members, names);
+            break;
+        }
+        case cache::CompactTypeKind::Dyn: {
+            const auto target = compactType(ct.ref0);
+            compact_type_ids[i] = mTypes.internDyn(target, ct.ref1);
+            break;
+        }
         case cache::CompactTypeKind::Slice:
             compact_type_ids[i] = mTypes.internSlice(compactType(ct.ref0));
             break;
@@ -1793,8 +1810,42 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             expr          = std::move(cleanup);
             break;
         }
+        case cache::CompactExprKind::MakeDyn: {
+            hir::HirMakeDyn make;
+            make.value       = ce.ref_a;
+            make.source_type = compactType(ce.ref_b);
+            make.dyn_type    = compactType(ce.type_id);
+            make.vtable_name = mInterner->intern(art.strings[ce.name_id]);
+            expr             = std::move(make);
+            break;
+        }
+        case cache::CompactExprKind::DynCall: {
+            memory::DynArray<hir::HirExprId> args(mHirArena);
+            for (auto id : ce.args)
+                args.push(id);
+            memory::DynArray<types::TypeId> arg_types(mHirArena);
+            for (auto id : ce.arg_types)
+                arg_types.push(compactType(id));
+            hir::HirDynCall call(mHirArena);
+            call.receiver    = ce.ref_a;
+            call.vtable_name = mInterner->intern(art.strings[ce.name_id]);
+            call.slot_index  = ce.ref_c;
+            call.result_type = compactType(ce.type_id);
+            call.fn_type     = compactType(ce.ref_e);
+            call.args        = std::move(args);
+            call.arg_types   = std::move(arg_types);
+            call.has_receiver = (ce.flags & 1U) != 0;
+            expr             = std::move(call);
+            break;
+        }
         }
         mHirModule.addExpr(std::move(expr));
+    }
+
+    for (const auto &cv : art.vtables) {
+        auto &vtable = mHirModule.addVTable(mInterner->intern(art.strings[cv.name_id]));
+        for (const auto sym : cv.slot_sym_ids)
+            vtable.slots.push(static_cast<symbols::SymId>(sym));
     }
 
     symbols::SymId next_sym = 1;

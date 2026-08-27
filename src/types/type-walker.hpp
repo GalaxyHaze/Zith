@@ -24,6 +24,7 @@ template <typename F> void walkSubTypes(const TypeData &data, F &&fn) {
                         [&](const TypeNominal &n) { fn(n.target); },
                         [&](const TypeQualified &q) { fn(q.inner); },
                         [&](const TypeTrait &) {},
+                        [&](const TypeDyn &d) { fn(d.target); },
                         [&](const TypeSlice &s) { fn(s.elem); },
                         [&](const TypePack &p) {
                             for (size_t i = 0; i < p.count; i++)

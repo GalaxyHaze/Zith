@@ -46,6 +46,8 @@ enum class HirExprKind : uint8_t {
     StateTailCall,
     Cleanup,
     GlobalConstLoad,
+    MakeDyn,
+    DynCall,
 };
 
 enum class HirBinaryOp : uint8_t {
@@ -317,12 +319,41 @@ struct HirGlobalConstLoad {
     HirExprKind tag = HirExprKind::GlobalConstLoad;
 };
 
+/// Materialises a `dyn Trait` fat pointer from a concrete aggregate value.
+/// The vtable stores only the trait/interface method requirements; interface
+/// fields are accessed through the data pointer before the value is erased.
+struct HirMakeDyn {
+    HirExprId value      = hir::kInvalidHirExpr;
+    HirTypeId source_type = types::kInvalidType;
+    HirTypeId dyn_type    = types::kInvalidType;
+    memory::InternedId vtable_name{};
+    HirExprKind tag = HirExprKind::MakeDyn;
+};
+
+/// Indirect call through a `dyn` vtable slot. The receiver is the full fat
+/// pointer emitted by `HirMakeDyn`; codegen extracts the data pointer,
+/// indexes the vtable global and calls the loaded function pointer.
+struct HirDynCall {
+    HirExprId receiver    = hir::kInvalidHirExpr;
+    memory::InternedId vtable_name{};
+    uint32_t slot_index   = 0;
+    bool has_receiver     = true;
+    HirTypeId result_type = types::kInvalidType;
+    types::TypeId fn_type = types::kInvalidType;
+    memory::DynArray<HirExprId> args;
+    memory::DynArray<types::TypeId> arg_types;
+    HirExprKind tag = HirExprKind::DynCall;
+
+    explicit HirDynCall(memory::Arena &arena) : args(arena), arg_types(arena) {}
+};
+
 using HirExpr =
     std::variant<HirLiteral, HirBinary, HirUnary, HirLet, HirVar, HirCall, HirRet, HirBranch,
                  HirJump, HirPhi, HirAssign, HirIndex, HirField, HirStructLiteral, HirArrayLiteral,
                  HirEnumValue, HirSlotAlloca, HirSlotStore, HirSlotLoad, HirSlotAddr, HirMakeNone,
                  HirMakeSome, HirMakeSlice, HirCast, HirUnionCast, HirUnionCheck,
-                 HirLayoutIntrinsic, HirStateTailCall, HirCleanup, HirGlobalConstLoad>;
+                 HirLayoutIntrinsic, HirStateTailCall, HirCleanup, HirGlobalConstLoad, HirMakeDyn,
+                 HirDynCall>;
 
 inline HirExprKind exprKind(const HirExpr &expr) {
     return std::visit([](const auto &entry) { return entry.tag; }, expr);

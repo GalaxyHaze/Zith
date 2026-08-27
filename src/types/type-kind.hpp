@@ -102,6 +102,10 @@ struct TypeNominal {
 struct TypeTrait {
     memory::InternedId name;
 };
+struct TypeDyn {
+    TypeId target;
+    size_t method_count = 0;
+};
 struct TypeOpaque {};
 struct TypeUnknown {};
 struct TypeQualified {
@@ -140,7 +144,7 @@ struct TypeIncomplete {
 using TypeData =
     std::variant<TypeError, TypeNever, TypeVoid, TypeBool, TypeChar, TypeInt, TypeFloat, TypePtr,
                  TypeArray, TypeStruct, TypeFn, TypeTypeVar, TypeOptional, TypeFailable, TypeAlias,
-                 TypeNominal, TypeTrait, TypeOpaque, TypeUnknown, TypeQualified, TypeSlice,
+                 TypeNominal, TypeTrait, TypeDyn, TypeOpaque, TypeUnknown, TypeQualified, TypeSlice,
                  TypeEnum, TypeUnion, TypePack, TypeSum, TypeGenericParam, TypeIncomplete>;
 
 enum class TypeKind : uint8_t {
@@ -166,6 +170,7 @@ enum class TypeKind : uint8_t {
     Union,
     Pack,
     Sum,
+    Dyn,
     GenericParam,
     Incomplete,
     String,

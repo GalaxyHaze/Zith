@@ -94,6 +94,7 @@ private:
     const comptime::InstantiationInstance *current_instance_         = nullptr;
     hir::HirFunction *current_fn_                                    = nullptr;
     frontend::ScopeId info_decl_parent_scope_;
+    sema::modern::TypeId current_fn_return_sema_type_ = sema::modern::kInvalidTypeId;
     bool current_fn_is_state_          = false;
     uint32_t current_state_machine_id_ = 0;
     size_t current_block_              = 0;
@@ -192,12 +193,18 @@ private:
     /// Emits `HirMakeSlice` with statically-known `[0, N]` bounds.
     hir::HirExprId lowerCoerceToSliceIfArray(types::TypeId target, frontend::ExprId expression,
                                              hir::HirExprId value);
+    /// Converts a concrete aggregate to a `dyn Trait`/`dyn Interface` fat
+    /// pointer, materialising the vtable for the concrete source type if the
+    /// pairing has not been emitted before.
+    hir::HirExprId lowerCoerceToDyn(sema::modern::TypeId target, frontend::ExprId expression,
+                                    hir::HirExprId value, sema::modern::TypeId target_sema);
     hir::HirExprId lowerField(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerArrow(const frontend::Expression &expr, types::TypeId type);
     /// When `operand` is a Name that resolves to an enum declaration and `variant` is a
     /// known variant, returns its discriminant; nullopt otherwise (no diagnostics).
     memory::Optional<int64_t> enumVariantValue(frontend::ExprId operand, std::string_view variant);
     hir::HirExprId lowerStructLiteral(const frontend::Expression &expr, types::TypeId type);
+    hir::HirExprId lowerPackLiteral(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerArrayLiteral(const frontend::Expression &expr, types::TypeId type);
     frontend::ExprId lowerFieldDefault(std::string_view struct_name,
                                        size_t field_index) const noexcept;

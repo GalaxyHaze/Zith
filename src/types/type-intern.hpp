@@ -83,6 +83,7 @@ public:
     TypeId internPack(std::span<const TypeId> members, std::span<const std::string_view> names);
     TypeId internSum(std::span<const TypeId> members);
     TypeId internSum(memory::DynArray<TypeId> &members);
+    TypeId internDyn(TypeId target, size_t method_count = 0);
     TypeId internGenericParam(uint32_t decl_id, uint32_t param_index);
     TypeId internIncomplete(TypeId base, memory::DynArray<TypeId> &args);
     TypeId internIncomplete(TypeId base, std::span<const TypeId> args);
@@ -102,6 +103,11 @@ public:
     bool hasField(TypeId struct_type, std::string_view name);
     TypeId fieldType(TypeId struct_type, std::string_view name);
     size_t fieldIndex(TypeId struct_type, std::string_view name) const;
+    /// Pack members have the same aggregate shape as a struct for HIR and
+    /// codegen; the helpers below accept both `TypeStruct` and `TypePack`.
+    size_t memberCount(TypeId type) const;
+    StructField memberAt(TypeId type, size_t index) const;
+    int memberIndex(TypeId type, std::string_view name) const;
 
     TypeId defineEnum(std::string_view name, TypeId underlying);
     void setEnumUnderlying(TypeId enum_type, TypeId underlying);

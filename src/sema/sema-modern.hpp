@@ -286,6 +286,7 @@ private:
     memory::Optional<TypeId> enumVariantType(frontend::ExprId operand, std::string_view variant,
                                              frontend::TextSpan span);
     TypeId inferStructLiteral(frontend::ExprId id);
+    TypeId inferPackLiteral(frontend::ExprId id);
     /// Infers `Union { member }`, the positional construction syntax for a
     /// raw union's first/selected member storage.
     TypeId inferUnionLiteral(frontend::ExprId id, TypeId union_tid, const UnionType &union_data);
@@ -315,6 +316,9 @@ private:
     TypeId inferWhen(frontend::ExprId id);
     TypeId inferRange(frontend::ExprId id);
     TypeId inferLayoutIntrinsic(frontend::ExprId id);
+    /// Resolves a method call on a `dyn Trait` / `dyn Interface` receiver.
+    TypeId inferDynMethodCall(const frontend::Expression &call,
+                              const frontend::Expression &callee, TypeId dyn_type);
 
     /// Resolved method declaration plus the module that owns it. Method
     /// ownership matters at call lowering: imported methods live in the

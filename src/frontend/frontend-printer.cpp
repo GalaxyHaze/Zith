@@ -93,6 +93,8 @@ namespace {
         return "Index";
     case ExprKind::SliceRange:
         return "SliceRange";
+    case ExprKind::PackLiteral:
+        return "PackLiteral";
     case ExprKind::Field:
         return "Field";
     case ExprKind::Arrow:

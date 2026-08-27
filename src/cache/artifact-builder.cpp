@@ -173,7 +173,12 @@ CompactType ArtifactBuilder::convertType(types::TypeId id) {
                                out.args.push_back(internType(t.members[i]));
                            for (size_t i = 0; i < t.count; ++i)
                                out.arg_names.push_back(internString(interner_.lookup(t.names[i])));
-                           return CompactTypeKind::Struct; // packs encoded as struct
+                           return CompactTypeKind::Pack;
+                       },
+                       [&](const types::TypeDyn &t) {
+                           out.ref0 = internType(t.target);
+                           out.ref1 = static_cast<uint32_t>(t.method_count);
+                           return CompactTypeKind::Dyn;
                        },
                        [&](const types::TypeSum &t) {
                            for (size_t i = 0; i < t.count; ++i)
@@ -226,6 +231,7 @@ uint32_t ArtifactBuilder::internType(types::TypeId id) {
                        for (size_t i = 0; i < t.count; ++i)
                            (void)internType(t.members[i]);
                    },
+                   [&](const types::TypeDyn &t) { (void)internType(t.target); },
                    [&](const types::TypeSum &t) {
                        for (size_t i = 0; i < t.count; ++i)
                            (void)internType(t.members[i]);
@@ -456,6 +462,26 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                            out.name_id = internString(interner_.lookup(load.name));
                            out.type_id = internType(load.type);
                        },
+                       [&](const hir::HirMakeDyn &m) {
+                           out.kind    = CompactExprKind::MakeDyn;
+                           out.ref_a   = m.value;
+                           out.ref_b   = internType(m.source_type);
+                           out.type_id = internType(m.dyn_type);
+                           out.name_id = internString(interner_.lookup(m.vtable_name));
+                       },
+                       [&](const hir::HirDynCall &call) {
+                           out.kind    = CompactExprKind::DynCall;
+                           out.ref_a   = call.receiver;
+                           out.name_id = internString(interner_.lookup(call.vtable_name));
+                           out.ref_c   = call.slot_index;
+                           out.type_id = internType(call.result_type);
+                           out.ref_e   = internType(call.fn_type);
+                           for (auto arg : call.args)
+                               out.args.push_back(arg);
+                           for (auto arg_type : call.arg_types)
+                               out.arg_types.push_back(internType(arg_type));
+                           out.flags = call.has_receiver ? 1U : 0U;
+                       },
                    });
     return out;
 }
@@ -642,6 +668,14 @@ Artifact ArtifactBuilder::build(std::string_view canonical_path, std::string_vie
         cg.type_id   = internType(global.type);
         cg.init_expr = global.init;
         art.globals.push_back(std::move(cg));
+    }
+    for (size_t vi = 0; vi < hir_.getVTableCount(); ++vi) {
+        const auto &vtable = hir_.getVTable(vi);
+        CompactVTable cv;
+        cv.name_id = internString(interner_.lookup(vtable.name));
+        for (const auto sym : vtable.slots)
+            cv.slot_sym_ids.push_back(static_cast<uint32_t>(sym));
+        art.vtables.push_back(std::move(cv));
     }
 
     for (size_t slot = 0; slot < hir_.attrs().slotCount(); ++slot) {

@@ -225,6 +225,11 @@ void CodeGen::emit(hir::HirModule &hirModule, std::string_view moduleName) {
     for (size_t i = 0; i < hirModule.getFnCount(); i++)
         declareFn(hirModule.getFn(i));
 
+    // Vtables reference the declared function symbols and must be emitted after
+    // the first declaration pass so their constant initializers can bitcast the
+    // function pointers.
+    emitVtables(hirModule);
+
     // Second pass: emit bodies for non-extern functions
     for (size_t i = 0; i < hirModule.getFnCount(); i++) {
         auto &fn = hirModule.getFn(i);
@@ -268,6 +273,65 @@ void CodeGen::emitConstGlobals(hir::HirModule &hirModule) {
         } else {
             llvmGlobals[index]->setInitializer(initializer);
         }
+    }
+}
+
+void CodeGen::emitVtables(hir::HirModule &hirModule) {
+    CodeGenType typeGen(*ctx_, types_, &module_->getDataLayout());
+    for (size_t index = 0; index < hirModule.getVTableCount(); ++index) {
+        const auto &vtable = hirModule.getVTable(index);
+        const std::string name(interner_.lookup(vtable.name));
+        if (module_->getNamedGlobal(name) != nullptr)
+            continue;
+
+        llvm::SmallVector<llvm::Type *, 8> slot_types;
+        slot_types.reserve(vtable.slots.size());
+        for (size_t slot = 0; slot < vtable.slots.size(); ++slot) {
+            llvm::Function *fn = nullptr;
+            for (size_t fn_index = 0; fn_index < hirModule.getFnCount(); ++fn_index) {
+                const auto &hir_fn = hirModule.getFn(fn_index);
+                if (hir_fn.sym_id != vtable.slots[slot])
+                    continue;
+                const auto fn_name = interner_.lookup(hir_fn.name);
+                fn = module_->getFunction(llvm::StringRef(fn_name.data(), fn_name.size()));
+                break;
+            }
+            slot_types.push_back(fn != nullptr ? fn->getType()
+                                               : llvm::PointerType::get(*ctx_, 0));
+        }
+
+        auto *array_type = llvm::ArrayType::get(llvm::PointerType::get(*ctx_, 0),
+                                                std::max<size_t>(vtable.slots.size(), 1U));
+        auto *global = new llvm::GlobalVariable(
+            *module_, array_type, true, llvm::GlobalValue::InternalLinkage, nullptr,
+            llvm::StringRef(name.data(), name.size()));
+        if (vtable.slots.empty())
+            continue;
+
+        std::vector<llvm::Constant *> elements;
+        elements.reserve(vtable.slots.size());
+        for (size_t slot = 0; slot < vtable.slots.size(); ++slot) {
+            llvm::Function *fn = nullptr;
+            for (size_t fn_index = 0; fn_index < hirModule.getFnCount(); ++fn_index) {
+                const auto &hir_fn = hirModule.getFn(fn_index);
+                if (hir_fn.sym_id != vtable.slots[slot])
+                    continue;
+                const auto fn_name = interner_.lookup(hir_fn.name);
+                fn = module_->getFunction(llvm::StringRef(fn_name.data(), fn_name.size()));
+                break;
+            }
+            if (fn == nullptr) {
+                elements.push_back(llvm::ConstantPointerNull::get(
+                    llvm::PointerType::get(*ctx_, 0)));
+            } else {
+                elements.push_back(llvm::ConstantExpr::getBitCast(
+                    fn, llvm::PointerType::get(*ctx_, 0)));
+            }
+        }
+        while (elements.size() < std::max<size_t>(vtable.slots.size(), 1U))
+            elements.push_back(llvm::ConstantPointerNull::get(llvm::PointerType::get(*ctx_, 0)));
+        global->setInitializer(llvm::ConstantArray::get(array_type, elements));
+        (void)slot_types;
     }
 }
 

@@ -42,6 +42,8 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 return builder_.CreateLoad(typeGen_.lower(load.type), global);
             },
             [&](const hir::HirCall &call) { return emitCall(call, mod); },
+            [&](const hir::HirMakeDyn &make) { return emitMakeDyn(make, mod); },
+            [&](const hir::HirDynCall &call) { return emitDynCall(call, mod); },
             [&](const hir::HirRet &ret) { return emitRet(ret, mod); },
             [&](const hir::HirStateTailCall &tail) { return emitStateTailCall(tail, mod); },
             [&](const hir::HirCleanup &cleanup) { return emitCleanup(cleanup, mod); },
@@ -840,6 +842,79 @@ llvm::Value *CodeGenEmit::emitCall(const hir::HirCall &call, const hir::HirModul
     if (tailcc)
         llvm_call->setCallingConv(llvm::CallingConv::Tail);
     return llvm_call;
+}
+
+llvm::Value *CodeGenEmit::emitMakeDyn(const hir::HirMakeDyn &make, const hir::HirModule &mod) {
+    auto *value = emitExpr(make.value, mod);
+    if (!value)
+        return nullptr;
+
+    auto *dyn_type = typeGen_.lower(make.dyn_type);
+    if (!dyn_type || !dyn_type->isStructTy() ||
+        llvm::cast<llvm::StructType>(dyn_type)->getNumElements() != 2U)
+        return nullptr;
+
+    // Keep a stable address for the concrete aggregate. HIR uses memory slots
+    // for normal locals already, but literals and call/load expressions may be
+    // register values; spill them here so the data pointer outlives the call.
+    auto *storage = builder_.CreateAlloca(value->getType());
+    builder_.CreateStore(value, storage);
+    auto *data =
+        builder_.CreateBitCast(storage, llvm::PointerType::get(builder_.getContext(), 0));
+
+    const auto name = interner_.lookup(make.vtable_name);
+    auto *global =
+        module_ != nullptr
+            ? module_->getNamedGlobal(llvm::StringRef(name.data(), name.size()))
+            : nullptr;
+    if (global == nullptr)
+        return nullptr;
+    auto *data_field = builder_.CreateInsertValue(
+        llvm::UndefValue::get(dyn_type), data, {0U});
+    auto *vtable =
+        builder_.CreateBitCast(global, llvm::PointerType::get(builder_.getContext(), 0));
+    return builder_.CreateInsertValue(data_field, vtable, {1U});
+}
+
+llvm::Value *CodeGenEmit::emitDynCall(const hir::HirDynCall &call, const hir::HirModule &mod) {
+    auto *receiver = emitExpr(call.receiver, mod);
+    if (!receiver || !receiver->getType()->isStructTy())
+        return nullptr;
+
+    auto *data = builder_.CreateExtractValue(receiver, {0U});
+    auto *vtable = builder_.CreateExtractValue(receiver, {1U});
+    if (!vtable)
+        return nullptr;
+    auto *slot_addr = builder_.CreateGEP(
+        llvm::ArrayType::get(llvm::PointerType::get(builder_.getContext(), 0),
+                             std::max<size_t>(static_cast<size_t>(call.slot_index) + 1U, 1U)),
+        vtable, {builder_.getInt32(0), builder_.getInt32(static_cast<uint32_t>(call.slot_index))});
+    auto *fn_ptr =
+        builder_.CreateLoad(llvm::PointerType::get(builder_.getContext(), 0), slot_addr);
+    if (!fn_ptr)
+        return nullptr;
+
+    const auto *fn_type = std::get_if<types::TypeFn>(&types_.lookup(call.fn_type));
+    if (fn_type == nullptr)
+        return nullptr;
+    llvm::SmallVector<llvm::Type *, 8> param_types;
+    if (call.has_receiver)
+        param_types.push_back(llvm::PointerType::get(builder_.getContext(), 0));
+    for (size_t index = 0; index < fn_type->param_count; ++index)
+        param_types.push_back(typeGen_.lower(fn_type->params[index]));
+    auto *llvm_fn_type =
+        llvm::FunctionType::get(typeGen_.lower(call.result_type), param_types, false);
+
+    llvm::SmallVector<llvm::Value *, 8> args;
+    if (call.has_receiver)
+        args.push_back(data);
+    for (auto arg_id : call.args) {
+        auto *value = emitExpr(arg_id, mod);
+        if (!value)
+            return nullptr;
+        args.push_back(value);
+    }
+    return builder_.CreateCall(llvm_fn_type, fn_ptr, args);
 }
 
 llvm::Value *CodeGenEmit::emitRet(const hir::HirRet &ret, const hir::HirModule &mod) {

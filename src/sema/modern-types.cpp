@@ -134,11 +134,18 @@ TypeId TypeTable::internStruct(std::string_view name, memory::DynArray<TypeId> &
 
 int TypeTable::fieldIndex(TypeId struct_type, std::string_view name) const noexcept {
     const auto *entry = findEntry(struct_type);
-    if (entry == nullptr || entry->struct_ty == nullptr)
+    if (entry == nullptr)
         return -1;
-    const auto &names = entry->struct_ty->field_names;
-    for (size_t i = 0; i < names.size(); ++i) {
-        if (names[i] == name)
+    const auto *names = entry->struct_ty != nullptr ? &entry->struct_ty->field_names : nullptr;
+    if (names == nullptr) {
+        if (entry->pack_ty != nullptr)
+            names = &entry->pack_ty->names;
+    }
+    if (names == nullptr)
+        return -1;
+    const auto &name_list = *names;
+    for (size_t i = 0; i < name_list.size(); ++i) {
+        if (name_list[i] == name)
             return static_cast<int>(i);
     }
     return -1;
@@ -258,6 +265,13 @@ TypeId TypeTable::internPack(memory::DynArray<TypeId> &members,
     entry.pack_ty      = arena_->make<PackType>(PackType{type_storage, name_storage});
     entry.storage      = &type_storage;
     entry.name_storage = &name_storage;
+    return entry.id;
+}
+
+TypeId TypeTable::internDyn(TypeId target, size_t method_count) {
+    auto &entry         = pushEntry(EntryKind::Dyn);
+    entry.reported_kind = TypeKind::Dyn;
+    entry.dyn_ty        = arena_->make<DynType>(DynType{target, method_count});
     return entry.id;
 }
 
@@ -402,6 +416,10 @@ std::string TypeTable::typeToString(TypeId id) const {
         return "failable";
     case TypeKind::Pack:
         return "pack";
+    case TypeKind::Dyn:
+        if (const auto *dyn = this->dyn_type(resolved); dyn != nullptr)
+            return "dyn " + typeToString(dyn->target);
+        return "dyn";
     case TypeKind::Alias:
         if (const auto *alias = this->alias(resolved); alias != nullptr)
             return typeToString(alias->target);
@@ -508,6 +526,11 @@ const FailableType *TypeTable::failable(TypeId id) const noexcept {
 const PackType *TypeTable::pack(TypeId id) const noexcept {
     const auto *entry = findEntry(id);
     return entry && entry->kind == EntryKind::Pack ? entry->pack_ty : nullptr;
+}
+
+const DynType *TypeTable::dyn_type(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry && entry->kind == EntryKind::Dyn ? entry->dyn_ty : nullptr;
 }
 
 const AliasType *TypeTable::alias(TypeId id) const noexcept {
@@ -687,6 +710,21 @@ TypeId TypeTable::lowerTypeExprBare(const frontend::FrontendSnapshot &snapshot,
         // `raw opaque` is pointer-to-void. `void` is registered by PerModuleSema before any
         // type expression is lowered, so the lookup only fails on a table with no primitives.
         return internPointer(lookupNamed("void"));
+    case frontend::TypeExprKind::Pack: {
+        auto &members = makeTypeStorage();
+        auto &names   = makeStringStorage();
+        for (const auto &arg : type.arguments)
+            members.push(lowerTypeExpr(snapshot, arg));
+        for (const auto &name : type.member_names)
+            names.push(name);
+        if (names.size() != members.size())
+            return kInvalidTypeId;
+        return internPack(members, names);
+    }
+    case frontend::TypeExprKind::Dyn:
+        if (type.arguments.empty())
+            return kInvalidTypeId;
+        return internDyn(lowerTypeExpr(snapshot, type.arguments[0]));
     case frontend::TypeExprKind::Error:
         return kInvalidTypeId;
     }

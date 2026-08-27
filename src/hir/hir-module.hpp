@@ -56,10 +56,22 @@ struct HirGlobalConst {
     }
 };
 
+/// A vtable for one `(trait/interface, concrete type)` pairing. Slot order is
+/// exactly the trait/interface method requirement order used by `HirDynCall`.
+/// `slots` holds the HIR function symbol for the implementation/default method
+/// selected at lowering time.
+struct HirVTable {
+    memory::InternedId name{};
+    memory::DynArray<symbols::SymId> slots;
+
+    explicit HirVTable(memory::Arena &arena) : slots(arena) {}
+};
+
 class HirModule {
     memory::DynArray<HirExpr> exprs_;
     memory::DynArray<HirFunction> fns_;
     memory::DynArray<HirGlobalConst> globals_;
+    memory::DynArray<HirVTable> vtables_;
     HirAttrs attrs_;
 
 public:
@@ -75,6 +87,11 @@ public:
         return globals_.size();
     }
     const HirGlobalConst &getGlobalConst(size_t idx) const;
+    HirVTable &addVTable(memory::InternedId name);
+    size_t getVTableCount() const noexcept {
+        return vtables_.size();
+    }
+    const HirVTable &getVTable(size_t idx) const;
     const HirExpr &getExpr(HirExprId id) const;
     HirExpr &getExprMut(HirExprId id);
     [[nodiscard]] size_t exprCount() const noexcept {

@@ -55,6 +55,8 @@ private:
     llvm::Value *emitBinary(const hir::HirBinary &bin, const hir::HirModule &mod);
     llvm::Value *emitUnary(const hir::HirUnary &un, const hir::HirModule &mod);
     llvm::Value *emitCall(const hir::HirCall &call, const hir::HirModule &mod);
+    llvm::Value *emitMakeDyn(const hir::HirMakeDyn &make, const hir::HirModule &mod);
+    llvm::Value *emitDynCall(const hir::HirDynCall &call, const hir::HirModule &mod);
     llvm::Value *emitRet(const hir::HirRet &ret, const hir::HirModule &mod);
     llvm::Value *emitLet(const hir::HirLet &let, const hir::HirModule &mod);
     llvm::Value *emitVar(const hir::HirVar &var);

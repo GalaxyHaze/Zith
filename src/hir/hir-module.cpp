@@ -10,7 +10,7 @@ namespace zith::hir {
 namespace {} // namespace
 
 HirModule::HirModule(memory::Arena &arena)
-    : exprs_(arena), fns_(arena), globals_(arena), attrs_(arena) {}
+    : exprs_(arena), fns_(arena), globals_(arena), vtables_(arena), attrs_(arena) {}
 
 HirExprId HirModule::addExpr(HirExpr expr) {
     HirExprId id = static_cast<HirExprId>(exprs_.size());
@@ -46,6 +46,16 @@ const HirGlobalConst &HirModule::getGlobalConst(size_t idx) const {
     return globals_[idx];
 }
 
+HirVTable &HirModule::addVTable(memory::InternedId name) {
+    vtables_.emplace(exprs_.arena());
+    vtables_.back().name = name;
+    return vtables_.back();
+}
+
+const HirVTable &HirModule::getVTable(size_t idx) const {
+    return vtables_[idx];
+}
+
 size_t HirModule::getFnCount() const {
     return fns_.size();
 }
@@ -68,6 +78,22 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
         buffer += "\n";
     }
     if (!globals_.empty())
+        buffer += "\n";
+    for (const auto &vtable : vtables_) {
+        auto name = interner.lookup(vtable.name);
+        buffer += "vtable ";
+        buffer.append(name.data(), name.size());
+        buffer += "(";
+        for (size_t si = 0; si < vtable.slots.size(); ++si) {
+            if (si > 0)
+                buffer += ", ";
+            buffer += "<fn ";
+            buffer += std::to_string(static_cast<uint64_t>(vtable.slots[si]));
+            buffer += ">";
+        }
+        buffer += ")\n";
+    }
+    if (!vtables_.empty())
         buffer += "\n";
     for (size_t fi = 0; fi < fns_.size(); ++fi) {
         auto &fn     = fns_[fi];
@@ -325,6 +351,34 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                        buffer.append(n.data(), n.size());
                                        buffer += " : %t";
                                        buffer += std::to_string(g.type);
+                                   },
+                                   [&](const HirMakeDyn &m) {
+                                       auto n = interner.lookup(m.vtable_name);
+                                       buffer += "make_dyn %e";
+                                       buffer += std::to_string(m.value);
+                                       buffer += " : %t";
+                                       buffer += std::to_string(m.source_type);
+                                       buffer += " -> %t";
+                                       buffer += std::to_string(m.dyn_type);
+                                       buffer += " vtable ";
+                                       buffer.append(n.data(), n.size());
+                                   },
+                                   [&](const HirDynCall &call) {
+                                       auto n = interner.lookup(call.vtable_name);
+                                       buffer += "dyn_call %e";
+                                       buffer += std::to_string(call.receiver);
+                                       buffer += " [";
+                                       buffer += std::to_string(call.slot_index);
+                                       buffer += "] vtable ";
+                                       buffer.append(n.data(), n.size());
+                                       buffer += "(";
+                                       for (size_t ai = 0; ai < call.args.size(); ++ai) {
+                                           if (ai > 0)
+                                               buffer += ", ";
+                                           buffer += "%e";
+                                           buffer += std::to_string(call.args[ai]);
+                                       }
+                                       buffer += ")";
                                    },
                                });
                 buffer += "\n";

@@ -96,6 +96,13 @@ bool encodeCode(const cache::Artifact &artifact, ByteWriter &w) {
         w.writeU32(global.type_id);
         w.writeU32(global.init_expr);
     }
+    w.writeU32(static_cast<uint32_t>(artifact.vtables.size()));
+    for (const auto &vtable : artifact.vtables) {
+        w.writeU32(vtable.name_id);
+        w.writeU32(static_cast<uint32_t>(vtable.slot_sym_ids.size()));
+        for (auto id : vtable.slot_sym_ids)
+            w.writeU32(id);
+    }
     return true;
 }
 
@@ -164,6 +171,20 @@ bool decodeCode(ByteReader &r, cache::Artifact &out) {
         if (!r.readU32(global.name_id) || !r.readU32(global.type_id) ||
             !r.readU32(global.init_expr))
             return false;
+    if (!r.readU32(n))
+        return false;
+    out.vtables.resize(n);
+    for (auto &vtable : out.vtables) {
+        if (!r.readU32(vtable.name_id))
+            return false;
+        uint32_t k = 0;
+        if (!r.readU32(k))
+            return false;
+        vtable.slot_sym_ids.resize(k);
+        for (auto &id : vtable.slot_sym_ids)
+            if (!r.readU32(id))
+                return false;
+    }
     return true;
 }
 

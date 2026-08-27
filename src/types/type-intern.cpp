@@ -26,16 +26,17 @@ TypeKind kindFromIndex(size_t idx) {
         TypeKind::Alias,        // TypeAlias      → 14
         TypeKind::Nominal,      // TypeNominal    → 15
         TypeKind::Trait,        // TypeTrait      → 16
-        TypeKind::Opaque,       // TypeOpaque     → 17
-        TypeKind::Unknown,      // TypeUnknown    → 18
-        TypeKind::Qualified,    // TypeQualified  → 19
-        TypeKind::Slice,        // TypeSlice      → 20
-        TypeKind::Enum,         // TypeEnum       → 21
-        TypeKind::Union,        // TypeUnion      → 22
-        TypeKind::Pack,         // TypePack       → 23
-        TypeKind::Sum,          // TypeSum        → 24
-        TypeKind::GenericParam, // TypeGenericParam → 25
-        TypeKind::Incomplete,   // TypeIncomplete → 26
+        TypeKind::Dyn,          // TypeDyn        → 17
+        TypeKind::Opaque,       // TypeOpaque     → 18
+        TypeKind::Unknown,      // TypeUnknown    → 19
+        TypeKind::Qualified,    // TypeQualified  → 20
+        TypeKind::Slice,        // TypeSlice      → 21
+        TypeKind::Enum,         // TypeEnum       → 22
+        TypeKind::Union,        // TypeUnion      → 23
+        TypeKind::Pack,         // TypePack       → 24
+        TypeKind::Sum,          // TypeSum        → 25
+        TypeKind::GenericParam, // TypeGenericParam → 26
+        TypeKind::Incomplete,   // TypeIncomplete → 27
     };
     return (idx < std::size(map)) ? map[idx] : TypeKind::Error;
 }
@@ -78,6 +79,9 @@ bool typeDataEqual(const TypeData &a, const TypeData &b) {
                 return na.name == nb.name && na.target == nb.target;
             },
             [](const TypeTrait &ta, const TypeTrait &tb) { return ta.name == tb.name; },
+            [](const TypeDyn &da, const TypeDyn &db) {
+                return da.target == db.target && da.method_count == db.method_count;
+            },
             [](const TypeQualified &qa, const TypeQualified &qb) {
                 return qa.inner == qb.inner && qa.ownership == qb.ownership && qa.isMut == qb.isMut;
             },
@@ -178,6 +182,10 @@ size_t TypeIntern::computeHash(const TypeData &data) {
                       h = hashCombine(h, n.target);
                   },
                   [&](const TypeTrait &t) { h = hashCombine(h, t.name); },
+                  [&](const TypeDyn &d) {
+                      h = hashCombine(h, d.target);
+                      h = hashCombine(h, d.method_count);
+                  },
                   [&](const TypeQualified &q) {
                       h = hashCombine(h, q.inner);
                       h = hashCombine(h, static_cast<size_t>(q.ownership));
@@ -364,6 +372,10 @@ TypeId TypeIntern::internSum(std::span<const TypeId> members) {
     return intern(TypeSum{m, count});
 }
 
+TypeId TypeIntern::internDyn(TypeId target, size_t method_count) {
+    return intern(TypeDyn{target, method_count});
+}
+
 TypeId TypeIntern::internSum(memory::DynArray<TypeId> &members) {
     return intern(TypeSum{members.data(), members.size()});
 }
@@ -449,6 +461,38 @@ size_t TypeIntern::fieldIndex(TypeId struct_type, std::string_view name) const {
         if (interner_.lookup(def.fields[i].name) == name)
             return i;
     return static_cast<size_t>(-1);
+}
+
+size_t TypeIntern::memberCount(TypeId type) const {
+    if (type == kErrorType || type == kInvalidType)
+        return 0;
+    if (const auto *st = std::get_if<TypeStruct>(&types_[type])) {
+        (void)st;
+        return getStructDef(type).fields.size();
+    }
+    if (const auto *pack = std::get_if<TypePack>(&types_[type]))
+        return pack->count;
+    return 0;
+}
+
+StructField TypeIntern::memberAt(TypeId type, size_t index) const {
+    if (const auto *pack = std::get_if<TypePack>(&types_[type])) {
+        static const StructField empty{};
+        if (index >= pack->count)
+            return empty;
+        return StructField{pack->names[index], pack->members[index]};
+    }
+    return getField(type, index);
+}
+
+int TypeIntern::memberIndex(TypeId type, std::string_view name) const {
+    const auto count = memberCount(type);
+    for (size_t i = 0; i < count; ++i) {
+        const auto member = memberAt(type, i);
+        if (interner_.lookup(member.name) == name)
+            return static_cast<int>(i);
+    }
+    return -1;
 }
 
 TypeId TypeIntern::defineEnum(std::string_view name, TypeId underlying) {

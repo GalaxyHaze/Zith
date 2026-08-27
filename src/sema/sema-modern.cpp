@@ -1158,6 +1158,71 @@ TypeId PerModuleSema::lowerBareTypeExpr(const frontend::TypeExpression &type) {
         // `raw opaque` is the only accepted spelling of an untyped pointer; a literally
         // written `*void` is still rejected above, via TypeExprKind::Pointer.
         return type_table.internPointer(void_type);
+    case frontend::TypeExprKind::Pack: {
+        if (type.member_names.size() != type.arguments.size()) {
+            report(type.span, "pack type members must be named", diagnostics::err::TypeMismatch);
+            return error_type;
+        }
+        auto &members = type_table.makeTypeStorage();
+        auto &names   = type_table.makeStringStorage();
+        for (const auto &arg : type.arguments)
+            members.push(lowerTypeExpr(arg));
+        for (const auto &name : type.member_names)
+            names.push(name);
+        for (size_t i = 0; i < names.size(); ++i)
+            for (size_t j = i + 1U; j < names.size(); ++j)
+                if (names[i] == names[j]) {
+                    report(type.span, "duplicate pack member name '" + std::string(names[i]) + "'",
+                           diagnostics::err::TypeMismatch);
+                    return error_type;
+                }
+        return type_table.internPack(members, names);
+    }
+    case frontend::TypeExprKind::Dyn: {
+        if (type.arguments.empty())
+            return error_type;
+        const TypeId target = resolve(lowerTypeExpr(type.arguments[0]));
+        const auto *tr      = type_table.trait(target);
+        if (tr == nullptr) {
+            report(type.span, "'dyn' target must be a trait or interface",
+                   diagnostics::err::TypeMismatch);
+            return error_type;
+        }
+        const frontend::Declaration *decl =
+            findDeclNamed(tr->name,
+                          findDeclNamed(tr->name, frontend::DeclKind::Interface) != nullptr
+                              ? frontend::DeclKind::Interface
+                              : frontend::DeclKind::Trait);
+        const bool is_iface =
+            findDeclNamed(tr->name, frontend::DeclKind::Interface) != nullptr;
+        size_t methods = 0;
+        if (decl != nullptr) {
+            for (const auto &candidate : snapshot.declarations()) {
+                if (candidate.kind == frontend::DeclKind::Function &&
+                    candidate.ownerName == tr->name && candidate.name != "self")
+                    ++methods;
+            }
+            if (owner != nullptr) {
+                for (const auto &artifact : owner->modules()) {
+                    if (artifact->frontend == nullptr || artifact->key == module)
+                        continue;
+                    for (const auto &candidate : artifact->frontend->declarations()) {
+                        if (candidate.kind == frontend::DeclKind::Function &&
+                            candidate.ownerName == tr->name)
+                            ++methods;
+                    }
+                }
+            }
+        }
+        if (methods == 0) {
+            report(type.span,
+                   is_iface ? "'dyn Interface' requires at least one method requirement"
+                            : "'dyn Trait' requires at least one method requirement",
+                   diagnostics::err::TypeMismatch);
+            return error_type;
+        }
+        return type_table.internDyn(target, methods);
+    }
     case frontend::TypeExprKind::Error:
         return kInvalidTypeId;
     }
@@ -1657,6 +1722,9 @@ TypeId PerModuleSema::inferExpr(frontend::ExprId id) {
         break;
     case frontend::ExprKind::StructLiteral:
         result = inferStructLiteral(id);
+        break;
+    case frontend::ExprKind::PackLiteral:
+        result = inferPackLiteral(id);
         break;
     case frontend::ExprKind::ArrayLiteral:
         result = inferArrayLiteral(id);
@@ -2522,6 +2590,10 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
             pointee = resolve(opt->inner);
     }
 
+    const TypeId resolved_base = resolve(base_type);
+    if (type_table.kindOf(resolved_base) == TypeKind::Dyn)
+        return inferDynMethodCall(call, callee, resolved_base);
+
     const StructType *st = type_table.struct_type(pointee);
     if (st == nullptr && type_table.kindOf(pointee) == TypeKind::GenericParam) {
         // A generic parameter is only callable as `T.method()` when one of its
@@ -2668,6 +2740,90 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         return error_type;
     }
     return resolveStructMethodCall(call, callee, qualified, base_type, pointee, is_pointer);
+}
+
+TypeId PerModuleSema::inferDynMethodCall(const frontend::Expression &call,
+                                         const frontend::Expression &callee,
+                                         TypeId dyn_type) {
+    const auto *dyn = type_table.dyn_type(dyn_type);
+    if (dyn == nullptr)
+        return kInvalidTypeId;
+    const TypeId target = resolve(dyn->target);
+    const auto *trait_ty = type_table.trait(target);
+    if (trait_ty == nullptr)
+        return kInvalidTypeId;
+
+    const auto findMethod = [&](const frontend::FrontendSnapshot &snap,
+                                session::ModuleKey snap_module,
+                                const frontend::Declaration **out_decl,
+                                session::ModuleKey *out_module) {
+        for (const auto &decl : snap.declarations()) {
+            if (decl.kind != frontend::DeclKind::Function || decl.ownerName != trait_ty->name ||
+                decl.name != callee.text)
+                continue;
+            *out_decl  = &decl;
+            *out_module = snap_module;
+            return true;
+        }
+        return false;
+    };
+
+    const frontend::Declaration *method_decl = nullptr;
+    session::ModuleKey method_module;
+    if (findMethod(snapshot, module, &method_decl, &method_module)) {
+        // already set below through the general local-first path.
+    } else if (owner != nullptr) {
+        for (const auto &artifact_ptr : owner->modules()) {
+            const auto &artifact = *artifact_ptr;
+            if (artifact.frontend == nullptr || artifact.key == module)
+                continue;
+            if (findMethod(*artifact.frontend, artifact.key, &method_decl, &method_module))
+                break;
+        }
+    }
+    if (method_decl == nullptr) {
+        report(call.span,
+               "dyn type '" + type_table.typeToString(target) + "' has no method '" +
+                   callee.text + "'",
+               diagnostics::err::NoMember);
+        return error_type;
+    }
+
+    PerModuleSema *method_sema =
+        owner != nullptr ? owner->findModuleSema(method_module) : nullptr;
+    const TypeId method_type =
+        method_sema != nullptr ? method_sema->typeOfDecl(method_decl->id)
+                               : typeOfDecl(method_decl->id);
+    const auto *fn = type_table.function(method_type);
+    if (fn == nullptr)
+        return kInvalidTypeId;
+
+    const bool has_receiver =
+        !method_decl->parameters.empty() && method_decl->parameters.front().name == "self";
+    const size_t expected_args = has_receiver ? fn->params.size() - 1U : fn->params.size();
+    const size_t provided_args = call.operands.size() - 1U;
+    if (provided_args != expected_args) {
+        report(call.span, "method call arity mismatch", diagnostics::err::NoMatchingFn);
+        return error_type;
+    }
+
+    std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
+    for (size_t index = has_receiver ? 1U : 0U; index < fn->params.size(); ++index) {
+        const size_t arg_index = index + 1U;
+        if (arg_index < call.operands.size()) {
+            const TypeId arg_type = inferExpr(call.operands[arg_index]);
+            (void)checkOwnershipCoercion(call.operands[arg_index], fn->params[index],
+                                         seen_roots, call.span, true);
+            if (!coerceValue(call.operands[arg_index], fn->params[index], arg_type))
+                reportCoercionFailure(call.span, fn->params[index], arg_type,
+                                      "method call argument type mismatch",
+                                      diagnostics::err::NoMatchingFn);
+        }
+    }
+
+    setExprType(callee.id, method_type);
+    setResolvedCallTarget(callee.id, method_module, method_decl->id);
+    return fn->result;
 }
 
 std::string PerModuleSema::ownerNameOf(TypeId pointee) const {
@@ -3768,6 +3924,13 @@ bool PerModuleSema::coerceValue(frontend::ExprId value, TypeId target, TypeId so
         if (resolve(source) == null_type &&
             type_table.kindOf(resolve(target)) == TypeKind::Optional) {
             setExprType(value, target);
+        } else if (value && value.value <= snapshot.expressions().size() &&
+                   snapshot.expressions()[value.value - 1U].kind ==
+                       frontend::ExprKind::PackLiteral &&
+                   type_table.kindOf(resolve(target)) == TypeKind::Pack) {
+            // A pack literal gets the annotated pack type so HIR can inherit
+            // the declared member names for later field access.
+            setExprType(value, target);
         }
         return true;
     }
@@ -4283,6 +4446,19 @@ TypeId PerModuleSema::inferIndex(frontend::ExprId id) {
             if (const auto *pointer = type_table.pointer(resolved_object))
                 result = pointer->pointee;
             break;
+        case TypeKind::Pack: {
+            if (const auto *pack = type_table.pack(resolved_object)) {
+                int64_t index_value = 0;
+                if (!constantIntegerValue(expr.operands[1], index_value) ||
+                    index_value < 0 || static_cast<uint64_t>(index_value) >= pack->members.size()) {
+                    report(expr.span, "pack index is out of bounds or not a constant",
+                           diagnostics::err::TypeMismatch);
+                    return error_type;
+                }
+                result = pack->members[static_cast<size_t>(index_value)];
+            }
+            break;
+        }
         case TypeKind::Error:
             break;
         default:
@@ -4488,6 +4664,15 @@ TypeId PerModuleSema::inferField(frontend::ExprId id) {
     }
     const auto *st = type_table.struct_type(resolved);
     if (st == nullptr) {
+        if (const auto *pack = type_table.pack(resolved)) {
+            for (size_t index = 0; index < pack->names.size(); ++index) {
+                if (pack->names[index] == expr.text)
+                    return pack->members[index];
+            }
+            report(expr.span, "unknown pack member '" + expr.text + "'",
+                   diagnostics::err::NoMember);
+            return error_type;
+        }
         if (type_table.kindOf(resolved) == TypeKind::GenericParam) {
             for (const TypeId bound : boundsForGenericParam(resolved)) {
                 if (!isInterfaceType(bound))
@@ -4927,6 +5112,15 @@ TypeId PerModuleSema::inferStructLiteral(frontend::ExprId id) {
     return TypeId{resolved.intern_seq};
 }
 
+TypeId PerModuleSema::inferPackLiteral(frontend::ExprId id) {
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    auto &members    = type_table.makeTypeStorage();
+    auto &names      = type_table.makeStringStorage();
+    for (const auto operand : expr.operands)
+        members.push(inferExpr(operand));
+    return type_table.internPack(members, names);
+}
+
 TypeId PerModuleSema::inferUnionLiteral(frontend::ExprId id, TypeId union_tid,
                                         const UnionType &union_data) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
@@ -5223,7 +5417,13 @@ bool PerModuleSema::coercesTo(TypeId target, TypeId source) const noexcept {
         result = true;
     } else {
         const TypeId resolved_target = resolve(target);
-        if (type_table.kindOf(resolved_target) == TypeKind::Optional) {
+        if (type_table.kindOf(resolved_target) == TypeKind::Dyn) {
+            const auto *dyn = type_table.dyn_type(resolved_target);
+            if (dyn != nullptr)
+                result =
+                    satisfiesConformance(resolve(source), resolve(dyn->target)) &&
+                    type_table.struct_type(resolve(source)) != nullptr;
+        } else if (type_table.kindOf(resolved_target) == TypeKind::Optional) {
             if (resolve(source) == null_type) {
                 result = true;
             } else if (const auto *opt = type_table.optional(resolved_target)) {
@@ -5243,6 +5443,23 @@ bool PerModuleSema::coercesTo(TypeId target, TypeId source) const noexcept {
             const auto *array = type_table.array(resolved_source);
             result =
                 slice != nullptr && array != nullptr && sameType(slice->element, array->element);
+        }
+        // A positional pack literal coerces to a named pack when member types
+        // and arity match. Sema keeps the literal's empty name list so the
+        // binding's annotation supplies the field names to HIR.
+        if (!result && type_table.kindOf(resolved_target) == TypeKind::Pack) {
+            const auto *target_pack = type_table.pack(resolved_target);
+            const auto *source_pack = type_table.pack(resolved_source);
+            if (target_pack != nullptr && source_pack != nullptr &&
+                target_pack->members.size() == source_pack->members.size()) {
+                result = true;
+                for (size_t index = 0; index < target_pack->members.size(); ++index) {
+                    if (!sameType(target_pack->members[index], source_pack->members[index])) {
+                        result = false;
+                        break;
+                    }
+                }
+            }
         }
     }
     return result;
@@ -5314,6 +5531,17 @@ bool PerModuleSema::sameType(TypeId a, TypeId b) const noexcept {
         const auto *ab = type_table.array(resolved_b);
         return aa != nullptr && ab != nullptr && aa->size == ab->size &&
                sameType(aa->element, ab->element);
+    }
+    if (ka == TypeKind::Pack) {
+        const auto *pa = type_table.pack(resolved_a);
+        const auto *pb = type_table.pack(resolved_b);
+        if (pa == nullptr || pb == nullptr || pa->members.size() != pb->members.size())
+            return false;
+        for (size_t index = 0; index < pa->members.size(); ++index) {
+            if (!sameType(pa->members[index], pb->members[index]))
+                return false;
+        }
+        return true;
     }
     if (ka == TypeKind::Function) {
         const auto *fa = type_table.function(resolved_a);
