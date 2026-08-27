@@ -792,6 +792,12 @@ ModuleArtifactPtr FrontendContext::buildModule(
             artifact->imports.push_back(std::move(request));
             continue;
         }
+        // Methods live in the owner type's member table, not in the module
+        // namespace.  Keeping them out of top-level bindings prevents
+        // same-named methods on different structs/traits/interfaces from
+        // being reported as duplicate top-level declarations.
+        if (!declaration.ownerName.empty())
+            continue;
         if (declaration.kind == frontend::DeclKind::Error ||
             declaration.visibility == frontend::Visibility::Private)
             continue;
@@ -956,23 +962,29 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
             // Macros live in their own namespace, resolved during expansion.
             if (declaration.kind == frontend::DeclKind::Macro)
                 continue;
-            ResolvedName decl_binding{declaration.name,
-                                      ResolutionKind::Declaration,
-                                      declaration.span,
-                                      {module->key, frontend::SymbolId{declaration.id.value}},
-                                      declaration.id,
-                                      {},
-                                      {}};
-            decl_binding.declKind   = declaration.kind;
-            decl_binding.isExtern   = declaration.isExtern;
-            decl_binding.isVariadic = declaration.isVariadic;
-            if (declaration.kind == frontend::DeclKind::Variable)
-                decl_binding.bindingKind = declaration.bindingKind;
-            if (declaration.kind == frontend::DeclKind::Function) {
-                decl_binding.signature =
-                    frontend::functionSignature(*module->frontend, declaration);
+            // Method declarations are not module names: struct/trait/interface
+            // members are resolved through the owner's lookup table instead of
+            // the module scope. Their parameters must still be registered so
+            // the method body can resolve `self` and other named parameters.
+            if (declaration.ownerName.empty()) {
+                ResolvedName decl_binding{declaration.name,
+                                          ResolutionKind::Declaration,
+                                          declaration.span,
+                                          {module->key, frontend::SymbolId{declaration.id.value}},
+                                          declaration.id,
+                                          {},
+                                          {}};
+                decl_binding.declKind   = declaration.kind;
+                decl_binding.isExtern   = declaration.isExtern;
+                decl_binding.isVariadic = declaration.isVariadic;
+                if (declaration.kind == frontend::DeclKind::Variable)
+                    decl_binding.bindingKind = declaration.bindingKind;
+                if (declaration.kind == frontend::DeclKind::Function) {
+                    decl_binding.signature =
+                        frontend::functionSignature(*module->frontend, declaration);
+                }
+                add_binding(std::move(decl_binding), frontend::ScopeId{});
             }
-            add_binding(std::move(decl_binding), frontend::ScopeId{});
             // Parameters live in the scope of the function body block, so two
             // functions may reuse the same parameter name.
             frontend::ScopeId parameter_scope;

@@ -22,6 +22,9 @@ O AST modela bindings com `BindingKind`:
 - Rejeita `const name: T` (global ou local) sem inicializador.
 - Rejeita `const name: T` sem valor em struct fields.
 - Parseia `const X: T = value` em `parseStructField` e marca `Parameter.isConstField`.
+- Parseia `pub name: T`, `mod name: T`, `mod(N) name: T` e `mod(..) name: T` antes do nome do
+  field e regista `Parameter.visibility`/`Parameter.modDepth`; cada field sem prefixo fica
+  `Visibility::Private`. A forma aplica-se também a fields agrupados `[x, y]: T`.
 
 Qualificadores `mut`, `unique`, `share` e `belong` são parseados para recovery/formatter, mas emitem `E2010 UnsupportedSyntax`.
 
@@ -74,12 +77,29 @@ O acesso `self.field` auto-derefs um receiver implícito `*Owner`: `inferField` 
 quando o tipo do objeto é pointer, e `HirLowerModern::lowerField` emite um `HirUnaryOp::Deref`
 antes de ler/escrever o campo. `self->field` continua no caminho legacy e produz o mesmo acesso.
 
+`PerModuleSema::fieldVisible` aplica a visibilidade por field usando a `FieldMeta` paralela de
+`StructType` (owner, visibility e modDepth). `pub` é sempre visível; `Private` só dentro do
+ficheiro do struct; `mod`/`mod(N)`/`mod(..)` segue a mesma regra de profundidade de módulo usada
+para declarations. Esta regra é consultada por `inferField`, `inferArrow` e por ambos os caminhos
+de struct literal (genérico e concreto). Num literal, um field invisível é rejeitado com o mesmo
+diagnóstico de accessor privado e não é contado como field necessário; fields privados não
+participam na inferência de argumentos genéricos a partir de literais.
+
 `PerModuleSema` mantém `movedLocals_`, um dead-state lógico por corpo de função. Ao chamar um
 método com `self` implícito ou `var self`, `inferMethodCall` marca a raiz do receiver como movida;
 leituras posteriores do nome reportam `E4001 UseAfterMove` e escritas através de campos/índices
 do local movido também. Atribuir diretamente ao nome do local (o próprio root) revive a ligação.
 A exclusividade de `lend`/`view` está implementada no call site; o dead-state lógico de receivers
 e o comportamento pós-chamada de funções livres continuam como antes.
+
+`inferMethodCall` reconhece `p.Trait.method()` (AST `Call(Field(Field(p, Trait), method))`)
+antes da lookup normal. Quando o receiver é um struct que satisfaz a trait/interface nomeada,
+o nó intermediário `p.Trait` é marcado com o tipo concreto e o recebedor real é guardado em
+`TypedMap::traitQualifiedReceiverBase`; HIR baixa esse marker como o próprio base, sem emitir um
+field que não existe. A seleção de candidatos é então filtrada pelo trait: defaults do trait,
+requirements e métodos impl são considerados apenas nesse trait, e interfaces estruturais também
+aceitam o método concreto do owner que satisfaz a interface. Sem qualificação, `p.method()`
+mantém a seleção atual e continua reportando `E2008` quando dois traits expõem o mesmo nome.
 
 Discriminantes de enum são avaliados em `lowerDeclarationTypes`, não como literais fixos.
 O evaluator percorre recursivamente literais inteiros, unários `-`/`~`, binários aritméticos,
@@ -103,6 +123,20 @@ Referências por nome a um const global produzem `HirGlobalConstLoad` no lowerin
 `HirLowerModern::lowerExpr` descarta `OwnershipCoerce` e baixa o inner. Em calls, um argumento anotado é baixado como endereço do place: `lowerLValueAddr` para bindings/campos/índices, ou uma alloca temporária quando o operand não tem lvalue. O parâmetro `*lend T`/`*view T` já é baixado como ponteiro. Os slots de parâmetro carregam `HirOwnership::Lend`/`HirOwnership::View` via `NraFacts`, e `NraFacts::localOfArgument`/`ownershipOfArgument` descascam a anotação para continuar acumulando factas por call argument (`NraArgEscape::Borrow` por default).
 
 `checkAssignableOwnership` bloqueia escrita através de parâmetros `*view T` tanto no caminho arrow como no dot-member auto-deref, reportando `E4004`.
+
+### Optional em contexto booleano
+
+`booleanCondition` aceita `ExprKind::OptionalProp` sobre `?T` como `bool`: a condição é
+verdadeira quando o optional tem payload e falsa quando é null. Isto aplica-se a condições de
+`if`, `while` e `for (cond)`. Fora de condição, `x?` continua a ser o operador de propagação
+opcional e exige função de retorno `?T`; `let b: bool = x?` continua rejeitado. `x is null` e
+`not (x is null)` continuam a ser os únicos caminhos de narrowing de optional; não existe nesta
+iteração `?.` nem `?->`.
+
+`HirLowerModern::lowerOptionalBoolean` baixa `x?` de `?*T` para `Ne` contra `HirMakeNone` (niche
+de pointer) e `x?` de `?T` para leitura do discriminante em field index 1. Não gera o braço
+`return null` do lowering de propagação, pelo que não é preciso tipo de retorno opcional no
+contexto condicional.
 
 ## Codegen
 

@@ -1,30 +1,94 @@
 import "string.h"
 import "stdlib.h"
 
-pub struct string { 
-    data: ?*char = null, 
-    length: u64 = 0 
+pub struct string {
+    data: ?*char = null,
+    length: u64 = 0,
+}
+
+pub struct End {}
+
+pub union stringCharStep { End, char }
+
+pub struct stringIterator {
+    data: *char,
+    length: u64,
+    index: u64,
 }
 
 implement string {
-    
-    pub fn init(str: *char): Self { 
-        let len     = strlen(str);
-        let data    = malloc(len) as ?*char;
-        if (data is null){
-            abort();
-        }
-        memcpy(data, str, len);
-        string{data, len}; 
+    pub fn init(str: *char): ?Self {
+        let len = strlen(str)
+        var data: ?*char = malloc(len + 1) as ?*char
+        if (data is null) { return null }
+        strcpy(data, str)
+        string { data, len }
     }
 
     pub fn get(self: view string): view []char {
-        return raw self.data[0u64..self.length];
+        return raw self.data[0u64..self.length]
+    }
+
+    pub fn ptr(self: view string): ?*char {
+        return self.data
     }
 
     pub fn len(self: view string): u64 {
-        return self.length;
+        return self.length
     }
 
-    
+    pub fn empty(self: view string): bool {
+        return self.length == 0
+    }
+
+    pub fn iter(self: view string): stringIterator {
+        stringIterator { self.data, self.length, 0u64 }
+    }
+
+    pub fn at(self: view string, index: u64): ?char {
+        let chars = self.get()
+        if (index >= self.length) { return null }
+        return chars[index]
+    }
+
+    pub fn slice(self: view string, start: u64, end: u64): view []char {
+        return raw self.data[start..end]
+    }
+
+    pub fn equalsCString(self: view string, other: *char): bool {
+        return strcmp(self.data, other) == 0
+    }
+
+    pub fn startsWith(self: view string, other: *char): bool {
+        let plen = strlen(other)
+        if (plen > self.length) { return false }
+        return memcmp(self.data, other, plen) == 0
+    }
+
+    pub fn concat(self: view string, other: *char): ?Self {
+        let olen = strlen(other)
+        var data: ?*char = malloc(self.length + olen + 1) as ?*char
+        if (data is null) { return null }
+        strcpy(data, self.data)
+        strcat(data, other)
+        string { data, self.length + olen }
+    }
+
+    pub fn destroy(self: lend string) {
+        if (self.data is null) { return }
+        free(self.data)
+        self.data = null
+        self.length = 0
+    }
+}
+
+implement stringIterator {
+    pub fn next(var self): stringCharStep {
+        if (self.index >= self.length) {
+            return stringCharStep { End {} }
+        }
+        let c = self.data[self.index]
+        self.index = self.index + 1
+        return stringCharStep { c }
+    }
 }

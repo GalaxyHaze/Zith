@@ -688,14 +688,16 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     for (size_t index = 0; index < info.decl->parameters.size(); ++index) {
         const auto &parameter = info.decl->parameters[index];
         const auto slot       = localSlot(parameter.id);
+        current_fn_->param_slots.push(slot);
+        // The slot id is read by codegen from param_slots; publish attrs for
+        // parameters even when the function body never names them, because the
+        // ABI-level ownership decision depends on the parameter itself.
         if (nra_ != nullptr) {
             const auto *fact = nra_->localFact(parameter.id);
             if (fact != nullptr && fact->hasResidual()) {
                 auto &attrs     = hir_.attrs().slot(slot);
                 attrs.ownership = mapHirOwnership(fact->ownership);
                 attrs.nonNull   = fact->nonNull;
-                attrs.consumed  = fact->knownAlive ? hir::HirConsumedState::NonConsumed
-                                                   : hir::HirConsumedState::Consumed;
             }
         }
         current_fn_->blocks[0].insts.push(emitSlotAlloca(slot, current_fn_->params[index]));
@@ -710,8 +712,7 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     const auto body_expr = lowerExpr(info.decl->body);
     if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
         hir::HirRet ret;
-        const bool is_main_void = current_main_void_;
-        if (is_main_void) {
+        if (current_main_void_) {
             hir::HirLiteral zero;
             zero.type = types_.internInt(types::IntWidth::I32);
             zero.i    = 0;
@@ -1185,6 +1186,8 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
     case frontend::ExprKind::Assign:
         return lowerAssign(expr, type);
     case frontend::ExprKind::OptionalProp:
+        if (types_.kindOf(type) == types::TypeKind::Bool)
+            return lowerOptionalBoolean(expr);
         return lowerOptionalProp(expr, type);
     case frontend::ExprKind::Index:
         return lowerIndex(expr, type);
@@ -1422,6 +1425,10 @@ hir::HirExprId HirLowerModern::lowerLValueAddr(frontend::ExprId id) {
         return hir::kInvalidHirExpr;
     }
     if (expr.kind == frontend::ExprKind::Field || expr.kind == frontend::ExprKind::Index) {
+        if (current_types_ != nullptr && expr.kind == frontend::ExprKind::Field) {
+            if (const auto *base = current_types_->traitQualifiedReceiverBase.get(expr.id.value))
+                return lowerLValueAddr(frontend::ExprId{*base});
+        }
         const auto value = lowerExpr(id);
         if (value == hir::kInvalidHirExpr)
             return hir::kInvalidHirExpr;
@@ -1608,7 +1615,11 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
     memory::DynArray<types::TypeId> arg_types(arena_);
 
     if (is_receiver_method) {
-        const frontend::ExprId base_id = callee_expr.operands[0];
+        frontend::ExprId base_id = callee_expr.operands[0];
+        if (current_types_ != nullptr) {
+            if (const auto *base = current_types_->traitQualifiedReceiverBase.get(base_id.value))
+                base_id = frontend::ExprId{*base};
+        }
         // `->` passes a pointer value; `.` passes the address of a value
         // receiver. Pointer-valued bases passed through `.method()` also pass
         // the pointer itself, matching sema's method-call argument type.
@@ -1813,8 +1824,7 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
 
 hir::HirExprId HirLowerModern::lowerBlock(const frontend::Expression &expr) {
     cleanup_stack_.push_back(CleanupFrame(arena_));
-    const size_t frame_index = cleanup_stack_.size() - 1U;
-    hir::HirExprId last      = hir::kInvalidHirExpr;
+    hir::HirExprId last = hir::kInvalidHirExpr;
     for (const auto statement : expr.statements) {
         if (current_fn_->blocks[current_block_].terminator != hir::kInvalidHirExpr)
             break;
@@ -2445,6 +2455,38 @@ hir::HirExprId HirLowerModern::lowerOptionalProp(const frontend::Expression &exp
     return emitSlotLoad(result_slot, type);
 }
 
+/// `x?` used as a boolean condition means `x != null`. It lowers to the same
+/// tag/pointer test as `not (x is null)`, but must not synthesize the return
+/// path used by optional propagation.
+hir::HirExprId HirLowerModern::lowerOptionalBoolean(const frontend::Expression &expr) {
+    if (expr.operands.empty())
+        return hir::kInvalidHirExpr;
+    const auto operand = lowerExpr(expr.operands[0]);
+    if (operand == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+    const auto operand_type = typeOfExpr(expr.operands[0]);
+    if (types_.kindOf(operand_type) != types::TypeKind::Optional)
+        return hir::kInvalidHirExpr;
+
+    const auto *optional = std::get_if<types::TypeOptional>(&types_.lookup(operand_type));
+    const bool niche =
+        optional != nullptr && types_.kindOf(optional->inner) == types::TypeKind::Ptr;
+    if (niche) {
+        // ?*T uses nullptr as the None sentinel; non-null is the owned boolean.
+        hir::HirMakeNone none;
+        none.type = operand_type;
+        return addExpr(hir::HirBinary{operand, addExpr(std::move(none)), hir::HirBinaryOp::Ne,
+                                      types::kBoolType});
+    }
+
+    // {payload, tag} layout: spill, read the tag (index 1), use it directly as bool.
+    const auto slot = next_slot_++;
+    current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, operand_type));
+    current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, operand));
+    return addExpr(hir::HirField{addExpr(hir::HirSlotAddr{slot, operand_type}), 1U,
+                                 types::kBoolType, operand_type});
+}
+
 hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,
                                          const types::TypeId type) {
     if (expr.operands.empty())
@@ -2949,6 +2991,10 @@ hir::HirExprId HirLowerModern::lowerField(const frontend::Expression &expr,
                                           const types::TypeId type) {
     if (expr.operands.empty())
         return hir::kInvalidHirExpr;
+    if (current_types_ != nullptr) {
+        if (const auto *base = current_types_->traitQualifiedReceiverBase.get(expr.id.value))
+            return lowerExpr(frontend::ExprId{*base});
+    }
     // `console.println` where `console` is an import alias: the field expression resolves
     // to the imported symbol, so emit the same HirVar a plain name would produce and never
     // lower the alias base (which would fail to resolve 'console').

@@ -933,6 +933,47 @@ static void test_state_without_return_type_parses() {
     }
 }
 
+static void test_struct_field_visibility_parses() {
+    auto snapshot = frontend::parse("struct S {\n"
+                                    "    data: i32,\n"
+                                    "    pub open: i32,\n"
+                                    "    mod sibling: i32,\n"
+                                    "    mod(2) deep: i32,\n"
+                                    "    mod(..) universe: i32,\n"
+                                    "    [x, y]: i32,\n"
+                                    "}\n");
+    CHECK(snapshot.diagnostics().empty(), "field visibility prefixes parse cleanly");
+
+    const frontend::Declaration *decl = nullptr;
+    for (const auto &candidate : snapshot.declarations()) {
+        if (candidate.kind == frontend::DeclKind::Struct && candidate.name == "S") {
+            decl = &candidate;
+            break;
+        }
+    }
+    CHECK(decl != nullptr, "the struct declaration is present");
+    if (decl == nullptr)
+        return;
+    CHECK_EQ(decl->parameters.size(), 7u, "all fields retain their expanded parameters");
+    if (decl->parameters.size() != 7u)
+        return;
+    CHECK_EQ(decl->parameters[0].visibility, frontend::Visibility::Private,
+             "a field without a prefix is private");
+    CHECK_EQ(decl->parameters[1].visibility, frontend::Visibility::Public, "'pub' opens a field");
+    CHECK_EQ(decl->parameters[2].visibility, frontend::Visibility::Module,
+             "'mod' uses module visibility");
+    CHECK_EQ(decl->parameters[2].modDepth, 0, "'mod' defaults to depth zero");
+    CHECK_EQ(decl->parameters[3].visibility, frontend::Visibility::Module,
+             "'mod(2)' uses module visibility");
+    CHECK_EQ(decl->parameters[3].modDepth, 2, "'mod(2)' records its depth");
+    CHECK_EQ(decl->parameters[4].visibility, frontend::Visibility::Module,
+             "'mod(..)' uses module visibility");
+    CHECK_EQ(decl->parameters[4].modDepth, -1, "'mod(..)' records unlimited depth");
+    CHECK_EQ(decl->parameters[5].visibility, frontend::Visibility::Private,
+             "a grouped field without a prefix is private");
+    CHECK_EQ(decl->parameters[5].modDepth, 0, "grouped fields default to no module depth");
+}
+
 static void test_frontend() {
     test_lossless_trivia_and_spans();
     test_keywords_and_module_ast();
@@ -972,6 +1013,7 @@ static void test_frontend() {
     test_nested_state_declarations();
     test_defer_statement_syntax();
     test_state_without_return_type_parses();
+    test_struct_field_visibility_parses();
 }
 
 TEST_MAIN(frontend)

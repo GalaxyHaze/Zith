@@ -1494,7 +1494,7 @@ static void test_implement_block_method_runtime() {
 
 static void test_optional_method_after_is_null_runtime() {
     ModernFileCodegenTest t;
-    t.write("lib.zith", "pub struct Box { value: i32 }\n"
+    t.write("lib.zith", "pub struct Box { pub value: i32 }\n"
                         "implement Box {\n"
                         "    fn get(self: view Box): i32 { self.value }\n"
                         "}\n");
@@ -1513,7 +1513,7 @@ static void test_optional_method_after_is_null_runtime() {
 
 static void test_optional_method_after_not_is_null_runtime() {
     ModernFileCodegenTest t;
-    t.write("lib.zith", "pub struct Box { value: i32 }\n"
+    t.write("lib.zith", "pub struct Box { pub value: i32 }\n"
                         "implement Box {\n"
                         "    fn get(self: view Box): i32 { self.value }\n"
                         "}\n");
@@ -1528,6 +1528,53 @@ static void test_optional_method_after_not_is_null_runtime() {
     CHECK(r.usedModern, "not-is-null narrowing uses the modern codegen pipeline");
     CHECK(r.ok, "optional method after 'not (is null)' compiles, links and runs");
     CHECK_EQ(r.exitCode, 14, "the non-null optional payload reaches the guarded receiver");
+}
+
+static void test_optional_boolean_condition_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn non_null(): i32 {\n"
+                         "    let x: ?i32 = 7;\n"
+                         "    if (x?) { return 1; }\n"
+                         "    return 9;\n"
+                         "}\n"
+                         "fn null_value(): i32 {\n"
+                         "    let y: ?i32 = null;\n"
+                         "    if (y?) { return 9; }\n"
+                         "    return 0;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    if (non_null() != 1) { return 2; }\n"
+                         "    return null_value();\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "?T boolean condition uses the modern codegen pipeline");
+    CHECK(r.ok, "?T boolean conditions compile, link and run");
+    CHECK_EQ(r.exitCode, 0, "the non-null ?i32 branch runs and the null ?i32 branch does not");
+}
+
+static void test_optional_pointer_boolean_condition_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn non_null(): i32 {\n"
+                         "    let x: i32 = 9;\n"
+                         "    let q: ?*i32 = &x;\n"
+                         "    if (q?) { return 1; }\n"
+                         "    return 9;\n"
+                         "}\n"
+                         "fn null_value(): i32 {\n"
+                         "    let p: ?*i32 = null;\n"
+                         "    if (p?) { return 9; }\n"
+                         "    return 0;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    if (non_null() != 1) { return 2; }\n"
+                         "    return null_value();\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "?*T boolean condition uses the modern codegen pipeline");
+    CHECK(r.ok, "?*T boolean conditions compile, link and run");
+    CHECK_EQ(r.exitCode, 0, "the non-null ?*i32 branch runs and the null ?*i32 branch does not");
 }
 
 static void test_overloaded_functions_link_and_run() {
@@ -1910,6 +1957,10 @@ static void test_codegen() {
     test_overloaded_functions_link_and_run();
     printf("Running test_struct_field_read_through_parameter\n");
     test_struct_field_read_through_parameter();
+    printf("Running test_generic_bound_by_value_parameter_runs_without_borrow_attrs\n");
+    test_generic_bound_by_value_parameter_runs_without_borrow_attrs();
+    printf("Running test_interface_method_bound_runtime\n");
+    test_interface_method_bound_runtime();
     printf("Running test_duplicate_struct_field_names_do_not_collide_globally\n");
     test_duplicate_struct_field_names_do_not_collide_globally();
     printf("Running test_f32_literal_stores_in_32_width\n");
@@ -1960,6 +2011,10 @@ static void test_codegen() {
     test_optional_method_after_is_null_runtime();
     printf("Running test_optional_method_after_not_is_null_runtime\n");
     test_optional_method_after_not_is_null_runtime();
+    printf("Running test_optional_boolean_condition_runtime\n");
+    test_optional_boolean_condition_runtime();
+    printf("Running test_optional_pointer_boolean_condition_runtime\n");
+    test_optional_pointer_boolean_condition_runtime();
     printf("Running test_extern_variadic_call_runs\n");
     test_extern_variadic_call_runs();
     printf("Running test_c_default_arguments_and_string_escapes\n");

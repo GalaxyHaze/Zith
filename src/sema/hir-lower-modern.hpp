@@ -184,6 +184,7 @@ private:
     hir::HirExprId lowerFor(const frontend::Expression &expr);
     hir::HirExprId lowerForIn(const frontend::Expression &expr);
     hir::HirExprId lowerAssign(const frontend::Expression &expr, types::TypeId type);
+    hir::HirExprId lowerOptionalBoolean(const frontend::Expression &expr);
     hir::HirExprId lowerOptionalProp(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerIndex(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerSliceRange(const frontend::Expression &expr, types::TypeId type);

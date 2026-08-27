@@ -367,7 +367,7 @@ void test_pipeline_imported_state_machine_lowers() {
 
 void test_modern_imported_static_method_hir() {
     Workspace workspace;
-    workspace.write("lib.zith", "pub struct Box { value: i32 }\n"
+    workspace.write("lib.zith", "pub struct Box { pub value: i32 }\n"
                                 "implement Box {\n"
                                 "    fn make(v: i32): Box { Box { value: v } }\n"
                                 "}\n");
@@ -390,7 +390,7 @@ void test_modern_imported_static_method_hir() {
 
 void test_modern_imported_receiver_method_hir() {
     Workspace workspace;
-    workspace.write("lib.zith", "pub struct Counter { value: i32 }\n"
+    workspace.write("lib.zith", "pub struct Counter { pub value: i32 }\n"
                                 "implement Counter {\n"
                                 "    fn get(self: view Counter): i32 { self.value }\n"
                                 "}\n");
@@ -414,7 +414,7 @@ void test_modern_imported_receiver_method_hir() {
 
 void test_modern_imported_method_struct_literal_body_hir() {
     Workspace workspace;
-    workspace.write("lib.zith", "pub struct Box { value: i32 }\n"
+    workspace.write("lib.zith", "pub struct Box { pub value: i32 }\n"
                                 "implement Box {\n"
                                 "    fn make(v: i32): Box { Box { value: v } }\n"
                                 "}\n");
@@ -438,7 +438,7 @@ void test_modern_imported_method_struct_literal_body_hir() {
 
 void test_modern_optional_method_narrowing_hir() {
     Workspace workspace;
-    workspace.write("lib.zith", "pub struct Box { value: i32 }\n"
+    workspace.write("lib.zith", "pub struct Box { pub value: i32 }\n"
                                 "implement Box {\n"
                                 "    fn get(self: view Box): i32 { self.value }\n"
                                 "}\n");
@@ -485,7 +485,7 @@ void test_modern_optional_method_narrowing_hir() {
 
 void test_modern_optional_method_not_is_null_narrowing_hir() {
     Workspace workspace;
-    workspace.write("lib.zith", "pub struct Box { value: i32 }\n"
+    workspace.write("lib.zith", "pub struct Box { pub value: i32 }\n"
                                 "implement Box {\n"
                                 "    fn get(self: view Box): i32 { self.value }\n"
                                 "}\n");

@@ -379,7 +379,7 @@ functionKindPrefix(const FrontendSnapshot &snapshot, uint32_t &index, uint32_t t
 
 } // namespace
 
-[[nodiscard]] BindingKind bindingKind(const std::string_view word) noexcept {
+[[nodiscard]] static BindingKind bindingKind(const std::string_view word) noexcept {
     if (word == "let")
         return BindingKind::Let;
     if (word == "var")
@@ -1941,13 +1941,11 @@ private:
             }
             const uint32_t case_start = index_;
             ExprId condition;
-            bool is_default = false;
             if (punctuation(index_, '(')) {
                 ++index_;
                 if (text(index_) == "_" && punctuation(index_ + 1U, ')')) {
                     ++index_; // '_'
                     ++index_; // ')'
-                    is_default = true;
                     expression.conditions.push_back(ExprId{});
                 } else {
                     range_mode_ = true;
@@ -3300,6 +3298,42 @@ private:
     /// Parse one struct field (regular or grouped `[x, y]: T`). Returns false when
     /// the malformed field cannot be recovered inline and the body should stop.
     bool parseStructField(std::vector<Parameter> &out) {
+        Visibility field_visibility = Visibility::Private;
+        int32_t field_mod_depth     = 0;
+        if (isVisibilityPrefix()) {
+            const auto visibility_word = text(index_);
+            field_visibility = visibility_word == "pub" ? Visibility::Public : Visibility::Module;
+            ++index_;
+            if (field_visibility == Visibility::Module && punctuation(index_, '(')) {
+                const uint32_t depth_start = index_++;
+                if (punctuation(index_, '.') && punctuation(index_ + 1U, '.') &&
+                    punctuation(index_ + 2U, ')')) {
+                    field_mod_depth = -1;
+                    index_ += 3;
+                } else {
+                    std::int64_t depth = 0;
+                    if (snapshot_.tokens_[index_].kind == TokenKind::Literal &&
+                        support::parseIntegerLiteral(text(index_), depth) ==
+                            support::IntLiteralStatus::Ok &&
+                        depth >= std::numeric_limits<int32_t>::min() &&
+                        depth <= std::numeric_limits<int32_t>::max()) {
+                        field_mod_depth = static_cast<int32_t>(depth);
+                        ++index_;
+                    } else {
+                        snapshot_.diagnostics_.push_back(
+                            {tokenSpan(index_), "invalid mod depth for struct field"});
+                    }
+                    if (!punctuation(index_, ')')) {
+                        snapshot_.diagnostics_.push_back(
+                            {range(depth_start, index_),
+                             "expected ')' after struct field module depth"});
+                    } else {
+                        ++index_;
+                    }
+                }
+            }
+        }
+
         if (index_ < token_count_ && text(index_) == "const") {
             const uint32_t const_start = index_++;
             if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
@@ -3314,6 +3348,8 @@ private:
             Parameter field;
             field.id           = LocalId{statementCountLocals_++};
             field.isConstField = true;
+            field.visibility   = field_visibility;
+            field.modDepth     = field_mod_depth;
             field.name         = std::string(text(index_));
             field.span         = tokenSpan(index_++);
             if (!punctuation(index_, ':')) {
@@ -3360,9 +3396,11 @@ private:
                     continue;
                 }
                 Parameter field;
-                field.id   = LocalId{statementCountLocals_++};
-                field.name = std::string(text(index_));
-                field.span = tokenSpan(index_++);
+                field.id         = LocalId{statementCountLocals_++};
+                field.visibility = field_visibility;
+                field.modDepth   = field_mod_depth;
+                field.name       = std::string(text(index_));
+                field.span       = tokenSpan(index_++);
                 grouped.push_back(std::move(field));
             }
             if (!punctuation(index_, ']')) {
@@ -3410,8 +3448,11 @@ private:
             return false;
         }
         Parameter field;
-        field.name = std::string(text(index_));
-        field.span = tokenSpan(index_++);
+        field.id         = LocalId{statementCountLocals_++};
+        field.visibility = field_visibility;
+        field.modDepth   = field_mod_depth;
+        field.name       = std::string(text(index_));
+        field.span       = tokenSpan(index_++);
         if (punctuation(index_, ':')) {
             ++index_;
             field.type = parseType();

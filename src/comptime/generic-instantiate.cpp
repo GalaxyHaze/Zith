@@ -479,10 +479,17 @@ GenericInstantiationPass::substituteType(const sema::modern::TypeId type,
             if (const sema::modern::TypeId existing = type_table_.lookupNamed(concrete))
                 return existing;
             auto &fields = type_table_.makeTypeStorage();
+            auto &meta   = type_table_.makeFieldMetaStorage();
             for (const auto field : st->fields)
                 fields.push(substituteType(field, args));
+            if (st->field_meta.size() >= fields.size()) {
+                for (size_t field_index = 0; field_index < fields.size(); ++field_index)
+                    meta.push(sema::modern::FieldMeta{st->field_meta[field_index].visibility,
+                                                      st->field_meta[field_index].modDepth,
+                                                      st->field_meta[field_index].owner});
+            }
             const sema::modern::TypeId reified =
-                type_table_.internStruct(concrete, fields, &st->field_names);
+                type_table_.internStruct(concrete, fields, &st->field_names, &meta);
             type_table_.registerNamed(concrete, reified);
             return reified;
         }

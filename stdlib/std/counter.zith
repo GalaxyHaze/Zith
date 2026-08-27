@@ -1,10 +1,10 @@
 union Next { i32, End }
 
 pub struct Counter {
-    index: i32 = 0,
-    limit: i32 = 0,
-    step: i32 = 1,
-    inclusive: bool = false,
+    pub index: i32 = 0,
+    pub limit: i32 = 0,
+    pub step: i32 = 1,
+    pub inclusive: bool = false,
 
     fn next(var self): Next {
         if (self->inclusive) {

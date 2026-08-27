@@ -180,6 +180,27 @@ void test_method_signature_mismatch() {
           "signature mismatch reports E2024");
 }
 
+void test_qualified_interface_method_selection() {
+    SessionRunner t;
+    auto r = t.run("interface Left {\n"
+                   "    fn add(self, other: i32): i32\n"
+                   "}\n"
+                   "interface Right {\n"
+                   "    fn add(self, other: i32): i32\n"
+                   "}\n"
+                   "struct Counter {\n"
+                   "    value: i32,\n"
+                   "    fn add(self, other: i32): i32 { return self.value + other }\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    let c = Counter{ value: 3 };\n"
+                   "    return c.Left.add(1) + c.Right.add(2);\n"
+                   "}\n");
+    CHECK(r.ok, "interface-qualified method calls select the concrete method for each interface");
+    CHECK(!r.hasErrorCode(diagnostics::err::AmbiguousCall),
+          "interface-qualified calls do not report E2008");
+}
+
 void test_interface_satisfaction() {
     test_structural_satisfaction();
     test_interface_bound_accepts_conforming_struct();
@@ -188,6 +209,7 @@ void test_interface_satisfaction() {
     test_method_satisfaction();
     test_missing_method();
     test_method_signature_mismatch();
+    test_qualified_interface_method_selection();
 }
 
 } // namespace

@@ -1,0 +1,13 @@
+[project]
+name = "zith-sdl2-example"
+version = "0.1.0"
+
+[build]
+entry = "sdl2-interop.zith"
+output = "bin/zith-sdl2-example"
+mode = "debug"
+
+[ffi]
+include_dirs = ["/usr/include/SDL2"]
+c_source_dirs = ["."]
+libraries = ["SDL2"]

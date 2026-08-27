@@ -278,13 +278,12 @@ void PerModuleSema::lowerDeclarationTypes() {
                 GenericBinding binding;
                 binding.name = decl.genericParams[i].name;
                 binding.type = param_type;
-                for (const auto constraint : decl.genericParams[i].constraints) {
-                    const TypeId bound = lowerTypeExpr(constraint);
-                    if (bound)
-                        binding.bounds.push_back(bound);
-                }
                 bindings.push_back(std::move(binding));
             }
+            // Install the full name->GenericParam table before lowering bounds,
+            // so a bound like `T: Foo` can resolve `T` if it appears in its own
+            // constraint expression (e.g. a constrained generic alias).
+            genericParams_[decl.id.value] = bindings;
             // Methods inside `implement Owner<T>` inherit the owner's generic
             // parameter names. Reuse the owner's GenericParam TypeId so fields of
             // `Owner<T>` and the method's own `T` signatures unify before the
@@ -304,16 +303,39 @@ void PerModuleSema::lowerDeclarationTypes() {
                                 binding.type = type_table.internGenericParam(
                                     owner_decl.id.value, static_cast<uint32_t>(index));
                                 binding.bounds.clear();
-                                for (const auto constraint :
-                                     owner_decl.genericParams[index].constraints) {
-                                    const TypeId bound = lowerTypeExpr(constraint);
-                                    if (bound)
-                                        binding.bounds.push_back(bound);
-                                }
                             }
                         }
                     }
                     break;
+                }
+            }
+            for (size_t i = 0; i < bindings.size(); ++i) {
+                for (const auto constraint : decl.genericParams[i].constraints) {
+                    const TypeId bound = lowerTypeExpr(constraint);
+                    if (bound)
+                        bindings[i].bounds.push_back(bound);
+                }
+                if (!decl.ownerName.empty()) {
+                    for (const auto &owner_decl : snapshot.declarations()) {
+                        if (owner_decl.name != decl.ownerName || owner_decl.genericParams.empty())
+                            continue;
+                        if (owner_decl.kind != frontend::DeclKind::Struct &&
+                            owner_decl.kind != frontend::DeclKind::TypeAlias &&
+                            owner_decl.kind != frontend::DeclKind::Enum &&
+                            owner_decl.kind != frontend::DeclKind::Union)
+                            continue;
+                        for (size_t index = 0; index < owner_decl.genericParams.size(); ++index) {
+                            if (bindings[i].name == owner_decl.genericParams[index].name) {
+                                for (const auto constraint :
+                                     owner_decl.genericParams[index].constraints) {
+                                    const TypeId bound = lowerTypeExpr(constraint);
+                                    if (bound)
+                                        bindings[i].bounds.push_back(bound);
+                                }
+                            }
+                        }
+                        break;
+                    }
                 }
             }
             genericParams_[decl.id.value] = std::move(bindings);
@@ -379,20 +401,22 @@ void PerModuleSema::lowerDeclarationTypes() {
             break;
         }
         case frontend::DeclKind::Struct: {
-            auto &fields    = type_table.makeTypeStorage();
-            auto &fld_names = type_table.makeStringStorage();
+            auto &fields     = type_table.makeTypeStorage();
+            auto &fld_names  = type_table.makeStringStorage();
+            auto &field_meta = type_table.makeFieldMetaStorage();
             // Intern each field's name (as arena string_view) and type
             for (const auto &param : decl.parameters) {
                 TypeId ftype = lowerTypeExpr(param.type);
                 if (!ftype)
                     ftype = error_type;
                 fields.push(ftype);
+                field_meta.push(FieldMeta{param.visibility, param.modDepth, module});
                 // Store name in a stable arena allocation
                 char *buf = static_cast<char *>(arena.alloc(param.name.size(), 1));
                 std::memcpy(buf, param.name.data(), param.name.size());
                 fld_names.push(std::string_view(buf, param.name.size()));
             }
-            TypeId st = type_table.internStruct(decl.name, fields, &fld_names);
+            TypeId st = type_table.internStruct(decl.name, fields, &fld_names, &field_meta);
             setDeclType(decl.id, st);
             type_table.registerNamed(decl.name, st);
             break;
@@ -869,14 +893,14 @@ void PerModuleSema::checkImplementBlocks() {
         const uint64_t key =
             (static_cast<uint64_t>(std::hash<std::string_view>{}(record.owner)) << 32U) ^
             static_cast<uint32_t>(std::hash<std::string_view>{}(record.traitName));
-        const frontend::Declaration *owner = nullptr;
+        const frontend::Declaration *decl_owner = nullptr;
         for (const auto &candidate : snapshot.declarations()) {
             if (candidate.name == record.owner &&
                 (candidate.kind == frontend::DeclKind::Struct ||
                  candidate.kind == frontend::DeclKind::Enum ||
                  candidate.kind == frontend::DeclKind::Union ||
                  candidate.kind == frontend::DeclKind::TypeAlias)) {
-                owner = &candidate;
+                decl_owner = &candidate;
                 break;
             }
         }
@@ -892,7 +916,7 @@ void PerModuleSema::checkImplementBlocks() {
         auto &group = groups[key];
         if (group.trait == nullptr) {
             group.span  = record.span;
-            group.owner = owner;
+            group.owner = decl_owner;
             group.trait = trait;
         }
         group.spans.push_back(record.span);
@@ -1442,6 +1466,7 @@ TypeId PerModuleSema::instantiateTypeExpr(frontend::TextSpan span, std::string_v
     case frontend::DeclKind::Struct: {
         auto &fields                             = type_table.makeTypeStorage();
         auto &fld_names                          = type_table.makeStringStorage();
+        auto &field_meta                         = type_table.makeFieldMetaStorage();
         std::vector<GenericBinding> saved_active = std::move(activeTemplateArgs_);
         activeTemplateArgs_.clear();
         for (size_t i = 0; i < template_decl->genericParams.size(); ++i) {
@@ -1453,12 +1478,13 @@ TypeId PerModuleSema::instantiateTypeExpr(frontend::TextSpan span, std::string_v
         for (const auto &param : template_decl->parameters) {
             TypeId ftype = lowerTypeExpr(param.type);
             fields.push(ftype ? ftype : error_type);
+            field_meta.push(FieldMeta{param.visibility, param.modDepth, module});
             char *buf = static_cast<char *>(arena.alloc(param.name.size(), 1));
             std::memcpy(buf, param.name.data(), param.name.size());
             fld_names.push(std::string_view(buf, param.name.size()));
         }
         activeTemplateArgs_ = std::move(saved_active);
-        TypeId st           = type_table.internStruct(concrete_name, fields, &fld_names);
+        TypeId st = type_table.internStruct(concrete_name, fields, &fld_names, &field_meta);
         type_table.registerNamed(concrete_name, st);
         return st;
     }
@@ -1516,6 +1542,7 @@ TypeId PerModuleSema::instantiateStructFromArgs(frontend::TextSpan span,
 
     auto &fields                                   = type_table.makeTypeStorage();
     auto &field_names                              = type_table.makeStringStorage();
+    auto &field_meta                               = type_table.makeFieldMetaStorage();
     const std::vector<GenericBinding> saved_active = std::move(activeTemplateArgs_);
     activeTemplateArgs_.clear();
     for (size_t i = 0; i < template_decl.genericParams.size(); ++i) {
@@ -1527,13 +1554,14 @@ TypeId PerModuleSema::instantiateStructFromArgs(frontend::TextSpan span,
     for (const auto &param : template_decl.parameters) {
         const TypeId field_type = lowerTypeExpr(param.type);
         fields.push(field_type ? field_type : error_type);
+        field_meta.push(FieldMeta{param.visibility, param.modDepth, module});
         char *buf = static_cast<char *>(arena.alloc(param.name.size(), 1));
         std::memcpy(buf, param.name.data(), param.name.size());
         field_names.push(std::string_view(buf, param.name.size()));
     }
     activeTemplateArgs_ = saved_active;
 
-    const TypeId st = type_table.internStruct(concrete_name, fields, &field_names);
+    const TypeId st = type_table.internStruct(concrete_name, fields, &field_names, &field_meta);
     type_table.registerNamed(concrete_name, st);
     return st;
 }
@@ -2450,7 +2478,34 @@ std::vector<TypeId> PerModuleSema::boundsForGenericParam(TypeId generic_type) co
 /// field is not a method.
 TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
                                       const frontend::Expression &callee) {
-    const TypeId base_type = inferExpr(callee.operands[0]);
+    // `p.Trait.method()` is parsed as `Call(Field(Field(p, Trait), method))`.
+    // The intermediate `p.Trait` is not a real field; it names a trait or
+    // interface that the receiver type satisfies, so resolve the method within
+    // that trait before falling back to the ordinary method lookup.
+    frontend::ExprId receiver_id = callee.operands[0];
+    std::string qualifying_trait;
+    if (receiver_id && receiver_id.value <= snapshot.expressions().size()) {
+        const auto &outer = snapshot.expressions()[receiver_id.value - 1U];
+        if ((outer.kind == frontend::ExprKind::Field ||
+             outer.kind == frontend::ExprKind::Arrow) &&
+            !outer.operands.empty()) {
+            const TypeId owner_base = inferExpr(outer.operands[0]);
+            const TypeId pointee    = resolve(owner_base);
+            if (pointee && type_table.kindOf(pointee) == TypeKind::Struct) {
+                const TypeId trait_type = type_table.lookupNamed(outer.text);
+                if (trait_type && type_table.kindOf(trait_type) == TypeKind::Trait &&
+                    satisfiesConformance(pointee, trait_type)) {
+                    qualifying_trait = outer.text;
+                    typed_map.traitQualifiedReceiverBase.insert(receiver_id.value,
+                                                                outer.operands[0].value);
+                    setExprType(receiver_id, pointee);
+                    receiver_id = outer.operands[0];
+                }
+            }
+        }
+    }
+
+    const TypeId base_type = inferExpr(receiver_id);
     if (!base_type || type_table.kindOf(base_type) == TypeKind::Error)
         return kInvalidTypeId;
 
@@ -2576,12 +2631,68 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
     if (st == nullptr)
         return kInvalidTypeId; // not a struct receiver: let normal call resolution run
 
-    // Collect every method of this owner with the callee's name: methods take part
-    // in the same overload resolution as free functions.
-    std::string owner_name(st->name);
+    if (qualifying_trait.empty())
+        return resolveStructMethodCall(call, callee,
+                                       findMethodsForOwner(ownerNameOf(pointee), callee.text),
+                                       base_type, pointee, is_pointer);
+
+    // `p.Trait.method()` selects only declarations owned by that trait. For a
+    // declaration-only requirement, the concrete owner method that satisfies it
+    // is the callable target; an explicit impl method has the trait name and
+    // must be resolved through the trait too.
+    const std::string owner_name = ownerNameOf(pointee);
+    const std::string trait_name = [&]() {
+        std::string name = qualifying_trait;
+        if (const size_t angle = name.find('<'); angle != std::string::npos)
+            name.resize(angle);
+        return name;
+    }();
+    const TypeId trait_type = type_table.lookupNamed(trait_name);
+    const bool interface_target = trait_type && isInterfaceType(trait_type);
+    std::vector<ResolvedMethod> qualified;
+    for (const auto &method : findMethodsForOwner(owner_name, callee.text)) {
+        if (method.decl == nullptr)
+            continue;
+        const bool from_trait =
+            !method.decl->traitName.empty() && method.decl->traitName == trait_name;
+        const bool trait_requirement = method.isTraitMethod && method.traitName == trait_name;
+        const bool interface_concrete = interface_target && !method.isTraitMethod;
+        if (from_trait || trait_requirement || interface_concrete)
+            qualified.push_back(method);
+    }
+    if (qualified.empty() || !trait_type) {
+        report(call.span,
+               "type '" + type_table.typeToString(pointee) + "' has no member '" + callee.text +
+                   "' through trait '" + trait_name + "'",
+               diagnostics::err::NoMember);
+        return error_type;
+    }
+    return resolveStructMethodCall(call, callee, qualified, base_type, pointee, is_pointer);
+}
+
+std::string PerModuleSema::ownerNameOf(TypeId pointee) const {
+    const auto *st = type_table.struct_type(pointee);
+    if (st == nullptr)
+        return {};
+    std::string owner_name;
+    owner_name = st->name;
     if (const size_t angle = owner_name.find('<'); angle != std::string::npos)
         owner_name.resize(angle);
-    const auto resolved_methods = findMethodsForOwner(owner_name, callee.text);
+    return owner_name;
+}
+
+TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
+                                              const frontend::Expression &callee,
+                                              const std::vector<ResolvedMethod> &resolved_methods,
+                                              TypeId base_type, TypeId pointee, bool is_pointer) {
+    // Collect every method of this owner with the callee's name: methods take part
+    // in the same overload resolution as free functions.
+    std::string owner_name;
+    if (const auto *st = type_table.struct_type(pointee)) {
+        owner_name = st->name;
+        if (const size_t angle = owner_name.find('<'); angle != std::string::npos)
+            owner_name.resize(angle);
+    }
     std::vector<const frontend::Declaration *> method_decls;
     std::vector<session::ModuleKey> method_modules;
     std::vector<std::string> method_trait_names;
@@ -3051,7 +3162,9 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     if (expr.operands.size() < 2)
         return error_type;
-    TypeId cond = inferExpr(expr.operands[0]);
+    optionalPropInCondition_ = true;
+    TypeId cond              = inferExpr(expr.operands[0]);
+    optionalPropInCondition_ = false;
     if (!sameType(cond, bool_type))
         report(expr.span, "if condition must be boolean", diagnostics::err::TypeMismatch);
     const auto &condition = snapshot.expressions()[expr.operands[0].value - 1U];
@@ -3121,7 +3234,9 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
 TypeId PerModuleSema::inferWhile(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     if (!expr.operands.empty()) {
-        TypeId cond = inferExpr(expr.operands[0]);
+        optionalPropInCondition_ = true;
+        TypeId cond              = inferExpr(expr.operands[0]);
+        optionalPropInCondition_ = false;
         if (!sameType(cond, bool_type))
             report(expr.span, "loop condition must be boolean", diagnostics::err::TypeMismatch);
     }
@@ -3135,7 +3250,9 @@ TypeId PerModuleSema::inferFor(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     // operands: [cond, body, step].
     if (!expr.operands.empty()) {
-        TypeId cond = inferExpr(expr.operands[0]);
+        optionalPropInCondition_ = true;
+        TypeId cond              = inferExpr(expr.operands[0]);
+        optionalPropInCondition_ = false;
         if (!sameType(cond, bool_type))
             report(expr.span, "loop condition must be boolean", diagnostics::err::TypeMismatch);
     }
@@ -3155,12 +3272,10 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
     if (!iterable_type || type_table.kindOf(resolve(iterable_type)) == TypeKind::Error)
         return void_type;
 
-    TypeId pointee  = resolve(type_table.stripQualifiers(iterable_type));
-    bool is_pointer = false;
+    TypeId pointee = resolve(type_table.stripQualifiers(iterable_type));
     if (type_table.kindOf(pointee) == TypeKind::Pointer) {
         if (const auto *ptr = type_table.pointer(pointee)) {
-            pointee    = resolve(type_table.stripQualifiers(ptr->pointee));
-            is_pointer = true;
+            pointee = resolve(type_table.stripQualifiers(ptr->pointee));
         }
     } else if (type_table.kindOf(pointee) == TypeKind::Optional) {
         if (const auto *opt = type_table.optional(pointee)) {
@@ -3751,7 +3866,6 @@ void PerModuleSema::inferDockCall(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     TypeId result    = error_type;
     if (!expr.operands.empty()) {
-        const auto &target_expr             = snapshot.expressions()[expr.operands[0].value - 1U];
         const auto *resolved                = findResolvedExpr(expr.operands[0]);
         const frontend::Declaration *target = nullptr;
         if (resolved != nullptr) {
@@ -3904,7 +4018,7 @@ void PerModuleSema::checkAssignableOwnership(frontend::ExprId target, frontend::
 
     // `self: view Owner` / `p: view Owner` lower to `*view Owner`, so both
     // `self->x = ...` and dot-style `p.x = ...` report a read-only write.
-    const bool via_arrow = [&]() {
+    [&]() {
         for (frontend::ExprId current = target;
              current && current.value <= snapshot.expressions().size() && current != root;) {
             const auto &cursor = snapshot.expressions()[current.value - 1U];
@@ -4120,6 +4234,8 @@ TypeId PerModuleSema::inferOptionalProp(frontend::ExprId id) {
     const auto *opt = type_table.optional(resolved);
     if (!opt)
         return error_type;
+    if (optionalPropInCondition_)
+        return bool_type;
     // Verify enclosing function returns an optional that can accept this inner type
     if (currentReturnType_) {
         TypeId ret_resolved = resolve(currentReturnType_);
@@ -4412,6 +4528,13 @@ TypeId PerModuleSema::inferField(frontend::ExprId id) {
                diagnostics::err::NoMember);
         return error_type;
     }
+    if (!fieldVisible(*st, static_cast<size_t>(idx))) {
+        report(expr.span,
+               "field '" + expr.text + "' of type '" + type_table.typeToString(object_type) +
+                   "' is private; use a public accessor",
+               diagnostics::err::NoMember);
+        return error_type;
+    }
     return st->fields[static_cast<size_t>(idx)];
 }
 
@@ -4476,7 +4599,46 @@ TypeId PerModuleSema::inferArrow(frontend::ExprId id) {
                diagnostics::err::NoMember);
         return error_type;
     }
+    if (!fieldVisible(*st, static_cast<size_t>(idx))) {
+        report(expr.span,
+               "field '" + expr.text + "' of type '" + type_table.typeToString(struct_type) +
+                   "' is private; use a public accessor",
+               diagnostics::err::NoMember);
+        return error_type;
+    }
     return st->fields[static_cast<size_t>(idx)];
+}
+
+bool PerModuleSema::fieldVisible(const StructType &st, size_t field_index) const noexcept {
+    const auto &meta = field_index < st.field_meta.size()
+                           ? st.field_meta[field_index]
+                           : FieldMeta{frontend::Visibility::Private, 0, module};
+    if (meta.visibility == frontend::Visibility::Public)
+        return true;
+    if (meta.visibility == frontend::Visibility::Private)
+        return meta.owner.empty() || module == meta.owner;
+
+    // Module visibility is file-relative in this compiler: the declaring file
+    // is always allowed, and a different file is allowed when it is at most
+    // `modDepth` directories below the module that owns the struct. A negative
+    // depth (`mod(..)`) means unlimited depth.
+    if (meta.owner.empty() || module == meta.owner)
+        return true;
+    if (meta.modDepth < 0)
+        return true;
+
+    const std::string_view current_path = module;
+    const std::string_view owner_path   = meta.owner;
+    const auto owner_dir                = owner_path.substr(0, owner_path.find_last_of('/'));
+    if (!current_path.starts_with(owner_dir) || owner_dir.empty())
+        return false;
+    const auto relative = current_path.substr(owner_dir.size() + 1U);
+    int32_t depth       = 0;
+    for (const char ch : relative) {
+        if (ch == '/')
+            ++depth;
+    }
+    return depth <= meta.modDepth;
 }
 
 TypeId PerModuleSema::resolveGenericStructLiteral(frontend::TextSpan span,
@@ -4549,7 +4711,11 @@ TypeId PerModuleSema::resolveGenericStructLiteral(frontend::TextSpan span,
         }
         seen[static_cast<size_t>(decl_idx)] = true;
 
-        const auto &operand = snapshot.expressions()[expr.operands[i].value - 1U];
+        const auto &operand     = snapshot.expressions()[expr.operands[i].value - 1U];
+        const auto *template_st = type_table.struct_type(type_table.stripQualifiers(
+            type_table.lookupNamed(std::string_view(template_decl.name))));
+        const bool visible_template_field =
+            template_st != nullptr && fieldVisible(*template_st, static_cast<size_t>(decl_idx));
         if (operand.kind == frontend::ExprKind::Placeholder) {
             if (!findFieldDefault(template_decl.name, static_cast<size_t>(decl_idx))) {
                 report(expr.span,
@@ -4559,7 +4725,17 @@ TypeId PerModuleSema::resolveGenericStructLiteral(frontend::TextSpan span,
             }
             continue;
         }
-
+        if (!visible_template_field) {
+            report(expr.span,
+                   "field '" +
+                       (named ? std::string(expr.field_names[i])
+                              : std::string(
+                                    template_decl.parameters[static_cast<size_t>(decl_idx)].name)) +
+                       "' of struct '" + template_decl.name +
+                       "' is private in a struct literal; use a public accessor",
+                   diagnostics::err::NoMember);
+            continue;
+        }
         const TypeId value_type = inferExpr(expr.operands[i]);
         if (value_type == error_type)
             return error_type;
@@ -4622,7 +4798,7 @@ TypeId PerModuleSema::resolveGenericStructLiteral(frontend::TextSpan span,
     }
 
     for (size_t i = 0; i < field_count; ++i) {
-        if (seen[i] || findFieldDefault(template_decl.name, i))
+        if (seen[i] || findFieldDefault(template_decl.name, i) || !fieldVisible(*st, i))
             continue;
         report(expr.span,
                "missing field '" + template_decl.parameters[i].name +
@@ -4716,8 +4892,15 @@ TypeId PerModuleSema::inferStructLiteral(frontend::ExprId id) {
             continue;
         }
         seen[static_cast<size_t>(decl_idx)] = true;
-        const TypeId decl_type              = st->fields[static_cast<size_t>(decl_idx)];
-        const auto &operand                 = snapshot.expressions()[expr.operands[i].value - 1U];
+        if (!fieldVisible(*st, static_cast<size_t>(decl_idx))) {
+            report(expr.span,
+                   "field '" + fieldName(decl_idx) + "' of struct '" + struct_name +
+                       "' is private in a struct literal; use a public accessor",
+                   diagnostics::err::NoMember);
+            continue;
+        }
+        const TypeId decl_type = st->fields[static_cast<size_t>(decl_idx)];
+        const auto &operand    = snapshot.expressions()[expr.operands[i].value - 1U];
         if (operand.kind == frontend::ExprKind::Placeholder) {
             if (!findFieldDefault(expr.text, static_cast<size_t>(decl_idx))) {
                 report(expr.span,
@@ -5298,12 +5481,11 @@ bool SemaPipeline::run() {
         if (!resolution || !artifact.frontend)
             continue;
 
-        auto *typed_map = arena_.make<TypedMap>(arena_);
-        typed_maps_.insert(artifact.key, typed_map);
+        auto &typed_map = typedMap(artifact.key);
 
         auto *sema =
             arena_.make<PerModuleSema>(artifact.key, *artifact.frontend, *resolution, type_table_,
-                                       *typed_map, arena_, artifact.fileId, this);
+                                       typed_map, arena_, artifact.fileId, this);
         sema->instantiations = instantiation_pass_;
         modules_.push(sema);
         if (!sema->prepareTypes())

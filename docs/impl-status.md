@@ -1,6 +1,6 @@
 # Zith Implementation Status
 
-> Last updated: 2026-08-06 (documentation architecture refresh).
+> Last updated: 2026-08-27.
 
 This document is the single source of truth for what the compiler supports today. Status reflects
 actual compiler behaviour at baseline `a5f3716`. Each feature was verified by running
@@ -63,7 +63,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `bool`, `char` | **Working** | |
 | `i8`–`i128`, `u8`–`u128` | **Working** | Arithmetic between matching widths only; no implicit promotion |
 | `f32`, `f64` | **Working** | Same-width arithmetic only |
-| `?T` (optional) | **Working** | `null → ?T` and `T → ?T` coercions; `?` postfix propagation with operand/return validation. `null` is rejected for non-optional `*T` |
+| `?T` (optional) | **Working** | `null → ?T` and `T → ?T` coercions; `?` postfix propagation with operand/return validation. In boolean conditions, `x?` on `?T` means `x != null`. `null` is rejected for non-optional `*T` |
 | `T!` (failable) | **Working** | Declared type; lowered through HIR |
 | `*T` (pointer) | **Working** | Non-nullable: `null` requires `?*T`. `*p` deref, `&x` addr-of, and `->` arrow all work. `*void` is rejected (use `raw opaque`). Pointers imported from C are `?*T`, checked with `is null`; a `?*T` is still accepted unchecked where `*T` is expected |
 | `raw opaque` | **Working** | Dedicated `TypeExprKind::Opaque`, lowered to pointer-to-void. Castable to and from any `*T` via `as`. Bare `opaque` (the tagged reference type) is still unimplemented and reports `unknown type` |
@@ -71,7 +71,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `fn(...): R` (function value) | **Working** | Parses as a type value, type-checks non-generic function references, and lowers/calls through C function-pointer ABI. No closures or captures |
 | `dyn Trait` | **Parse error** | Type parser does not handle `dyn` |
 | `struct`, `component`, `enum`, `union` | **Working** | Declarations parse and resolve |
-| `trait`, `interface` | **Working (conformance)** | Declaration bodies store trait method requirements/default methods and interface fields. Trait implementations are verified against required signatures with `Self` substitution; duplicate implementations are rejected (`E2027`). Interfaces satisfy structurally and explicit interface implementation is rejected (`E2025`) |
+| `trait`, `interface` | **Working (conformance)** | Declaration bodies store trait method requirements/default methods and interface fields plus declaration-only method requirements. Single (`x: T`) and grouped (`[x, y]: T`) interface fields are equivalent. Trait implementations are verified against required signatures with `Self` substitution; duplicate implementations are rejected (`E2027`). Interfaces satisfy structurally by checking fields and compatible method signatures, generic interface bounds expose those members, and explicit interface implementation is rejected (`E2025`) |
 | `implement T as Trait {}` | **Working** | Records a verified nominal conformance edge and resolves calls to concrete trait defaults. The canonical syntax is `implement T as Trait`; the legacy `for Trait` spelling remains parsed |
 | `type` | **Partial** | `type Name = T` creates a nominal one-field wrapper and is not interchangeable with `T`; construction/field access still need an explicit value syntax |
 | `alias` | **Working** | Transparent alias: `alias Name = T` re-exports the same type |
@@ -89,28 +89,28 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | assignment `=` | **Working** | Right-associative, yields a value |
 | compound assignment `+=` `-=` `*=` `/=` `%=` `<<=` `>>=` `&=` `|=` `^=` | **Working** | Desugared in the parser to `Assign(Binary(base))`, so they yield a value like `=` and inherit its coercion and `view` checks. The bitwise compounds drop the `.` of their base spelling. No new HIR node |
 | `&&`, `||` | **Parse error** | Lexed as single tokens purely to report a dedicated error pointing at `and` / `or`; exactly one diagnostic, no cascade |
-| field access `x.field` | **Working** | Dot access on struct values |
+| field access `x.field` | **Working** | Dot access on struct values. Struct fields are private by default; `pub name: T` opens a field, and `mod`/`mod(N)`/`mod(..)` apply the existing module-depth rule. Invisible fields are rejected for access and in cross-module struct literals |
 | dereference `*p` | **Working** | Pointer dereference via unary `*` |
 | address-of `&x` | **Working** | Address-of via unary `&` |
 | `->` chain operator | **Working** | Arrow access on struct pointers (`p->field`) |
 | index `a[i]` | **Working** | On arrays, slices, pointers; array/slice reads return `?T` with bounds checks. `raw a[i]` skips bounds handling and returns `T` |
-| `?` postfix propagation | **Working** | Requires optional operand in optional-returning function |
+| `?` postfix propagation | **Working** | Requires optional operand in optional-returning function. In `if`/`while`/`for (cond)`, `x?` on `?T` is accepted as a non-null boolean test without requiring an optional return |
 | `as` cast | **Working** | Dedicated `ExprKind::Cast` -> `HirCast` -> LLVM conversion. Numeric pairs plus `raw opaque` <-> `*T` (`classifyCast`); pointer-to-pointer between concrete pointees, integer/pointer mixes and user-defined casts stay rejected. Tagged-union member extraction outside a narrowed/checked context requires `raw`; raw-union member casts remain free. No numeric narrowing overflow check |
 | `is null` | **Working** | Dedicated `ExprKind::IsNull`. Requires an optional operand; `?*T` uses the nullptr niche, `?T` reads the discriminant |
 | `is <type>` | **Working (tagged unions)** | Tagged-union member tests lower to a runtime tag check; inside `if`/`when` they narrow the tested local to the member type |
 | range `1..5` | **Check only** | Parsed as binary `..`; no dedicated sema |
-| struct literal `Foo { x: 1, y: 2 }` | **Working** | Struct literal with named fields via `{}` syntax |
+| struct literal `Foo { x: 1, y: 2 }` | **Working** | Struct literal with named fields via `{}` syntax. Inaccessible private/mod fields are rejected except in the file that declares the struct |
 | `@sizeOf`, `@offsetOf`, `@alignOf` | **Working** | `@` parses in expression position. `@sizeOf(T)` accepts any complete type and types as `u64`; `@offsetOf(S, field)` and `@alignOf(S)` are struct-only and type as `i32`. `@sizeOf(void)` reports `E3001` ("requires a complete type") |
 
 ### Control Flow
 
 | Feature | Status | Notes |
 |---|---|---|
-| `if` / `else` / `else if` | **Working** | |
-| `while` | **Deprecated** | Still lowers correctly, but emits `W1008` suggesting `for (cond) { }` |
+| `if` / `else` / `else if` | **Working** | Conditions accept `bool` and, in condition position, `x?` on `?T` as a non-null test |
+| `while` | **Deprecated** | Still lowers correctly, emits `W1008` suggesting `for (cond) { }`, and accepts `x?` as a non-null condition |
 | `break`, `continue` | **Working** | |
 | `return` (void and typed) | **Working** | |
-| `for (cond) { }`, `for { }` | **Working** | Conditional and infinite loop forms lower to the same CFG as `while` |
+| `for (cond) { }`, `for { }` | **Working** | Conditional and infinite loop forms lower to the same CFG as `while`. `x?` is accepted in condition position as a non-null test |
 | `for (init, cond, step) { }` | **Working** | Flat and parenthesized clause forms are accepted. `init` and `step` are both optional; `continue` still runs the step before the next test |
 | `for (x in xs)` | **Working** | Duck-typed iterator over a struct with `next(self)`; `next` returns a tagged union containing the element and the empty `End` marker, and the loop exits when the returned member is `End` |
 | `when` / `match` pattern match | **Working** | Arms are written `(pattern) ~> body`, comma-separated; `match` is a parser synonym for `when`. Equality, boolean and range (`1..3`) patterns lower through HIR to codegen. An `(f is Member)` arm narrows `f` for that arm's body. `(_)` is the default arm and must come last; a value-producing `when` without a default reports non-exhaustive. Covered by runtime tests |
@@ -138,7 +138,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `import`, `from`, `export` | **Working** | Import resolution with correct paths |
 | `alias` | **Working** | |
 | `pub`, `mod` | **Working** | |
-| `mod(..)`, `mod(N)` | Not verified | Parser accepts; sema behaviour unknown |
+| `mod(..)`, `mod(N)` | **Working** | Module-depth visibility is applied to declarations and to struct fields; `mod(..)` is unlimited and `mod(N)` allows N directory levels below the owner |
 | C header imports | **Working (common C)** | libclang only; variadic functions, array-decayed parameters, `va_list`, and function-pointer parameters supported. Single unsupported decls are skipped and recorded in `skippedFunctions`; macros, globals, bitfields, packed/anonymous records and flexible arrays remain unimported. Struct-by-value ABI is not verified |
 
 ---
@@ -196,7 +196,7 @@ Codes are grouped by pipeline stage. `E0000` remains the generic user-reported d
 | 0001-0005 | Lexical | `E0001` UnknownToken, `E0002` UnclosedString, `E0003` InvalidEscape, `E0004` InvalidIntLiteral, `E0005` UnclosedComment |
 | 1001-1008 | Parse | `E1001` ExpectedExpr, `E1002` ExpectedSemicolon, `E1003` UnclosedParen, `E1004` ExpectedIdent, `E1005` InvalidImportDepth, `E1006` ImportError, `E1007` TopLevelLetNotAllowed, `W1008` DeprecatedSyntax (`while` -> `for (cond)`) |
 | 2001-2010 | Semantic | `E2001` UndefinedIdent, `E2002` DuplicateDecl, `E2003` WrongArity, `E2004` UnusedDecl, `E2005` NotNamespace, `E2006` NoMember, `E2007` NoMatchingFn, `E2008` AmbiguousCall, `E2009` NotImplemented, `E2010` UnsupportedSyntax |
-| 2021-2025 | Frontend/interface | Trait requirement/signature checks (`E2021`/`E2022`), `E2023` NotATrait, `E2024` InterfaceNotSatisfied, `E2025` InterfaceMethodNotAllowed, `E2027` DuplicateImplementation |
+| 2021-2025 | Frontend/interface | Trait requirement/signature checks (`E2021`/`E2022`), `E2023` NotATrait, `E2024` InterfaceNotSatisfied, `E2025` explicit `implement` for an interface, `E2027` DuplicateImplementation |
 | 3001-3009 | Types | `E3001` TypeMismatch, `E3002` CannotInfer, `E3003` InvalidCast, `E3004` CyclicType, `E3005` NullDerefUnproven, `E3006` CoercionFailure, `E3007` WidthMismatch, `E3008` OptionalViolation, `E3009` ConstraintNotSatisfied |
 | 4001-4007 | NRA / ownership | `E4001` UseAfterMove (logical receiver move in sema), `E4002` BorrowConflict, `E4003` DoubleBorrow, `E4004` WriteThroughView, `E4005` OwnershipCoercionRequired, `E4007` InvalidCallOwnership — call annotations, borrow conflicts and views are checked in sema; `E4001` is emitted for post-method receiver use; `E4004` remains emitted for views |
 | 5001-5002 | Lowering | `E5001` InvalidIR, `E5002` Unreachable |

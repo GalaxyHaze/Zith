@@ -28,6 +28,10 @@ memory::DynArray<std::string_view> &TypeTable::makeNameStorage() {
     return *arena_->make<memory::DynArray<std::string_view>>(*arena_);
 }
 
+memory::DynArray<FieldMeta> &TypeTable::makeFieldMetaStorage() {
+    return *arena_->make<memory::DynArray<FieldMeta>>(*arena_);
+}
+
 memory::DynArray<int64_t> &TypeTable::makeDiscStorage() {
     return *arena_->make<memory::DynArray<int64_t>>(*arena_);
 }
@@ -102,7 +106,8 @@ TypeId TypeTable::internFunction(memory::DynArray<TypeId> &params, TypeId result
 }
 
 TypeId TypeTable::internStruct(std::string_view name, memory::DynArray<TypeId> &fields,
-                               memory::DynArray<std::string_view> *field_names) {
+                               memory::DynArray<std::string_view> *field_names,
+                               memory::DynArray<FieldMeta> *field_meta) {
     auto &entry         = pushEntry(EntryKind::Struct);
     entry.reported_kind = TypeKind::Struct;
     entry.name_view     = persistString(name);
@@ -114,9 +119,16 @@ TypeId TypeTable::internStruct(std::string_view name, memory::DynArray<TypeId> &
         for (auto &n : *field_names)
             name_storage.push(n);
     }
-    entry.struct_ty = arena_->make<StructType>(StructType{entry.name_view, storage, name_storage});
-    entry.storage   = &storage;
+    auto &meta_storage = makeFieldMetaStorage();
+    if (field_meta != nullptr) {
+        for (auto &meta : *field_meta)
+            meta_storage.push(meta);
+    }
+    entry.struct_ty =
+        arena_->make<StructType>(StructType{entry.name_view, storage, name_storage, meta_storage});
+    entry.storage      = &storage;
     entry.name_storage = &name_storage;
+    entry.meta_storage = &meta_storage;
     return entry.id;
 }
 

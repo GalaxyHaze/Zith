@@ -54,10 +54,14 @@ struct TypedMap {
     memory::FlatMap<uint32_t, uint32_t> forInElementIndex;
     memory::FlatMap<uint32_t, uint32_t> forInEndIndex;
     memory::FlatMap<uint32_t, TypeId> forInUnionType;
+    /// For `p.Trait.method()`, the base receiver expression id stored for the
+    /// intermediate `p.Trait` expression. HIR lowering uses this base instead
+    /// of lowering the marker as a field access.
+    memory::FlatMap<uint32_t, uint32_t> traitQualifiedReceiverBase;
 
     explicit TypedMap(memory::Arena &)
         : exprTypes(), declTypes(), localTypes(), forInNext(), forInElementIndex(), forInEndIndex(),
-          forInUnionType() {}
+          forInUnionType(), traitQualifiedReceiverBase() {}
 };
 
 class SemaPipeline;
@@ -165,6 +169,9 @@ private:
     /// instantiated in a type expression. `lowerTypeExpr` checks these before
     /// the declaration bindings so `Pair<i32,f64>` fields see `i32`/`f64`.
     std::vector<GenericBinding> activeTemplateArgs_;
+    /// `x?` is a boolean non-null test only when it appears directly as a
+    /// condition; everywhere else it remains the optional-propagation operator.
+    bool optionalPropInCondition_ = false;
     /// Decl id of the declaration currently being lowered or inferred (0 = none).
     uint32_t currentDeclId_ = 0;
 
@@ -267,6 +274,11 @@ private:
     bool constantIntegerValue(frontend::ExprId id, std::int64_t &out) const noexcept;
     TypeId inferField(frontend::ExprId id);
     TypeId inferArrow(frontend::ExprId id);
+    /// Returns true when `field_index` of the struct type is visible from the
+    /// current module. `Private` is allowed only at the struct's declaring
+    /// file; `pub` is always allowed; `mod`/`mod(N)` follows the same depth
+    /// rule used for module declarations.
+    [[nodiscard]] bool fieldVisible(const StructType &st, size_t field_index) const noexcept;
     /// When `operand` is a Name that resolves to an enum declaration, returns the enum type
     /// if `variant` names a known variant and reports NoMember otherwise. Returns nullopt
     /// (without diagnostics) when the operand is not an enum-declaration name, so an
@@ -322,9 +334,21 @@ private:
     /// other available module in deterministic snapshot order.
     std::vector<ResolvedMethod> findMethodsForOwner(std::string_view owner_name,
                                                     std::string_view method_name) const;
+    /// Canonical owner name for a lowered struct type, excluding template
+    /// arguments (`Pair<i32>` → `Pair`).
+    [[nodiscard]] std::string ownerNameOf(TypeId pointee) const;
+    /// Resolves a concrete struct receiver method call with the given candidate
+    /// set. `qualifying_trait` is non-empty for `p.Trait.method()`; it filters
+    /// and (for requirements) resolves impl methods without changing
+    /// ordinary `p.method()` selection.
+    TypeId resolveStructMethodCall(const frontend::Expression &call,
+                                   const frontend::Expression &callee,
+                                   const std::vector<ResolvedMethod> &methods,
+                                   TypeId base_type, TypeId pointee, bool is_pointer);
 
     /// True when `type` satisfies `trait_or_interface`. Traits are nominal and
-    /// must be registered; interfaces are structural and compared field-by-field.
+    /// must be registered; interfaces are structural and compared field-by-field
+    /// and method-by-method.
     [[nodiscard]] bool satisfiesConformance(TypeId type, TypeId trait_or_interface) const;
     /// Checks the bounds declared on `generic_decl` against the resolved
     /// concrete `args`. Reports `E3009` once per failing bound.

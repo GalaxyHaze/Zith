@@ -81,10 +81,19 @@ struct FunctionType {
     memory::DynArray<TypeId> &params;
     TypeId result;
 };
+struct FieldMeta {
+    frontend::Visibility visibility = frontend::Visibility::Private;
+    int32_t modDepth                = 0;
+    /// Declaring module of the struct that carries this field. Used to keep
+    /// field privacy file-relative even when a struct type is re-interned for
+    /// a generic instantiation in a different module.
+    std::string_view owner;
+};
 struct StructType {
     std::string_view name;
     memory::DynArray<TypeId> &fields;
     memory::DynArray<std::string_view> &field_names;
+    memory::DynArray<FieldMeta> &field_meta;
 };
 struct EnumType {
     std::string_view name;
@@ -174,7 +183,8 @@ public:
     [[nodiscard]] TypeId internArray(TypeId element, uint64_t size);
     [[nodiscard]] TypeId internFunction(memory::DynArray<TypeId> &params, TypeId result);
     [[nodiscard]] TypeId internStruct(std::string_view name, memory::DynArray<TypeId> &fields,
-                                      memory::DynArray<std::string_view> *field_names = nullptr);
+                                      memory::DynArray<std::string_view> *field_names = nullptr,
+                                      memory::DynArray<FieldMeta> *field_meta         = nullptr);
     [[nodiscard]] int fieldIndex(TypeId struct_type, std::string_view name) const noexcept;
     [[nodiscard]] TypeId internEnum(std::string_view name, TypeId underlying,
                                     memory::DynArray<std::string_view> &variant_names,
@@ -249,6 +259,7 @@ public:
     [[nodiscard]] memory::DynArray<TypeId> &makeTypeStorage();
     [[nodiscard]] memory::DynArray<std::string_view> &makeStringStorage();
     [[nodiscard]] memory::DynArray<int64_t> &makeDiscStorage();
+    [[nodiscard]] memory::DynArray<FieldMeta> &makeFieldMetaStorage();
 
 private:
     enum class EntryKind : uint8_t {
@@ -306,6 +317,7 @@ private:
         memory::DynArray<TypeId> *storage                = nullptr;
         memory::DynArray<TypeId> *storage2               = nullptr;
         memory::DynArray<std::string_view> *name_storage = nullptr;
+        memory::DynArray<FieldMeta> *meta_storage        = nullptr;
         memory::DynArray<int64_t> *disc_storage          = nullptr;
         TypeId underlying                                = kInvalidTypeId;
     };

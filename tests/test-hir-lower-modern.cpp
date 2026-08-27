@@ -882,6 +882,90 @@ void test_is_null_on_value_optional_reads_tag() {
     }
 }
 
+void test_optional_boolean_on_value_reads_tag() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn present(v: ?i32): i32 {\n"
+                                     "    let x: ?i32 = 7;\n"
+                                     "    if (x?) { return 1; }\n"
+                                     "    return 0;\n"
+                                     "}\n"
+                                     "fn main(): i32 { present(7) }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "'x?' as a boolean on ?T lowering succeeds");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "present");
+    CHECK(main != nullptr, "present function is present");
+    if (main != nullptr) {
+        bool read_tag = false;
+        for (const auto &block : main->blocks) {
+            for (auto inst : block.insts) {
+                const auto *field = std::get_if<hir::HirField>(&hir.getExpr(inst));
+                if (field != nullptr && field->index == 1u)
+                    read_tag = true;
+            }
+            if (block.terminator == hir::kInvalidHirExpr)
+                continue;
+            const auto *branch = std::get_if<hir::HirBranch>(&hir.getExpr(block.terminator));
+            if (branch != nullptr) {
+                const auto *cond = std::get_if<hir::HirField>(&hir.getExpr(branch->cond));
+                if (cond != nullptr && cond->index == 1u)
+                    read_tag = true;
+            }
+        }
+        CHECK(read_tag, "'x?' on ?T reads the optional tag at field index 1");
+        CHECK_EQ(countTerminatorKind(hir, *main, hir::HirExprKind::Ret), 2u,
+                 "'x?' as a condition does not lower to implicit optional returns");
+    }
+}
+
+void test_optional_boolean_on_pointer_uses_niche() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn present(p: ?*i32): i32 {\n"
+                                     "    if (p?) { return 1; }\n"
+                                     "    return 0;\n"
+                                     "}\n"
+                                     "fn main(): i32 { 0 }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "'x?' as a boolean on ?*T lowering succeeds");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "present");
+    CHECK(main != nullptr, "present function is present");
+    if (main != nullptr) {
+        bool found_ne_against_none = false;
+        for (const auto &block : main->blocks) {
+            if (block.terminator == hir::kInvalidHirExpr)
+                continue;
+            const auto *branch = std::get_if<hir::HirBranch>(&hir.getExpr(block.terminator));
+            if (branch != nullptr) {
+                const auto *binary = std::get_if<hir::HirBinary>(&hir.getExpr(branch->cond));
+                if (binary != nullptr && binary->op == hir::HirBinaryOp::Ne &&
+                    hir::exprKind(hir.getExpr(binary->rhs)) == hir::HirExprKind::MakeNone) {
+                    found_ne_against_none = true;
+                }
+            }
+            for (auto inst : block.insts) {
+                const auto *binary = std::get_if<hir::HirBinary>(&hir.getExpr(inst));
+                if (binary == nullptr || binary->op != hir::HirBinaryOp::Ne)
+                    continue;
+                if (hir::exprKind(hir.getExpr(binary->rhs)) == hir::HirExprKind::MakeNone)
+                    found_ne_against_none = true;
+            }
+        }
+        CHECK(found_ne_against_none,
+              "'x?' on ?*T lowers to a non-null comparison against MakeNone");
+    }
+}
+
 void test_for_condition_lowers_like_while() {
     Workspace workspace;
     workspace.writeFile("main.zith", "fn main(): i32 {\n"
@@ -1735,6 +1819,8 @@ static void test_hir_lower_modern() {
     test_numeric_cast_lowers_to_hir_cast();
     test_is_null_on_pointer_optional_uses_niche();
     test_is_null_on_value_optional_reads_tag();
+    test_optional_boolean_on_value_reads_tag();
+    test_optional_boolean_on_pointer_uses_niche();
     test_for_condition_lowers_like_while();
     test_static_method_call_has_resolved_callee_only();
     test_state_machine_lowers_to_hir();

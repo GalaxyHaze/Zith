@@ -193,6 +193,60 @@ void test_higiene() {
           "ambiguous trait default call reports E2008");
 }
 
+void test_struct_and_interface_method_coexist() {
+    SessionRunner t("conformance");
+    auto r = t.run("interface Adds {\n"
+                   "    fn add(self, other: i32): i32\n"
+                   "}\n"
+                   "struct Counter {\n"
+                   "    value: i32,\n"
+                   "    fn add(self, other: i32): i32 { return self.value + other }\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    let c = Counter{ value: 1 };\n"
+                   "    return c.add(2);\n"
+                   "}\n");
+    CHECK(r.ok, "struct and interface methods with the same name coexist");
+    CHECK(!r.hasErrorCode(diagnostics::err::DuplicateDecl),
+          "method bindings do not report duplicate top-level E2002");
+}
+
+void test_qualified_trait_method_selection() {
+    SessionRunner t("conformance");
+    auto r = t.run("trait A {\n"
+                   "    fn pick(self): i32 { return 1 }\n"
+                   "}\n"
+                   "trait B {\n"
+                   "    fn pick(self): i32 { return 2 }\n"
+                   "}\n"
+                   "struct Point { x: i32 }\n"
+                   "implement Point as A {}\n"
+                   "implement Point as B {}\n"
+                   "fn main(): i32 {\n"
+                   "    let p = Point{ x: 0 };\n"
+                   "    return p.A.pick() + p.B.pick();\n"
+                   "}\n");
+    CHECK(r.ok, "qualified trait method calls select the requested trait");
+    CHECK(!r.hasErrorCode(diagnostics::err::AmbiguousCall),
+          "qualified trait calls do not report E2008");
+}
+
+void test_qualified_trait_missing_member() {
+    SessionRunner t("conformance");
+    auto r = t.run("trait A {\n"
+                   "    fn pick(self): i32 { return 1 }\n"
+                   "}\n"
+                   "struct Point { x: i32 }\n"
+                   "implement Point as A {}\n"
+                   "fn main(): i32 {\n"
+                   "    let p = Point{ x: 0 };\n"
+                   "    return p.Missing.pick() + p.A.unknown();\n"
+                   "}\n");
+    CHECK(!r.ok, "missing trait qualification fails");
+    CHECK(r.hasErrorCode(diagnostics::err::NoMember),
+          "missing trait or method reports E2013-style NoMember");
+}
+
 void test_trait_conformance() {
     test_requirement_default_and_override();
     test_default_method_available();
@@ -202,6 +256,9 @@ void test_trait_conformance() {
     test_signature_mismatch();
     test_explicit_interface_impl_rejected();
     test_higiene();
+    test_struct_and_interface_method_coexist();
+    test_qualified_trait_method_selection();
+    test_qualified_trait_missing_member();
 }
 
 } // namespace

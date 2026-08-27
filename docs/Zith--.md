@@ -51,6 +51,23 @@ Methods continuam com `self` implícito. `self.field` é a forma canónica e aut
 
 Quando um método com `self` simples ou `var self` é chamado, o sema invalida logicamente a ligação do receiver no chamador: leituras subsequentes reportam `E4001 UseAfterMove`, e escrita através do receiver inválido também. Atribuir diretamente ao nome da variável revive a ligação. `view`/`lend`, receivers explícitos por pointer e chamadas de funções livres ainda não marcam o valor no chamador nesta fase.
 
+Um call de método pode ser qualificado com um trait ou interface satisfeita pelo tipo do receiver: `p.Trait.method()` ou `p.Interface.method()`. A qualificação resolve apenas o método visível naquele trait/interface, evitando a ambiguidade `E2008` quando dois traits conformes expõem o mesmo nome:
+
+````zith
+trait A { fn pick(self): i32 { return 1 } }
+trait B { fn pick(self): i32 { return 2 } }
+struct P { x: i32 }
+implement P as A {}
+implement P as B {}
+
+fn main(): i32 {
+    let p = P{ x: 0 };
+    return p.A.pick() + p.B.pick();
+}
+````
+
+Sem a qualificação, `p.pick()` continua ambíguo quando o nome não é resolvido por um método concreto do owner. É esta a forma suportada; `Trait.method(p)` ainda não é aceite.
+
 Funções livres e argumentos de métodos podem declarar parâmetros `lend`/`view`; nesses casos o call site precisa da anotação correspondente para bindings por valor (ver [Ownership](#ownership)).
 
 ## Const Global
@@ -110,6 +127,31 @@ São aceites literais inteiros (incluindo `0x`, `0b` e `0c`), `-`/`~` unários, 
 ## Tipos
 
 Os tipos atuais são mantidos: primitivos, `struct`, `union`, `enum`, `string`, genéricos, function types e as formas compostas existentes. `ptr`, `array`, `slice` e `optional` são modificadores/compostos já existentes, não uma lista excludente de tipos.
+
+### Visibilidade de campos
+
+Os campos de `struct` são privados por defeito. `pub name: T = default` abre explicitamente o
+campo para outros módulos; `mod name: T = default` e `mod(N) name: T = default` usam a regra de
+visibilidade de módulo existente, com o mesmo significado de `mod`/`mod(N)`/`mod(..)` usado em
+declarações:
+
+````zith
+struct Box {
+    data: i32,          // privado: só visível no ficheiro/module que declara o struct
+    pub open: i32,      // público: visível e construtível de outros módulos
+    mod sibling: i32,   // visível no ficheiro do struct e no mesmo caminho de módulo
+    mod(2) deep: i32,   // visível até duas subdirectorias abaixo do módulo dono
+}
+````
+
+Fields privados ou `mod` continuam a ser acessíveis dentro do ficheiro que declara o struct,
+incluindo métodos desse tipo e funções livres nesse ficheiro. Em struct literals, qualquer field
+que não seja acessível a partir do módulo atual é rejeitado; o mesmo diagnóstico é emitido para
+field access por `.` ou `->`. Fields privados não deixam de existir no layout, mas não podem ser
+mencionados em literais cross-module. Satisfação estrutural de interfaces compara os fields
+visíveis a partir do módulo onde a interface é avaliada e exige também method requirements
+compatíveis; campos privados continuam disponíveis para satisfação quando o type e a interface
+vivem no mesmo ficheiro.
 
 Para `let`/`var`, um tipo é não-trivial quando não é primitivo escalar (`iN`/`uN`/`fN`, `bool`, `char`, `void`). Tipos não-triviais sem inicializador são rejeitados:
 
@@ -206,8 +248,9 @@ pipeline real, porque o `main` não é um modo opt-in.
   `unique`/`share`/`belong` são rejeitados; `view` bloqueia escrita; receiver move é lógico.
 - `defer expr;` e `defer { ... }` como cleanup reverse-order do bloco lexical;
   `state` sem return type explicito é `void`.
-- Traits nominais, interfaces estruturais, `implement T as Trait {}`,
-  conformance, bounds `T: A + B` e enforcement em call sites.
+- Traits nominais, interfaces estruturais com fields e method requirements
+  declaration-only, `implement T as Trait {}`, conformance e bounds
+  `T: A + B`; bounds de interface expõem fields e métodos no corpo genérico.
 - C interop comum, imports, macros normais/raw, C API/zithc, HIR/cache/LLVM.
 - O detalhe verificado está em `impl-status.md`; testes focados existem em
   `tests/test-trait-*.cpp`, `tests/test-interface-*.cpp` e

@@ -1284,7 +1284,7 @@ static void test_modern_static_method() {
 
 static void test_modern_imported_static_method() {
     ModernSemaTest t;
-    t.write("lib.zith", "pub struct Box { value: i32 }\n"
+    t.write("lib.zith", "pub struct Box { pub value: i32 }\n"
                         "implement Box {\n"
                         "    fn make(v: i32): Box { Box { value: v } }\n"
                         "}\n");
@@ -1298,7 +1298,7 @@ static void test_modern_imported_static_method() {
 
 static void test_modern_imported_receiver_method() {
     ModernSemaTest t;
-    t.write("lib.zith", "pub struct Counter { value: i32 }\n"
+    t.write("lib.zith", "pub struct Counter { pub value: i32 }\n"
                         "implement Counter {\n"
                         "    fn get(self): i32 { self->value }\n"
                         "}\n");
@@ -1312,7 +1312,7 @@ static void test_modern_imported_receiver_method() {
 
 static void test_modern_imported_method_struct_literal_body() {
     ModernSemaTest t;
-    t.write("lib.zith", "pub struct Box { value: i32 }\n"
+    t.write("lib.zith", "pub struct Box { pub value: i32 }\n"
                         "implement Box {\n"
                         "    fn make(v: i32): Box { Box { value: v } }\n"
                         "}\n");
@@ -1606,7 +1606,7 @@ static void test_modern_is_null_requires_optional() {
 
 static void test_modern_optional_method_narrowing_after_is_null() {
     ModernSemaTest t;
-    t.write("lib.zith", "pub struct Box { value: i32 }\n"
+    t.write("lib.zith", "pub struct Box { pub value: i32 }\n"
                         "implement Box {\n"
                         "    fn get(self: view Box): i32 { self.value }\n"
                         "}\n");
@@ -1621,7 +1621,7 @@ static void test_modern_optional_method_narrowing_after_is_null() {
 
 static void test_modern_optional_method_narrowing_after_not_is_null() {
     ModernSemaTest t;
-    t.write("lib.zith", "pub struct Box { value: i32 }\n"
+    t.write("lib.zith", "pub struct Box { pub value: i32 }\n"
                         "implement Box {\n"
                         "    fn get(self: view Box): i32 { self.value }\n"
                         "}\n");
@@ -1636,7 +1636,7 @@ static void test_modern_optional_method_narrowing_after_not_is_null() {
 
 static void test_modern_optional_method_still_rejects_is_null_then_branch() {
     ModernSemaTest t;
-    t.write("lib.zith", "pub struct Box { value: i32 }\n"
+    t.write("lib.zith", "pub struct Box { pub value: i32 }\n"
                         "implement Box {\n"
                         "    fn get(self: view Box): i32 { self.value }\n"
                         "}\n");
@@ -2081,6 +2081,114 @@ static void test_modern_generic_struct_literal_inference() {
           "wrong explicit generic struct literal arity reports E3010");
 }
 
+static void test_modern_struct_field_visibility() {
+    ModernSemaTest same_file;
+    auto local = same_file.run("struct Box {\n"
+                               "    data: i32,\n"
+                               "    pub open: i32,\n"
+                               "}\n"
+                               "fn read(b: Box): i32 { b.data + b.open }\n"
+                               "fn make(): Box { Box { data: 3, open: 4 } }\n"
+                               "fn main(): i32 { read(make()) }\n");
+    CHECK(local.ok, "private fields are visible in the file that declares the struct");
+
+    ModernSemaTest private_field;
+    private_field.write("lib.zith", "pub struct Box { data: i32 }\n"
+                                    "implement Box {\n"
+                                    "    fn get(self: view Box): i32 { self.data }\n"
+                                    "}\n");
+    auto inaccessible = private_field.run("from lib\n"
+                                          "fn main(): i32 {\n"
+                                          "    let b = Box { data: 3 };\n"
+                                          "    b.data\n"
+                                          "}\n");
+    CHECK(!inaccessible.ok, "a private field is rejected outside the declaring module");
+    CHECK(inaccessible.hasMessage("field 'data'"),
+          "the private-field diagnostic names the hidden field");
+    CHECK(inaccessible.hasMessage("struct literal"),
+          "the cross-module literal reports a struct-literal privacy diagnostic");
+
+    ModernSemaTest public_field;
+    public_field.write("lib.zith", "pub struct Box { pub data: i32 }\n");
+    auto opened = public_field.run("from lib\n"
+                                   "fn main(): i32 {\n"
+                                   "    let b = Box { data: 3 };\n"
+                                   "    b.data\n"
+                                   "}\n");
+    CHECK(opened.ok, "pub fields remain accessible and constructible from another module");
+}
+
+static void test_modern_module_depth_field_visibility() {
+    ModernSemaTest at_depth;
+    at_depth.write("pkg/z.zith", "pub struct Item { mod(1) data: i32 }\n");
+    auto allowed = at_depth.run("from pkg/z\n"
+                                "fn main(): i32 {\n"
+                                "    let v = Item { data: 3 };\n"
+                                "    v.data\n"
+                                "}\n",
+                                session::Stage::TypeChecked, "pkg/main.zith");
+    CHECK(allowed.ok, "mod(1) fields are visible one directory below the owner");
+
+    ModernSemaTest beyond_depth;
+    beyond_depth.write("pkg/z.zith", "pub struct Item { mod(1) data: i32 }\n");
+    auto rejected = beyond_depth.run("from pkg/z\n"
+                                     "fn main(): i32 {\n"
+                                     "    let v = Item { data: 3 };\n"
+                                     "    v.data\n"
+                                     "}\n");
+    CHECK(!rejected.ok, "mod(1) fields are rejected outside the authorized depth");
+    CHECK(rejected.hasMessage("private; use a public accessor"),
+          "the module-depth violation reports the accessor diagnostic");
+
+    ModernSemaTest universal_depth;
+    universal_depth.write("pkg/z.zith", "pub struct Item { mod(..) data: i32 }\n");
+    auto unlimited = universal_depth.run("from pkg/z\n"
+                                         "fn main(): i32 {\n"
+                                         "    let v = Item { data: 3 };\n"
+                                         "    v.data\n"
+                                         "}\n");
+    CHECK(unlimited.ok, "mod(..) fields remain accessible from any relative depth");
+}
+
+static void test_modern_optional_condition_boolean() {
+    ModernSemaTest t;
+    auto accepted = t.run("fn main(): i32 {\n"
+                          "    var x: ?i32 = 7;\n"
+                          "    if (x?) { return 1; }\n"
+                          "    while (x?) { return 2; }\n"
+                          "    for (x?) { return 3; }\n"
+                          "    return 0;\n"
+                          "}\n");
+    CHECK(accepted.ok, "'x?' is accepted as a boolean condition on optional x");
+
+    ModernSemaTest non_optional;
+    auto rejected = non_optional.run("fn main() {\n"
+                                     "    var x: i32 = 1;\n"
+                                     "    if (x?) { }\n"
+                                     "    var b: bool = true;\n"
+                                     "    if (b?) { }\n"
+                                     "}\n");
+    CHECK(!rejected.ok, "'?' remains invalid on non-optional operands");
+    CHECK(rejected.hasMessage("if condition must be boolean") ||
+              rejected.hasMessage("'?' operator requires an optional operand"),
+          "the non-optional condition reports the existing boolean diagnostics");
+
+    ModernSemaTest as_value;
+    auto value_rejected = as_value.run("fn main(x: ?i32): bool {\n"
+                                       "    let b: bool = x?;\n"
+                                       "    return b;\n"
+                                       "}\n");
+    CHECK(!value_rejected.ok, "'x?' is not a bool value outside condition position");
+    CHECK(value_rejected.hasMessage(
+              "'?' operator used in a function that does not return an optional"),
+          "value-position 'x?' keeps the propagation validation");
+
+    ModernSemaTest propagation;
+    auto propagated = propagation.run("fn f(x: ?i32): ?i32 { return x? }\n"
+                                      "fn main(): i32 { 0 }\n");
+    CHECK(propagated.ok, "return x? keeps its optional-propagation semantics");
+}
+
 static void test_modern_array_literal() {
     ModernSemaTest t;
     auto r = t.run("fn sum(arr: [4]i32): i32 {\n"
@@ -2282,6 +2390,58 @@ static void test_modern_method_call_arg_type_mismatch() {
     CHECK(!r.ok, "a method call with a wrongly typed argument is rejected");
     CHECK(r.hasMessage("method call argument type mismatch"),
           "reports a method argument type mismatch");
+}
+
+static void test_interface_method_bound_signature_and_arity() {
+    ModernSemaTest t;
+    auto ok = t.run("interface Positioned {\n"
+                    "    x: i32,\n"
+                    "    fn move(self, by: i32): i32\n"
+                    "}\n"
+                    "struct Point {\n"
+                    "    x: i32,\n"
+                    "    fn move(self, by: i32): i32 { return self.x + by }\n"
+                    "}\n"
+                    "fn transform<T: Positioned>(p: T): i32 { return p.move(5) }\n"
+                    "fn main(): i32 {\n"
+                    "    let p = Point { x: 6 };\n"
+                    "    return transform<Point>(p);\n"
+                    "}\n");
+    CHECK(ok.ok, "an interface bound method call passes receiver-based arity and signature checks");
+
+    ModernSemaTest wrong_arity;
+    auto arity = wrong_arity.run("interface Positioned {\n"
+                                 "    fn getX(self): i32\n"
+                                 "}\n"
+                                 "struct Point {\n"
+                                 "    x: i32,\n"
+                                 "    fn getX(self): i32 { return self.x }\n"
+                                 "}\n"
+                                 "fn transform<T: Positioned>(p: T): i32 { return p.getX(1) }\n"
+                                 "fn main(): i32 {\n"
+                                 "    let p = Point { x: 1 };\n"
+                                 "    return transform<Point>(p);\n"
+                                 "}\n");
+    CHECK(!arity.ok, "an interface bound method call with the wrong arity fails");
+    CHECK(arity.hasMessage("method call arity mismatch"),
+          "the interface bound method call reports arity mismatch");
+
+    ModernSemaTest wrong_arg;
+    auto arg = wrong_arg.run("interface Positioned {\n"
+                             "    fn getX(self): i32\n"
+                             "}\n"
+                             "struct Point {\n"
+                             "    x: i32,\n"
+                             "    fn getX(self, unused: i32): i32 { return self.x }\n"
+                             "}\n"
+                             "fn transform<T: Positioned>(p: T): i32 { return p.getX() }\n"
+                             "fn main(): i32 {\n"
+                             "    let p = Point { x: 1 };\n"
+                             "    return transform<Point>(p);\n"
+                             "}\n");
+    CHECK(!arg.ok, "an interface method requirement that is not satisfied fails the bound");
+    CHECK(arg.hasErrorCode(diagnostics::err::InterfaceNotSatisfied),
+          "the struct with an incompatible interface method reports E2024");
 }
 
 static void test_modern_unknown_method_still_reports_field() {
@@ -2893,6 +3053,9 @@ static void test_sema() {
     test_modern_for_in_iterators();
     test_modern_generic_params();
     test_modern_generic_struct_literal_inference();
+    test_modern_struct_field_visibility();
+    test_modern_module_depth_field_visibility();
+    test_modern_optional_condition_boolean();
     test_modern_array_literal();
     test_modern_array_literal_mismatch();
     test_modern_array_literal_empty();
@@ -2904,6 +3067,7 @@ static void test_sema() {
     test_modern_implement_block_method();
     test_modern_method_call_arity_mismatch();
     test_modern_method_call_arg_type_mismatch();
+    test_interface_method_bound_signature_and_arity();
     test_modern_tagged_union_cast_policy();
     test_modern_qualified_method_receivers();
     test_modern_free_borrow_call_annotations();

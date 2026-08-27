@@ -318,6 +318,13 @@ struct Parameter {
     ExprId defaultValue;
     /// True for `const name: T = value` struct fields in Zith--.
     bool isConstField = false;
+    /// Visibility of a struct field. Top-level declarations already carry the
+    /// same enum; fields default to private and may be opened with `pub` or
+    /// `mod`/`mod(N)`.
+    Visibility visibility = Visibility::Private;
+    /// Depth for `mod(N)` field visibility. Negative means unlimited depth,
+    /// mirroring `ImportDecl::depth`; ignored for public/private fields.
+    int32_t modDepth = 0;
 };
 
 struct ImportSelector {
