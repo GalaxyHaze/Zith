@@ -240,6 +240,7 @@ struct CompactFunction {
     uint32_t name_id = 0;
     std::vector<uint32_t> param_type_ids;
     std::vector<uint32_t> param_name_ids;
+    std::vector<uint32_t> param_slot_ids;
     uint32_t return_type_id = 0;
     std::vector<CompactBasicBlock> blocks;
     std::vector<CompactExpr> exprs;

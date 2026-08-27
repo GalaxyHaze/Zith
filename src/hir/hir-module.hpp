@@ -22,6 +22,9 @@ struct HirFunction {
     memory::InternedId name;
     memory::DynArray<HirTypeId> params;
     memory::DynArray<memory::InternedId> param_names;
+    /// HIR slot allocated for each function parameter/body local. Codegen uses
+    /// this to read residual ownership facts without assuming slot order.
+    memory::DynArray<HirSlotId> param_slots;
     HirTypeId return_type;
     /// True for `state` functions; their jumps are LLVM musttail transitions.
     bool isState = false;
@@ -37,7 +40,8 @@ struct HirFunction {
     memory::Span fnSpan{};
     memory::DynArray<HirBasicBlock> blocks;
 
-    explicit HirFunction(memory::Arena &arena) : params(arena), param_names(arena), blocks(arena) {}
+    explicit HirFunction(memory::Arena &arena)
+        : params(arena), param_names(arena), param_slots(arena), blocks(arena) {}
 };
 
 /// A module-scoped `const` global declaration. The initializer is a HIR

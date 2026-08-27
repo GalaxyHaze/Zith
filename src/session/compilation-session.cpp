@@ -1817,6 +1817,9 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
              ++pi) {
             fn.params.push(compactType(cfn.param_type_ids[pi]));
             fn.param_names.push(mInterner->intern(art.strings[cfn.param_name_ids[pi]]));
+            fn.param_slots.push(pi < cfn.param_slot_ids.size()
+                                    ? static_cast<hir::HirSlotId>(cfn.param_slot_ids[pi])
+                                    : hir::kInvalidHirSlot);
         }
         for (const auto &cblk : cfn.blocks) {
             auto &blk = fn.blocks.emplace(mHirArena);

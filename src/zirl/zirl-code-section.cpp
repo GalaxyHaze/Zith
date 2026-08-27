@@ -79,6 +79,9 @@ bool encodeCode(const cache::Artifact &artifact, ByteWriter &w) {
         w.writeU32(static_cast<uint32_t>(fn.param_name_ids.size()));
         for (auto id : fn.param_name_ids)
             w.writeU32(id);
+        w.writeU32(static_cast<uint32_t>(fn.param_slot_ids.size()));
+        for (auto id : fn.param_slot_ids)
+            w.writeU32(id);
         w.writeU32(static_cast<uint32_t>(fn.blocks.size()));
         for (const auto &blk : fn.blocks) {
             w.writeU32(static_cast<uint32_t>(blk.insts.size()));
@@ -131,6 +134,12 @@ bool decodeCode(ByteReader &r, cache::Artifact &out) {
             return false;
         fn.param_name_ids.resize(k);
         for (auto &id : fn.param_name_ids)
+            if (!r.readU32(id))
+                return false;
+        if (!r.readU32(k))
+            return false;
+        fn.param_slot_ids.resize(k);
+        for (auto &id : fn.param_slot_ids)
             if (!r.readU32(id))
                 return false;
         if (!r.readU32(k))

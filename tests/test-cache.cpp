@@ -420,7 +420,7 @@ static void test_format_version_bump() {
     (void)Writer::write(art, writer);
 
     std::string bytes(reinterpret_cast<const char *>(writer.ptr()), writer.size());
-    CHECK_EQ(kFormatVersion, 10u, "zirl format version is bumped for state tailcc metadata");
+    CHECK_EQ(kFormatVersion, 11u, "zirl format version is bumped for parameter slot metadata");
 
     // Simulate an old reader by treating the version field as v3.
     bytes[4]        = 3;

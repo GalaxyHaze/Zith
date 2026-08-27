@@ -123,6 +123,9 @@ void addModernCode(Artifact &art) {
     fn.machine_id             = 7;
     fn.machine_return_type_id = 0;
     fn.return_type_id         = 0;
+    fn.param_type_ids         = {0};
+    fn.param_name_ids         = {0};
+    fn.param_slot_ids         = {1};
 
     CompactExpr lit;
     lit.kind    = CompactExprKind::Literal;
@@ -305,6 +308,11 @@ static void test_modern_code_section_round_trip() {
     CHECK(decoded.functions[0].uses_tailcc, "state tailcc flag preserved");
     CHECK_EQ(decoded.functions[0].machine_id, 7u, "state machine id preserved");
     CHECK_EQ(decoded.functions[0].machine_return_type_id, 0u, "machine return type preserved");
+    CHECK_EQ(decoded.functions[0].param_slot_ids.size(), 1u,
+             "function parameter slot mapping preserved");
+    if (!decoded.functions[0].param_slot_ids.empty())
+        CHECK_EQ(decoded.functions[0].param_slot_ids[0], 1u,
+                 "function parameter slot value preserved");
     CHECK_EQ(decoded.exprs.size(), 6u, "modern expression pool preserved");
     if (decoded.exprs.size() == 6u) {
         CHECK(decoded.exprs[0].kind == CompactExprKind::Literal, "literal kind preserved");

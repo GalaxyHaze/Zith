@@ -36,7 +36,9 @@ inline constexpr uint32_t kMagic = 0x5A49524Cu; // "ZIRL"
 /// blob runtime in the cache format.
 /// Version 10: state machine callers use tailcc and caches persist the
 /// machine return type alongside the machine id.
-inline constexpr uint32_t kFormatVersion = 10;
+/// Version 11: HIR functions persist the parameter-to-HIR-slot mapping so
+/// codegen can attach borrow attributes to the exact ABI argument.
+inline constexpr uint32_t kFormatVersion = 11;
 inline constexpr uint8_t kEndianLittle   = 1;
 
 enum class SectionId : uint8_t {

@@ -1214,6 +1214,87 @@ void test_generic_function_lowers_to_concrete_instances() {
     }
 }
 
+void test_generic_bound_and_value_param_lower_to_hir() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "trait Foo {}\n"
+                                     "interface Transform { [x]: i32 }\n"
+                                     "struct Temple { x: i32 }\n"
+                                     "struct Point { x: i32 }\n"
+                                     "implement Temple as Foo {}\n"
+                                     "fn foolish<T: Foo>(a: T): i32 { return 1 }\n"
+                                     "fn interLab<T: Transform>(a: T): i32 { return a.x }\n"
+                                     "fn main(): i32 {\n"
+                                     "    let p = Point { x: 7 };\n"
+                                     "    return foolish<Temple>(Temple { x: 1 }) + interLab(p);\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "generic bound declarations lower without unknown-type diagnostics");
+
+    const auto &hir = session.hirModule();
+    for (size_t i = 0; i < hir.getFnCount(); ++i) {
+        const auto &fn = hir.getFn(i);
+        if (fn.param_names.empty())
+            continue;
+        CHECK_EQ(fn.param_slots.size(), fn.param_names.size(),
+                 "every HIR function carries a slot id for each parameter");
+    }
+}
+
+void test_interface_method_bound_lower_to_hir() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "interface Positioned {\n"
+                                     "    x: i32,\n"
+                                     "    fn getX(self): i32\n"
+                                     "}\n"
+                                     "struct Point {\n"
+                                     "    x: i32,\n"
+                                     "    fn getX(self): i32 { return self.x }\n"
+                                     "}\n"
+                                     "fn transform<T: Positioned>(p: T): i32 { return p.getX() }\n"
+                                     "fn main(): i32 {\n"
+                                     "    let p = Point { x: 7 };\n"
+                                     "    return transform<Point>(p);\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "interface method in a generic bound lowers to HIR");
+    const auto &hir       = session.hirModule();
+    const auto *transform = findFunction(hir, session.interner(), "transform<Point>");
+    CHECK(transform != nullptr, "generic transform instance is present");
+    bool calls_point_getx = false;
+    for (size_t index = 0; index < hir.exprCount(); ++index) {
+        const auto &expr = hir.getExpr(static_cast<hir::HirExprId>(index));
+        if (!std::holds_alternative<hir::HirCall>(expr))
+            continue;
+        const auto &call = std::get<hir::HirCall>(expr);
+        if (call.resolved_fn == symbols::kInvalidSym)
+            continue;
+        for (size_t fn_index = 0; fn_index < hir.getFnCount(); ++fn_index) {
+            const auto &fn = hir.getFn(fn_index);
+            if (fn.sym_id != call.resolved_fn)
+                continue;
+            const std::string_view fn_name(session.interner().lookup(fn.name));
+            if (fn_name.find("Point.getX") != std::string_view::npos ||
+                fn_name.find(".getX") != std::string_view::npos) {
+                calls_point_getx = true;
+                break;
+            }
+        }
+        if (calls_point_getx)
+            break;
+    }
+    CHECK(calls_point_getx, "generic transform call resolves to the concrete Point.getX");
+}
+
 void test_indirect_function_call_has_callee_and_fn_type() {
     Workspace workspace;
     workspace.writeFile("main.zith", "extern fn apply(f: fn(i32): i32, x: i32): i32\n"
@@ -1662,6 +1743,8 @@ static void test_hir_lower_modern() {
     test_diverging_state_parameters_share_machine_id();
     test_local_states_qualify_and_lower_without_collisions();
     test_generic_function_lowers_to_concrete_instances();
+    test_generic_bound_and_value_param_lower_to_hir();
+    test_interface_method_bound_lower_to_hir();
     test_const_global_lowers_to_load();
     test_untyped_const_global_type_comes_from_initializer();
     test_indirect_function_call_has_callee_and_fn_type();

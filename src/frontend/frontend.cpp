@@ -3152,7 +3152,8 @@ private:
                                               false, diagnostics::err::UnsupportedSyntax});
         } else if ((kind == DeclKind::Struct || kind == DeclKind::Interface) &&
                    punctuation(index_, '{')) {
-            // Struct bodies also contain methods; interface bodies only contain fields.
+            // Struct bodies contain fields and methods; interface bodies contain
+            // fields and declaration-only method requirements.
             ++index_;
             while (index_ < token_count_ && !punctuation(index_, '}')) {
                 if (punctuation(index_, ',')) {
@@ -3160,18 +3161,21 @@ private:
                     continue;
                 }
                 if (const auto function_kind = functionKindPrefix()) {
-                    if (kind == DeclKind::Interface) {
-                        const auto method_start = index_;
-                        skipDelimitedBracedMethod();
-                        snapshot_.diagnostics_.push_back(
-                            {range(method_start, index_), "interfaces declare fields, not methods",
-                             false, diagnostics::err::InterfaceMethodNotAllowed});
-                        continue;
-                    }
                     const auto method_start = index_;
-                    lowerDeclaration(method_start, DeclKind::Function, Visibility::Private,
-                                     declaration.name, {}, false, *function_kind,
-                                     declaration.genericParams);
+                    const auto method_id    = lowerDeclaration(
+                        method_start, DeclKind::Function, Visibility::Private, declaration.name,
+                        kind == DeclKind::Interface ? declaration.name : std::string{}, false,
+                        *function_kind, declaration.genericParams);
+                    if (kind == DeclKind::Interface && method_id &&
+                        method_id.value <= snapshot_.declarations_.size()) {
+                        const auto &method = snapshot_.declarations_[method_id.value - 1U];
+                        if (method.body) {
+                            snapshot_.diagnostics_.push_back(
+                                {range(method_start, index_),
+                                 "interface method requirements cannot have a default body", false,
+                                 diagnostics::err::UnsupportedSyntax});
+                        }
+                    }
                     continue;
                 }
                 if (kind == DeclKind::Interface) {
@@ -3184,7 +3188,7 @@ private:
                 ++index_;
             else
                 snapshot_.diagnostics_.push_back(
-                    {range(start, index_), "expected '}' after struct fields"});
+                    {range(start, index_), "expected '}' after struct or interface fields"});
         } else if (kind == DeclKind::Trait && punctuation(index_, '{')) {
             ++index_;
             while (index_ < token_count_ && !punctuation(index_, '}')) {
@@ -3445,100 +3449,78 @@ private:
         return true;
     }
 
-    /// Parse one interface field. Interfaces accept only grouped declarations.
+    /// Parse one interface field. Interfaces accept single `name: Type` and
+    /// grouped `[name, ...]: Type` declarations.
     /// Returns false when the malformed field cannot be recovered inline and the
     /// body should stop.
     bool parseInterfaceField(std::vector<Parameter> &out) {
-        if (!punctuation(index_, '[')) {
-            const uint32_t start = index_;
-            if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
-                ++index_;
-                while (index_ < token_count_ && !punctuation(index_, ':') &&
-                       !punctuation(index_, ',') && !punctuation(index_, '}'))
+        const bool is_grouped = index_ < token_count_ && punctuation(index_, '[');
+        const uint32_t start  = index_;
+        std::vector<Parameter> fields;
+        if (is_grouped) {
+            ++index_;
+            while (index_ < token_count_ && !punctuation(index_, '[') &&
+                   !punctuation(index_, ']') && !punctuation(index_, '}')) {
+                if (punctuation(index_, ',')) {
                     ++index_;
+                    continue;
+                }
+                if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
+                    snapshot_.diagnostics_.push_back(
+                        {tokenSpan(index_),
+                         "expected a field name in grouped interface field list"});
+                    ++index_;
+                    continue;
+                }
+                Parameter field;
+                field.id   = LocalId{statementCountLocals_++};
+                field.name = std::string(text(index_));
+                field.span = tokenSpan(index_++);
+                fields.push_back(std::move(field));
             }
-            snapshot_.diagnostics_.push_back(
-                {range(start, index_),
-                 "interfaces allow only grouped fields like '[name, ...]: Type'", false,
-                 diagnostics::err::UnsupportedSyntax});
-            if (punctuation(index_, ','))
+            if (!punctuation(index_, ']')) {
+                snapshot_.diagnostics_.push_back(
+                    {range(start, index_), "expected ']' after grouped interface field names"});
+                while (index_ < token_count_ && !punctuation(index_, '}') &&
+                       !punctuation(index_, ',')) {
+                    if (punctuation(index_, ']'))
+                        break;
+                    ++index_;
+                }
+            } else {
                 ++index_;
-            return false;
-        }
-        const auto group_start = index_++;
-        std::vector<Parameter> grouped;
-        while (index_ < token_count_ && !punctuation(index_, '[') && !punctuation(index_, ']') &&
-               !punctuation(index_, '}')) {
-            if (punctuation(index_, ',')) {
-                ++index_;
-                continue;
             }
+        } else {
             if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
                 snapshot_.diagnostics_.push_back(
-                    {tokenSpan(index_), "expected a field name in grouped interface field list"});
+                    {tokenSpan(index_), "expected an interface field name"});
                 ++index_;
-                continue;
+                return false;
             }
             Parameter field;
             field.id   = LocalId{statementCountLocals_++};
             field.name = std::string(text(index_));
             field.span = tokenSpan(index_++);
-            grouped.push_back(std::move(field));
-        }
-        if (!punctuation(index_, ']')) {
-            snapshot_.diagnostics_.push_back(
-                {range(group_start, index_), "expected ']' after grouped interface field names"});
-            while (index_ < token_count_ && !punctuation(index_, '}') &&
-                   !punctuation(index_, ',')) {
-                if (punctuation(index_, ']'))
-                    break;
-                ++index_;
-            }
-        } else {
-            ++index_; // consume ']'
+            fields.push_back(std::move(field));
         }
         if (!punctuation(index_, ':')) {
-            snapshot_.diagnostics_.push_back({range(group_start, index_),
-                                              "expected ':' after grouped interface field names",
-                                              false, diagnostics::err::UnsupportedSyntax});
+            snapshot_.diagnostics_.push_back({range(start, index_),
+                                              "expected ':' after interface field name(s)", false,
+                                              diagnostics::err::UnsupportedSyntax});
         } else {
             ++index_;
             const auto type_id = parseType();
-            for (auto &field : grouped) {
+            for (auto &field : fields) {
                 field.type = type_id;
                 out.push_back(std::move(field));
             }
         }
         if (!punctuation(index_, ',') && !punctuation(index_, '}')) {
             snapshot_.diagnostics_.push_back(
-                {range(group_start, index_), "expected ',' after grouped interface fields"});
+                {range(start, index_), "expected ',' after interface fields"});
             ++index_;
         }
         return true;
-    }
-
-    /// Consume an interface `fn` declaration without creating a declaration. This
-    /// keeps the diagnostic focused and prevents the method body from being
-    /// re-parsed as top-level code.
-    void skipDelimitedBracedMethod() {
-        if (index_ >= token_count_)
-            return;
-        ++index_; // `fn` or kind prefix
-        while (index_ < token_count_ && !punctuation(index_, ';') && !punctuation(index_, '{'))
-            ++index_;
-        if (punctuation(index_, ';')) {
-            ++index_;
-        } else if (punctuation(index_, '{')) {
-            ++index_;
-            uint32_t depth = 1;
-            while (index_ < token_count_ && depth != 0U) {
-                if (punctuation(index_, '{'))
-                    ++depth;
-                else if (punctuation(index_, '}'))
-                    --depth;
-                ++index_;
-            }
-        }
     }
 
     void skipDelimited(const char open, const char close) {

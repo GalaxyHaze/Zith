@@ -716,6 +716,57 @@ static void test_struct_field_read_through_parameter() {
           "the accessor function is emitted with a qualified name");
 }
 
+static void test_generic_bound_by_value_parameter_runs_without_borrow_attrs() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "trait Foo {}\n"
+                         "interface Transform { [x]: i32 }\n"
+                         "struct Temple { x: i32 }\n"
+                         "struct Point { x: i32 }\n"
+                         "implement Temple as Foo {}\n"
+                         "fn foolish<T: Foo>(a: T): i32 { return 1 }\n"
+                         "fn interLab<T: Transform>(a: T): i32 { return a.x }\n"
+                         "fn main(): i32 {\n"
+                         "    let p = Point { x: 7 };\n"
+                         "    return foolish<Temple>(Temple { x: 1 }) + interLab(p);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "generic bound declarations compile and execute");
+    CHECK_EQ(r.exitCode, 8, "generic value parameters produce the expected result");
+    CHECK_EQ(r.errorCount, 0u, "the emitted module passes LLVM verification");
+    CHECK(r.output.find("define i32 @\"foolish<Temple>\"(%zith.struct.") != std::string::npos,
+          "the generic by-value instance is emitted");
+    CHECK(r.output.find("define i32 @\"interLab<Point>\"(%zith.struct.") != std::string::npos,
+          "the generic interface by-value instance is emitted");
+    CHECK(countOccurrences(r.output, "readonly") == 0u ||
+              r.output.find("noalias nocapture") == std::string::npos,
+          "no incompatible borrowed parameter attributes are emitted");
+}
+
+static void test_interface_method_bound_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "interface Positioned {\n"
+                         "    x: i32,\n"
+                         "    fn getX(self): i32\n"
+                         "}\n"
+                         "struct Point {\n"
+                         "    x: i32,\n"
+                         "    fn getX(self): i32 { return self.x }\n"
+                         "}\n"
+                         "fn transform<T: Positioned>(p: T): i32 { return p.x + p.getX() }\n"
+                         "fn main(): i32 {\n"
+                         "    let p = Point { x: 41 };\n"
+                         "    return transform<Point>(p);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "interface method generic bound uses the modern codegen pipeline");
+    CHECK(r.ok, "interface method generic bound compiles, links and runs");
+    CHECK_EQ(r.exitCode, 82, "generic transform reads the interface field and calls its method");
+    CHECK_EQ(r.errorCount, 0u, "the emitted module passes LLVM verification");
+}
+
 static void test_duplicate_struct_field_names_do_not_collide_globally() {
     ModernFileCodegenTest t;
     t.write("main.zith", "struct A { value: i32 }\n"

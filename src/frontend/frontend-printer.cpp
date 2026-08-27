@@ -295,6 +295,19 @@ void printDeclarations(const FrontendSnapshot &snapshot) {
                 std::fputs(decl.parameters[index].name.c_str(), stdout);
             }
             std::fputs("\n", stdout);
+            for (const auto &member : decls) {
+                if (member.kind != DeclKind::Function || member.ownerName != decl.name)
+                    continue;
+                if (member.span.start < decl.span.start || member.span.end > decl.span.end)
+                    continue;
+                std::printf("    Method '%s' owner='%s'", member.name.c_str(),
+                            member.ownerName.c_str());
+                for (const auto &param : member.parameters)
+                    std::printf(" %s", param.name.c_str());
+                if (member.body)
+                    std::printf(" (default body)");
+                std::printf(" [%u..%u]\n", member.span.start, member.span.end);
+            }
         }
 
         // Declared type

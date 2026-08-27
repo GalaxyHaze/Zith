@@ -613,6 +613,9 @@ Artifact ArtifactBuilder::build(std::string_view canonical_path, std::string_vie
         for (size_t pi = 0; pi < fn.params.size(); ++pi) {
             cfn.param_type_ids.push_back(internType(fn.params[pi]));
             cfn.param_name_ids.push_back(internString(interner_.lookup(fn.param_names[pi])));
+            cfn.param_slot_ids.push_back(pi < fn.param_slots.size()
+                                             ? static_cast<uint32_t>(fn.param_slots[pi])
+                                             : hir::kInvalidHirSlot);
         }
         for (size_t bi = 0; bi < fn.blocks.size(); ++bi) {
             const auto &blk = fn.blocks[bi];

@@ -465,15 +465,23 @@ void CodeGenEmit::registerParams(const hir::HirFunction &fn, llvm::Function *llv
     for (size_t i = 0; i < fn.param_names.size() && argIt != llvmFn->arg_end(); i++, ++argIt) {
         auto paramName = interner_.lookup(fn.param_names[i]);
         argIt->setName(llvm::StringRef(paramName.data(), paramName.size()));
-        // Lowering gives each function parameter the first HIR slot in order,
-        // so the residual slot ownership maps directly to the LLVM argument.
-        const auto *slotAttrs = mod.attrs().trySlot(static_cast<hir::HirSlotId>(i));
-        if (slotAttrs != nullptr && (slotAttrs->ownership == hir::HirOwnership::Lend ||
-                                     slotAttrs->ownership == hir::HirOwnership::View)) {
-            argIt->addAttr(llvm::Attribute::getWithCaptureInfo(argIt->getContext(),
-                                                               llvm::CaptureInfo::none()));
-            if (slotAttrs->ownership == hir::HirOwnership::View)
-                argIt->addAttr(llvm::Attribute::ReadOnly);
+        if (i < fn.param_slots.size()) {
+            const auto *slotAttrs =
+                mod.attrs().trySlot(static_cast<hir::HirSlotId>(fn.param_slots[i]));
+            const bool borrow_attr =
+                slotAttrs != nullptr && (slotAttrs->ownership == hir::HirOwnership::Lend ||
+                                         slotAttrs->ownership == hir::HirOwnership::View);
+            const bool is_pointer = argIt->getType()->isPointerTy();
+            // Borrow facts only apply when the ABI passed a pointer for this
+            // parameter. Generic/interface arguments can be by-value aggregates
+            // with a residual qualifier; applying readonly/nocapture there is an
+            // LLVM type error.
+            if (borrow_attr && is_pointer) {
+                argIt->addAttr(llvm::Attribute::getWithCaptureInfo(argIt->getContext(),
+                                                                   llvm::CaptureInfo::none()));
+                if (slotAttrs->ownership == hir::HirOwnership::View)
+                    argIt->addAttr(llvm::Attribute::ReadOnly);
+            }
         }
         auto *slot = builder_.CreateAlloca(argIt->getType(), nullptr,
                                            llvm::StringRef(paramName.data(), paramName.size()));

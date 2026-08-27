@@ -1539,6 +1539,55 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
     // accepts trait methods, which sema has already filtered by conformance.
     if (const auto *decl = methodDeclFromTarget(callee_id, &owner_artifact); decl != nullptr) {
         method_decl = decl;
+        if (!method_decl->body && callee_expr.kind == frontend::ExprKind::Field &&
+            !callee_expr.operands.empty()) {
+            // Interface requirements are declaration-only. After monomorphization
+            // of the generic body, resolve the call to the concrete struct method
+            // that satisfies the structural interface bound.
+            const sema::modern::TypeId base_type =
+                sema_.typeTable().stripQualifiers(semaTypeOfExpr(callee_expr.operands[0]));
+            sema::modern::TypeId pointee = base_type;
+            if (base_type && sema_.typeTable().kindOf(base_type) == TypeKind::Pointer) {
+                if (const auto *ptr = sema_.typeTable().pointer(base_type))
+                    pointee = sema_.typeTable().stripQualifiers(ptr->pointee);
+            } else if (base_type && sema_.typeTable().kindOf(base_type) == TypeKind::Optional) {
+                if (const auto *opt = sema_.typeTable().optional(base_type))
+                    pointee = sema_.typeTable().stripQualifiers(opt->inner);
+            }
+            const auto *st = sema_.typeTable().struct_type(pointee);
+            if (st != nullptr) {
+                std::string owner_name(st->name);
+                if (const size_t angle = owner_name.find('<'); angle != std::string::npos)
+                    owner_name.resize(angle);
+                const auto findConcrete = [&](const session::ModuleArtifact &module,
+                                              const frontend::Declaration **out) {
+                    for (const auto &candidate : module.frontend->declarations()) {
+                        if (candidate.kind != frontend::DeclKind::Function ||
+                            candidate.ownerName != owner_name || candidate.name != callee_expr.text)
+                            continue;
+                        *out = &candidate;
+                        return true;
+                    }
+                    return false;
+                };
+                const frontend::Declaration *concrete = nullptr;
+                if (findConcrete(*current_module_, &concrete)) {
+                    method_decl    = concrete;
+                    owner_artifact = current_module_;
+                } else {
+                    for (const auto &module_ptr : snapshot_.modules()) {
+                        const auto &module = *module_ptr;
+                        if (module.key == current_module_->key || module.frontend == nullptr)
+                            continue;
+                        if (findConcrete(module, &concrete)) {
+                            method_decl    = concrete;
+                            owner_artifact = &module;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
     }
     // A method with a `self` receiver receives an implicit owner pointer
     // argument. Methods without self are static in this compiler.
@@ -2939,9 +2988,32 @@ hir::HirExprId HirLowerModern::lowerField(const frontend::Expression &expr,
         sema_type   = sema_.typeTable().stripQualifiers(sem_ptr->pointee);
     }
     const int idx = sema_.typeTable().fieldIndex(sema_type, expr.text);
-    if (idx < 0)
-        return hir::kInvalidHirExpr;
-    return addExpr(hir::HirField{object, static_cast<uint32_t>(idx), type, object_type});
+    if (idx >= 0)
+        return addExpr(hir::HirField{object, static_cast<uint32_t>(idx), type, object_type});
+    if (current_module_ != nullptr &&
+        sema_.typeTable().kindOf(sema_type) == sema::modern::TypeKind::GenericParam) {
+        const auto *module_sema = sema_.findModuleSema(current_module_->key);
+        if (module_sema != nullptr) {
+            for (const TypeId bound : module_sema->boundsForGenericParam(sema_type)) {
+                if (!module_sema->isInterfaceType(bound))
+                    continue;
+                const auto *trait_ty = sema_.typeTable().trait(module_sema->resolve(bound));
+                if (trait_ty == nullptr)
+                    continue;
+                const auto *iface =
+                    module_sema->findDeclNamed(trait_ty->name, frontend::DeclKind::Interface);
+                if (iface == nullptr)
+                    continue;
+                for (size_t field = 0; field < iface->parameters.size(); ++field) {
+                    if (iface->parameters[field].name != expr.text)
+                        continue;
+                    return addExpr(
+                        hir::HirField{object, static_cast<uint32_t>(field), type, object_type});
+                }
+            }
+        }
+    }
+    return hir::kInvalidHirExpr;
 }
 
 hir::HirExprId HirLowerModern::lowerArrow(const frontend::Expression &expr,

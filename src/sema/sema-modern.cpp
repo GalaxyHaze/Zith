@@ -2315,9 +2315,10 @@ bool PerModuleSema::satisfiesConformance(TypeId type, TypeId trait_or_interface)
     if (type_table.conformanceTable().satisfies(concrete, target))
         return true;
 
-    // Interfaces are structural: compare the declared fields of the interface
-    // against the fields of the concrete type. The interface must be a named
-    // Interface declaration; its `parameters` are the grouped field list.
+    // Interfaces are structural: compare the declared fields and methods of the
+    // interface against the members of the concrete type. The interface must be
+    // a named Interface declaration; its `parameters` are the field list and
+    // its method requirements are Function declarations with `ownerName` set.
     if (type_table.kindOf(target) != TypeKind::Trait)
         return false;
     const auto *interface_ty = type_table.trait(target);
@@ -2344,10 +2345,70 @@ bool PerModuleSema::satisfiesConformance(TypeId type, TypeId trait_or_interface)
             return false;
         const TypeId required_type = lowerTypeExprConst(required.type);
         const TypeId actual_type   = index < static_cast<int>(struct_type->fields.size())
-                                         ? struct_type->fields[index]
+                                         ? struct_type->fields[static_cast<size_t>(index)]
                                          : kInvalidTypeId;
         if (required_type && actual_type && !sameType(required_type, actual_type))
             return false;
+    }
+    const auto checkMethod = [&](const frontend::Declaration &requirement,
+                                 const frontend::Declaration &candidate,
+                                 session::ModuleKey requirement_module,
+                                 session::ModuleKey candidate_module) {
+        if (requirement.parameters.size() != candidate.parameters.size())
+            return false;
+        const auto req_sema =
+            owner != nullptr ? owner->findModuleSema(requirement_module) : nullptr;
+        const auto cand_sema = owner != nullptr ? owner->findModuleSema(candidate_module) : nullptr;
+        const auto *req_type =
+            type_table.function(req_sema != nullptr ? req_sema->typeOfDecl(requirement.id)
+                                                    : typeOfDecl(requirement.id));
+        const auto *cand_type = type_table.function(
+            cand_sema != nullptr ? cand_sema->typeOfDecl(candidate.id) : typeOfDecl(candidate.id));
+        if (req_type == nullptr || cand_type == nullptr ||
+            req_type->params.size() != cand_type->params.size())
+            return false;
+        if (!sameType(substituteSelf(cand_type->result, concrete, target),
+                      substituteSelf(req_type->result, concrete, target)))
+            return false;
+        for (size_t index = 0; index < req_type->params.size(); ++index) {
+            const TypeId expected = substituteSelf(req_type->params[index], concrete, target);
+            if (expected && !sameType(expected, cand_type->params[index]))
+                return false;
+        }
+        return true;
+    };
+    const auto checkRequirements = [&](const frontend::FrontendSnapshot &snap,
+                                       session::ModuleKey snap_module) {
+        for (const auto &requirement : snap.declarations()) {
+            if (requirement.kind != frontend::DeclKind::Function ||
+                requirement.ownerName != interface_ty->name || requirement.body)
+                continue;
+            const auto methods =
+                findMethodsForOwner(std::string_view{struct_type->name}, requirement.name);
+            bool matched = false;
+            for (const auto &method : methods) {
+                if (method.isTraitMethod)
+                    continue;
+                if (checkMethod(requirement, *method.decl, snap_module, method.module)) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched)
+                return false;
+        }
+        return true;
+    };
+    if (!checkRequirements(snapshot, module))
+        return false;
+    if (owner != nullptr) {
+        for (const auto &artifact_ptr : owner->modules()) {
+            const auto &artifact = *artifact_ptr;
+            if (artifact.key == module || artifact.frontend == nullptr)
+                continue;
+            if (!checkRequirements(*artifact.frontend, artifact.key))
+                return false;
+        }
     }
     return true;
 }
@@ -2417,7 +2478,7 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         std::vector<TypeId> bound_traits;
         for (const TypeId bound : bounds) {
             const auto *trait_ty = type_table.trait(resolve(bound));
-            if (trait_ty == nullptr || isInterfaceType(bound))
+            if (trait_ty == nullptr)
                 continue;
             for (const auto &decl : snapshot.declarations()) {
                 if (decl.kind != frontend::DeclKind::Function || decl.ownerName != trait_ty->name ||
@@ -4311,6 +4372,32 @@ TypeId PerModuleSema::inferField(frontend::ExprId id) {
     }
     const auto *st = type_table.struct_type(resolved);
     if (st == nullptr) {
+        if (type_table.kindOf(resolved) == TypeKind::GenericParam) {
+            for (const TypeId bound : boundsForGenericParam(resolved)) {
+                if (!isInterfaceType(bound))
+                    continue;
+                const auto *trait_ty = type_table.trait(resolve(bound));
+                const auto *iface =
+                    trait_ty != nullptr
+                        ? findDeclNamed(trait_ty->name, frontend::DeclKind::Interface)
+                        : nullptr;
+                if (iface == nullptr)
+                    continue;
+                for (const auto &required : iface->parameters) {
+                    if (required.name != expr.text)
+                        continue;
+                    const TypeId field_type = lowerTypeExprConst(required.type);
+                    if (!field_type)
+                        break;
+                    return field_type;
+                }
+            }
+            report(expr.span,
+                   "unknown field '" + expr.text + "' on generic parameter '" +
+                       type_table.typeToString(object_type) + "'",
+                   diagnostics::err::NoMember);
+            return error_type;
+        }
         report(expr.span,
                "field access on non-struct type having type '" +
                    type_table.typeToString(object_type) + "'",
