@@ -1185,14 +1185,54 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                     }
                 }
             } else if (edge.request.alias.empty() && !default_name.empty()) {
-                add_binding({default_name,
-                             ResolutionKind::ModuleAlias,
-                             edge.request.pathSpan,
-                             {edge.targets.empty() ? ModuleKey{} : edge.targets.front(), {}},
-                             {},
-                             {},
-                             {}},
-                            frontend::ScopeId{});
+                bool default_name_collides = false;
+                for (const auto &target : edge.targets) {
+                    const auto module_it = module_by_key.find(target);
+                    if (module_it == module_by_key.end())
+                        continue;
+                    for (const auto &symbol : module_it->second->publicSymbols) {
+                        if (symbol.name == default_name) {
+                            default_name_collides = true;
+                            break;
+                        }
+                    }
+                    if (default_name_collides)
+                        break;
+                }
+                if (default_name_collides) {
+                    // The default module alias would shadow the module's own
+                    // public symbol, so inject the public namespace directly.
+                    // This keeps code such as `string.init(...)` working when
+                    // `import "soon/string"` exports a struct named `string`.
+                    for (const auto &target : edge.targets) {
+                        const auto module_it = module_by_key.find(target);
+                        if (module_it == module_by_key.end())
+                            continue;
+                        for (const auto &symbol : module_it->second->publicSymbols) {
+                            ResolvedName imported{symbol.name,
+                                                  ResolutionKind::Import,
+                                                  edge.request.span,
+                                                  {target, symbol.id},
+                                                  {},
+                                                  {},
+                                                  {}};
+                            imported.declKind   = symbol.kind;
+                            imported.signature  = symbol.signature;
+                            imported.isExtern   = symbol.isExtern;
+                            imported.isVariadic = symbol.isVariadic;
+                            add_binding(std::move(imported), frontend::ScopeId{});
+                        }
+                    }
+                } else {
+                    add_binding({default_name,
+                                 ResolutionKind::ModuleAlias,
+                                 edge.request.pathSpan,
+                                 {edge.targets.empty() ? ModuleKey{} : edge.targets.front(), {}},
+                                 {},
+                                 {},
+                                 {}},
+                                frontend::ScopeId{});
+                }
             }
         }
 
