@@ -432,6 +432,11 @@ frontend::LocalId NraFacts::localOfName(const frontend::Expression &name) const 
 }
 
 frontend::LocalId NraFacts::localOfArgument(const frontend::Expression &arg) const noexcept {
+    if (arg.kind == frontend::ExprKind::OwnershipCoerce && !arg.operands.empty()) {
+        const auto *inner = expr(arg.operands[0]);
+        if (inner != nullptr)
+            return localOfArgument(*inner);
+    }
     const frontend::LocalId direct = localOfName(arg);
     if (direct)
         return frontend::LocalId{direct.value};
@@ -446,6 +451,11 @@ frontend::LocalId NraFacts::localOfArgument(const frontend::Expression &arg) con
 }
 
 types::OwnershipKind NraFacts::ownershipOfArgument(const frontend::Expression &arg) const noexcept {
+    if (arg.kind == frontend::ExprKind::OwnershipCoerce) {
+        if (arg.operands.empty())
+            return types::OwnershipKind::Default;
+        return mapOwnership(arg.ownership);
+    }
     const auto direct = localOfName(arg);
     if (direct)
         return ownershipOfLocal(direct);
@@ -497,7 +507,14 @@ types::OwnershipKind NraFacts::ownershipOfLocal(frontend::LocalId id) const noex
     const auto *type = current_typed_->localTypes.get(id.value);
     if (type == nullptr)
         return types::OwnershipKind::Default;
-    const auto *qualified = sema_.typeTable().qualified(sema_.typeTable().canonical(*type));
+    TypeId cursor = sema_.typeTable().canonical(*type);
+    if (const auto *pointer = sema_.typeTable().pointer(cursor); pointer != nullptr) {
+        const auto *pointee_qualified =
+            sema_.typeTable().qualified(sema_.typeTable().canonical(pointer->pointee));
+        if (pointee_qualified != nullptr)
+            return pointee_qualified->ownership;
+    }
+    const auto *qualified = sema_.typeTable().qualified(cursor);
     return qualified != nullptr ? qualified->ownership : types::OwnershipKind::Default;
 }
 

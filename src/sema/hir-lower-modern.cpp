@@ -221,14 +221,14 @@ bool HirLowerModern::predeclareFunctions() {
             hir_fn.isVariadic = decl.isVariadic;
             hir_fn.isState    = decl.functionKind == frontend::FunctionKind::State;
 
+            bool is_main_void  = false;
             const auto fn_type = module_sema->typeOfDecl(decl.id);
             if (const auto *fn = sema_.typeTable().function(fn_type)) {
-                hir_fn.return_type      = lowerType(fn->result);
-                const bool is_main_void = decl.name == "main" && !decl.isExtern &&
-                                          decl.ownerName.empty() &&
-                                          decl.visibility != frontend::Visibility::Public &&
-                                          module.key == snapshot_.rootModuleKey() &&
-                                          hir_fn.return_type == types::kVoidType;
+                hir_fn.return_type = lowerType(fn->result);
+                is_main_void = decl.name == "main" && !decl.isExtern && decl.ownerName.empty() &&
+                               decl.visibility != frontend::Visibility::Public &&
+                               module.key == snapshot_.rootModuleKey() &&
+                               hir_fn.return_type == types::kVoidType;
                 if (is_main_void)
                     hir_fn.return_type = types_.internInt(types::IntWidth::I32);
                 if (hir_fn.isState) {
@@ -261,7 +261,7 @@ bool HirLowerModern::predeclareFunctions() {
             const auto key = internFunctionKey(interner_, module.key, decl.id);
             function_index_by_key_.insert(key, hir_.getFnCount() - 1U);
             functions_.push_back({key, module_ptr.get(), &decl, nullptr, nullptr, hir_fn.sym_id,
-                                  hir_.getFnCount() - 1U});
+                                  hir_.getFnCount() - 1U, is_main_void});
         }
     }
     if (const auto *instantiations = sema_.instantiations(); instantiations != nullptr) {
@@ -677,11 +677,9 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     local_slots_.resize(1U);
     current_for_in_binding_stmt_  = {};
     current_for_in_binding_local_ = {};
-    const bool is_main_void =
-        info.decl->name == "main" && !info.decl->isExtern && info.decl->ownerName.empty() &&
-        info.decl->visibility != frontend::Visibility::Public && info.module != nullptr &&
-        info.module->key == snapshot_.rootModuleKey() &&
-        current_fn_->return_type == types_.internInt(types::IntWidth::I32);
+    const bool is_main_void       = info.decl->name == "main" && info.forced_main_return_i32 &&
+                              info.module != nullptr &&
+                              info.module->key == snapshot_.rootModuleKey();
     current_main_void_ = is_main_void;
 
     current_fn_->blocks.emplace(arena_);
@@ -712,9 +710,7 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     const auto body_expr = lowerExpr(info.decl->body);
     if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
         hir::HirRet ret;
-        const bool is_main_void = info.decl->name == "main" && current_main_void_ &&
-                                  info.decl->ownerName.empty() &&
-                                  info.decl->visibility != frontend::Visibility::Public;
+        const bool is_main_void = current_main_void_;
         if (is_main_void) {
             hir::HirLiteral zero;
             zero.type = types_.internInt(types::IntWidth::I32);
@@ -1156,6 +1152,8 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
     const auto &expr = current_module_->frontend->expressions()[id.value - 1U];
     const auto type  = typeOfExpr(id);
     switch (expr.kind) {
+    case frontend::ExprKind::OwnershipCoerce:
+        return expr.operands.empty() ? hir::kInvalidHirExpr : lowerExpr(expr.operands[0]);
     case frontend::ExprKind::Literal:
         return lowerLiteral(expr, type);
     case frontend::ExprKind::Name:
@@ -1619,7 +1617,23 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
 
     for (size_t index = 1; index < expr.operands.size(); ++index) {
         const size_t call_index = is_receiver_method ? index : index - 1U;
-        const auto argument     = lowerExpr(expr.operands[index]);
+        const auto &arg_expr =
+            current_module_->frontend->expressions()[expr.operands[index].value - 1U];
+        const bool annotated =
+            arg_expr.kind == frontend::ExprKind::OwnershipCoerce && !arg_expr.operands.empty();
+        const frontend::ExprId inner_id = annotated ? arg_expr.operands[0] : expr.operands[index];
+        auto argument                   = lowerExpr(inner_id);
+        if (annotated) {
+            auto address = lowerLValueAddr(inner_id);
+            if (address == hir::kInvalidHirExpr) {
+                const auto inner_type = typeOfExpr(inner_id);
+                const auto slot       = next_slot_++;
+                current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, inner_type));
+                current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, argument));
+                address = addExpr(hir::HirSlotAddr{slot, inner_type});
+            }
+            argument = address;
+        }
         if (argument == hir::kInvalidHirExpr)
             return hir::kInvalidHirExpr;
         const auto argument_type = typeOfExpr(expr.operands[index]);
@@ -1749,14 +1763,69 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
 }
 
 hir::HirExprId HirLowerModern::lowerBlock(const frontend::Expression &expr) {
-    hir::HirExprId last = hir::kInvalidHirExpr;
+    cleanup_stack_.push_back(CleanupFrame(arena_));
+    const size_t frame_index = cleanup_stack_.size() - 1U;
+    hir::HirExprId last      = hir::kInvalidHirExpr;
     for (const auto statement : expr.statements) {
         if (current_fn_->blocks[current_block_].terminator != hir::kInvalidHirExpr)
             break;
         if (!lowerStatement(statement, last))
             return hir::kInvalidHirExpr;
     }
+
+    auto frame = std::move(cleanup_stack_.back());
+    cleanup_stack_.pop_back();
+    if (!frame.exprs.empty() &&
+        current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
+        hir::HirCleanup cleanup(arena_);
+        cleanup.exprs = std::move(frame.exprs);
+        current_fn_->blocks[current_block_].insts.push(addExpr(std::move(cleanup)));
+    }
     return last;
+}
+
+void HirLowerModern::emitCleanupFrom(size_t first) {
+    if (first >= cleanup_stack_.size())
+        return;
+    if (current_fn_->blocks[current_block_].terminator != hir::kInvalidHirExpr)
+        return;
+
+    bool any = false;
+    for (size_t index = first; index < cleanup_stack_.size(); ++index) {
+        if (!cleanup_stack_[index].exprs.empty())
+            any = true;
+    }
+    if (!any)
+        return;
+
+    hir::HirCleanup cleanup(arena_);
+    for (size_t index = first; index < cleanup_stack_.size(); ++index) {
+        const auto &frame = cleanup_stack_[index].exprs;
+        for (size_t inner = frame.size(); inner > 0U; --inner)
+            cleanup.exprs.push(frame[inner - 1U]);
+    }
+    current_fn_->blocks[current_block_].insts.push(addExpr(std::move(cleanup)));
+}
+
+hir::HirExprId HirLowerModern::lowerDeferBlock(const frontend::Expression &expr) {
+    auto *saved_sink = defer_body_sink_;
+    memory::DynArray<hir::HirExprId> sink(arena_);
+    defer_body_sink_    = &sink;
+    hir::HirExprId last = hir::kInvalidHirExpr;
+    for (const auto statement : expr.statements) {
+        if (current_fn_->blocks[current_block_].terminator != hir::kInvalidHirExpr)
+            break;
+        if (!lowerStatement(statement, last)) {
+            defer_body_sink_ = saved_sink;
+            return hir::kInvalidHirExpr;
+        }
+    }
+    defer_body_sink_ = saved_sink;
+
+    hir::HirCleanup cleanup(arena_);
+    for (const auto expr_id : sink)
+        cleanup.exprs.push(expr_id);
+    return addExpr(std::move(cleanup));
 }
 
 hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const types::TypeId type) {
@@ -1816,6 +1885,8 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
 
     setCurrentBlock(then_block);
     current_fn_->blocks[then_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    cleanup_stack_.push_back(CleanupFrame(arena_));
+    const size_t then_cleanup = cleanup_stack_.size() - 1U;
     if (narrowed_local && narrow_then) {
         narrowing_stack_.push_back(
             Narrowing{narrowed_local, narrowed_type, narrowed_optional_payload});
@@ -1823,6 +1894,8 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
     const auto then_value = lowerExpr(expr.operands[1]);
     if (narrowed_local && narrow_then)
         narrowing_stack_.pop_back();
+    emitCleanupFrom(then_cleanup);
+    cleanup_stack_.pop_back();
     if (has_value && then_value != hir::kInvalidHirExpr &&
         current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
         current_fn_->blocks[current_block_].insts.push(emitSlotStore(result_slot, then_value));
@@ -1833,12 +1906,16 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
     if (has_else) {
         setCurrentBlock(else_block);
         current_fn_->blocks[else_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+        cleanup_stack_.push_back(CleanupFrame(arena_));
+        const size_t else_cleanup = cleanup_stack_.size() - 1U;
         if (narrowed_local && !narrow_then)
             narrowing_stack_.push_back(
                 Narrowing{narrowed_local, narrowed_type, narrowed_optional_payload});
         const auto else_value = lowerExpr(expr.operands[2]);
         if (narrowed_local && !narrow_then)
             narrowing_stack_.pop_back();
+        emitCleanupFrom(else_cleanup);
+        cleanup_stack_.pop_back();
         if (has_value && else_value != hir::kInvalidHirExpr &&
             current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
             current_fn_->blocks[current_block_].insts.push(emitSlotStore(result_slot, else_value));
@@ -2012,10 +2089,14 @@ hir::HirExprId HirLowerModern::lowerWhile(const frontend::Expression &expr) {
     branch.else_block = static_cast<hir::HirDeclId>(exit_block);
     setTerminator(addExpr(std::move(branch)));
 
-    loop_stack_.push_back({header_block, exit_block});
+    loop_stack_.push_back({header_block, exit_block, 0U});
     setCurrentBlock(body_block);
     current_fn_->blocks[body_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    cleanup_stack_.push_back(CleanupFrame(arena_));
+    loop_stack_.back().cleanup_depth = cleanup_stack_.size() - 1U;
     (void)lowerExpr(expr.operands[1]);
+    emitCleanupFrom(cleanup_stack_.size() - 1U);
+    cleanup_stack_.pop_back();
     // The body may have created nested control flow; the back edge belongs on the
     // block the body actually ended in (current_block_), not necessarily body_block.
     if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
@@ -2049,10 +2130,14 @@ hir::HirExprId HirLowerModern::lowerFor(const frontend::Expression &expr) {
     setTerminator(addExpr(std::move(branch)));
 
     // `continue` runs the step, so the step is the continue target; `break` exits.
-    loop_stack_.push_back({step_block, exit_block});
+    loop_stack_.push_back({step_block, exit_block, 0U});
     setCurrentBlock(body_block);
     current_fn_->blocks[body_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    cleanup_stack_.push_back(CleanupFrame(arena_));
+    loop_stack_.back().cleanup_depth = cleanup_stack_.size() - 1U;
     (void)lowerExpr(expr.operands[1]);
+    emitCleanupFrom(cleanup_stack_.size() - 1U);
+    cleanup_stack_.pop_back();
     // The body may have created nested control flow; the step edge belongs on the
     // block the body actually ended in (current_block_), not necessarily body_block.
     if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
@@ -2189,11 +2274,15 @@ hir::HirExprId HirLowerModern::lowerForIn(const frontend::Expression &expr) {
     current_fn_->blocks[body_block].insts.push(emitSlotStore(loop_slot, payload));
 
     // `continue` re-tests by jumping to the header, which calls `next` again.
-    loop_stack_.push_back({header_block, exit_block});
+    loop_stack_.push_back({header_block, exit_block, 0U});
     const frontend::StmtId saved_for_in_stmt = current_for_in_binding_stmt_;
     current_for_in_binding_stmt_             = expr.forInBindingStmt;
     current_for_in_binding_local_            = expr.forInBinding;
+    cleanup_stack_.push_back(CleanupFrame(arena_));
+    loop_stack_.back().cleanup_depth = cleanup_stack_.size() - 1U;
     (void)lowerExpr(expr.operands[1]);
+    emitCleanupFrom(cleanup_stack_.size() - 1U);
+    cleanup_stack_.pop_back();
     current_for_in_binding_stmt_  = saved_for_in_stmt;
     current_for_in_binding_local_ = {};
     if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
@@ -2598,6 +2687,7 @@ hir::HirExprId HirLowerModern::lowerCoerceToSliceIfArray(types::TypeId target,
     slice.type        = target;
     slice.object_type = source_type;
     slice.is_array    = true;
+    slice.is_pointer  = false;
     slice.checked     = false;
 
     const auto array      = std::get_if<types::TypeArray>(&types_.lookup(source_type));
@@ -2632,14 +2722,21 @@ hir::HirExprId HirLowerModern::lowerSliceRange(const frontend::Expression &expr,
     const auto slice_type  = optional != nullptr ? optional->inner : type;
     const auto bound_type  = typeOfExpr(expr.operands[1]);
     hir::HirMakeSlice slice;
-    slice.object      = object;
-    slice.lo          = lo;
-    slice.hi          = hi;
-    slice.type        = slice_type;
-    slice.object_type = object_type;
-    slice.bound_type  = bound_type;
-    slice.is_array    = types_.kindOf(object_type) == types::TypeKind::Array;
-    slice.checked     = false;
+    slice.object                           = object;
+    slice.lo                               = lo;
+    slice.hi                               = hi;
+    slice.type                             = slice_type;
+    slice.object_type                      = object_type;
+    slice.bound_type                       = bound_type;
+    slice.is_array                         = types_.kindOf(object_type) == types::TypeKind::Array;
+    const sema::modern::TypeId sema_object = semaTypeOfExpr(expr.operands[0]);
+    const auto *sema_optional =
+        sema_.typeTable().optional(sema_.typeTable().stripQualifiers(sema_object));
+    slice.is_pointer =
+        types_.kindOf(object_type) == types::TypeKind::Ptr ||
+        (sema_optional != nullptr && sema_.typeTable().pointer(sema_.typeTable().stripQualifiers(
+                                         sema_optional->inner)) != nullptr);
+    slice.checked = false;
     if (optional == nullptr || expr.is_raw)
         return addExpr(std::move(slice));
 
@@ -2747,6 +2844,7 @@ hir::HirExprId HirLowerModern::lowerSliceRange(const frontend::Expression &expr,
         ok_slice.object_type = object_type;
         ok_slice.bound_type  = bound_type;
         ok_slice.is_array    = slice.is_array;
+        ok_slice.is_pointer  = slice.is_pointer;
         ok_slice.checked     = false;
         hir::HirMakeSome some;
         some.type  = type;
@@ -2831,8 +2929,9 @@ hir::HirExprId HirLowerModern::lowerField(const frontend::Expression &expr,
         return hir::kInvalidHirExpr;
     // Resolve the sema struct type to find the field index by name
     auto sema_type = sema_.typeTable().stripQualifiers(semaTypeOfExpr(expr.operands[0]));
-    // `self.field` auto-derefs an implicit `*Owner` receiver in sema; mirror it
-    // here so the field access still lowers to a loaded value.
+    // `self.field` / `p.field` auto-derefs an implicit receiver or borrow
+    // parameter in sema; mirror it here so the field access still lowers to a
+    // loaded value.
     if (const auto *sem_ptr = sema_.typeTable().pointer(sema_type)) {
         const auto struct_type = lowerType(sema_.typeTable().stripQualifiers(sem_ptr->pointee));
         object      = addExpr(hir::HirUnary{hir::HirUnaryOp::Deref, object, struct_type});
@@ -2998,8 +3097,12 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                               "expression statement could not be lowered", memory::Span{});
                 return false;
             }
-            if (last_value != hir::kInvalidHirExpr)
-                current_fn_->blocks[current_block_].insts.push(last_value);
+            if (last_value != hir::kInvalidHirExpr) {
+                if (defer_body_sink_ != nullptr)
+                    defer_body_sink_->push(last_value);
+                else
+                    current_fn_->blocks[current_block_].insts.push(last_value);
+            }
         }
         return true;
     case frontend::StmtKind::Declaration:
@@ -3015,9 +3118,13 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
             last_value = hir::kInvalidHirExpr;
             return true;
         }
-        const auto slot = localSlot(statement.binding.id);
-        const auto type = typeOfLocal(statement.binding.id);
-        current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, type));
+        const auto slot   = localSlot(statement.binding.id);
+        const auto type   = typeOfLocal(statement.binding.id);
+        const auto alloca = emitSlotAlloca(slot, type);
+        if (defer_body_sink_ != nullptr)
+            defer_body_sink_->push(alloca);
+        else
+            current_fn_->blocks[current_block_].insts.push(alloca);
         if (statement.binding.initializer) {
             auto init = lowerExpr(statement.binding.initializer);
             // Coerce T → ?T if the annotation is optional but init is not
@@ -3028,21 +3135,69 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                 }
             }
             init = lowerCoerceToSliceIfArray(type, statement.binding.initializer, init);
-            if (init != hir::kInvalidHirExpr)
-                current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, init));
+            if (init != hir::kInvalidHirExpr) {
+                const auto store = emitSlotStore(slot, init);
+                if (defer_body_sink_ != nullptr)
+                    defer_body_sink_->push(store);
+                else
+                    current_fn_->blocks[current_block_].insts.push(store);
+            }
         }
         last_value = hir::kInvalidHirExpr;
         return true;
     }
+    case frontend::StmtKind::Defer:
+        if (!statement.expression) {
+            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                          "defer requires an expression or block", {});
+            return false;
+        }
+        if (const auto *body =
+                current_module_->frontend->expressions()[statement.expression.value - 1U].kind ==
+                        frontend::ExprKind::Block
+                    ? &current_module_->frontend->expressions()[statement.expression.value - 1U]
+                    : nullptr;
+            body != nullptr) {
+            const auto body_id = lowerDeferBlock(*body);
+            if (body_id == hir::kInvalidHirExpr) {
+                // An empty block still produces a cleanup expression.
+                return false;
+            }
+            if (defer_body_sink_ != nullptr)
+                defer_body_sink_->push(body_id);
+            else if (!cleanup_stack_.empty())
+                cleanup_stack_.back().exprs.push(body_id);
+            else
+                current_fn_->blocks[current_block_].insts.push(body_id);
+        } else {
+            const auto deferred = lowerExpr(statement.expression);
+            if (deferred == hir::kInvalidHirExpr)
+                return false;
+            if (defer_body_sink_ != nullptr) {
+                // A nested `defer expr;` inside `defer { ... }` runs as an
+                // ordinary deferred body statement in source order.
+                defer_body_sink_->push(deferred);
+            } else if (!cleanup_stack_.empty()) {
+                cleanup_stack_.back().exprs.push(deferred);
+            } else {
+                current_fn_->blocks[current_block_].insts.push(deferred);
+            }
+        }
+        last_value = hir::kInvalidHirExpr;
+        return true;
     case frontend::StmtKind::Return: {
+        emitCleanupFrom(0);
         hir::HirRet ret;
         if (statement.expression) {
             auto value = lowerExpr(statement.expression);
-            // Coerce T → ?T if return type is optional but value is not
+            // Coerce T → ?T when the current block's return statement carries an
+            // expression whose sema type is not optional.  The implicit-return
+            // path below performs the same coercion when the function returns
+            // the block value.
             if (value != hir::kInvalidHirExpr &&
                 types_.kindOf(current_fn_->return_type) == types::TypeKind::Optional) {
-                const auto val_type = typeOfExpr(statement.expression);
-                if (types_.kindOf(val_type) != types::TypeKind::Optional) {
+                const auto val_sema_type = semaTypeOfExpr(statement.expression);
+                if (sema_.typeTable().kindOf(val_sema_type) != TypeKind::Optional) {
                     value = lowerCoerceToOptional(current_fn_->return_type, value);
                 }
             }
@@ -3067,6 +3222,7 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                           "break used outside of a loop", {});
             return false;
         }
+        emitCleanupFrom(loop_stack_.back().cleanup_depth);
         emitJump(loop_stack_.back().break_block);
         setCurrentBlock(newBlock());
         current_fn_->blocks[current_block_].insts = memory::DynArray<hir::HirExprId>(arena_);
@@ -3077,6 +3233,7 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                           "continue used outside of a loop", {});
             return false;
         }
+        emitCleanupFrom(loop_stack_.back().cleanup_depth);
         emitJump(loop_stack_.back().continue_block);
         setCurrentBlock(newBlock());
         current_fn_->blocks[current_block_].insts = memory::DynArray<hir::HirExprId>(arena_);
@@ -3104,6 +3261,7 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                           "jump target must be a state function: '" + statement.label + "'", {});
             return false;
         }
+        emitCleanupFrom(0);
         const auto target_key      = internFunctionKey(interner_, current_module_->key, target->id);
         const auto *function_index = function_index_by_key_.get(target_key);
         if (function_index == nullptr) {
@@ -3135,7 +3293,25 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
             return false;
         }
         for (size_t index = 0; index < statement.arguments.size(); ++index) {
-            auto argument = lowerExpr(statement.arguments[index]);
+            const auto &arg_expr =
+                current_module_->frontend->expressions()[statement.arguments[index].value - 1U];
+            const bool annotated =
+                arg_expr.kind == frontend::ExprKind::OwnershipCoerce && !arg_expr.operands.empty();
+            const frontend::ExprId inner_id =
+                annotated ? arg_expr.operands[0] : statement.arguments[index];
+            auto argument = lowerExpr(inner_id);
+            if (annotated) {
+                auto address = lowerLValueAddr(inner_id);
+                if (address == hir::kInvalidHirExpr) {
+                    const auto inner_type = typeOfExpr(inner_id);
+                    const auto slot       = next_slot_++;
+                    current_fn_->blocks[current_block_].insts.push(
+                        emitSlotAlloca(slot, inner_type));
+                    current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, argument));
+                    address = addExpr(hir::HirSlotAddr{slot, inner_type});
+                }
+                argument = address;
+            }
             if (argument == hir::kInvalidHirExpr)
                 return false;
             argument = lowerCoerceToSliceIfArray(lowerType(target_fn->params[index]),

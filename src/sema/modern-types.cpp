@@ -8,7 +8,8 @@
 
 namespace zith::sema::modern {
 
-TypeTable::TypeTable(memory::Arena &arena) : entries_(arena), arena_(&arena), named_registry_() {}
+TypeTable::TypeTable(memory::Arena &arena)
+    : entries_(arena), arena_(&arena), named_registry_(), conformances_(arena) {}
 
 TypeTable::Entry &TypeTable::pushEntry(EntryKind kind) {
     Entry entry{};
@@ -162,6 +163,13 @@ TypeId TypeTable::internUnion(std::string_view name, memory::DynArray<TypeId> &m
 }
 
 TypeId TypeTable::internTrait(std::string_view name) {
+    auto &entry         = pushEntry(EntryKind::Trait);
+    entry.reported_kind = TypeKind::Trait;
+    entry.trait_ty      = arena_->make<TraitType>(TraitType{name});
+    return entry.id;
+}
+
+TypeId TypeTable::internInterface(std::string_view name) {
     auto &entry         = pushEntry(EntryKind::Trait);
     entry.reported_kind = TypeKind::Trait;
     entry.trait_ty      = arena_->make<TraitType>(TraitType{name});
@@ -522,6 +530,28 @@ const IncompleteType *TypeTable::incomplete(TypeId id) const noexcept {
 
 size_t TypeTable::size() const noexcept {
     return entries_.size();
+}
+
+void TypeTable::ConformanceTable::registerConformance(TypeId type, TypeId trait) {
+    for (const auto &existing : conformances_) {
+        if (existing.type == type && existing.trait == trait)
+            return;
+    }
+    conformances_.push(Conformance{type, trait});
+}
+
+bool TypeTable::ConformanceTable::satisfies(TypeId type, TypeId trait_or_interface) const {
+    if (!type || !trait_or_interface)
+        return false;
+    for (const auto &existing : conformances_) {
+        if (existing.type == type && existing.trait == trait_or_interface)
+            return true;
+    }
+    // Structural interface satisfaction is implemented by PerModuleSema,
+    // which has access to declared field names and types. The shared table only
+    // stores nominal conformance edges; sema consults this query before falling
+    // back to its own interface check.
+    return false;
 }
 
 TypeId TypeTable::lookupNamed(std::string_view name) const noexcept {

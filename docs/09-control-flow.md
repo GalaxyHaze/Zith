@@ -131,6 +131,30 @@ machine use LLVM `tailcc`, including ordinary `dock` calls into them, so transit
 different parameter lists keep one consistent ABI. The compiler diagnoses unsupported targets
 instead of silently falling back to a marker runtime.
 
+### 9.5 Scope Cleanup (`defer` / `drop`)
+
+`defer expr;` and `defer { ... }` are implemented in the `Zith--` subset.
+`defer expr;` registers one cleanup expression; `defer { ... }` registers the
+whole body as a cleanup-only block that does not produce a value. Statements in
+a deferred body run in written order, while separate `defer` statements run in
+reverse registration order when their nearest lexical block exits.
+
+- `defer expr;` registers a cleanup expression for the enclosing block.
+- Expressions run when the block exits, in reverse registration order.
+- They run on normal fallthrough and across `return`, `break`, `continue`, and
+  `state` `jump` transitions.
+- `return value;` evaluates the value first; deferred bodies run immediately
+  before the terminator.
+- A `defer` body may not itself contain `return`, `break`, `continue`, or
+  `jump`.
+
+Inside a loop, cleanup runs each time the loop body exits, including a
+`break` or `continue`. `drop` remains a reserved keyword and is still a
+roadmap candidate: planned as the deterministic per-owner cleanup hook through
+the same reverse-order mechanism, but not yet implemented. Anything stronger,
+such as `errdefer` or `drop` interactions with borrows, is kept out of the
+current iteration. The implementation plan is in `docs/plans/defer-drop.md`.
+
 ---
 
 *[Zith Language Specification](Zith-spec.md) — Draft v0.9*

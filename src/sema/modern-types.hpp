@@ -141,6 +141,29 @@ class TypeTable {
 public:
     explicit TypeTable(memory::Arena &arena);
 
+    /// Nominal trait and structural interface conformance registry.
+    class ConformanceTable {
+    public:
+        explicit ConformanceTable(memory::Arena &arena) : conformances_(arena) {}
+
+        void registerConformance(TypeId type, TypeId trait);
+        [[nodiscard]] bool satisfies(TypeId type, TypeId trait_or_interface) const;
+
+    private:
+        struct Conformance {
+            TypeId type;
+            TypeId trait;
+        };
+        memory::DynArray<Conformance> conformances_;
+    };
+
+    [[nodiscard]] ConformanceTable &conformanceTable() noexcept {
+        return conformances_;
+    }
+    [[nodiscard]] const ConformanceTable &conformanceTable() const noexcept {
+        return conformances_;
+    }
+
     [[nodiscard]] TypeId internName(std::string_view name, TypeKind kind = TypeKind::Unknown);
     /// The internal "not inferred yet" type used for uninitialized local bindings.
     [[nodiscard]] TypeId internInvalid();
@@ -159,6 +182,10 @@ public:
     [[nodiscard]] TypeId internUnion(std::string_view name, memory::DynArray<TypeId> &members,
                                      bool is_tagged = true);
     [[nodiscard]] TypeId internTrait(std::string_view name);
+    /// Interns an interface as a trait-shaped type. Interfaces are structural
+    /// and do not exist as a separate TypeKind today; sema keeps the
+    /// FrontendDeclaration to compare required fields with a concrete struct.
+    [[nodiscard]] TypeId internInterface(std::string_view name);
     [[nodiscard]] TypeId internTypeVar();
     [[nodiscard]] TypeId internUnknown();
     [[nodiscard]] TypeId internGenericParam(uint32_t decl_id, uint32_t param_index);
@@ -288,6 +315,7 @@ private:
     uint32_t next_seq_ = 1;
     uint32_t next_var_ = 1;
     memory::FlatMap<std::string_view, TypeId> named_registry_;
+    ConformanceTable conformances_;
 
     /// Lowers `type` ignoring its own memory qualifier (the caller wraps the result).
     [[nodiscard]] TypeId lowerTypeExprBare(const frontend::FrontendSnapshot &snapshot,

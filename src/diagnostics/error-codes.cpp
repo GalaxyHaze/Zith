@@ -120,6 +120,15 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
     case err::MacroAttrNotAllowed:
         return ErrorInfo{code, 'E', "macro", "Macro does not accept attributes",
                          "Declare an 'attributes' parameter on the macro to accept them"};
+    case err::TraitRequirementMissing:
+        return ErrorInfo{
+            code, 'E', "semantic", "Trait requirement missing",
+            "Implement every required trait method, or give the trait method a default body"};
+    case err::TraitMethodSignatureMismatch:
+        return ErrorInfo{
+            code, 'E', "semantic", "Trait method signature mismatch",
+            "The implementation method must have the same name, arity, parameter types, "
+            "and return type after substituting Self"};
     case err::NotATrait:
         return ErrorInfo{
             code,
@@ -128,6 +137,12 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
             "Not a trait",
             "The name after 'as'/'for' in an implement block must name a trait declaration",
             "Trait conformance is checked during a later semantic pass"};
+    case err::InterfaceNotSatisfied:
+        return ErrorInfo{code, 'E', "semantic", "Interface not satisfied",
+                         "The type must have every interface field with the required type"};
+    case err::DuplicateImplementation:
+        return ErrorInfo{code, 'E', "semantic", "Duplicate implementation",
+                         "A type can implement the same trait only once"};
     case err::InterfaceMethodNotAllowed:
         return ErrorInfo{code, 'E', "parse", "Interface method not allowed",
                          "Interfaces declare fields, not methods; use a trait for methods"};
@@ -163,6 +178,9 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
         return ErrorInfo{code, 'E', "types", "Optional type violation",
                          "A non-optional value is required here, but an optional (?T) was "
                          "provided. Unwrap with a null check or use `!` if safe."};
+    case err::ConstraintNotSatisfied:
+        return ErrorInfo{code, 'E', "types", "Constraint not satisfied",
+                         "Add an appropriate trait implementation or a matching interface"};
     case err::GenericArity:
         return ErrorInfo{code, 'E', "types", "Wrong generic argument count",
                          "Provide one concrete type argument for every generic parameter"};
@@ -190,6 +208,14 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
     case err::WriteThroughView:
         return ErrorInfo{code, 'E', "ownership", "Write through a view",
                          "A `view` binding is read-only; take `lend` to mutate it"};
+    case err::OwnershipCoercionRequired:
+        return ErrorInfo{code, 'E', "ownership", "Ownership coercion required",
+                         "Passing a default/unique value to a lend or view parameter requires "
+                         "an explicit annotation at the call site"};
+    case err::InvalidCallOwnership:
+        return ErrorInfo{code, 'E', "ownership", "Invalid call ownership annotation",
+                         "Only `lend` and `view` are allowed here, and ownership annotations "
+                         "only appear on call arguments"};
 
     // MIR
     case err::InvalidIR:

@@ -38,11 +38,24 @@ private:
         const comptime::InstantiationInstance *instance = nullptr;
         symbols::SymId sym_id                           = symbols::kInvalidSym;
         size_t hir_index                                = 0;
+        /// True for the C entry `main` whose source return type was `void` but
+        /// whose HIR signature was rewritten to `i32` for the linker.
+        bool forced_main_return_i32 = false;
     };
 
     struct LoopTarget {
         size_t continue_block = 0;
         size_t break_block    = 0;
+        /// Number of active cleanup frames that belong to the enclosing block.
+        /// Break/continue emit cleanup from this depth up, excluding function
+        /// cleanup that still has to run when the function exits normally.
+        size_t cleanup_depth = 0;
+    };
+
+    struct CleanupFrame {
+        memory::DynArray<hir::HirExprId> exprs;
+
+        explicit CleanupFrame(memory::Arena &arena) : exprs(arena) {}
     };
 
     struct Narrowing {
@@ -70,6 +83,10 @@ private:
     std::vector<FunctionInfo> functions_;
     std::vector<LoopTarget> loop_stack_;
     std::vector<Narrowing> narrowing_stack_;
+    std::vector<CleanupFrame> cleanup_stack_;
+    /// While lowering `defer { ... }`, statement instructions are collected
+    /// here instead of being emitted into the current HIR block immediately.
+    memory::DynArray<hir::HirExprId> *defer_body_sink_               = nullptr;
     const session::ModuleArtifact *current_module_                   = nullptr;
     const session::ModuleResolution *current_resolution_             = nullptr;
     const TypedMap *current_types_                                   = nullptr;
@@ -90,6 +107,12 @@ private:
                                  const comptime::InstantiationInstance &instance);
     bool lowerFunctionBodies();
     bool lowerFunctionBody(FunctionInfo &info);
+    /// Adds the deferred expressions from `first` to the current block before
+    /// its terminator. Frames run top-down; each frame runs reverse order.
+    void emitCleanupFrom(size_t first);
+    /// Builds a HIR sequence for a `defer { ... }` body without registering the
+    /// writes as ordinary expression statements.
+    hir::HirExprId lowerDeferBlock(const frontend::Expression &expr);
 
     /// Synthetic for-in binding statement currently being skipped by
     /// `lowerStatement`; set while lowering the loop body.

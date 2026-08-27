@@ -636,6 +636,20 @@ void FmtVisitor::visitStmt(const frontend::StmtId id) {
         }
         emit(";");
         break;
+    case frontend::StmtKind::Defer:
+        emit("defer ");
+        if (!stmt->expression) {
+            emitOriginal(stmt->span);
+            break;
+        }
+        if (const auto *expr = expression(stmt->expression);
+            expr != nullptr && expr->kind == frontend::ExprKind::Block) {
+            visitExpr(stmt->expression);
+        } else {
+            visitExpr(stmt->expression);
+            emit(";");
+        }
+        break;
     case frontend::StmtKind::Break:
         emit("break;");
         break;
@@ -705,6 +719,17 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
             emit("not ");
         } else {
             emit(expr->text);
+        }
+        if (!expr->operands.empty())
+            visitExpr(expr->operands.front(), current_prec);
+        break;
+    case frontend::ExprKind::OwnershipCoerce:
+        if (expr->ownership == frontend::OwnershipKind::Lend) {
+            emit("lend ");
+        } else if (expr->ownership == frontend::OwnershipKind::View) {
+            emit("view ");
+        } else {
+            break;
         }
         if (!expr->operands.empty())
             visitExpr(expr->operands.front(), current_prec);

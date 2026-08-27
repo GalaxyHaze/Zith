@@ -25,6 +25,8 @@ O AST modela bindings com `BindingKind`:
 
 Qualificadores `mut`, `unique`, `share` e `belong` são parseados para recovery/formatter, mas emitem `E2010 UnsupportedSyntax`.
 
+O parser cria `ExprKind::OwnershipCoerce` apenas em listas de argumentos de call (`parseCallArgument()`), usado nas chamadas `f(...)`, `f<G>(...)`, dock e jump. Só `lend` e `view` são aceites como anotação de argumento; `unique`/`share`/`belong`/`mut` nessa posição reportam `E4007 InvalidCallOwnership`. Fora de um call argument, `lend`/`view` continuam a ser tratados como keywords normais e falham com o diagnóstico normal.
+
 ## Sema
 
 `checkZithDeclarations` roda dentro de `checkExpressions` e verifica:
@@ -58,6 +60,16 @@ do parâmetro. Receivers explícitos com tipo pointer ou qualificador `lend`/`vi
 read-only (o check de `view` continua em `checkAssignableOwnership`). Bare `self` é read-only,
 mas `var self` permite escrita in-place nos campos.
 
+`PerModuleSema::borrowParamType` converte `lend T`/`view T` de parâmetros livres e self explícitos para `*lend T`/`*view T`; `isBorrowParamType` reconhece esses ponteiros mesmo através de aliases. `checkOwnershipCoercion` roda antes da coerção de tipo em calls livres, chamadas genéricas, overloads e métodos:
+
+- binding `default`/`unique` para parâmetro borrow exige `lend`/`view` no call site (`E4005`);
+- argumentos já `lend`/`view`, literais e temporários não exigem anotação;
+- anotação incompatível com o parâmetro reporta `E4005`;
+- cada call mantém um conjunto de roots anotados; o mesmo root não pode repetir `lend` nem misturar `lend` com `view` na mesma chamada (`E4005`);
+- `OwnershipCoerce` mantém o tipo do inner para inferência/overloads; o narrowing real para `*lend T`/`*view T` só acontece depois do check.
+
+O probe de overload usa `coerceValue` para parâmetros borrow, para que `f(lend q)` seja compatível com `fn f(p: lend P)` mesmo quando a ABI semântica é ponteiro.
+
 O acesso `self.field` auto-derefs um receiver implícito `*Owner`: `inferField` resolve o pointee
 quando o tipo do objeto é pointer, e `HirLowerModern::lowerField` emite um `HirUnaryOp::Deref`
 antes de ler/escrever o campo. `self->field` continua no caminho legacy e produz o mesmo acesso.
@@ -66,7 +78,8 @@ antes de ler/escrever o campo. `self->field` continua no caminho legacy e produz
 método com `self` implícito ou `var self`, `inferMethodCall` marca a raiz do receiver como movida;
 leituras posteriores do nome reportam `E4001 UseAfterMove` e escritas através de campos/índices
 do local movido também. Atribuir diretamente ao nome do local (o próprio root) revive a ligação.
-Esta fase não altera ABI nem storage e não implementa exclusividade de `lend`/`view` no chamador.
+A exclusividade de `lend`/`view` está implementada no call site; o dead-state lógico de receivers
+e o comportamento pós-chamada de funções livres continuam como antes.
 
 Discriminantes de enum são avaliados em `lowerDeclarationTypes`, não como literais fixos.
 O evaluator percorre recursivamente literais inteiros, unários `-`/`~`, binários aritméticos,
@@ -87,6 +100,10 @@ expression`; valores fora do tipo subjacente são rejeitados com
 
 Referências por nome a um const global produzem `HirGlobalConstLoad` no lowering. Consts locais permanecem no caminho local de slots/allocas, imutáveis e com inicializador constante obrigatório.
 
+`HirLowerModern::lowerExpr` descarta `OwnershipCoerce` e baixa o inner. Em calls, um argumento anotado é baixado como endereço do place: `lowerLValueAddr` para bindings/campos/índices, ou uma alloca temporária quando o operand não tem lvalue. O parâmetro `*lend T`/`*view T` já é baixado como ponteiro. Os slots de parâmetro carregam `HirOwnership::Lend`/`HirOwnership::View` via `NraFacts`, e `NraFacts::localOfArgument`/`ownershipOfArgument` descascam a anotação para continuar acumulando factas por call argument (`NraArgEscape::Borrow` por default).
+
+`checkAssignableOwnership` bloqueia escrita através de parâmetros `*view T` tanto no caminho arrow como no dot-member auto-deref, reportando `E4004`.
+
 ## Codegen
 
 `emitConstGlobals` é executado antes das funções:
@@ -96,6 +113,8 @@ Referências por nome a um const global produzem `HirGlobalConstLoad` no lowerin
 3. Se o inicializador não for um `llvm::Constant`, reporta erro de codegen.
 
 `HirGlobalConstLoad` faz load do global pelo nome. Não há armazenamento para globals const no emissor.
+
+Parâmetros HIR com residual de slot `Lend`/`View` recebem `nocapture` no LLVM; `View` recebe também `readonly`. O valor do parâmetro em si continua a ser carregado da alloca do slot, preservando o caminho sem LLVM/legacy para o corpo.
 
 ## Cache e ZIRL
 
@@ -108,6 +127,18 @@ A versão de formato ZIRL passa para 10. O Code section serializa:
 
 Isso mantém os ids de HIR estáveis entre módulos vazios de funções, const globals, loads por `HirGlobalConstLoad` e transitions `state`. Maquinas `state` agrupam por retorno canonico e permitem listas de parametros diferentes entre estados; codegen declara e chama essas funcoes com LLVM `tailcc` e sem contexto/`alloca` adicional.
 
+## Defer e Cleanup de Escopo
+
+`defer expr;` e `defer { ... }` registam cleanup no bloco lexical mais próximo.
+O frontend produz `StmtKind::Defer`; `defer { ... }` guarda o corpo como
+`ExprKind::Block` cleanup-only. O sema infere o corpo normalmente, rejeita
+`return`/`break`/`continue`/`jump` dentro do corpo adiado e não contribui com o
+valor do bloco. O lowering HIR acumula as expressões adiadas e emite
+`HirExprKind::Cleanup` em reverse order antes de qualquer terminator do bloco,
+incluindo `ret`, branches de `break`/`continue` e `HirStateTailCall`. Codegen
+traduz o cleanup para execução imediata antes desses transfers. `state` sem
+return type declarado é tratado como `void` e nunca tem tipo inferido do corpo.
+
 For-in usa o protocolo `next(self)` com retorno tagged union de dois membros: um elemento e o `End` canonico (`struct End {}`). O sema exige exatamente um membro `End`; HIR chama `next` no header do loop, ramifica por `HirUnionCheck` quando o tag é `End` e extrai o elemento com `HirUnionCast` quando não é.
 
 ## Testes
@@ -119,8 +150,11 @@ Os seguintes testes cobrem a iteração:
 - `test-hir-lower-modern`: `HirGlobalConst`, `HirGlobalConstLoad` e valores de enum calculados a partir de expressões.
 - `test-codegen`: execução runtime de um const global e de uma maquina de estados com `musttail tailcc`, incluindo parâmetros divergentes.
 - `test-cache`/`test-zirl-sections`: pool de expressões, globals e state machine metadata persistidos.
-- `test-memory-qualifiers`: lend/view aceites; unique/share/belong e mut rejeitados.
+- `test-memory-qualifiers`: lend/view aceites; anotações de call `E4005`/`E4007`, exclusividade por call e views read-only; unique/share/belong e mut rejeitados.
 - `test-sema`/`test-codegen`: `var p`/`var self`, `self.field` com auto-deref e dead-state `E4001` de receivers pós-método.
+- `test-sema`: overload/generic com parâmetros lend/view e mismatch de tipo que continua a reportar `E2007` sem mascarar `E4005`.
+- `test-hir-lower-modern`: parâmetro livre `lend` baixa para ponteiro e call passa endereço do binding.
+- `test-codegen`: parâmetro livre `lend` muta o binding do chamador; `view` lê sem escrever.
 
 Para regressões, usar a suíte completa:
 

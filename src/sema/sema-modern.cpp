@@ -107,6 +107,7 @@ bool PerModuleSema::prepareTypes() {
     registerPrimitiveTypes();
     registerNamedTypes();
     lowerDeclarationTypes();
+    checkImplementBlocks();
     return true;
 }
 
@@ -250,6 +251,9 @@ void PerModuleSema::registerNamedTypes() {
         case frontend::DeclKind::Trait:
             (void)type_table.findOrCreateNamed(decl.name, TypeKind::Trait);
             break;
+        case frontend::DeclKind::Interface:
+            (void)type_table.findOrCreateNamed(decl.name, TypeKind::Trait);
+            break;
         case frontend::DeclKind::TypeAlias:
             (void)type_table.findOrCreateNamed(decl.name, TypeKind::Alias);
             break;
@@ -271,7 +275,15 @@ void PerModuleSema::lowerDeclarationTypes() {
             for (size_t i = 0; i < decl.genericParams.size(); ++i) {
                 TypeId param_type =
                     type_table.internGenericParam(decl.id.value, static_cast<uint32_t>(i));
-                bindings.push_back(GenericBinding{decl.genericParams[i].name, param_type});
+                GenericBinding binding;
+                binding.name = decl.genericParams[i].name;
+                binding.type = param_type;
+                for (const auto constraint : decl.genericParams[i].constraints) {
+                    const TypeId bound = lowerTypeExpr(constraint);
+                    if (bound)
+                        binding.bounds.push_back(bound);
+                }
+                bindings.push_back(std::move(binding));
             }
             // Methods inside `implement Owner<T>` inherit the owner's generic
             // parameter names. Reuse the owner's GenericParam TypeId so fields of
@@ -288,9 +300,17 @@ void PerModuleSema::lowerDeclarationTypes() {
                         continue;
                     for (size_t index = 0; index < owner_decl.genericParams.size(); ++index) {
                         for (auto &binding : bindings) {
-                            if (binding.name == owner_decl.genericParams[index].name)
+                            if (binding.name == owner_decl.genericParams[index].name) {
                                 binding.type = type_table.internGenericParam(
                                     owner_decl.id.value, static_cast<uint32_t>(index));
+                                binding.bounds.clear();
+                                for (const auto constraint :
+                                     owner_decl.genericParams[index].constraints) {
+                                    const TypeId bound = lowerTypeExpr(constraint);
+                                    if (bound)
+                                        binding.bounds.push_back(bound);
+                                }
+                            }
                         }
                     }
                     break;
@@ -324,6 +344,8 @@ void PerModuleSema::lowerDeclarationTypes() {
                     } else {
                         ptype = methodSelfParamType(param);
                     }
+                } else {
+                    ptype = borrowParamType(param);
                 }
                 setLocalType(param.id, ptype);
                 params_storage.push(ptype);
@@ -650,6 +672,12 @@ void PerModuleSema::lowerDeclarationTypes() {
             type_table.registerNamed(decl.name, tt);
             break;
         }
+        case frontend::DeclKind::Interface: {
+            TypeId it = type_table.internInterface(decl.name);
+            setDeclType(decl.id, it);
+            type_table.registerNamed(decl.name, it);
+            break;
+        }
         default:
             break;
         }
@@ -763,12 +791,54 @@ void PerModuleSema::checkReturnsAndCalls() {
             continue;
         TypeId ret_type = fn->result;
         if (decl.body) {
-            TypeId body_type = typeOfExpr(decl.body);
+            TypeId body_type         = typeOfExpr(decl.body);
+            const auto *body_expr    = decl.body.value <= snapshot.expressions().size()
+                                           ? &snapshot.expressions()[decl.body.value - 1U]
+                                           : nullptr;
+            const bool bodyHasReturn = [&]() {
+                if (body_expr == nullptr || body_expr->kind != frontend::ExprKind::Block)
+                    return false;
+                for (const frontend::StmtId stmt_id : body_expr->statements) {
+                    if (!stmt_id || stmt_id.value > snapshot.statements().size())
+                        continue;
+                    if (snapshot.statements()[stmt_id.value - 1U].kind ==
+                        frontend::StmtKind::Return)
+                        return true;
+                }
+                return false;
+            }();
+            const bool bodyEndsWithStateTransfer = [&]() {
+                if (decl.functionKind != frontend::FunctionKind::State || body_expr == nullptr ||
+                    body_expr->kind != frontend::ExprKind::Block) {
+                    return false;
+                }
+                // A `jump` is a terminating transfer for the state body even
+                // when it is not the literally last statement (after binds,
+                // expressions, `defer`, or trailing declarations).
+                for (const frontend::StmtId stmt_id : body_expr->statements) {
+                    if (!stmt_id || stmt_id.value > snapshot.statements().size())
+                        continue;
+                    if (snapshot.statements()[stmt_id.value - 1U].kind ==
+                        frontend::StmtKind::Jump) {
+                        return true;
+                    }
+                    if (snapshot.statements()[stmt_id.value - 1U].kind ==
+                        frontend::StmtKind::Return) {
+                        return false;
+                    }
+                }
+                return false;
+            }();
             if (!sameType(body_type, void_type) && ret_type != void_type &&
                 !coercesTo(ret_type, body_type)) {
                 reportCoercionFailure(snapshot.expressions()[decl.body.value - 1U].span, ret_type,
                                       body_type,
                                       "function body type does not match declared return type");
+            } else if (sameType(body_type, void_type) && !bodyHasReturn && ret_type != void_type &&
+                       ret_type != error_type && !bodyEndsWithStateTransfer) {
+                reportCoercionFailure(
+                    snapshot.expressions()[decl.body.value - 1U].span, ret_type, body_type,
+                    "function body is missing a value of the declared return type");
             }
         }
     }
@@ -781,6 +851,190 @@ void PerModuleSema::checkReturnsAndCalls() {
             (void)call_type;
         }
     }
+}
+
+void PerModuleSema::checkImplementBlocks() {
+    // Group method declarations by `(owner, trait)` so an empty implement block
+    // is still checked for duplicate implementation and missing requirements.
+    struct ImplGroup {
+        const frontend::Declaration *owner = nullptr;
+        const frontend::Declaration *trait = nullptr;
+        std::vector<const frontend::Declaration *> methods;
+        frontend::TextSpan span;
+        std::vector<frontend::TextSpan> spans;
+    };
+    std::unordered_map<uint64_t, ImplGroup> groups;
+
+    for (const auto &record : snapshot.implementRecords()) {
+        const uint64_t key =
+            (static_cast<uint64_t>(std::hash<std::string_view>{}(record.owner)) << 32U) ^
+            static_cast<uint32_t>(std::hash<std::string_view>{}(record.traitName));
+        const frontend::Declaration *owner = nullptr;
+        for (const auto &candidate : snapshot.declarations()) {
+            if (candidate.name == record.owner &&
+                (candidate.kind == frontend::DeclKind::Struct ||
+                 candidate.kind == frontend::DeclKind::Enum ||
+                 candidate.kind == frontend::DeclKind::Union ||
+                 candidate.kind == frontend::DeclKind::TypeAlias)) {
+                owner = &candidate;
+                break;
+            }
+        }
+        const frontend::Declaration *trait = nullptr;
+        for (const auto &candidate : snapshot.declarations()) {
+            if (candidate.name == record.traitName &&
+                (candidate.kind == frontend::DeclKind::Trait ||
+                 candidate.kind == frontend::DeclKind::Interface)) {
+                trait = &candidate;
+                break;
+            }
+        }
+        auto &group = groups[key];
+        if (group.trait == nullptr) {
+            group.span  = record.span;
+            group.owner = owner;
+            group.trait = trait;
+        }
+        group.spans.push_back(record.span);
+    }
+    // Attach methods to the implementation group. A declaration's `traitName`
+    // is non-empty only for methods lowered from an implement block.
+    for (const auto &decl : snapshot.declarations()) {
+        if (decl.kind != frontend::DeclKind::Function || decl.traitName.empty())
+            continue;
+        const uint64_t key =
+            (static_cast<uint64_t>(std::hash<std::string_view>{}(decl.ownerName)) << 32U) ^
+            static_cast<uint32_t>(std::hash<std::string_view>{}(decl.traitName));
+        auto found = groups.find(key);
+        if (found != groups.end())
+            found->second.methods.push_back(&decl);
+    }
+
+    for (auto &entry : groups) {
+        auto &group = entry.second;
+        if (group.trait == nullptr) {
+            report(group.span, "type after 'as'/'for' is not a declared trait or interface",
+                   diagnostics::err::NotATrait);
+            continue;
+        }
+        if (group.owner == nullptr)
+            continue;
+        if (group.spans.size() > 1U) {
+            report(group.spans[1],
+                   "duplicate implementation of trait '" + group.trait->name + "' for type '" +
+                       group.owner->name + "'",
+                   diagnostics::err::DuplicateImplementation);
+            continue;
+        }
+        if (group.trait->kind == frontend::DeclKind::Interface) {
+            report(group.span, "interfaces are structural and cannot be implemented explicitly",
+                   diagnostics::err::InterfaceMethodNotAllowed);
+            continue;
+        }
+
+        const TypeId owner_type = type_table.lookupNamed(group.owner->name);
+        const TypeId trait_type = type_table.lookupNamed(group.trait->name);
+        if (!owner_type || !trait_type)
+            continue;
+        // Validate every trait requirement without a default against the impl.
+        for (const auto &requirement : snapshot.declarations()) {
+            if (requirement.kind != frontend::DeclKind::Function ||
+                requirement.ownerName != group.trait->name)
+                continue;
+            if (requirement.body)
+                continue;
+
+            const frontend::Declaration *impl = nullptr;
+            for (const auto *candidate : group.methods) {
+                if (candidate->name != requirement.name)
+                    continue;
+                impl = candidate;
+                break;
+            }
+            if (impl == nullptr) {
+                report(group.span,
+                       "trait '" + group.trait->name + "' requires method '" + requirement.name +
+                           "' that is not implemented",
+                       diagnostics::err::TraitRequirementMissing);
+                continue;
+            }
+
+            const TypeId impl_fn  = typeOfDecl(impl->id);
+            const TypeId req_fn   = typeOfDecl(requirement.id);
+            const auto *impl_type = type_table.function(impl_fn);
+            const auto *req_type  = type_table.function(req_fn);
+            if (impl_type == nullptr || req_type == nullptr)
+                continue;
+
+            bool matched = impl_type->params.size() == req_type->params.size() &&
+                           sameType(substituteSelf(impl_type->result, owner_type, trait_type),
+                                    substituteSelf(req_type->result, owner_type, trait_type));
+            if (matched) {
+                for (size_t index = 0; index < impl_type->params.size(); ++index) {
+                    if (!sameType(
+                            substituteSelf(impl_type->params[index], owner_type, trait_type),
+                            substituteSelf(req_type->params[index], owner_type, trait_type))) {
+                        matched = false;
+                        break;
+                    }
+                }
+            }
+            if (!matched) {
+                report(impl->span,
+                       "method '" + impl->name + "' does not match trait '" + group.trait->name +
+                           "' requirement signature",
+                       diagnostics::err::TraitMethodSignatureMismatch);
+            }
+        }
+
+        type_table.conformanceTable().registerConformance(owner_type, trait_type);
+
+        // Expose the trait's default methods as owner calls. The signature is
+        // substituted with the concrete owner for `Self`; the declaration stays
+        // the trait's so HIR can lower its body from the defining module.
+        for (const auto &default_method : snapshot.declarations()) {
+            if (default_method.kind != frontend::DeclKind::Function ||
+                default_method.ownerName != group.trait->name)
+                continue;
+            if (!default_method.body)
+                continue;
+            const TypeId default_type = typeOfDecl(default_method.id);
+            if (type_table.function(default_type) == nullptr)
+                continue;
+            (void)substituteSelf(default_type, owner_type, trait_type);
+        }
+    }
+}
+
+TypeId PerModuleSema::substituteSelf(TypeId type, TypeId self, TypeId trait) const {
+    if (!type)
+        return type;
+    if (const auto *qualified = type_table.qualified(type))
+        return type_table.internQualified(substituteSelf(qualified->inner, self, trait),
+                                          qualified->ownership, qualified->isMut);
+    if (const auto *alias = type_table.alias(type))
+        return type_table.internAlias(substituteSelf(alias->target, self, trait));
+    if (const auto *nominal = type_table.nominal(type))
+        return type_table.internNominal(nominal->name,
+                                        substituteSelf(nominal->target, self, trait));
+    const TypeId resolved = type_table.stripQualifiers(type);
+    if (const auto *ptr = type_table.pointer(resolved))
+        return type_table.internPointer(substituteSelf(ptr->pointee, self, trait));
+    if (const auto *opt = type_table.optional(resolved))
+        return type_table.internOptional(substituteSelf(opt->inner, self, trait));
+    if (const auto *array = type_table.array(resolved))
+        return type_table.internArray(substituteSelf(array->element, self, trait), array->size);
+    if (const auto *slice = type_table.slice(resolved))
+        return type_table.internSlice(substituteSelf(slice->element, self, trait));
+    if (const auto *fn = type_table.function(resolved)) {
+        auto &params = type_table.makeTypeStorage();
+        for (const auto param : fn->params)
+            params.push(substituteSelf(param, self, trait));
+        return type_table.internFunction(params, substituteSelf(fn->result, self, trait));
+    }
+    if (trait && resolve(type) == resolve(trait))
+        return self;
+    return type;
 }
 
 TypeId PerModuleSema::lowerTypeExpr(frontend::TypeExprId id) {
@@ -905,6 +1159,22 @@ TypeId PerModuleSema::methodSelfParamType(const frontend::Parameter &param) {
         type_table.internQualified(inner, qualifier->ownership, qualifier->isMut));
 }
 
+TypeId PerModuleSema::borrowParamType(const frontend::Parameter &param) {
+    const TypeId declared = lowerTypeExpr(param.type);
+    if (!declared)
+        return declared;
+    const auto *qualifier = type_table.qualified(type_table.canonical(declared));
+    if (qualifier == nullptr || (qualifier->ownership != types::OwnershipKind::Lend &&
+                                 qualifier->ownership != types::OwnershipKind::View)) {
+        return declared;
+    }
+    const TypeId inner = type_table.stripQualifiers(declared);
+    if (!inner)
+        return declared;
+    return type_table.internPointer(
+        type_table.internQualified(inner, qualifier->ownership, qualifier->isMut));
+}
+
 bool PerModuleSema::isSelfReceiver(frontend::ExprId id) const noexcept {
     if (!id || id.value > snapshot.expressions().size())
         return false;
@@ -918,6 +1188,181 @@ bool PerModuleSema::isSelfReceiver(frontend::ExprId id) const noexcept {
         return decl.parameters.front().name == "self";
     }
     return false;
+}
+
+bool PerModuleSema::isBorrowParameter(frontend::ExprId id) const noexcept {
+    if (!id || id.value > snapshot.expressions().size())
+        return false;
+    const auto *resolved = findResolvedExpr(id);
+    if (resolved == nullptr || !resolved->local)
+        return false;
+    const TypeId param_type = typeOfLocal(resolved->local);
+    return isBorrowParamType(param_type);
+}
+
+bool PerModuleSema::isBorrowParamType(TypeId type) const noexcept {
+    if (!type)
+        return false;
+    // The ABI type is a pointer whose pointee is qualified. Iterating a
+    // transparent alias or nominal preserves spelling while still recognizing
+    // `*lend T` / `*view T` when a borrow type flows through one.
+    TypeId current = type;
+    for (unsigned guard = 0; guard < 8U; ++guard) {
+        current = type_table.canonical(current);
+        if (const auto *qualified = type_table.qualified(current); qualified != nullptr) {
+            current = qualified->inner;
+            continue;
+        }
+        break;
+    }
+    const auto *pointer = type_table.pointer(current);
+    if (pointer == nullptr)
+        return false;
+    const auto *qualified = type_table.qualified(type_table.canonical(pointer->pointee));
+    return qualified != nullptr && (qualified->ownership == types::OwnershipKind::Lend ||
+                                    qualified->ownership == types::OwnershipKind::View);
+}
+
+bool PerModuleSema::checkOwnershipCoercion(
+    frontend::ExprId arg, TypeId param_type,
+    std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> &seen_roots,
+    frontend::TextSpan call_span, bool report_error) {
+    if (!arg || !param_type || arg.value > snapshot.expressions().size())
+        return true;
+    if (!isBorrowParamType(param_type))
+        return true;
+
+    const auto &annotated = snapshot.expressions()[arg.value - 1U];
+    const bool has_annotation =
+        annotated.kind == frontend::ExprKind::OwnershipCoerce && !annotated.operands.empty();
+    const frontend::ExprId inner = has_annotation ? annotated.operands[0] : arg;
+    if (!inner || inner.value > snapshot.expressions().size())
+        return true;
+
+    TypeId target = param_type;
+    for (unsigned guard = 0; guard < 8U; ++guard) {
+        target = type_table.canonical(target);
+        if (const auto *qualified = type_table.qualified(target); qualified != nullptr) {
+            target = qualified->inner;
+            continue;
+        }
+        break;
+    }
+    const auto *pointer = type_table.pointer(target);
+    if (pointer == nullptr)
+        return true;
+    const auto *pointee_qual = type_table.qualified(type_table.canonical(pointer->pointee));
+    if (pointee_qual == nullptr || (pointee_qual->ownership != types::OwnershipKind::Lend &&
+                                    pointee_qual->ownership != types::OwnershipKind::View))
+        return true;
+    const types::OwnershipKind target_ownership = pointee_qual->ownership;
+
+    const auto &inner_expr                = snapshot.expressions()[inner.value - 1U];
+    types::OwnershipKind source_ownership = types::OwnershipKind::Default;
+    if (has_annotation) {
+        source_ownership = mapOwnership(annotated.ownership);
+    } else if (const TypeId source_type = typeOfExpr(inner); source_type) {
+        if (const auto *initial_qualifier = type_table.qualified(type_table.canonical(source_type));
+            initial_qualifier != nullptr &&
+            initial_qualifier->ownership != types::OwnershipKind::Default)
+            source_ownership = initial_qualifier->ownership;
+        TypeId source_cursor = type_table.canonical(source_type);
+        for (unsigned guard = 0; guard < 8U; ++guard) {
+            if (const auto *source_qualifier = type_table.qualified(source_cursor);
+                source_qualifier != nullptr) {
+                source_cursor = source_qualifier->inner;
+                continue;
+            }
+            break;
+        }
+        if (const auto *source_ptr = type_table.pointer(source_cursor); source_ptr != nullptr) {
+            const auto *source_qual =
+                type_table.qualified(type_table.canonical(source_ptr->pointee));
+            if (source_qual != nullptr)
+                source_ownership = source_qual->ownership;
+        } else {
+            const auto *source_qual = type_table.qualified(source_cursor);
+            if (source_qual != nullptr)
+                source_ownership = source_qual->ownership;
+        }
+    }
+
+    // Literals, call results and other rvalue/temporary expressions need no
+    // call-site annotation even though they cannot be borrowed in place. The
+    // semantics is "materialize a temporary where the ABI needs an address".
+    const bool place_expression = inner_expr.kind == frontend::ExprKind::Name ||
+                                  inner_expr.kind == frontend::ExprKind::Field ||
+                                  inner_expr.kind == frontend::ExprKind::Arrow ||
+                                  inner_expr.kind == frontend::ExprKind::Index;
+    const bool direct_binding = inner_expr.kind == frontend::ExprKind::Name;
+    const bool already_borrow = source_ownership == types::OwnershipKind::Lend ||
+                                source_ownership == types::OwnershipKind::View;
+    const bool annotation_missing = !has_annotation && direct_binding && !already_borrow;
+
+    if (has_annotation && source_ownership != target_ownership) {
+        if (report_error) {
+            const std::string required =
+                target_ownership == types::OwnershipKind::Lend ? "lend" : "view";
+            const std::string written =
+                source_ownership == types::OwnershipKind::Lend ? "lend" : "view";
+            report(annotated.span,
+                   "call argument annotation mismatch: parameter expects '" + required +
+                       "', call site wrote '" + written + "'",
+                   diagnostics::err::OwnershipCoercionRequired);
+        }
+        return false;
+    }
+    if (annotation_missing) {
+        if (report_error) {
+            const std::string required =
+                target_ownership == types::OwnershipKind::Lend ? "lend" : "view";
+            report(inner_expr.span,
+                   "call to '" + std::string(inner_expr.text) + "' needs an explicit '" + required +
+                       "' annotation for this borrow parameter",
+                   diagnostics::err::OwnershipCoercionRequired);
+        }
+        return false;
+    }
+
+    if (!has_annotation || !place_expression)
+        return true;
+    // Plain bindings conflict by the local they resolve to, so a call can
+    // never lend the same variable twice. Field/index/arrow paths use the full
+    // place id: two identical field paths conflict, but distinct fields and
+    // distinct receiver roots remain separate borrows in this slice.
+    frontend::ExprId conflict_root;
+    if (direct_binding) {
+        const auto *inner_resolved = findResolvedExpr(inner);
+        conflict_root              = inner_resolved != nullptr && inner_resolved->local
+                                         ? frontend::ExprId{inner_resolved->local.value}
+                                         : inner;
+    } else {
+        conflict_root = inner;
+    }
+    if (!conflict_root)
+        return true;
+    const auto conflict_kind = source_ownership == types::OwnershipKind::Lend
+                                   ? types::OwnershipKind::Lend
+                                   : types::OwnershipKind::View;
+    for (const auto &seen : seen_roots) {
+        if (seen.first != conflict_root)
+            continue;
+        const bool lend_conflict = conflict_kind == types::OwnershipKind::Lend &&
+                                   seen.second == types::OwnershipKind::Lend;
+        const bool mixed_conflict = (conflict_kind == types::OwnershipKind::Lend &&
+                                     seen.second == types::OwnershipKind::View) ||
+                                    (conflict_kind == types::OwnershipKind::View &&
+                                     seen.second == types::OwnershipKind::Lend);
+        if (!lend_conflict && !mixed_conflict)
+            continue;
+        if (report_error) {
+            report(call_span, "the same binding cannot be borrowed more than once in this call",
+                   diagnostics::err::OwnershipCoercionRequired);
+        }
+        return false;
+    }
+    seen_roots.emplace_back(conflict_root, conflict_kind);
+    return true;
 }
 
 TypeId PerModuleSema::lowerForeignType(const cinterop::Type &type) {
@@ -999,9 +1444,12 @@ TypeId PerModuleSema::instantiateTypeExpr(frontend::TextSpan span, std::string_v
         auto &fld_names                          = type_table.makeStringStorage();
         std::vector<GenericBinding> saved_active = std::move(activeTemplateArgs_);
         activeTemplateArgs_.clear();
-        for (size_t i = 0; i < template_decl->genericParams.size(); ++i)
-            activeTemplateArgs_.push_back(
-                GenericBinding{template_decl->genericParams[i].name, args[i]});
+        for (size_t i = 0; i < template_decl->genericParams.size(); ++i) {
+            GenericBinding active_binding;
+            active_binding.name = template_decl->genericParams[i].name;
+            active_binding.type = args[i];
+            activeTemplateArgs_.push_back(std::move(active_binding));
+        }
         for (const auto &param : template_decl->parameters) {
             TypeId ftype = lowerTypeExpr(param.type);
             fields.push(ftype ? ftype : error_type);
@@ -1017,9 +1465,12 @@ TypeId PerModuleSema::instantiateTypeExpr(frontend::TextSpan span, std::string_v
     case frontend::DeclKind::TypeAlias: {
         std::vector<GenericBinding> saved_active = std::move(activeTemplateArgs_);
         activeTemplateArgs_.clear();
-        for (size_t i = 0; i < template_decl->genericParams.size(); ++i)
-            activeTemplateArgs_.push_back(
-                GenericBinding{template_decl->genericParams[i].name, args[i]});
+        for (size_t i = 0; i < template_decl->genericParams.size(); ++i) {
+            GenericBinding active_binding;
+            active_binding.name = template_decl->genericParams[i].name;
+            active_binding.type = args[i];
+            activeTemplateArgs_.push_back(std::move(active_binding));
+        }
         TypeId target       = lowerTypeExpr(template_decl->declaredType);
         activeTemplateArgs_ = std::move(saved_active);
         if (!target)
@@ -1067,8 +1518,12 @@ TypeId PerModuleSema::instantiateStructFromArgs(frontend::TextSpan span,
     auto &field_names                              = type_table.makeStringStorage();
     const std::vector<GenericBinding> saved_active = std::move(activeTemplateArgs_);
     activeTemplateArgs_.clear();
-    for (size_t i = 0; i < template_decl.genericParams.size(); ++i)
-        activeTemplateArgs_.push_back(GenericBinding{template_decl.genericParams[i].name, args[i]});
+    for (size_t i = 0; i < template_decl.genericParams.size(); ++i) {
+        GenericBinding active_binding;
+        active_binding.name = template_decl.genericParams[i].name;
+        active_binding.type = args[i];
+        activeTemplateArgs_.push_back(std::move(active_binding));
+    }
     for (const auto &param : template_decl.parameters) {
         const TypeId field_type = lowerTypeExpr(param.type);
         fields.push(field_type ? field_type : error_type);
@@ -1102,6 +1557,21 @@ TypeId PerModuleSema::inferExpr(frontend::ExprId id) {
     }
     TypeId result;
     switch (expr.kind) {
+    case frontend::ExprKind::OwnershipCoerce:
+        // An annotation only narrows how the operand is passed. The value
+        // keeps the inner type for overload selection and later coercion, so
+        // generic inference and overload resolution see the pointee rather
+        // than the borrow ABI pointer.
+        if (expr.operands.empty()) {
+            result = error_type;
+        } else {
+            result = inferExpr(expr.operands[0]);
+            if (result && type_table.kindOf(result) == TypeKind::Pointer) {
+                if (const auto *pointer = type_table.pointer(result); pointer != nullptr)
+                    result = type_table.stripQualifiers(pointer->pointee);
+            }
+        }
+        break;
     case frontend::ExprKind::DockCall:
         inferDockCall(id);
         result = typeOfExpr(id);
@@ -1483,10 +1953,18 @@ PerModuleSema::selectOverload(const frontend::Expression &call,
         for (size_t index = 0; index < written_args && fits; ++index) {
             const frontend::ExprId arg = call.operands[index + 1U];
             const TypeId arg_type      = inferExpr(arg);
-            const TypeId param_type    = candidate.fn->params[index + implicit_args];
+            const size_t param_index   = index + implicit_args;
+            const TypeId param_type    = candidate.fn->params[param_index];
             // Probe without mutating the recorded type: a rejected candidate must
             // not leave a literal retyped for a signature that was not chosen.
-            fits            = coercesTo(param_type, arg_type) || literalAdaptsTo(arg, param_type);
+            std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
+            const bool borrow_ok =
+                checkOwnershipCoercion(arg, param_type, seen_roots, call.span, false);
+            const bool type_fits =
+                isBorrowParamType(param_type)
+                    ? coerceValue(arg, param_type, arg_type)
+                    : (coercesTo(param_type, arg_type) || literalAdaptsTo(arg, param_type));
+            fits            = type_fits && borrow_ok;
             const bool same = sameType(param_type, arg_type);
             exact           = exact && same;
             widens_ptr      = widens_ptr || (!same && isVoidPointer(param_type) &&
@@ -1558,8 +2036,12 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
             if (candidates.size() > 1U) {
                 bool reported = false;
                 if (const auto *chosen = selectOverload(expr, candidates, 0U, reported)) {
+                    std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
                     for (size_t index = 0; index < chosen->fn->params.size(); ++index) {
                         const TypeId arg_type = inferExpr(expr.operands[index + 1U]);
+                        (void)checkOwnershipCoercion(expr.operands[index + 1U],
+                                                     chosen->fn->params[index], seen_roots,
+                                                     expr.span, true);
                         if (!coerceValue(expr.operands[index + 1U], chosen->fn->params[index],
                                          arg_type)) {
                             reportCoercionFailure(expr.span, chosen->fn->params[index], arg_type,
@@ -1662,6 +2144,9 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
             break;
         }
 
+        if (generic_decl != nullptr)
+            checkGenericConstraints(*generic_decl, args, expr.span);
+
         const size_t instance_index =
             instantiations->bindCall(module, callee.id, target_module, decl_id, args);
         if (instance_index == ~size_t{0}) {
@@ -1671,10 +2156,13 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
         }
         const TypeId instance_type = instantiations->substituteFunction(*fn, args);
         const auto *instance_fn    = type_table.function(instance_type);
+        std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
         for (size_t index = 0; index < fn->params.size() && instance_fn != nullptr &&
                                index < instance_fn->params.size();
              ++index) {
             TypeId arg_type = argument_types[index];
+            (void)checkOwnershipCoercion(expr.operands[index + 1U], instance_fn->params[index],
+                                         seen_roots, expr.span, true);
             if (!coerceValue(expr.operands[index + 1U], instance_fn->params[index], arg_type))
                 reportCoercionFailure(expr.span, instance_fn->params[index], arg_type,
                                       "generic function call argument type mismatch",
@@ -1687,8 +2175,11 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
 
     const size_t checked_params =
         is_variadic ? std::min(fixed_arg_count, fn->params.size()) : fn->params.size();
+    std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
     for (size_t i = 0; i < checked_params; ++i) {
         TypeId arg_type = inferExpr(expr.operands[i + 1]);
+        (void)checkOwnershipCoercion(expr.operands[i + 1], fn->params[i], seen_roots, expr.span,
+                                     true);
         if (!coerceValue(expr.operands[i + 1], fn->params[i], arg_type))
             reportCoercionFailure(expr.span, fn->params[i], arg_type,
                                   "function call argument type mismatch",
@@ -1713,8 +2204,11 @@ PerModuleSema::findMethodsForOwner(std::string_view owner_name,
     // Keep the existing local-first behavior: a method declared in the current
     // module must continue to take precedence over same-named imports.
     for (const auto &decl : snapshot.declarations()) {
-        if (matches(decl))
-            methods.push_back(ResolvedMethod{module, &decl});
+        if (matches(decl)) {
+            const bool is_trait_method = !decl.ownerName.empty() && !decl.traitName.empty() &&
+                                         decl.ownerName == decl.traitName;
+            methods.push_back(ResolvedMethod{module, &decl, decl.traitName, is_trait_method});
+        }
     }
     if (owner != nullptr) {
         for (const auto &artifact_ptr : owner->modules()) {
@@ -1722,12 +2216,171 @@ PerModuleSema::findMethodsForOwner(std::string_view owner_name,
             if (artifact.key == module || artifact.frontend == nullptr)
                 continue;
             for (const auto &decl : artifact.frontend->declarations()) {
-                if (matches(decl))
-                    methods.push_back(ResolvedMethod{artifact.key, &decl});
+                if (matches(decl)) {
+                    const bool is_trait_method = !decl.ownerName.empty() &&
+                                                 !decl.traitName.empty() &&
+                                                 decl.ownerName == decl.traitName;
+                    methods.push_back(
+                        ResolvedMethod{artifact.key, &decl, decl.traitName, is_trait_method});
+                }
             }
         }
     }
+
+    // Trait defaults are exposed on every owner that satisfies their trait.
+    // They are collected after owner methods so local/impl methods dominate
+    // method-name overload selection.
+    const TypeId owner_type     = type_table.lookupNamed(owner_name);
+    const auto addTraitDefaults = [&](const frontend::FrontendSnapshot &snap,
+                                      session::ModuleKey snap_module) {
+        for (const auto &decl : snap.declarations()) {
+            if (decl.kind != frontend::DeclKind::Function || !decl.body || decl.ownerName.empty() ||
+                decl.traitName != decl.ownerName || decl.name != method_name)
+                continue;
+            const TypeId trait_type = type_table.lookupNamed(decl.traitName);
+            if (!trait_type || !satisfiesConformance(owner_type, trait_type))
+                continue;
+            methods.push_back(ResolvedMethod{snap_module, &decl, decl.traitName, true});
+        }
+    };
+    addTraitDefaults(snapshot, module);
+    if (owner != nullptr) {
+        for (const auto &artifact_ptr : owner->modules()) {
+            const auto &artifact = *artifact_ptr;
+            if (artifact.frontend == nullptr || artifact.key == module)
+                continue;
+            addTraitDefaults(*artifact.frontend, artifact.key);
+        }
+    }
     return methods;
+}
+
+const frontend::Declaration *PerModuleSema::findDeclNamed(std::string_view name,
+                                                          frontend::DeclKind kind) const {
+    const auto findIn =
+        [&](const frontend::FrontendSnapshot &snap) -> const frontend::Declaration * {
+        for (const auto &decl : snap.declarations()) {
+            if (decl.kind == kind && decl.name == name)
+                return &decl;
+        }
+        return nullptr;
+    };
+    if (const auto *found = findIn(snapshot))
+        return found;
+    if (owner != nullptr) {
+        for (const auto &artifact_ptr : owner->modules()) {
+            const auto &artifact = *artifact_ptr;
+            if (artifact.frontend == nullptr || artifact.key == module)
+                continue;
+            if (const auto *found = findIn(*artifact.frontend))
+                return found;
+        }
+    }
+    return nullptr;
+}
+
+bool PerModuleSema::isInterfaceType(TypeId type) const {
+    const TypeId resolved = resolve(type);
+    const auto *trait_ty  = type_table.trait(resolved);
+    return trait_ty != nullptr &&
+           findDeclNamed(trait_ty->name, frontend::DeclKind::Interface) != nullptr;
+}
+
+TypeId PerModuleSema::lowerTypeExprConst(frontend::TypeExprId id) const {
+    if (!id || id.value > snapshot.typeExpressions().size())
+        return kInvalidTypeId;
+    const auto &type = snapshot.typeExpressions()[id.value - 1U];
+    if (type.ownership != frontend::OwnershipKind::Default || type.isMut) {
+        frontend::TypeExpression bare = type;
+        bare.ownership                = frontend::OwnershipKind::Default;
+        bare.isMut                    = false;
+        bare.hasMutKeyword            = false;
+        // Existing type lowering mutates generic/instantiation state on some
+        // paths; the const helper is only used for already-lowered interface
+        // field introspection, so reentering it safely is unnecessary.
+        (void)bare;
+    }
+    for (const auto &decl : snapshot.declarations()) {
+        if (decl.kind == frontend::DeclKind::Interface && decl.name == type.name)
+            return type_table.lookupNamed(decl.name);
+    }
+    return type_table.lookupNamed(type.name);
+}
+
+bool PerModuleSema::satisfiesConformance(TypeId type, TypeId trait_or_interface) const {
+    const TypeId concrete = resolve(type);
+    const TypeId target   = resolve(trait_or_interface);
+    if (!concrete || !target)
+        return false;
+    if (type_table.conformanceTable().satisfies(concrete, target))
+        return true;
+
+    // Interfaces are structural: compare the declared fields of the interface
+    // against the fields of the concrete type. The interface must be a named
+    // Interface declaration; its `parameters` are the grouped field list.
+    if (type_table.kindOf(target) != TypeKind::Trait)
+        return false;
+    const auto *interface_ty = type_table.trait(target);
+    if (interface_ty == nullptr || !isInterfaceType(target))
+        return false;
+
+    const frontend::Declaration *interface_decl =
+        findDeclNamed(interface_ty->name, frontend::DeclKind::Interface);
+    if (interface_decl == nullptr)
+        return false;
+
+    const auto *struct_type = type_table.struct_type(concrete);
+    const auto *nominal     = type_table.nominal(concrete);
+    if (struct_type == nullptr && nominal == nullptr)
+        return false;
+
+    // Generic/interface-only types cannot be checked structurally.
+    if (struct_type == nullptr)
+        return false;
+
+    for (const auto &required : interface_decl->parameters) {
+        const int index = type_table.fieldIndex(concrete, required.name);
+        if (index < 0)
+            return false;
+        const TypeId required_type = lowerTypeExprConst(required.type);
+        const TypeId actual_type   = index < static_cast<int>(struct_type->fields.size())
+                                         ? struct_type->fields[index]
+                                         : kInvalidTypeId;
+        if (required_type && actual_type && !sameType(required_type, actual_type))
+            return false;
+    }
+    return true;
+}
+
+void PerModuleSema::checkGenericConstraints(const frontend::Declaration &generic_decl,
+                                            const std::vector<TypeId> &args,
+                                            frontend::TextSpan span) {
+    const auto found = genericParams_.find(generic_decl.id.value);
+    if (found == genericParams_.end())
+        return;
+    for (size_t index = 0; index < args.size() && index < found->second.size(); ++index) {
+        for (const TypeId bound : found->second[index].bounds) {
+            if (!satisfiesConformance(args[index], bound)) {
+                const diagnostics::ErrCode code = isInterfaceType(bound)
+                                                      ? diagnostics::err::InterfaceNotSatisfied
+                                                      : diagnostics::err::ConstraintNotSatisfied;
+                report(span,
+                       "type '" + type_table.typeToString(args[index]) +
+                           "' does not satisfy constraint '" + type_table.typeToString(bound) + "'",
+                       code);
+            }
+        }
+    }
+}
+
+std::vector<TypeId> PerModuleSema::boundsForGenericParam(TypeId generic_type) const {
+    uint32_t decl_id   = 0;
+    uint32_t param_idx = 0;
+    type_table.genericParamOrigin(generic_type, &decl_id, &param_idx);
+    const auto found = genericParams_.find(decl_id);
+    if (found == genericParams_.end() || param_idx >= found->second.size())
+        return {};
+    return found->second[param_idx].bounds;
 }
 
 /// Try to resolve `expr` (a Call whose callee is a Field/Arrow) as a
@@ -1754,7 +2407,112 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
     }
 
     const StructType *st = type_table.struct_type(pointee);
-    if (!st)
+    if (st == nullptr && type_table.kindOf(pointee) == TypeKind::GenericParam) {
+        // A generic parameter is only callable as `T.method()` when one of its
+        // bounds is a trait whose method set contains `method`. Substitution of
+        // `Self` makes the trait signature usable for `T`.
+        const std::vector<TypeId> bounds = boundsForGenericParam(pointee);
+        std::vector<const frontend::Declaration *> bound_decls;
+        std::vector<session::ModuleKey> bound_modules;
+        std::vector<TypeId> bound_traits;
+        for (const TypeId bound : bounds) {
+            const auto *trait_ty = type_table.trait(resolve(bound));
+            if (trait_ty == nullptr || isInterfaceType(bound))
+                continue;
+            for (const auto &decl : snapshot.declarations()) {
+                if (decl.kind != frontend::DeclKind::Function || decl.ownerName != trait_ty->name ||
+                    decl.name != callee.text)
+                    continue;
+                bound_decls.push_back(&decl);
+                bound_modules.push_back(module);
+                bound_traits.push_back(bound);
+                break;
+            }
+            if (owner != nullptr) {
+                for (const auto &artifact_ptr : owner->modules()) {
+                    const auto &artifact = *artifact_ptr;
+                    if (artifact.frontend == nullptr || artifact.key == module)
+                        continue;
+                    bool found = false;
+                    for (const auto &decl : artifact.frontend->declarations()) {
+                        if (decl.kind != frontend::DeclKind::Function ||
+                            decl.ownerName != trait_ty->name || decl.name != callee.text)
+                            continue;
+                        bound_decls.push_back(&decl);
+                        bound_modules.push_back(artifact.key);
+                        bound_traits.push_back(bound);
+                        found = true;
+                        break;
+                    }
+                    if (found)
+                        break;
+                }
+            }
+        }
+        if (bound_decls.empty())
+            return kInvalidTypeId;
+
+        // A single declaration can be reachable from multiple bounds (for
+        // example `T: A + B` where both bounds declare the same default
+        // method). Only report ambiguity when distinct declarations exist.
+        std::vector<const frontend::Declaration *> unique_decls;
+        for (const auto *decl : bound_decls) {
+            const bool seen = std::any_of(
+                unique_decls.begin(), unique_decls.end(),
+                [decl](const frontend::Declaration *existing) { return existing->id == decl->id; });
+            if (!seen)
+                unique_decls.push_back(decl);
+        }
+        if (unique_decls.size() != 1U) {
+            report(call.span,
+                   "method call is ambiguous on generic parameter '" +
+                       type_table.typeToString(pointee) + "'",
+                   diagnostics::err::AmbiguousCall);
+            return error_type;
+        }
+
+        const frontend::Declaration *method_decl = bound_decls.front();
+        const session::ModuleKey method_module   = bound_modules.front();
+        PerModuleSema *method_sema =
+            owner != nullptr ? owner->findModuleSema(method_module) : nullptr;
+        const TypeId fn_type = method_sema != nullptr ? method_sema->typeOfDecl(method_decl->id)
+                                                      : typeOfDecl(method_decl->id);
+        const auto *fn       = type_table.function(fn_type);
+        if (fn == nullptr)
+            return kInvalidTypeId;
+
+        const TypeId substituted = substituteSelf(fn_type, pointee, bound_traits.front());
+        const auto *sub_fn       = type_table.function(substituted);
+        if (sub_fn == nullptr)
+            return kInvalidTypeId;
+
+        const bool has_receiver =
+            !method_decl->parameters.empty() && method_decl->parameters.front().name == "self";
+        const size_t expected_args =
+            has_receiver ? sub_fn->params.size() - 1U : sub_fn->params.size();
+        const size_t provided_args = call.operands.size() - 1U;
+        if (provided_args != expected_args) {
+            report(call.span, "method call arity mismatch", diagnostics::err::NoMatchingFn);
+            return error_type;
+        }
+        std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
+        for (size_t index = has_receiver ? 1U : 0U; index < sub_fn->params.size(); ++index) {
+            const size_t arg_index = index + 1U;
+            if (arg_index < call.operands.size()) {
+                const TypeId arg_type = inferExpr(call.operands[arg_index]);
+                (void)checkOwnershipCoercion(call.operands[arg_index], sub_fn->params[index],
+                                             seen_roots, call.span, true);
+                if (!coerceValue(call.operands[arg_index], sub_fn->params[index], arg_type))
+                    reportCoercionFailure(call.span, sub_fn->params[index], arg_type,
+                                          "method call argument type mismatch",
+                                          diagnostics::err::NoMatchingFn);
+            }
+        }
+        setExprType(callee.id, substituted);
+        setResolvedCallTarget(callee.id, method_module, method_decl->id);
+        return sub_fn->result;
+    }
+    if (st == nullptr)
         return kInvalidTypeId; // not a struct receiver: let normal call resolution run
 
     // Collect every method of this owner with the callee's name: methods take part
@@ -1765,9 +2523,30 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
     const auto resolved_methods = findMethodsForOwner(owner_name, callee.text);
     std::vector<const frontend::Declaration *> method_decls;
     std::vector<session::ModuleKey> method_modules;
+    std::vector<std::string> method_trait_names;
+    std::vector<const frontend::Declaration *> default_decls;
+    std::vector<session::ModuleKey> default_modules;
+    std::vector<std::string> default_trait_names;
     for (const auto &method : resolved_methods) {
+        const bool is_trait_decl = method.isTraitMethod;
+        if (is_trait_decl) {
+            const TypeId trait_type = type_table.lookupNamed(method.traitName);
+            if (!trait_type || !satisfiesConformance(pointee, trait_type))
+                continue;
+            default_decls.push_back(method.decl);
+            default_modules.push_back(method.module);
+            default_trait_names.push_back(method.traitName);
+            continue;
+        }
         method_decls.push_back(method.decl);
         method_modules.push_back(method.module);
+        method_trait_names.push_back(method.traitName);
+    }
+    // Concrete owner/impl methods override trait defaults with the same name.
+    if (method_decls.empty()) {
+        method_decls       = std::move(default_decls);
+        method_modules     = std::move(default_modules);
+        method_trait_names = std::move(default_trait_names);
     }
     if (method_decls.empty())
         return kInvalidTypeId; // no such method: may still be a callable field
@@ -1867,7 +2646,17 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
                 instantiations->substituteFunction(*method_fn, inferred_args);
             setExprType(callee.id, instance_type);
             setResolvedCallTarget(callee.id, method_module, method_decl->id);
+            std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
             const auto *instance_fn = type_table.function(instance_type);
+            if (instance_fn != nullptr) {
+                for (size_t index = has_receiver_entry ? 1U : 0U;
+                     index < instance_fn->params.size() && index + 1U < call.operands.size();
+                     ++index) {
+                    (void)checkOwnershipCoercion(call.operands[index + 1U],
+                                                 instance_fn->params[index], seen_roots, call.span,
+                                                 true);
+                }
+            }
             return instance_fn != nullptr ? instance_fn->result : error_type;
         }
         return error_type;
@@ -1953,6 +2742,7 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         currentFunctionKind_ = saved_kind;
         return error_type;
     }
+    std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
     for (size_t i = 0; i < provided_args; ++i) {
         TypeId arg_type             = inferExpr(call.operands[i + 1]);
         TypeId param_type           = error_type;
@@ -1962,8 +2752,14 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         const auto *method_ffn      = type_table.function(method_fn_type);
         if (method_ffn != nullptr && i + 1U < method_ffn->params.size()) {
             param_type = method_ffn->params[i + 1U];
-        } else if (i + 1 < fn_params.size()) {
-            param_type = lowerTypeExpr(fn_params[i + 1].type);
+        } else if (has_receiver && i + 1U < fn_params.size()) {
+            param_type = borrowParamType(fn_params[i + 1]);
+        } else if (!has_receiver && i < fn_params.size()) {
+            param_type = borrowParamType(fn_params[i]);
+        }
+        if (param_type) {
+            (void)checkOwnershipCoercion(call.operands[i + 1], param_type, seen_roots, call.span,
+                                         true);
         }
         if (param_type && arg_type && !coerceValue(call.operands[i + 1], param_type, arg_type))
             reportCoercionFailure(call.span, param_type, arg_type,
@@ -2038,6 +2834,9 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
                 break;
             if (stmt.kind == frontend::StmtKind::Expression && stmt.expression) {
                 last = inferExpr(stmt.expression);
+            } else if (stmt.kind == frontend::StmtKind::Defer) {
+                checkDeferStatement(stmt);
+                last = void_type;
             } else if (stmt.kind == frontend::StmtKind::Binding) {
                 TypeId ann_type = lowerTypeExpr(stmt.binding.type);
                 TypeId init_type =
@@ -2089,6 +2888,9 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
             continue;
         if (stmt.kind == frontend::StmtKind::Expression && stmt.expression) {
             last = inferExpr(stmt.expression);
+        } else if (stmt.kind == frontend::StmtKind::Defer) {
+            checkDeferStatement(stmt);
+            last = void_type;
         } else if (stmt.kind == frontend::StmtKind::Binding) {
             TypeId ann_type = lowerTypeExpr(stmt.binding.type);
             TypeId init_type =
@@ -2126,6 +2928,62 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
         }
     }
     return last;
+}
+
+bool PerModuleSema::deferBodyHasControlFlow(frontend::ExprId id) const noexcept {
+    if (!id || id.value > snapshot.expressions().size())
+        return false;
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.kind == frontend::ExprKind::Block) {
+        for (const auto stmt_id : expr.statements) {
+            if (!stmt_id || stmt_id.value > snapshot.statements().size())
+                continue;
+            const auto &stmt = snapshot.statements()[stmt_id.value - 1U];
+            if (stmt.kind == frontend::StmtKind::Return || stmt.kind == frontend::StmtKind::Break ||
+                stmt.kind == frontend::StmtKind::Continue ||
+                stmt.kind == frontend::StmtKind::Jump) {
+                return true;
+            }
+            if (stmt.expression && deferBodyHasControlFlow(stmt.expression))
+                return true;
+        }
+        return false;
+    }
+    for (const auto operand : expr.operands) {
+        if (deferBodyHasControlFlow(operand))
+            return true;
+    }
+    return false;
+}
+
+bool PerModuleSema::deferStatementHasControlFlow(const frontend::Statement &stmt) const noexcept {
+    if (stmt.kind == frontend::StmtKind::Return || stmt.kind == frontend::StmtKind::Break ||
+        stmt.kind == frontend::StmtKind::Continue || stmt.kind == frontend::StmtKind::Jump) {
+        return true;
+    }
+    return stmt.expression && deferBodyHasControlFlow(stmt.expression);
+}
+
+void PerModuleSema::checkDeferStatement(const frontend::Statement &stmt) {
+    if (!stmt.expression) {
+        report(stmt.span, "defer requires an expression or block", diagnostics::err::ExpectedExpr);
+        return;
+    }
+    if (deferStatementHasControlFlow(stmt)) {
+        report(stmt.span, "deferred body cannot contain return, break, continue, or jump",
+               diagnostics::err::UnsupportedSyntax);
+    }
+    if (stmt.expression.value > snapshot.expressions().size())
+        return;
+    const auto &expr = snapshot.expressions()[stmt.expression.value - 1U];
+    if (expr.kind == frontend::ExprKind::Block) {
+        // A cleanup block itself produces no value even when its last
+        // statement is a value-producing expression.
+        (void)inferExpr(stmt.expression);
+        setExprType(stmt.expression, void_type);
+    } else {
+        (void)inferExpr(stmt.expression);
+    }
 }
 
 TypeId PerModuleSema::inferIf(frontend::ExprId id) {
@@ -2713,6 +3571,22 @@ bool PerModuleSema::adaptNumericLiteral(frontend::ExprId value, TypeId target) {
 }
 
 bool PerModuleSema::coerceValue(frontend::ExprId value, TypeId target, TypeId source) {
+    // A borrowed parameter's ABI is a pointer, but the call-site argument is
+    // the borrowed value. `lend q` / `view q` check the value against the
+    // pointee after the ownership-annotation check has run.
+    if (isBorrowParamType(target)) {
+        TypeId cursor = target;
+        for (unsigned guard = 0; guard < 8U; ++guard) {
+            cursor = type_table.canonical(cursor);
+            if (const auto *qualified = type_table.qualified(cursor); qualified != nullptr) {
+                cursor = qualified->inner;
+                continue;
+            }
+            break;
+        }
+        if (const auto *pointer = type_table.pointer(cursor); pointer != nullptr)
+            target = type_table.stripQualifiers(pointer->pointee);
+    }
     if (coercesTo(target, source)) {
         // Record the optional target on a `null` literal so lowering can emit None directly.
         if (resolve(source) == null_type &&
@@ -2720,6 +3594,16 @@ bool PerModuleSema::coerceValue(frontend::ExprId value, TypeId target, TypeId so
             setExprType(value, target);
         }
         return true;
+    }
+    // `lend q` / `view q` has the inner expression's type for overload/target
+    // checks, but lowering turns the annotated node into an address. If the
+    // value itself already is a borrow pointer, it can still be passed without
+    // changing the outer ownership wrapper.
+    if (value && value.value <= snapshot.expressions().size()) {
+        const auto &arg = snapshot.expressions()[value.value - 1U];
+        if (arg.kind == frontend::ExprKind::OwnershipCoerce && !arg.operands.empty() &&
+            isBorrowParamType(target) && isBorrowParamType(source))
+            return true;
     }
     return adaptNumericLiteral(value, target);
 }
@@ -2957,8 +3841,8 @@ void PerModuleSema::checkAssignableOwnership(frontend::ExprId target, frontend::
     if (!root)
         return;
 
-    // `self: view Owner` lowers to `*view Owner`, so `self->x = ...` still
-    // reports the same read-only write as the old `view` parameter spelling.
+    // `self: view Owner` / `p: view Owner` lower to `*view Owner`, so both
+    // `self->x = ...` and dot-style `p.x = ...` report a read-only write.
     const bool via_arrow = [&]() {
         for (frontend::ExprId current = target;
              current && current.value <= snapshot.expressions().size() && current != root;) {
@@ -2982,29 +3866,19 @@ void PerModuleSema::checkAssignableOwnership(frontend::ExprId target, frontend::
         return;
 
     const auto *qual = type_table.qualified(type_table.canonical(declared));
-    if (via_arrow) {
+    bool is_view     = qual != nullptr && qual->ownership == types::OwnershipKind::View;
+    if (!is_view && type_table.kindOf(resolve(declared)) == TypeKind::Pointer) {
         // The root may be `*view Owner`; strip the pointer layer before
         // checking the pointee qualifier.
         const TypeId resolved_root = resolve(declared);
-        if (type_table.kindOf(resolved_root) == TypeKind::Pointer) {
-            const auto *pointer = type_table.pointer(resolved_root);
-            if (pointer != nullptr) {
-                const auto *pointee_qual =
-                    type_table.qualified(type_table.canonical(pointer->pointee));
-                if (pointee_qual != nullptr &&
-                    pointee_qual->ownership == types::OwnershipKind::View) {
-                    const auto &root_expr = snapshot.expressions()[root.value - 1U];
-                    report(span,
-                           "cannot write through '" + root_expr.text +
-                               "': a 'view' binding is read-only",
-                           diagnostics::err::WriteThroughView);
-                }
-            }
+        const auto *pointer        = type_table.pointer(resolved_root);
+        if (pointer != nullptr) {
+            const auto *pointee_qual = type_table.qualified(type_table.canonical(pointer->pointee));
+            is_view =
+                pointee_qual != nullptr && pointee_qual->ownership == types::OwnershipKind::View;
         }
-        return;
     }
-
-    if (qual == nullptr || qual->ownership != types::OwnershipKind::View)
+    if (!is_view)
         return;
     const auto &root_expr = snapshot.expressions()[root.value - 1U];
     report(span, "cannot write through '" + root_expr.text + "': a 'view' binding is read-only",
@@ -3028,15 +3902,22 @@ void PerModuleSema::checkImmutableRootFieldWrite(frontend::ExprId target, fronte
             // through the pointer path. Bare `self`/`var self` map to *Owner
             // too, but bare self is read-only and var self is mutable; the
             // binding kind distinguishes them.
+            if (isBorrowParamType(param_type))
+                return;
             bool explicit_pointer = false;
             for (const auto &decl : snapshot.declarations()) {
-                if (decl.kind != frontend::DeclKind::Function || decl.parameters.empty() ||
-                    decl.parameters.front().id != root_resolved->local)
+                if (decl.kind != frontend::DeclKind::Function)
                     continue;
-                // Bare `self` is read-only even though it lowers to *Owner.
-                explicit_pointer =
-                    !(decl.parameters.front().name == "self" && !decl.parameters.front().type);
-                break;
+                for (size_t index = 0; index < decl.parameters.size(); ++index) {
+                    if (decl.parameters[index].id != root_resolved->local)
+                        continue;
+                    // Bare `self` is read-only even though it lowers to *Owner.
+                    explicit_pointer =
+                        !(decl.parameters[index].name == "self" && !decl.parameters[index].type);
+                    break;
+                }
+                if (explicit_pointer)
+                    break;
             }
             if (explicit_pointer)
                 return;
@@ -3318,6 +4199,8 @@ TypeId PerModuleSema::inferSliceRange(frontend::ExprId id) {
     uint64_t object_length       = 0;
     const bool is_array          = type_table.kindOf(resolved_object) == TypeKind::Array;
     const bool is_slice          = type_table.kindOf(resolved_object) == TypeKind::Slice;
+    const TypeId pointer_type    = pointerBase(resolved_object);
+    bool is_pointer              = pointer_type != kInvalidTypeId;
     if (is_array) {
         if (const auto *array = type_table.array(resolved_object)) {
             element       = array->element;
@@ -3326,6 +4209,12 @@ TypeId PerModuleSema::inferSliceRange(frontend::ExprId id) {
     } else if (is_slice) {
         if (const auto *slice = type_table.slice(resolved_object))
             element = slice->element;
+    } else if (is_pointer && expr.is_raw) {
+        // A raw pointer slice creates a view over C-owned storage. Checked
+        // pointer slicing is intentionally not added: there is no length field
+        // to validate against unless the caller supplies the bound explicitly.
+        if (const auto *ptr = type_table.pointer(pointer_type))
+            element = ptr->pointee;
     } else {
         report(expr.span, "slice target must be an array or slice", diagnostics::err::TypeMismatch);
         return error_type;
@@ -3415,7 +4304,8 @@ TypeId PerModuleSema::inferField(frontend::ExprId id) {
     TypeId resolved    = resolve(object_type);
     // `self.field` is canonical for an implicit `*Owner` receiver. Sema treats
     // it like the legacy `self->field`; lowering still emits a deref/HirField.
-    if (type_table.kindOf(resolved) == TypeKind::Pointer && isSelfReceiver(expr.operands[0])) {
+    if (type_table.kindOf(resolved) == TypeKind::Pointer &&
+        (isSelfReceiver(expr.operands[0]) || isBorrowParameter(expr.operands[0]))) {
         if (const auto *ptr = type_table.pointer(resolved))
             resolved = resolve(ptr->pointee);
     }
@@ -3959,6 +4849,17 @@ bool PerModuleSema::findConstField(std::string_view struct_name, size_t index) c
 }
 
 void PerModuleSema::checkZithDeclarations() {
+    // Unknown `as`/`for` targets are deferred from the parser to sema so the
+    // frontend can still represent cross-module implementations before imports
+    // are resolved. Unknown targets are not nominal traits or interfaces.
+    for (const auto &record : snapshot.implementRecords()) {
+        if (findDeclNamed(record.traitName, frontend::DeclKind::Trait) == nullptr &&
+            findDeclNamed(record.traitName, frontend::DeclKind::Interface) == nullptr) {
+            report(record.span, "'" + record.traitName + "' is not a declared trait or interface",
+                   diagnostics::err::NotATrait);
+        }
+    }
+
     for (const auto &decl : snapshot.declarations()) {
         if (decl.kind != frontend::DeclKind::Variable)
             continue;

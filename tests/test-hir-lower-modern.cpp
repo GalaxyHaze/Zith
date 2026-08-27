@@ -175,7 +175,7 @@ void test_ownership_hir_carries_residual_slot_attrs() {
                                      "fn read(p: view P): i32 { p.x }\n"
                                      "fn main(): i32 {\n"
                                      "    let v: view P = P { x: 41 };\n"
-                                     "    read(v) + 1\n"
+                                     "    read(view v) + 1\n"
                                      "}\n");
 
     memory::Arena arena;
@@ -194,6 +194,52 @@ void test_ownership_hir_carries_residual_slot_attrs() {
         saw_view |= slot_attrs != nullptr && slot_attrs->ownership == hir::HirOwnership::View;
     }
     CHECK(saw_view, "a slot annotated with 'view' carries the residual ownership fact");
+}
+
+void test_free_borrow_parameter_lowers_to_pointer_and_call_addr() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "struct P { x: i32 }\n"
+                                     "fn bump(p: lend P): i32 { p.x = p.x + 1; p.x }\n"
+                                     "fn main(): i32 {\n"
+                                     "    var q: P = P { x: 41 };\n"
+                                     "    bump(lend q)\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "free borrow parameter program lowers to HIR");
+
+    const auto &hir  = session.hirModule();
+    const auto *bump = findFunction(hir, session.interner(), "bump");
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(bump != nullptr, "bump function is present in HIR");
+    if (bump != nullptr) {
+        CHECK_EQ(bump->params.size(), 1u, "bump has one lowered parameter");
+        if (bump->params.size() == 1u)
+            CHECK_EQ(static_cast<int>(session.types().kindOf(bump->params[0])),
+                     static_cast<int>(types::TypeKind::Ptr),
+                     "a lend parameter lowers to a pointer type");
+    }
+    CHECK(main != nullptr, "main is present in HIR");
+    if (main != nullptr) {
+        bool saw_addr_argument = false;
+        for (const auto &block : main->blocks) {
+            for (auto inst : block.insts) {
+                const auto *call = std::get_if<hir::HirCall>(&hir.getExpr(inst));
+                if (call == nullptr)
+                    continue;
+                for (const auto arg : call->args) {
+                    const auto &arg_expr = hir.getExpr(arg);
+                    if (std::get_if<hir::HirSlotAddr>(&arg_expr) != nullptr)
+                        saw_addr_argument = true;
+                }
+            }
+        }
+        CHECK(saw_addr_argument,
+              "a call with an annotated lend argument passes the binding address");
+    }
 }
 
 void test_extern_variadic_lower_to_hir() {
@@ -1537,12 +1583,58 @@ void test_distinct_generic_instances_have_distinct_symbols() {
           "distinct type-argument tuples map to distinct HIR symbols");
 }
 
+void test_defer_lowers_to_cleanup_nodes() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "extern fn putchar(c: i32): i32\n"
+                                     "fn main(): i32 {\n"
+                                     "    defer putchar(66);\n"
+                                     "    defer putchar(65);\n"
+                                     "    putchar(48);\n"
+                                     "    return 0;\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "defer statements lower to HIR");
+
+    const auto &hir = session.hirModule();
+    auto *main      = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main is present in HIR");
+    if (main != nullptr) {
+        CHECK(countInstKind(hir, *main, hir::HirExprKind::Cleanup) >= 1u,
+              "defer emits at least one HIR cleanup instruction");
+    }
+}
+
+void test_state_without_return_type_lowers_to_hir() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "state Done() { return; }\n"
+                                     "state Start() { jump Done(); }\n"
+                                     "fn main() { dock Start(); }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "void state declarations lower to HIR");
+    const auto &hir   = session.hirModule();
+    const auto *start = findFunction(hir, session.interner(), "Start");
+    CHECK(start != nullptr && start->isState, "void state remains a state function in HIR");
+    if (start != nullptr) {
+        CHECK_EQ(start->return_type, types::kVoidType,
+                 "state without a return type lowers with void return type");
+    }
+}
+
 } // namespace
 
 static void test_hir_lower_modern() {
     test_extern_and_main_lower_to_hir();
     test_no_ownership_hir_has_empty_residual_attrs();
     test_ownership_hir_carries_residual_slot_attrs();
+    test_free_borrow_parameter_lowers_to_pointer_and_call_addr();
     test_extern_variadic_lower_to_hir();
     test_bindings_lower_to_slots();
     test_if_else_lowers_to_branch_and_merge();
@@ -1582,6 +1674,8 @@ static void test_hir_lower_modern() {
     test_raw_union_lowers_members_and_casts();
     test_is_type_pointer_lowers_union_check_and_keeps_terminators();
     test_distinct_generic_instances_have_distinct_symbols();
+    test_defer_lowers_to_cleanup_nodes();
+    test_state_without_return_type_lowers_to_hir();
 }
 
 TEST_MAIN(hir_lower_modern)

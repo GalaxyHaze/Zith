@@ -44,6 +44,7 @@ enum class HirExprKind : uint8_t {
     UnionCheck,
     LayoutIntrinsic,
     StateTailCall,
+    Cleanup,
     GlobalConstLoad,
 };
 
@@ -256,6 +257,7 @@ struct HirMakeSlice {
     HirTypeId object_type = types::kInvalidType;
     HirTypeId bound_type  = types::kInvalidType;
     bool is_array         = false;
+    bool is_pointer       = false;
     bool checked          = false;
     HirExprKind tag       = HirExprKind::MakeSlice;
 };
@@ -299,6 +301,15 @@ struct HirStateTailCall {
     explicit HirStateTailCall(memory::Arena &arena) : call(arena) {}
 };
 
+/// A block-level cleanup sequence. The expressions run in reverse order when
+/// the enclosing block exits; codegen emits them before the terminator.
+struct HirCleanup {
+    memory::DynArray<HirExprId> exprs;
+    HirExprKind tag = HirExprKind::Cleanup;
+
+    explicit HirCleanup(memory::Arena &arena) : exprs(arena) {}
+};
+
 /// Load of a module-scoped `const` global.
 struct HirGlobalConstLoad {
     memory::InternedId name;
@@ -311,7 +322,7 @@ using HirExpr =
                  HirJump, HirPhi, HirAssign, HirIndex, HirField, HirStructLiteral, HirArrayLiteral,
                  HirEnumValue, HirSlotAlloca, HirSlotStore, HirSlotLoad, HirSlotAddr, HirMakeNone,
                  HirMakeSome, HirMakeSlice, HirCast, HirUnionCast, HirUnionCheck,
-                 HirLayoutIntrinsic, HirStateTailCall, HirGlobalConstLoad>;
+                 HirLayoutIntrinsic, HirStateTailCall, HirCleanup, HirGlobalConstLoad>;
 
 inline HirExprKind exprKind(const HirExpr &expr) {
     return std::visit([](const auto &entry) { return entry.tag; }, expr);

@@ -29,3 +29,6 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
   scalar intrinsics.
 - [stalin-debug.md](stalin-debug.md): strategy for narrowing compiler bugs by
   disabling reproducer/code paths step by step before deep debugging.
+- [tests-and-defer-codegen.md](tests-and-defer-codegen.md): test binary
+  locations, `defer` codegen notes, and the known modern-file alias codegen
+  failure outside the defer work.

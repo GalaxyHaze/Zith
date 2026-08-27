@@ -36,6 +36,7 @@ public:
 
     /// Emits a direct LLVM `musttail` state call followed immediately by `ret`.
     llvm::Value *emitStateTailCall(const hir::HirStateTailCall &tail, const hir::HirModule &mod);
+    llvm::Value *emitCleanup(const hir::HirCleanup &cleanup, const hir::HirModule &mod);
 
     void setBlocks(const std::vector<llvm::BasicBlock *> *blocks) {
         blocks_ = blocks;
@@ -46,7 +47,8 @@ public:
 
     llvm::Value *emitExpr(hir::HirExprId id, const hir::HirModule &mod);
     llvm::Value *emitBody(const hir::HirFunction &fn, const hir::HirModule &mod);
-    void registerParams(const hir::HirFunction &fn, llvm::Function *llvmFn);
+    void registerParams(const hir::HirFunction &fn, llvm::Function *llvmFn,
+                        const hir::HirModule &mod);
 
 private:
     llvm::Value *emitLiteral(const hir::HirLiteral &lit);

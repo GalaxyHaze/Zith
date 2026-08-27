@@ -248,209 +248,215 @@ uint32_t ArtifactBuilder::internType(types::TypeId id) {
 CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
     CompactExpr out;
     const auto &expr = hir_.getExpr(id);
-    hir::visitExpr(expr, common::overloaded{
-                             [&](const hir::HirLiteral &lit) {
-                                 out.kind    = CompactExprKind::Literal;
-                                 out.type_id = internType(lit.type);
-                                 // HirLiteral stores the value in a union; the active member is
-                                 // recovered from the type below.
-                                 switch (types_.kindOf(lit.type)) {
-                                 case types::TypeKind::Bool:
-                                     out.flags   = 2; // bool
-                                     out.int_val = lit.b ? 1 : 0;
-                                     break;
-                                 case types::TypeKind::Float:
-                                     out.flags   = 1; // float
-                                     out.flt_val = lit.f;
-                                     break;
-                                 case types::TypeKind::Ptr:
-                                     out.flags   = 3; // string/ptr literal
-                                     out.name_id = internString(interner_.lookup(lit.str_val));
-                                     break;
-                                 default:
-                                     out.flags   = 0; // int/char
-                                     out.int_val = lit.i;
-                                     break;
-                                 }
-                             },
-                             [&](const hir::HirBinary &bin) {
-                                 out.kind    = CompactExprKind::Binary;
-                                 out.type_id = internType(bin.type);
-                                 out.ref_a   = bin.lhs;
-                                 out.ref_b   = bin.rhs;
-                                 out.op      = static_cast<uint8_t>(bin.op);
-                                 out.ref_e   = internType(bin.operand_type);
-                             },
-                             [&](const hir::HirUnary &un) {
-                                 out.kind    = CompactExprKind::Unary;
-                                 out.type_id = internType(un.type);
-                                 out.ref_a   = un.operand;
-                                 out.op      = static_cast<uint8_t>(un.op);
-                             },
-                             [&](const hir::HirLet &let) {
-                                 out.kind    = CompactExprKind::Let;
-                                 out.name_id = internString(interner_.lookup(let.name));
-                                 out.type_id = internType(let.type);
-                                 out.ref_a   = let.init;
-                             },
-                             [&](const hir::HirVar &var) {
-                                 out.kind    = CompactExprKind::Var;
-                                 out.name_id = internString(interner_.lookup(var.name));
-                                 out.ref_c   = var.version;
-                             },
-                             [&](const hir::HirCall &call) {
-                                 out.kind  = CompactExprKind::Call;
-                                 out.ref_a = call.callee;
-                                 out.ref_b = call.resolved_fn;
-                                 out.ref_e = internType(call.fn_type);
-                                 out.flags =
-                                     (call.musttail ? 1U : 0U) | (call.usesTailCC ? 2U : 0U);
-                                 for (auto arg : call.args)
-                                     out.args.push_back(arg);
-                                 for (auto arg_type : call.argument_types)
-                                     out.arg_types.push_back(internType(arg_type));
-                             },
-                             [&](const hir::HirRet &ret) {
-                                 out.kind  = CompactExprKind::Ret;
-                                 out.ref_a = ret.value;
-                             },
-                             [&](const hir::HirBranch &branch) {
-                                 out.kind  = CompactExprKind::Branch;
-                                 out.ref_a = branch.cond;
-                                 out.ref_c = branch.then_block;
-                                 out.ref_d = branch.else_block;
-                             },
-                             [&](const hir::HirJump &jump) {
-                                 out.kind  = CompactExprKind::Jump;
-                                 out.ref_c = jump.target;
-                             },
-                             [&](const hir::HirPhi &phi) {
-                                 out.kind = CompactExprKind::Phi;
-                                 for (auto in : phi.incoming)
-                                     out.args.push_back(in);
-                             },
-                             [&](const hir::HirAssign &assign) {
-                                 out.kind  = CompactExprKind::Assign;
-                                 out.ref_a = assign.target;
-                                 out.ref_b = assign.value;
-                             },
-                             [&](const hir::HirIndex &idx) {
-                                 out.kind    = CompactExprKind::Index;
-                                 out.type_id = internType(idx.type);
-                                 out.ref_a   = idx.object;
-                                 out.ref_b   = idx.index;
-                                 out.ref_e   = internType(idx.obj_type);
-                                 out.flags   = idx.is_array ? 1 : 0;
-                             },
-                             [&](const hir::HirField &field) {
-                                 out.kind    = CompactExprKind::Field;
-                                 out.type_id = internType(field.type);
-                                 out.ref_a   = field.object;
-                                 out.ref_c   = field.index;
-                                 out.ref_e   = internType(field.object_type);
-                             },
-                             [&](const hir::HirStructLiteral &lit) {
-                                 out.kind    = CompactExprKind::StructLiteral;
-                                 out.type_id = internType(lit.type);
-                                 for (auto v : lit.values)
-                                     out.args.push_back(v);
-                             },
-                             [&](const hir::HirArrayLiteral &lit) {
-                                 out.kind    = CompactExprKind::ArrayLiteral;
-                                 out.type_id = internType(lit.type);
-                                 for (auto e : lit.elements)
-                                     out.args.push_back(e);
-                             },
-                             [&](const hir::HirEnumValue &ev) {
-                                 out.kind    = CompactExprKind::EnumValue;
-                                 out.type_id = internType(ev.type);
-                                 out.int_val = ev.value;
-                             },
-                             [&](const hir::HirSlotAlloca &sa) {
-                                 out.kind    = CompactExprKind::SlotAlloca;
-                                 out.ref_a   = sa.slot;
-                                 out.type_id = internType(sa.type);
-                             },
-                             [&](const hir::HirSlotStore &ss) {
-                                 out.kind  = CompactExprKind::SlotStore;
-                                 out.ref_a = ss.slot;
-                                 out.ref_b = ss.value;
-                             },
-                             [&](const hir::HirSlotLoad &sl) {
-                                 out.kind    = CompactExprKind::SlotLoad;
-                                 out.ref_a   = sl.slot;
-                                 out.type_id = internType(sl.type);
-                             },
-                             [&](const hir::HirSlotAddr &sa) {
-                                 out.kind    = CompactExprKind::SlotAddr;
-                                 out.ref_a   = sa.slot;
-                                 out.type_id = internType(sa.type);
-                             },
-                             [&](const hir::HirMakeNone &mn) {
-                                 out.kind    = CompactExprKind::MakeNone;
-                                 out.type_id = internType(mn.type);
-                             },
-                             [&](const hir::HirMakeSome &ms) {
-                                 out.kind    = CompactExprKind::MakeSome;
-                                 out.type_id = internType(ms.type);
-                                 out.ref_a   = ms.value;
-                             },
-                             [&](const hir::HirMakeSlice &slice) {
-                                 out.kind    = CompactExprKind::MakeSlice;
-                                 out.type_id = internType(slice.type);
-                                 out.ref_a   = slice.object;
-                                 out.ref_b   = slice.lo;
-                                 out.ref_c   = slice.hi;
-                                 out.ref_e   = internType(slice.object_type);
-                                 out.ref_f   = internType(slice.bound_type);
-                                 out.flags = (slice.is_array ? 1U : 0U) | (slice.checked ? 2U : 0U);
-                             },
-                             [&](const hir::HirUnionCheck &check) {
-                                 out.kind    = CompactExprKind::UnionCheck;
-                                 out.type_id = internType(types::kBoolType);
-                                 out.ref_a   = check.value;
-                                 out.ref_b   = internType(check.union_type);
-                                 out.ref_c   = check.member_index;
-                             },
-                             [&](const hir::HirUnionCast &uc) {
-                                 out.kind  = CompactExprKind::Cast;
-                                 out.ref_a = uc.value;
-                                 out.ref_e = internType(uc.from);
-                                 out.ref_b = internType(uc.to);
-                                 out.ref_c = uc.member_index;
-                                 out.flags = uc.checked ? 1U : 0U;
-                             },
-                             [&](const hir::HirCast &cast) {
-                                 out.kind  = CompactExprKind::Cast;
-                                 out.ref_a = cast.value;
-                                 out.ref_e = internType(cast.from);
-                                 out.ref_b = internType(cast.to);
-                                 out.ref_c = ~0U;
-                                 out.flags = 0U;
-                             },
-                             [&](const hir::HirLayoutIntrinsic &li) {
-                                 out.kind    = CompactExprKind::LayoutIntrinsic;
-                                 out.type_id = internType(li.type);
-                                 out.ref_e   = static_cast<uint32_t>(li.which);
-                                 out.ref_f   = li.field_index;
-                             },
-                             [&](const hir::HirStateTailCall &tail) {
-                                 out.kind  = CompactExprKind::StateTailCall;
-                                 out.ref_a = tail.call.callee;
-                                 out.ref_b = tail.call.resolved_fn;
-                                 out.ref_e = internType(tail.call.fn_type);
-                                 out.flags = tail.call.usesTailCC ? 2U : 0U;
-                                 for (auto arg : tail.call.args)
-                                     out.args.push_back(arg);
-                                 for (auto arg_type : tail.call.argument_types)
-                                     out.arg_types.push_back(internType(arg_type));
-                             },
-                             [&](const hir::HirGlobalConstLoad &load) {
-                                 out.kind    = CompactExprKind::GlobalConstLoad;
-                                 out.name_id = internString(interner_.lookup(load.name));
-                                 out.type_id = internType(load.type);
-                             },
-                         });
+    hir::visitExpr(expr,
+                   common::overloaded{
+                       [&](const hir::HirLiteral &lit) {
+                           out.kind    = CompactExprKind::Literal;
+                           out.type_id = internType(lit.type);
+                           // HirLiteral stores the value in a union; the active member is
+                           // recovered from the type below.
+                           switch (types_.kindOf(lit.type)) {
+                           case types::TypeKind::Bool:
+                               out.flags   = 2; // bool
+                               out.int_val = lit.b ? 1 : 0;
+                               break;
+                           case types::TypeKind::Float:
+                               out.flags   = 1; // float
+                               out.flt_val = lit.f;
+                               break;
+                           case types::TypeKind::Ptr:
+                               out.flags   = 3; // string/ptr literal
+                               out.name_id = internString(interner_.lookup(lit.str_val));
+                               break;
+                           default:
+                               out.flags   = 0; // int/char
+                               out.int_val = lit.i;
+                               break;
+                           }
+                       },
+                       [&](const hir::HirBinary &bin) {
+                           out.kind    = CompactExprKind::Binary;
+                           out.type_id = internType(bin.type);
+                           out.ref_a   = bin.lhs;
+                           out.ref_b   = bin.rhs;
+                           out.op      = static_cast<uint8_t>(bin.op);
+                           out.ref_e   = internType(bin.operand_type);
+                       },
+                       [&](const hir::HirUnary &un) {
+                           out.kind    = CompactExprKind::Unary;
+                           out.type_id = internType(un.type);
+                           out.ref_a   = un.operand;
+                           out.op      = static_cast<uint8_t>(un.op);
+                       },
+                       [&](const hir::HirLet &let) {
+                           out.kind    = CompactExprKind::Let;
+                           out.name_id = internString(interner_.lookup(let.name));
+                           out.type_id = internType(let.type);
+                           out.ref_a   = let.init;
+                       },
+                       [&](const hir::HirVar &var) {
+                           out.kind    = CompactExprKind::Var;
+                           out.name_id = internString(interner_.lookup(var.name));
+                           out.ref_c   = var.version;
+                       },
+                       [&](const hir::HirCall &call) {
+                           out.kind  = CompactExprKind::Call;
+                           out.ref_a = call.callee;
+                           out.ref_b = call.resolved_fn;
+                           out.ref_e = internType(call.fn_type);
+                           out.flags = (call.musttail ? 1U : 0U) | (call.usesTailCC ? 2U : 0U);
+                           for (auto arg : call.args)
+                               out.args.push_back(arg);
+                           for (auto arg_type : call.argument_types)
+                               out.arg_types.push_back(internType(arg_type));
+                       },
+                       [&](const hir::HirRet &ret) {
+                           out.kind  = CompactExprKind::Ret;
+                           out.ref_a = ret.value;
+                       },
+                       [&](const hir::HirBranch &branch) {
+                           out.kind  = CompactExprKind::Branch;
+                           out.ref_a = branch.cond;
+                           out.ref_c = branch.then_block;
+                           out.ref_d = branch.else_block;
+                       },
+                       [&](const hir::HirJump &jump) {
+                           out.kind  = CompactExprKind::Jump;
+                           out.ref_c = jump.target;
+                       },
+                       [&](const hir::HirPhi &phi) {
+                           out.kind = CompactExprKind::Phi;
+                           for (auto in : phi.incoming)
+                               out.args.push_back(in);
+                       },
+                       [&](const hir::HirAssign &assign) {
+                           out.kind  = CompactExprKind::Assign;
+                           out.ref_a = assign.target;
+                           out.ref_b = assign.value;
+                       },
+                       [&](const hir::HirIndex &idx) {
+                           out.kind    = CompactExprKind::Index;
+                           out.type_id = internType(idx.type);
+                           out.ref_a   = idx.object;
+                           out.ref_b   = idx.index;
+                           out.ref_e   = internType(idx.obj_type);
+                           out.flags   = idx.is_array ? 1 : 0;
+                       },
+                       [&](const hir::HirField &field) {
+                           out.kind    = CompactExprKind::Field;
+                           out.type_id = internType(field.type);
+                           out.ref_a   = field.object;
+                           out.ref_c   = field.index;
+                           out.ref_e   = internType(field.object_type);
+                       },
+                       [&](const hir::HirStructLiteral &lit) {
+                           out.kind    = CompactExprKind::StructLiteral;
+                           out.type_id = internType(lit.type);
+                           for (auto v : lit.values)
+                               out.args.push_back(v);
+                       },
+                       [&](const hir::HirArrayLiteral &lit) {
+                           out.kind    = CompactExprKind::ArrayLiteral;
+                           out.type_id = internType(lit.type);
+                           for (auto e : lit.elements)
+                               out.args.push_back(e);
+                       },
+                       [&](const hir::HirEnumValue &ev) {
+                           out.kind    = CompactExprKind::EnumValue;
+                           out.type_id = internType(ev.type);
+                           out.int_val = ev.value;
+                       },
+                       [&](const hir::HirSlotAlloca &sa) {
+                           out.kind    = CompactExprKind::SlotAlloca;
+                           out.ref_a   = sa.slot;
+                           out.type_id = internType(sa.type);
+                       },
+                       [&](const hir::HirSlotStore &ss) {
+                           out.kind  = CompactExprKind::SlotStore;
+                           out.ref_a = ss.slot;
+                           out.ref_b = ss.value;
+                       },
+                       [&](const hir::HirSlotLoad &sl) {
+                           out.kind    = CompactExprKind::SlotLoad;
+                           out.ref_a   = sl.slot;
+                           out.type_id = internType(sl.type);
+                       },
+                       [&](const hir::HirSlotAddr &sa) {
+                           out.kind    = CompactExprKind::SlotAddr;
+                           out.ref_a   = sa.slot;
+                           out.type_id = internType(sa.type);
+                       },
+                       [&](const hir::HirMakeNone &mn) {
+                           out.kind    = CompactExprKind::MakeNone;
+                           out.type_id = internType(mn.type);
+                       },
+                       [&](const hir::HirMakeSome &ms) {
+                           out.kind    = CompactExprKind::MakeSome;
+                           out.type_id = internType(ms.type);
+                           out.ref_a   = ms.value;
+                       },
+                       [&](const hir::HirMakeSlice &slice) {
+                           out.kind    = CompactExprKind::MakeSlice;
+                           out.type_id = internType(slice.type);
+                           out.ref_a   = slice.object;
+                           out.ref_b   = slice.lo;
+                           out.ref_c   = slice.hi;
+                           out.ref_e   = internType(slice.object_type);
+                           out.ref_f   = internType(slice.bound_type);
+                           out.flags   = (slice.is_array ? 1U : 0U) | (slice.checked ? 2U : 0U) |
+                                       (slice.is_pointer ? 4U : 0U);
+                       },
+                       [&](const hir::HirUnionCheck &check) {
+                           out.kind    = CompactExprKind::UnionCheck;
+                           out.type_id = internType(types::kBoolType);
+                           out.ref_a   = check.value;
+                           out.ref_b   = internType(check.union_type);
+                           out.ref_c   = check.member_index;
+                       },
+                       [&](const hir::HirUnionCast &uc) {
+                           out.kind  = CompactExprKind::Cast;
+                           out.ref_a = uc.value;
+                           out.ref_e = internType(uc.from);
+                           out.ref_b = internType(uc.to);
+                           out.ref_c = uc.member_index;
+                           out.flags = uc.checked ? 1U : 0U;
+                       },
+                       [&](const hir::HirCast &cast) {
+                           out.kind  = CompactExprKind::Cast;
+                           out.ref_a = cast.value;
+                           out.ref_e = internType(cast.from);
+                           out.ref_b = internType(cast.to);
+                           out.ref_c = ~0U;
+                           out.flags = 0U;
+                       },
+                       [&](const hir::HirLayoutIntrinsic &li) {
+                           out.kind    = CompactExprKind::LayoutIntrinsic;
+                           out.type_id = internType(li.type);
+                           out.ref_e   = static_cast<uint32_t>(li.which);
+                           out.ref_f   = li.field_index;
+                       },
+                       [&](const hir::HirStateTailCall &tail) {
+                           out.kind  = CompactExprKind::StateTailCall;
+                           out.ref_a = tail.call.callee;
+                           out.ref_b = tail.call.resolved_fn;
+                           out.ref_e = internType(tail.call.fn_type);
+                           out.flags = tail.call.usesTailCC ? 2U : 0U;
+                           for (auto arg : tail.call.args)
+                               out.args.push_back(arg);
+                           for (auto arg_type : tail.call.argument_types)
+                               out.arg_types.push_back(internType(arg_type));
+                       },
+                       [&](const hir::HirCleanup &cleanup) {
+                           out.kind = CompactExprKind::Cleanup;
+                           for (auto expr_id : cleanup.exprs)
+                               out.args.push_back(expr_id);
+                       },
+                       [&](const hir::HirGlobalConstLoad &load) {
+                           out.kind    = CompactExprKind::GlobalConstLoad;
+                           out.name_id = internString(interner_.lookup(load.name));
+                           out.type_id = internType(load.type);
+                       },
+                   });
     return out;
 }
 

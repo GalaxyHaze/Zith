@@ -53,7 +53,7 @@ namespace {
         "when",    "match",  "return", "break",   "continue",  "jump",    "while",     "marker",
         "spawn",   "await",  "with",   "catch",   "must",      "throw",   "fail",      "drop",
         "require", "is",     "prefix", "suffix",  "infix",     "nop",     "and",       "or",
-        "not",     "xor",    "tag",
+        "not",     "xor",    "tag",    "defer",
     };
     for (const auto keyword : keywords)
         if (word == keyword)
@@ -925,6 +925,41 @@ private:
         return false;
     }
 
+    /// Parses one element of a call argument list. `lend`/`view` are only
+    /// meaningful here, so the ownership annotation is recognized only in this
+    /// entry point instead of in `parsePrimary`.
+    [[nodiscard]] ExprId parseCallArgument() {
+        const uint32_t start = index_;
+        OwnershipKind kind   = OwnershipKind::Default;
+        if (index_ < token_count_ && ownershipKeyword(text(index_), kind)) {
+            if (kind == OwnershipKind::Lend || kind == OwnershipKind::View) {
+                ++index_;
+                Expression coerce;
+                coerce.kind      = ExprKind::OwnershipCoerce;
+                coerce.ownership = kind;
+                coerce.scope     = current_scope_;
+                coerce.operands.push_back(parseExpression());
+                coerce.span = range(start, index_);
+                return addExpression(std::move(coerce));
+            }
+            snapshot_.diagnostics_.push_back(
+                {tokenSpan(index_),
+                 "invalid ownership annotation on a call argument; use "
+                 "'lend' or 'view'",
+                 false, diagnostics::err::InvalidCallOwnership});
+            ++index_;
+            const ExprId inner = parseExpression();
+            Expression error_expr;
+            error_expr.kind  = ExprKind::Error;
+            error_expr.scope = current_scope_;
+            error_expr.span  = range(start, index_);
+            if (inner)
+                error_expr.operands.push_back(inner);
+            return addExpression(std::move(error_expr));
+        }
+        return parseExpression();
+    }
+
     [[nodiscard]] ExprId parsePrimary() {
         if (index_ >= token_count_)
             return {};
@@ -961,7 +996,7 @@ private:
                         ++index_;
                         continue;
                     }
-                    dock.operands.push_back(parseExpression());
+                    dock.operands.push_back(parseCallArgument());
                     if (punctuation(index_, ','))
                         ++index_;
                     else if (!punctuation(index_, ')'))
@@ -1296,6 +1331,13 @@ private:
                text(index_) == word;
     }
 
+    [[nodiscard]] bool isVisibilityPrefix() const {
+        if (index_ >= token_count_)
+            return false;
+        const auto word = text(index_);
+        return word == "pub" || word == "mod";
+    }
+
     /// Parses a valid function-kind prefix for this lowerer's current position:
     /// `fn`, `const fn`, `raw fn`, `extern fn`, or `flow fn`.  Returns false when
     /// the current token is not `fn` or a kind prefix followed by `fn`.
@@ -1440,7 +1482,7 @@ private:
                 } else if (punctuation(index_, '(')) {
                     ++index_;
                     while (index_ < token_count_ && !punctuation(index_, ')')) {
-                        call.operands.push_back(parseExpression());
+                        call.operands.push_back(parseCallArgument());
                         if (!punctuation(index_, ','))
                             break;
                         ++index_;
@@ -1508,7 +1550,7 @@ private:
             call.scope = current_scope_;
             call.operands.push_back(result);
             while (index_ < token_count_ && !punctuation(index_, ')')) {
-                call.operands.push_back(parseExpression());
+                call.operands.push_back(parseCallArgument());
                 if (!punctuation(index_, ','))
                     break;
                 ++index_;
@@ -1825,7 +1867,7 @@ private:
                 ++index_;
                 continue;
             }
-            out.push_back(parseExpression());
+            out.push_back(parseCallArgument());
             if (punctuation(index_, ','))
                 ++index_;
             else if (!punctuation(index_, ')'))
@@ -2465,6 +2507,38 @@ private:
             ++index_;
             while (index_ < token_count_ && !punctuation(index_, ';') && !punctuation(index_, '}'))
                 ++index_;
+        } else if (word == "defer") {
+            statement.kind = StmtKind::Defer;
+            ++index_;
+            if (index_ < token_count_ && punctuation(index_, '{')) {
+                statement.expression = parseBlock();
+            } else {
+                const std::string_view deferred_word =
+                    index_ < token_count_ ? text(index_) : std::string_view{};
+                if (deferred_word == "return" || deferred_word == "break" ||
+                    deferred_word == "continue" || deferred_word == "jump") {
+                    const uint32_t control_start = index_;
+                    while (index_ < token_count_ && !punctuation(index_, ';') &&
+                           !punctuation(index_, '}'))
+                        ++index_;
+                    snapshot_.diagnostics_.push_back(
+                        {range(control_start, index_),
+                         "deferred body cannot contain return, break, continue, or jump", false,
+                         diagnostics::err::ExpectedExpr});
+                    Expression error_expr;
+                    error_expr.kind      = ExprKind::Error;
+                    error_expr.scope     = current_scope_;
+                    error_expr.span      = range(control_start, index_);
+                    statement.expression = addExpression(std::move(error_expr));
+                } else {
+                    statement.expression = parseExpression();
+                }
+                if (index_ < token_count_ && !punctuation(index_, ';')) {
+                    snapshot_.diagnostics_.push_back({range(start, index_),
+                                                      "defer expression must end with ';'", false,
+                                                      diagnostics::err::ExpectedExpr});
+                }
+            }
         } else if (word == "jump") {
             statement.kind = StmtKind::Jump;
             ++index_;
@@ -2854,44 +2928,49 @@ private:
             }
         }
 
-        if (!trait_name.empty()) {
-            bool name_exists = false;
-            bool is_trait    = false;
-            for (const auto &known : snapshot_.declarations_) {
-                if (known.name != trait_name)
-                    continue;
-                name_exists = true;
-                if (known.kind == DeclKind::Trait)
-                    is_trait = true;
-            }
-            if (!name_exists) {
-                snapshot_.diagnostics_.push_back({range(start, index_),
-                                                  "trait conformance is not implemented yet: '" +
-                                                      trait_name +
-                                                      "' is not declared in this module",
-                                                  true, diagnostics::err::NotImplemented});
-            } else if (!is_trait) {
-                snapshot_.diagnostics_.push_back({range(start, index_),
-                                                  "'" + trait_name + "' is not a trait", false,
-                                                  diagnostics::err::NotATrait});
-            }
-        }
-
         if (!punctuation(index_, '{')) {
             snapshot_.diagnostics_.push_back(
                 {tokenSpan(index_), "expected '{' after implement block header"});
             return;
         }
+        if (!trait_name.empty()) {
+            bool name_exists      = false;
+            bool valid_trait_kind = false;
+            for (const auto &known : snapshot_.declarations_) {
+                if (known.name != trait_name)
+                    continue;
+                name_exists = true;
+                valid_trait_kind =
+                    known.kind == DeclKind::Trait || known.kind == DeclKind::Interface;
+                break;
+            }
+            if (name_exists && !valid_trait_kind) {
+                snapshot_.diagnostics_.push_back({range(start, index_),
+                                                  "'" + trait_name + "' is not a trait", false,
+                                                  diagnostics::err::NotATrait});
+            }
+            snapshot_.implement_records_.push_back(
+                ImplementRecord{owner_name, trait_name, range(start, index_)});
+        }
         ++index_;
+        Visibility method_visibility = visibility;
         while (index_ < token_count_ && !punctuation(index_, '}')) {
             if (punctuation(index_, ',')) {
                 ++index_;
                 continue;
             }
+            if (isVisibilityPrefix()) {
+                const auto visibility_word = text(index_);
+                method_visibility =
+                    visibility_word == "pub" ? Visibility::Public : Visibility::Module;
+                ++index_;
+                continue;
+            }
             if (const auto function_kind = functionKindPrefix()) {
                 const auto method_start = index_;
-                lowerDeclaration(method_start, DeclKind::Function, visibility, owner_name,
+                lowerDeclaration(method_start, DeclKind::Function, method_visibility, owner_name,
                                  trait_name, false, *function_kind, ownerGenericParams);
+                method_visibility = visibility;
                 continue;
             }
             snapshot_.diagnostics_.push_back(
@@ -2962,6 +3041,14 @@ private:
                     if (punctuation(index_, ':')) {
                         ++index_;
                         param.constraint = parseType();
+                        param.constraints.push_back(param.constraint);
+                        while (isOperatorToken("+")) {
+                            ++index_;
+                            const TypeExprId constraint = parseType();
+                            if (!constraint)
+                                break;
+                            param.constraints.push_back(constraint);
+                        }
                     }
                     declaration.genericParams.push_back(std::move(param));
                 } else {
@@ -3030,10 +3117,6 @@ private:
         if (punctuation(index_, ':') || isOperatorToken("->")) {
             ++index_; // `:` or `->` arrow return type
             declaration.declaredType = parseType();
-        } else if (kind == DeclKind::Function && functionKind == FunctionKind::State) {
-            snapshot_.diagnostics_.push_back({range(start, index_),
-                                              "state declarations require a return type after ':'",
-                                              false, diagnostics::err::ExpectedExpr});
         } else if (kind == DeclKind::TypeAlias && index_ < token_count_ && text(index_) == "=") {
             ++index_;
             declaration.declaredType = parseType();
@@ -3112,7 +3195,7 @@ private:
                 if (const auto function_kind = functionKindPrefix()) {
                     const auto method_start = index_;
                     lowerDeclaration(method_start, DeclKind::Function, Visibility::Private,
-                                     declaration.name, {}, false, *function_kind,
+                                     declaration.name, declaration.name, false, *function_kind,
                                      declaration.genericParams);
                     continue;
                 }

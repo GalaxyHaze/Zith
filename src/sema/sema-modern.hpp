@@ -158,6 +158,7 @@ private:
     struct GenericBinding {
         std::string name;
         TypeId type;
+        std::vector<TypeId> bounds;
     };
     std::unordered_map<uint32_t, std::vector<GenericBinding>> genericParams_;
     /// Overrides for the generic parameters of the template currently being
@@ -187,9 +188,20 @@ private:
     /// type `*Owner` (with the written ownership preserved on the pointee).
     /// Other explicit self parameter types pass through unchanged.
     TypeId methodSelfParamType(const frontend::Parameter &param);
+    /// ABI type for a borrow parameter (`lend T` / `view T`): a pointer whose
+    /// pointee keeps the written ownership qualifier. Value parameters pass
+    /// through unchanged.
+    TypeId borrowParamType(const frontend::Parameter &param);
     /// True when an expression resolves to a method's receiver parameter. Used
     /// to auto-deref `self.field` without enabling `.field` for arbitrary pointers.
     [[nodiscard]] bool isSelfReceiver(frontend::ExprId id) const noexcept;
+    /// True when an expression resolves to a function parameter whose ABI type
+    /// is a borrow pointer (`*lend T` / `*view T`). `p.field` auto-derefs such
+    /// parameters just like `self.field`.
+    [[nodiscard]] bool isBorrowParameter(frontend::ExprId id) const noexcept;
+    /// True when `type` is the lowered ABI type of a `lend`/`view` parameter
+    /// (a pointer whose pointee keeps a Lend/View qualifier).
+    [[nodiscard]] bool isBorrowParamType(TypeId type) const noexcept;
     /// Builds/returns the named concrete type for a template application. Shared
     /// by type expressions and generic struct literals.
     TypeId instantiateTypeExpr(frontend::TextSpan span, std::string_view name,
@@ -216,6 +228,14 @@ private:
     /// when the field is not a method.
     TypeId inferMethodCall(const frontend::Expression &call, const frontend::Expression &callee);
     TypeId inferBlock(frontend::ExprId id);
+    /// Validates a `defer expr;` / `defer { ... }` statement: infers the body
+    /// normally and rejects statements that would transfer control away from
+    /// the deferred block.
+    void checkDeferStatement(const frontend::Statement &stmt);
+    /// True when `id` reaches a block containing `return`, `break`, `continue`,
+    /// or `jump`, including nested control-flow bodies.
+    [[nodiscard]] bool deferBodyHasControlFlow(frontend::ExprId id) const noexcept;
+    [[nodiscard]] bool deferStatementHasControlFlow(const frontend::Statement &stmt) const noexcept;
     TypeId inferIf(frontend::ExprId id);
     TypeId inferWhile(frontend::ExprId id);
     TypeId inferFor(frontend::ExprId id);
@@ -261,6 +281,13 @@ private:
     TypeId inferCast(frontend::ExprId id);
     /// True for the two supported pointer casts: `raw opaque as *T` and `*T as raw opaque`.
     [[nodiscard]] bool isOpaquePointerCast(TypeId from, TypeId to) const;
+    /// Records one annotated call argument root and reports `E4005` when a
+    /// second `lend`, or a conflicting `lend`+`view`, uses the same root in one
+    /// call. Returns true when the annotation is accepted.
+    bool checkOwnershipCoercion(
+        frontend::ExprId arg, TypeId param_type,
+        std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> &seen_roots,
+        frontend::TextSpan call_span, bool report_error);
     /// Returns the union member when `from` is a union and `to` names one of
     /// its members; otherwise reports an InvalidCast and returns `error_type`.
     TypeId unionMemberType(frontend::TextSpan span, TypeId union_type, TypeId member);
@@ -283,12 +310,47 @@ private:
     struct ResolvedMethod {
         session::ModuleKey module;
         const frontend::Declaration *decl = nullptr;
+        /// Non-empty when the method was declared in a trait, including trait
+        /// defaults. Impl methods and owner-local methods keep this empty.
+        std::string traitName;
+        /// True when the declaration is a trait requirement or default, not a
+        /// method written directly for the owner.
+        bool isTraitMethod = false;
     };
     /// All methods named `method_name` on `owner_name`, searching the current
     /// module first (preserving existing overload behavior) and then every
     /// other available module in deterministic snapshot order.
     std::vector<ResolvedMethod> findMethodsForOwner(std::string_view owner_name,
                                                     std::string_view method_name) const;
+
+    /// True when `type` satisfies `trait_or_interface`. Traits are nominal and
+    /// must be registered; interfaces are structural and compared field-by-field.
+    [[nodiscard]] bool satisfiesConformance(TypeId type, TypeId trait_or_interface) const;
+    /// Checks the bounds declared on `generic_decl` against the resolved
+    /// concrete `args`. Reports `E3009` once per failing bound.
+    void checkGenericConstraints(const frontend::Declaration &generic_decl,
+                                 const std::vector<TypeId> &args, frontend::TextSpan span);
+    /// Returns the bounds declared for the generic parameter with the given
+    /// type in the module's generic metadata.
+    [[nodiscard]] std::vector<TypeId> boundsForGenericParam(TypeId generic_type) const;
+    /// Validates `implement Owner as Trait` blocks and registers conformance.
+    void checkImplementBlocks();
+    /// Finds the first declaration of `name` with `kind` in the current module
+    /// or any module reachable through the compilation session.
+    [[nodiscard]] const frontend::Declaration *findDeclNamed(std::string_view name,
+                                                             frontend::DeclKind kind) const;
+    /// True when `type` refers to an `interface` declaration (structural form,
+    /// not a nominal trait).
+    [[nodiscard]] bool isInterfaceType(TypeId type) const;
+    /// Const introspection for interface field types. Interface fields are
+    /// named primitives/structs and are already lowered during declaration
+    /// type preparation, so lookup is enough here.
+    [[nodiscard]] TypeId lowerTypeExprConst(frontend::TypeExprId id) const;
+    /// Replaces `Self` inside a lowered trait signature with the implementing
+    /// owner type. Used by trait requirement comparison and default-method
+    /// instantiation.
+    [[nodiscard]] TypeId substituteSelf(TypeId type, TypeId self,
+                                        TypeId trait = kInvalidTypeId) const;
 
     /// Candidate set for an overloaded call: one entry per visible declaration.
     struct OverloadCandidate {

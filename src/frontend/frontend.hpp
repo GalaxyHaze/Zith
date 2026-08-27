@@ -82,6 +82,10 @@ struct Diagnostic {
     /// `diagnostics::ErrCode` for this message; the session propagates it verbatim.
     /// Defaults to `err::UnknownToken` so an unclassified site stays reportable.
     uint32_t code = 1;
+
+    [[nodiscard]] bool isCode(uint32_t expected) const noexcept {
+        return !isWarning && code == expected;
+    }
 };
 
 enum class SyntaxKind : uint8_t { Root, Token, Error };
@@ -165,12 +169,20 @@ enum class ExprKind : uint8_t {
     Placeholder,
     /// The offsetOf / alignOf layout intrinsics.
     LayoutIntrinsic,
+    /// `lend x` / `view x` written in a call argument list. The ownership
+    /// annotation is validated by sema and does not change the inner value's
+    /// inferred type; lowering passes the operand by reference.
+    OwnershipCoerce,
 };
 
 enum class StmtKind : uint8_t {
     Error,
     Expression,
     Binding,
+    /// `defer expr;` or `defer { ... }`: the expression/block body runs when the
+    /// enclosing block exits. Sema/HIR execute it at cleanup, not at the point
+    /// where it is registered.
+    Defer,
     /// A flat `state` declaration written inside a function body. Sema/HIR
     /// skip the marker; the declaration itself is registered in the parent
     /// function's scope through `Declaration::parentScope`.
@@ -283,6 +295,8 @@ struct Expression {
     /// `name: expr` entry and an empty string for a positional entry.
     std::vector<std::string> attributeNames;
     std::vector<ExprId> attributes;
+    /// Used by ExprKind::OwnershipCoerce: the call-site ownership annotation.
+    OwnershipKind ownership = OwnershipKind::Default;
 };
 
 struct Scope {
@@ -334,6 +348,8 @@ struct GenericParam {
     TextSpan span;
     /// Optional `: Constraint` type — parsed but not enforced.
     TypeExprId constraint;
+    /// Bounds parsed after `:`, one TypeExprId per bound for `T: A + B`.
+    std::vector<TypeExprId> constraints;
 };
 
 struct Declaration {
@@ -386,6 +402,15 @@ struct Declaration {
     /// to qualify HIR linkage names so identical state names in different
     /// functions stay distinct.
     std::string parentName;
+};
+
+/// A source-level trait implementation block. Independent of the nested method
+/// declarations so empty implementations (`implement Foo as Trait {}`) are
+/// visible to semantic trait checking.
+struct ImplementRecord {
+    std::string owner;
+    std::string traitName;
+    TextSpan span;
 };
 
 /// A macro visible to an importing module. `source` owns the expression tree
@@ -485,6 +510,9 @@ public:
     [[nodiscard]] const std::vector<Declaration> &declarations() const noexcept {
         return declarations_;
     }
+    [[nodiscard]] const std::vector<ImplementRecord> &implementRecords() const noexcept {
+        return implement_records_;
+    }
     [[nodiscard]] const std::vector<TypeExpression> &typeExpressions() const noexcept {
         return type_expressions_;
     }
@@ -530,6 +558,7 @@ private:
     std::vector<Token> tokens_;
     std::vector<Diagnostic> diagnostics_;
     std::vector<Declaration> declarations_;
+    std::vector<ImplementRecord> implement_records_;
     std::vector<TypeExpression> type_expressions_;
     std::vector<Expression> expressions_;
     std::vector<Statement> statements_;

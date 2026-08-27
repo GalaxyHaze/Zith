@@ -1,10 +1,14 @@
 ## 4. Traits, Interfaces & Capabilities
 
 > **Implementation status:** `trait`, `interface`, and `implement T as Trait {}` declarations are
-> **working** (parsed, resolved, and lowered). Trait method requirements and default bodies, and
-> interface grouped fields, are stored in the frontend snapshot. Trait conformance and dispatch
-> arrive in a later semantic step; `dyn Trait` remains **spec-only** and is a parse error in type
-> position.
+> **working** (parsed, resolved, and type-checked). Trait conformance is nominal: an implementation
+> is validated against every required method and the conformance edge is recorded for generic
+> bounds. Interfaces are structural: a concrete struct satisfies an interface automatically when
+> every declared field exists with the required type, and using an interface as a generic bound is
+> enforced. Trait defaults are resolved for concrete owners during sema; `dyn Trait`, dispatch
+> dynamic, `requires`/`extends` as explicit constraints, and per-owner default-method HIR
+> generation remain spec-only or pending. `Self` in implementations and trait defaults resolves to
+> the implementing type.
 > See [impl-status.md](impl-status.md).
 
 ### 4.1 Traits vs. Interfaces

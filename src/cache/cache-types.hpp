@@ -188,6 +188,7 @@ enum class CompactExprKind : uint8_t {
     LayoutIntrinsic,
     StateTailCall,
     UnionCheck,
+    Cleanup,
     GlobalConstLoad,
 };
 

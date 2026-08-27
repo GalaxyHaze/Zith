@@ -44,6 +44,7 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
             [&](const hir::HirCall &call) { return emitCall(call, mod); },
             [&](const hir::HirRet &ret) { return emitRet(ret, mod); },
             [&](const hir::HirStateTailCall &tail) { return emitStateTailCall(tail, mod); },
+            [&](const hir::HirCleanup &cleanup) { return emitCleanup(cleanup, mod); },
             [&](const hir::HirBranch &branch) { return emitBranch(branch, mod); },
             [&](const hir::HirJump &jump) { return emitJump(jump, mod); },
             [&](const hir::HirAssign &assign) -> llvm::Value * {
@@ -339,6 +340,13 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                         return nullptr;
                     auto *zero = llvm::ConstantInt::get(builder_.getContext(), llvm::APInt(32, 0));
                     data = builder_.CreateGEP(typeGen_.lower(slice.object_type), addr, {zero, lo});
+                } else if (slice.is_pointer) {
+                    // A raw pointer slice reinterprets C-owned storage as a
+                    // pointer/length view; the pointer itself is the data slot.
+                    data = emitExpr(slice.object, mod);
+                    if (!data || !elem_ll)
+                        return nullptr;
+                    data = builder_.CreateGEP(elem_ll, data, lo);
                 } else {
                     auto *agg = emitExpr(slice.object, mod);
                     if (!agg)
@@ -441,11 +449,32 @@ llvm::Value *CodeGenEmit::emitStateTailCall(const hir::HirStateTailCall &tail,
     return builder_.CreateRet(call);
 }
 
-void CodeGenEmit::registerParams(const hir::HirFunction &fn, llvm::Function *llvmFn) {
+llvm::Value *CodeGenEmit::emitCleanup(const hir::HirCleanup &cleanup, const hir::HirModule &mod) {
+    llvm::Value *last = nullptr;
+    for (const auto expr_id : cleanup.exprs) {
+        auto *value = emitExpr(expr_id, mod);
+        if (value != nullptr)
+            last = value;
+    }
+    return last;
+}
+
+void CodeGenEmit::registerParams(const hir::HirFunction &fn, llvm::Function *llvmFn,
+                                 const hir::HirModule &mod) {
     auto argIt = llvmFn->arg_begin();
     for (size_t i = 0; i < fn.param_names.size() && argIt != llvmFn->arg_end(); i++, ++argIt) {
         auto paramName = interner_.lookup(fn.param_names[i]);
         argIt->setName(llvm::StringRef(paramName.data(), paramName.size()));
+        // Lowering gives each function parameter the first HIR slot in order,
+        // so the residual slot ownership maps directly to the LLVM argument.
+        const auto *slotAttrs = mod.attrs().trySlot(static_cast<hir::HirSlotId>(i));
+        if (slotAttrs != nullptr && (slotAttrs->ownership == hir::HirOwnership::Lend ||
+                                     slotAttrs->ownership == hir::HirOwnership::View)) {
+            argIt->addAttr(llvm::Attribute::getWithCaptureInfo(argIt->getContext(),
+                                                               llvm::CaptureInfo::none()));
+            if (slotAttrs->ownership == hir::HirOwnership::View)
+                argIt->addAttr(llvm::Attribute::ReadOnly);
+        }
         auto *slot = builder_.CreateAlloca(argIt->getType(), nullptr,
                                            llvm::StringRef(paramName.data(), paramName.size()));
         builder_.CreateStore(&*argIt, slot);

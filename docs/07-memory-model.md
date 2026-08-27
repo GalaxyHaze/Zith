@@ -1,14 +1,13 @@
 ## 7. Memory Model (NRA)
 
-> **Implementation status:** the ownership modifiers (`mut`, `lend`, `view`, `unique`, `share`,
-> `belong`) are **parsed and typed** (F-34): they are accepted wherever a type is written, compose
-> with `?`, `[]`, and `*`, survive `zithc fmt`, and are interned in the type table, and a write
-> through a `view` binding is rejected with `E4004`. The NRA analysis pass itself — the
-> alive/dead/lent state machine, fact accumulation, and the four rules of
-> [§7.4](#74-the-four-nra-rules) — is still **spec-only** (F-14). The target architecture runs
-> `NTA/NRA` before the final HIR boundary; the current implementation still strips qualifiers too
-> early during lowering, which is the structural gap F-14 must close. Pointer types (`*T`), `*p`
-> dereference, and `&x` address-of are **working**.
+> **Implementation status:** the `lend`/`view` call-annotation slice is implemented: `lend T` and
+> `view T` parameters lower to real pointers, call arguments for `default` bindings require
+> `lend x`/`view x` (or report `E4005`), invalid call annotations are rejected (`E4007`), and the
+> same binding cannot be borrowed twice in one call. `view` writes are rejected with `E4004`.
+> Residual NRA facts are accumulated and attached before HIR, and LLVM emits `readonly` for views
+> plus `nocapture` for borrows. The full alive/dead/lent state machine and the complete four-rule
+> proof of [§7.4](#74-the-four-nra-rules) are still **spec-only** (F-14). Pointer types (`*T`),
+> `*p` dereference, and `&x` address-of are **working**.
 > See [impl-status.md](impl-status.md).
 
 ### 7.1 What NRA Tracks
@@ -105,17 +104,15 @@ Each memory modifier carries an implicit content mutability level:
 ```zith
 // lend -- exclusive temporary borrow
 fn scale(p: lend Point, factor: f32) { p.x *= factor; p.y *= factor; }
-let pt = mut Point { x: 3.0, y: 4.0 };
-scale(pt, 2.0);
+var pt: Point = Point { x: 3.0, y: 4.0 };
+scale(lend pt, 2.0);
 @println(pt.x);   // OK: borrow ended
 
-// view -- multiple read-only refs
-let v1: view Point = pt;
-let v2: view Point = pt;   // fine
+// view -- read-only borrow
+fn center_of(p: view Point): f64 { (p.x + p.y) / 2.0 }
+center_of(view pt);   // no caller mutation
 
-// share -- no ref-count, statically proven
-let a: share Config = load();
-let b: share Config = a;   // both point to the same node
+// share/belong remain spec-only in Zith--
 
 // belong -- back-pointer cannot outlive its parent
 struct Tree<T> {

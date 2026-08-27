@@ -5,6 +5,11 @@ Traits, and the Capability Base**. Each file is a self-contained guide for a
 separate agent session. A session should read this README and its own step file,
 then implement only that step, verify it, and stop.
 
+The original trait/interface/conformance implementation plan through generic
+constraint enforcement is archived under `docs/plans/archive/`, prefixed
+`traits-interfaces-*`; it is preserved for history and should not be treated as
+the current step definitions.
+
 The durable memory version of this contract is
 `memory/comptime-generics-traits.md`; the step files are the source of truth for
 implementation detail.

@@ -33,7 +33,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | Import resolution | **Working** | `import`, `from`, `export`, `alias`, `type` |
 | Name resolution | **Working** | Scope-chained `lookupBinding`. Per-scope `DuplicateDecl`. |
 | Type checking | **Working** | All `ExprKind` nodes. Optional/null validation. Index bounds. |
-| Generic instantiation | **Working (step 04)** | Generic `fn`, `struct`, `alias`, `enum`, `union`, and `implement` blocks are monomorphized before HIR. Calls and named types resolve concrete instances; `T: Trait` bounds remain pending step-05 |
+| Generic instantiation | **Working (step 04/05)** | Generic `fn`, `struct`, `alias`, `enum`, `union`, and `implement` blocks are monomorphized before HIR. Calls and named types resolve concrete instances. `T: A + B` bounds are parsed, stored, and enforced at generic call sites; trait-bound method calls type-check through the declared trait method |
 | Comptime / Solve | **Reserved** | Macro expansion happens in frontend; the solver remains a compatibility stub. Generic monomorphization now runs before NRA/HIR in step-04 |
 | NTA / NRA | **In progress** | Pre-HIR residual-fact boundary is implemented: semantic facts are accumulated and consumed before final lowering; the alive/dead/lent state machine and full diagnostics remain |
 | HIR lowering | **Working** | Covers all working features; residual ownership facts attach to side tables without introducing ownership HIR nodes |
@@ -49,8 +49,8 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | Feature | Status | Notes |
 |---|---|---|
 | `fn` | **Working** | Parameters, return type, body. The return type is written `fn f(x: T): R` or `fn f(x: T) -> R`; both spellings parse. Overloading by parameter count and types (F-33); linkage names are qualified as `<module>.<Owner>.<name>(<params>)`, except `extern fn` and `main` |
-| generic parameter lists `<T, U>` | **Working (step 04)** | Accepted on `fn`, `struct`, `type` alias, `enum`, `union` and `trait` declarations. Generic calls and concrete type uses instantiate monomorphically, including inferred type arguments and generic methods. Cache artifacts carry an instantiation summary. `T: Trait` constraints parse but are not yet enforced |
-| `state` machine | **Working** | `state` declarations, `dock State(args)` expressions, and `jump Next(args)` terminating transitions are parsed, typed, and lowered. States in one machine share a return type but may have different parameter lists. State functions and calls use LLVM `tailcc`; transitions emit direct `musttail tailcc` calls followed by `ret`; old `flow fn`/`marker` syntax is rejected |
+| generic parameter lists `<T, U>` | **Working (step 04/05)** | Accepted on `fn`, `struct`, `type` alias, `enum`, `union` and `trait` declarations. Generic calls and concrete type uses instantiate monomorphically, including inferred type arguments and generic methods. Cache artifacts carry an instantiation summary. `T: A + B` bounds are parsed and enforced with `E3009` (trait) or `E2024` (interface) when an argument does not satisfy a bound |
+| `state` machine | **Working** | `state` declarations, `dock State(args)` expressions, and `jump Next(args)` terminating transitions are parsed, typed, and lowered. States in one machine share a return type but may have different parameter lists; a state without a written return type is `void` and is not inferred from the body. State functions and calls use LLVM `tailcc`; transitions emit direct `musttail tailcc` calls followed by `ret`; old `flow fn`/`marker` syntax is rejected |
 | `raw fn` | **Working** | Parsed and lowers |
 | `const fn` | **Parse-level in progress** | Parsed as a function declaration with `FunctionKind::Const`; compile-time evaluation is not implemented |
 | `extern fn` | **Working** | C ABI interop |
@@ -71,11 +71,11 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `fn(...): R` (function value) | **Working** | Parses as a type value, type-checks non-generic function references, and lowers/calls through C function-pointer ABI. No closures or captures |
 | `dyn Trait` | **Parse error** | Type parser does not handle `dyn` |
 | `struct`, `component`, `enum`, `union` | **Working** | Declarations parse and resolve |
-| `trait`, `interface` | **Working (member storage)** | Declaration bodies now store trait method requirements/default methods and interface fields in the frontend snapshot |
-| `implement T as Trait {}` | **Working** | Method bodies lowered |
+| `trait`, `interface` | **Working (conformance)** | Declaration bodies store trait method requirements/default methods and interface fields. Trait implementations are verified against required signatures with `Self` substitution; duplicate implementations are rejected (`E2027`). Interfaces satisfy structurally and explicit interface implementation is rejected (`E2025`) |
+| `implement T as Trait {}` | **Working** | Records a verified nominal conformance edge and resolves calls to concrete trait defaults. The canonical syntax is `implement T as Trait`; the legacy `for Trait` spelling remains parsed |
 | `type` | **Partial** | `type Name = T` creates a nominal one-field wrapper and is not interchangeable with `T`; construction/field access still need an explicit value syntax |
 | `alias` | **Working** | Transparent alias: `alias Name = T` re-exports the same type |
-| memory qualifiers (`mut`, `lend`, `view`, `unique`, `share`, `belong`) | **Working (parse + types)** | Accepted as type prefixes anywhere a type is written; carried in the type table as `TypeKind::Qualified`; writing through a `view` binding reports `E4004`. HIR/codegen strip the qualifier, and residual ownership facts are produced by the pre-HIR NTA/NRA boundary (F-34, partial F-14) |
+| memory qualifiers (`mut`, `lend`, `view`, `unique`, `share`, `belong`) | **Working (lend/view slice)** | `lend T`/`view T` parameters lower to pointers and require call-site annotations for `default` bindings (`E4005`); invalid call annotations are rejected (`E4007`); same-binding conflicts in one call are rejected; `view` writes report `E4004`; LLVM adds `readonly` for `view` and `nocapture` for `lend`/`view`. `unique`/`share`/`belong`/`mut` as type prefixes remain rejected or legacy-only. NRA residual facts are attached before HIR (F-34, partial F-14) |
 
 ### Expressions
 
@@ -116,6 +116,8 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `when` / `match` pattern match | **Working** | Arms are written `(pattern) ~> body`, comma-separated; `match` is a parser synonym for `when`. Equality, boolean and range (`1..3`) patterns lower through HIR to codegen. An `(f is Member)` arm narrows `f` for that arm's body. `(_)` is the default arm and must come last; a value-producing `when` without a default reports non-exhaustive. Covered by runtime tests |
 | `state` / `jump` | **Working** | `state Name(params): ReturnType` declares a state with the machine return type; `jump Next(args)` terminates the current block and validates arity/types against the target's own parameters before a direct `musttail tailcc` transfer |
 | `dock` | **Working** | `dock State(args)` is a `tailcc` call expression that returns the machine's final `state` return value; the old `dock { ... }` block form is rejected |
+| `defer expr;` scope guards | **Working** | `defer expr;` and `defer { ... }` register cleanup on the nearest lexical block and run in reverse registration order on normal exit, `return`, `break`, `continue`, and `state` `jump`. The deferred body is cleanup-only and rejects `return`/`break`/`continue`/`jump` |
+| `drop` cleanup hooks | **Spec only** | Reserved keyword only, no parser branch consumes it. Candidate for the next iteration (F-41) after `defer` |
 
 ### Words, Contexts, Macros
 
@@ -145,7 +147,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 
 | Feature | Spec chapter |
 |---|---|
-| NRA ownership analysis (alive/dead/lent state machine; qualifiers themselves are implemented) | [07-memory-model.md](07-memory-model.md) |
+| NRA ownership analysis (full alive/dead/lent state machine and four-rule proof; the call-annotation borrow slice is implemented) | [07-memory-model.md](07-memory-model.md) |
 | `comptime` evaluation | [11-comptime.md](11-comptime.md) |
 | `const fn` evaluation | [11-comptime.md](11-comptime.md) |
 | `fail` / `with` / `catch` / `must` / `throw` | [08-error-handling.md](08-error-handling.md) |
@@ -194,9 +196,9 @@ Codes are grouped by pipeline stage. `E0000` remains the generic user-reported d
 | 0001-0005 | Lexical | `E0001` UnknownToken, `E0002` UnclosedString, `E0003` InvalidEscape, `E0004` InvalidIntLiteral, `E0005` UnclosedComment |
 | 1001-1008 | Parse | `E1001` ExpectedExpr, `E1002` ExpectedSemicolon, `E1003` UnclosedParen, `E1004` ExpectedIdent, `E1005` InvalidImportDepth, `E1006` ImportError, `E1007` TopLevelLetNotAllowed, `W1008` DeprecatedSyntax (`while` -> `for (cond)`) |
 | 2001-2010 | Semantic | `E2001` UndefinedIdent, `E2002` DuplicateDecl, `E2003` WrongArity, `E2004` UnusedDecl, `E2005` NotNamespace, `E2006` NoMember, `E2007` NoMatchingFn, `E2008` AmbiguousCall, `E2009` NotImplemented, `E2010` UnsupportedSyntax |
-| 2021-2025 | Frontend/interface | `E2023` NotATrait, `E2025` InterfaceMethodNotAllowed |
-| 3001-3008 | Types | `E3001` TypeMismatch, `E3002` CannotInfer, `E3003` InvalidCast, `E3004` CyclicType, `E3005` NullDerefUnproven, `E3006` CoercionFailure, `E3007` WidthMismatch, `E3008` OptionalViolation |
-| 4001-4004 | NRA / ownership | `E4001` UseAfterMove (logical receiver move in sema), `E4002` BorrowConflict, `E4003` DoubleBorrow, `E4004` WriteThroughView — `E4001` is emitted for post-method receiver use; `E4004` remains emitted for views |
+| 2021-2025 | Frontend/interface | Trait requirement/signature checks (`E2021`/`E2022`), `E2023` NotATrait, `E2024` InterfaceNotSatisfied, `E2025` InterfaceMethodNotAllowed, `E2027` DuplicateImplementation |
+| 3001-3009 | Types | `E3001` TypeMismatch, `E3002` CannotInfer, `E3003` InvalidCast, `E3004` CyclicType, `E3005` NullDerefUnproven, `E3006` CoercionFailure, `E3007` WidthMismatch, `E3008` OptionalViolation, `E3009` ConstraintNotSatisfied |
+| 4001-4007 | NRA / ownership | `E4001` UseAfterMove (logical receiver move in sema), `E4002` BorrowConflict, `E4003` DoubleBorrow, `E4004` WriteThroughView, `E4005` OwnershipCoercionRequired, `E4007` InvalidCallOwnership — call annotations, borrow conflicts and views are checked in sema; `E4001` is emitted for post-method receiver use; `E4004` remains emitted for views |
 | 5001-5002 | Lowering | `E5001` InvalidIR, `E5002` Unreachable |
 | 10001-10004 | Runtime | `R10001` IndexOutOfBounds, `R10002` DivisionByZero, `R10003` NullDeref, `R10004` Panic |
 

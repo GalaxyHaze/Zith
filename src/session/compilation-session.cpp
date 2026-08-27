@@ -1736,6 +1736,7 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             slice.object_type = compactType(ce.ref_e);
             slice.bound_type  = compactType(ce.ref_f);
             slice.is_array    = (ce.flags & 1U) != 0;
+            slice.is_pointer  = (ce.flags & 4U) != 0;
             slice.checked     = (ce.flags & 2U) != 0;
             expr              = slice;
             break;
@@ -1781,6 +1782,15 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             li.type        = compactType(ce.type_id);
             li.field_index = ce.ref_f;
             expr           = li;
+            break;
+        }
+        case cache::CompactExprKind::Cleanup: {
+            memory::DynArray<hir::HirExprId> exprs(mHirArena);
+            for (auto id : ce.args)
+                exprs.push(id);
+            hir::HirCleanup cleanup(mHirArena);
+            cleanup.exprs = std::move(exprs);
+            expr          = std::move(cleanup);
             break;
         }
         }

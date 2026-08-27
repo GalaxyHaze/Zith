@@ -634,6 +634,76 @@ static void test_modern_qualified_method_receivers() {
           "view receiver field writes report WriteThroughView");
 }
 
+static void test_modern_free_borrow_call_annotations() {
+    ModernSemaTest correct;
+    auto good = correct.run("struct P { x: i32 }\n"
+                            "fn bump(p: lend P): i32 { p.x = p.x + 1; p.x }\n"
+                            "fn read(p: view P): i32 { p.x }\n"
+                            "fn main(): i32 {\n"
+                            "    var q: P = P { x: 41 };\n"
+                            "    bump(lend q);\n"
+                            "    read(view q);\n"
+                            "    q.x\n"
+                            "}\n");
+    CHECK(good.ok, "free calls accept the matching lend/view annotations");
+
+    ModernSemaTest overload;
+    auto overloaded = overload.run("struct P { x: i32 }\n"
+                                   "fn f(p: lend P): i32 { p.x }\n"
+                                   "fn f(p: lend P, d: i32): i32 { p.x + d }\n"
+                                   "fn main(): i32 {\n"
+                                   "    var q: P = P { x: 1 };\n"
+                                   "    f(lend q) + f(lend q, 1)\n"
+                                   "}\n");
+    CHECK(overloaded.ok, "borrow overloads resolve only when each call site uses the annotation");
+
+    ModernSemaTest missing_annotation;
+    auto missing = missing_annotation.run("struct P { x: i32 }\n"
+                                          "fn read(p: view P): i32 { p.x }\n"
+                                          "fn main(): i32 {\n"
+                                          "    var q: P = P { x: 1 };\n"
+                                          "    read(q)\n"
+                                          "}\n");
+    CHECK(!missing.ok, "a default binding does not silently match a borrow parameter");
+    CHECK(missing.hasErrorCode(diagnostics::err::OwnershipCoercionRequired),
+          "the missing call-site annotation reports E4005");
+
+    ModernSemaTest wrong_annotation;
+    auto wrong = wrong_annotation.run("struct P { x: i32 }\n"
+                                      "fn read(p: view P): i32 { p.x }\n"
+                                      "fn main(): i32 {\n"
+                                      "    var q: P = P { x: 1 };\n"
+                                      "    read(lend q)\n"
+                                      "}\n");
+    CHECK(!wrong.ok, "a lend annotation does not satisfy a view parameter");
+    CHECK(wrong.hasErrorCode(diagnostics::err::OwnershipCoercionRequired),
+          "the wrong call-site annotation reports E4005");
+
+    ModernSemaTest generic;
+    auto generic_ok = generic.run("fn deref_borrow<T>(p: lend T): T { *p }\n"
+                                  "fn main(): i32 {\n"
+                                  "    var q: i32 = 7;\n"
+                                  "    deref_borrow(lend q)\n"
+                                  "}\n");
+    CHECK(generic_ok.ok, "generic borrow inference uses the annotated pointee type");
+}
+
+static void test_modern_borrow_type_mismatch_keeps_3001() {
+    ModernSemaTest mismatch;
+    auto r = mismatch.run("struct P { x: i32 }\n"
+                          "struct Q { y: i32 }\n"
+                          "fn read(p: view P): i32 { p.x }\n"
+                          "fn main(): i32 {\n"
+                          "    var q: Q = Q { y: 1 };\n"
+                          "    read(view q)\n"
+                          "}\n");
+    CHECK(!r.ok, "a view annotation does not suppress the pointee type mismatch");
+    CHECK(r.hasErrorCode(diagnostics::err::NoMatchingFn),
+          "the pointee type mismatch reports the call coercion diagnostic");
+    CHECK(!r.hasErrorCode(diagnostics::err::OwnershipCoercionRequired),
+          "the pointee mismatch is not masked by E4005");
+}
+
 static void test_fallback_and_propagation_are_rejected() {
     SemaTest fallback_optional;
     check_unsupported_syntax(fallback_optional.run("fn main() { ?missing; }\n"));
@@ -2624,6 +2694,84 @@ static void test_modern_enum_constant_discriminants() {
     CHECK(!int_to_enum.ok, "integer to enum cast is disallowed");
 }
 
+static void test_modern_defer_statements() {
+    ModernSemaTest t;
+
+    auto reverse_order = t.run("extern fn putchar(c: i32): i32\n"
+                               "fn main(): i32 {\n"
+                               "    defer putchar(66);\n"
+                               "    defer putchar(65);\n"
+                               "    return 0;\n"
+                               "}\n",
+                               session::Stage::HirLowered);
+    CHECK(reverse_order.ok, "defer expressions type-check and lower to HIR");
+
+    auto block = t.run("extern fn putchar(c: i32): i32\n"
+                       "fn main() {\n"
+                       "    defer { putchar(65); putchar(66); }\n"
+                       "    putchar(48);\n"
+                       "}\n",
+                       session::Stage::HirLowered);
+    CHECK(block.ok, "defer block type-checks and lowers to HIR");
+
+    auto inside_if = t.run("extern fn putchar(c: i32): i32\n"
+                           "fn main() {\n"
+                           "    if (true) {\n"
+                           "        defer putchar(65);\n"
+                           "        putchar(48);\n"
+                           "    }\n"
+                           "    putchar(90);\n"
+                           "}\n",
+                           session::Stage::HirLowered);
+    CHECK(inside_if.ok, "defer inside if type-checks and lowers");
+
+    auto in_loop = t.run("extern fn putchar(c: i32): i32\n"
+                         "fn main() {\n"
+                         "    var i: i32 = 0;\n"
+                         "    for (i < 2) {\n"
+                         "        defer putchar(65);\n"
+                         "        putchar(48);\n"
+                         "        i = i + 1;\n"
+                         "    }\n"
+                         "}\n",
+                         session::Stage::HirLowered);
+    CHECK(in_loop.ok, "defer inside loop type-checks and lowers");
+
+    auto rejected_return = t.run("fn main() {\n"
+                                 "    defer return;\n"
+                                 "}\n",
+                                 session::Stage::TypeChecked);
+    CHECK(!rejected_return.ok, "defer return is rejected");
+    CHECK(rejected_return.hasErrorCode(diagnostics::err::ExpectedExpr),
+          "defer return reports the parse-level control-flow diagnostic");
+
+    auto rejected_jump = t.run("state Done() {}\n"
+                               "state Start() {\n"
+                               "    defer { jump Done(); }\n"
+                               "}\n"
+                               "fn main() { dock Start(); }\n",
+                               session::Stage::TypeChecked);
+    CHECK(!rejected_jump.ok, "defer block with jump is rejected");
+    CHECK(rejected_jump.hasMessage("deferred body cannot contain return, break, continue, or jump"),
+          "deferred jump reports the cleanup control-flow diagnostic");
+}
+
+static void test_modern_state_without_return_type_is_void() {
+    ModernSemaTest t;
+
+    auto void_state = t.run("state Done() { return; }\n"
+                            "state Start() { jump Done(); }\n"
+                            "fn main() { dock Start(); }\n",
+                            session::Stage::HirLowered);
+    CHECK(void_state.ok, "state without a return type behaves like void");
+
+    auto body_value_not_inferred = t.run("state Done() { 7 }\n"
+                                         "fn main() { dock Done(); }\n",
+                                         session::Stage::HirLowered);
+    CHECK(body_value_not_inferred.ok,
+          "state without a return type never infers a value type from the body");
+}
+
 static void test_sema() {
     test_basic_unification();
     test_type_mismatch();
@@ -2758,6 +2906,8 @@ static void test_sema() {
     test_modern_method_call_arg_type_mismatch();
     test_modern_tagged_union_cast_policy();
     test_modern_qualified_method_receivers();
+    test_modern_free_borrow_call_annotations();
+    test_modern_borrow_type_mismatch_keeps_3001();
     test_modern_unknown_method_still_reports_field();
     test_modern_function_value_and_call();
     test_modern_function_value_type_mismatch();
@@ -2768,6 +2918,8 @@ static void test_sema() {
     test_modern_zith_bindings();
     test_modern_mutability_propagates_to_struct_fields();
     test_modern_enum_constant_discriminants();
+    test_modern_defer_statements();
+    test_modern_state_without_return_type_is_void();
 }
 
 TEST_MAIN(sema)

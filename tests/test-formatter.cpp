@@ -398,6 +398,30 @@ static void test_formatter_raw_opaque_round_trip() {
     CHECK(reparsed.diagnostics().empty(), "formatted 'raw opaque' re-parses cleanly");
 }
 
+static void test_formatter_defer_round_trip() {
+    const std::string source = "fn main(){\n"
+                               "    defer release();\n"
+                               "    defer { first(); second(); }\n"
+                               "    return 0;\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+
+    const std::string expected = "fn main() {\n"
+                                 "    defer release();\n"
+                                 "    defer {\n"
+                                 "        first();\n"
+                                 "        second();\n"
+                                 "    }\n"
+                                 "    return 0;\n"
+                                 "}\n";
+    CHECK_EQ(formatter.result(), expected, "formats defer expr and defer block");
+
+    auto reparsed = frontend::parse(formatter.result());
+    CHECK(reparsed.diagnostics().empty(), "formatted defer source re-parses cleanly");
+}
+
 static void test_formatter() {
     test_formatter_normalizes_supported_snapshot_nodes();
     test_formatter_normalizes_extern_and_unary();
@@ -419,6 +443,7 @@ static void test_formatter() {
     test_formatter_bitwise_operator_round_trip();
     test_formatter_raw_opaque_round_trip();
     test_compilation_session_fmt_uses_frontend_snapshot();
+    test_formatter_defer_round_trip();
 }
 
 TEST_MAIN(formatter)

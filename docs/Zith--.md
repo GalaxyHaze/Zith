@@ -2,7 +2,12 @@
 
 ## Objetivo
 
-Zith-- é o subconjunto da linguagem compilado pelo `main` atual da toolchain. Esta iteração mantém os tipos e features existentes, mas restringe bindings, storage e ownership a um núcleo verificável:
+Zith-- é o subconjunto da linguagem compilado pelo `main` atual da toolchain, documentado em
+[`docs/impl-status.md`](impl-status.md). O objetivo desta divisão é manter o `main` pequeno e
+verificável: só entra em `Zith--` o que está implementado e protegido por testes nesta iteração,
+independentemente de a spec maior `Zith-spec.md` descrever mais features.
+
+Esta iteração mantém os tipos e features existentes, mas restringe bindings, storage e ownership a um núcleo verificável:
 
 - `let` para bindings locais imutáveis não-rebindáveis.
 - `var` para bindings locais mutáveis e rebindáveis.
@@ -45,6 +50,8 @@ Parâmetros de função são imutáveis por defeito, tal como `let`: `p.x = 1` n
 Methods continuam com `self` implícito. `self.field` é a forma canónica e auto-derefs o receiver; `self->field` continua aceite como legacy. Um `self` simples é read-only: `self.x = 1` é rejeitado. `var self` permite mutação in-place dos campos do receiver, como `self.x += 1`.
 
 Quando um método com `self` simples ou `var self` é chamado, o sema invalida logicamente a ligação do receiver no chamador: leituras subsequentes reportam `E4001 UseAfterMove`, e escrita através do receiver inválido também. Atribuir diretamente ao nome da variável revive a ligação. `view`/`lend`, receivers explícitos por pointer e chamadas de funções livres ainda não marcam o valor no chamador nesta fase.
+
+Funções livres e argumentos de métodos podem declarar parâmetros `lend`/`view`; nesses casos o call site precisa da anotação correspondente para bindings por valor (ver [Ownership](#ownership)).
 
 ## Const Global
 
@@ -120,7 +127,25 @@ let ready: bool;
 
 ## Ownership
 
-`lend` e `view` continuam parseados, tipados e com o comportamento residual atual. `view` bloqueia escrita e as factas NRA continuam a ser emitidas. Em receiver explícitos, `self: lend Owner` e `self: view Owner` têm ABI e corpo de ponteiro para `Owner`; chamadas com `.` passam o endereço do receiver, por isso mutações via `lend`/`*` são visíveis no chamador.
+`lend` e `view` são o ownership implementado no Zith--. Um parâmetro `p: lend T` ou `p: view T` tem ABI de ponteiro para `T`; no corpo, `p.x` auto-derefs o ponteiro. `lend` continua mutável e `view` bloqueia escrita com `E4004`. Factas NRA residuais continuam a ser emitidas, e codegen aplica `readonly` para `view` e `nocapture` para ambos.
+
+No call site de funções livres, métodos com argumentos por ponteiro e overloads, um binding `default` que alimenta um parâmetro `lend`/`view` exige a anotação `lend x` ou `view x`:
+
+````zith
+fn bump(p: lend P): i32 { p.x = p.x + 1; p.x }
+fn read(p: view P): i32 { p.x }
+
+fn main(): i32 {
+    var q: P = P { x: 41 };
+    bump(lend q);   // OK: mutação visível no chamador
+    read(view q);   // OK: leitura read-only
+    q.x
+}
+````
+
+Literais, temporários e resultados de chamada não exigem anotação; um binding já qualificado `lend`/`view` também pode ser passado sem nova anotação. A anotação errada em relação ao parâmetro (`lend` para `view` ou `view` para `lend`) e a ausência da anotação num binding `default` reportam `E4005 OwnershipCoercionRequired`. `unique`, `share`, `belong` e `mut` em posição de argumento de call são rejeitados com `E4007 InvalidCallOwnership`.
+
+A exclusividade é validada por chamada e por root lógico do binding: o mesmo binding não pode ser passado duas vezes como `lend`, nem como `lend` + `view`, nem como `view` + `lend`, dentro da mesma chamada. O conflito reporta um único `E4005`. Caminhos de campo/index distintos são raízes distintas neste slice, e `f(p.field)` é aceite para um parâmetro `lend` como borrow daquele campo.
 
 Em unions tagged, `is Tipo` estreita o local testado para o membro dentro do braço `if`/`when` correspondente, sem `as`. Extrair um membro tagged fora desse contexto exige `raw f as Tipo`; unions `raw` mantêm casts livres entre membros.
 
@@ -161,4 +186,55 @@ tag macro Box(content) { <content/> }
 
 Novos checks de ownership/borrow, heurísticas novas de NRA, `Result` e similares, flag de ativação ou modo separado. O `main` é o Zith--.
 
-O move de receiver é lógico e conservador: invalida usos no sema sem alterar ABI, storage ou chamadas; exclusividade de `lend`/`view` e move real de valores ficam para iterações futuras.
+O move de receiver é lógico e conservador: invalida usos no sema sem alterar ABI, storage ou chamadas. A exclusividade de `lend`/`view` no call site está implementada; o borrow-checker completo, lifetimes, `unique`, `share`, `belong` e move real de valores ficam para iterações futuras.
+
+## Divisão do Roadmap
+
+A metáfora de gestão é a seguinte: `Zith--` é o subconjunto que o `main` consegue
+compilar hoje; `docs/roadmap.md` e `docs/plans/0.7.0/` mapeiam a próxima iteração.
+Cada feature candidata só entra no documento do `Zith--` depois de terminar no
+pipeline real, porque o `main` não é um modo opt-in.
+
+### Já implementado e provado no `main`
+
+- Funções, bindings `let`/`var`/`const`, structs, enums, unions, génericos e
+  monomorfização antes de HIR.
+- `when`/`match`, `for`, `state`/`dock`/`jump`, `->`, slices, arrays, opcionais,
+  pointers e o protocolo de iterador `next(self)`.
+- Qualificadores `lend`/`view` parseados e tipados; anotações `lend x`/`view x`
+  em argumentos de call, exclusividade por call e lowering para ponteiros;
+  `unique`/`share`/`belong` são rejeitados; `view` bloqueia escrita; receiver move é lógico.
+- `defer expr;` e `defer { ... }` como cleanup reverse-order do bloco lexical;
+  `state` sem return type explicito é `void`.
+- Traits nominais, interfaces estruturais, `implement T as Trait {}`,
+  conformance, bounds `T: A + B` e enforcement em call sites.
+- C interop comum, imports, macros normais/raw, C API/zithc, HIR/cache/LLVM.
+- O detalhe verificado está em `impl-status.md`; testes focados existem em
+  `tests/test-trait-*.cpp`, `tests/test-interface-*.cpp` e
+  `tests/test-generic-constraints.cpp`.
+
+### Features candidatas à próxima iteração
+
+Estas são as features que parecem fazer falta ao conjunto atual e que devem ser
+avaliadas juntas, por ordem de afinidade com o núcleo:
+
+| Feature | Razão | Dependência mais provável |
+| --- | --- | --- |
+| `drop` funcional | limpeza de recursos ao sair do binding/escopo (não só keyword) | NRA/ownership residual + HIR |
+| `for (x in range)` literal | `0..n` é sintaxe comum que o `when` já usa | `Range`/iterator |
+| `dyn Trait` | dispatch dinâmico está documentado, mas é `Parse error` | vtable HIR/codegen |
+| `requires`/`extends` explícitos | já aparecem na spec de traits | implementação de constraints |
+
+A prioridade recomendada é `drop` a seguir, reutilizando a infraestrutura de
+escopo de `defer` já implementada, o que fica mais fácil de provar contra a
+NRA. Ver `docs/plans/defer-drop.md` para a proposta completa e
+`docs/09-control-flow.md` para a semântica de escopo.
+
+### Fora do núcleo até prova em contrário
+
+Ficam fora do `Zith--` e do roadmap de `defer`/`drop`: `dyn Trait`,
+capabilities activadas, `comptime` completo, reflexão de mutação de tipos,
+ownership full NRA, `fail`/`with`/`catch`/`throw`, `use`/contexts/words, assets
+e `::` scope resolution. A spec `Zith-spec.md` pode continuar a descrevê-las
+como visão, mas a documentação operacional deve marcá-las como `Spec only` ou
+`Parse error` até saírem do roadmap.

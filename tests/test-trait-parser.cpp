@@ -9,7 +9,7 @@ using namespace zith;
 
 static bool hasErrorCode(const frontend::FrontendSnapshot &snapshot, uint32_t code) {
     for (const auto &diagnostic : snapshot.diagnostics()) {
-        if (!diagnostic.isWarning && diagnostic.code == code)
+        if (diagnostic.isCode(code))
             return true;
     }
     return false;
@@ -75,13 +75,13 @@ static void test_interface_method_diagnostic() {
 }
 
 static void test_implement_trait_name_checks() {
-    auto undefined_trait     = frontend::parse("implement Foo as MissingTrait { fn m(self); }\n");
-    bool saw_not_implemented = false;
-    for (const auto &diagnostic : undefined_trait.diagnostics()) {
-        if (diagnostic.code == diagnostics::err::NotImplemented)
-            saw_not_implemented = true;
+    auto undefined_trait      = frontend::parse("implement Foo as MissingTrait { fn m(self); }\n");
+    bool saw_implement_record = false;
+    for (const auto &record : undefined_trait.implementRecords()) {
+        if (record.traitName == "MissingTrait")
+            saw_implement_record = true;
     }
-    CHECK(saw_not_implemented, "missing trait name reports E2009 until conformance is implemented");
+    CHECK(saw_implement_record, "missing trait name is preserved for the later semantic pass");
     auto not_trait = frontend::parse("struct NotATrait {}\n"
                                      "struct Foo {}\n"
                                      "implement Foo as NotATrait { fn m(self); }\n");

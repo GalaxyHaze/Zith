@@ -455,6 +455,28 @@ static void test_qualified_receiver_mutation_runtime() {
     CHECK_EQ(r.exitCode, 16, "lend and explicit pointer receiver mutations reach the caller");
 }
 
+static void test_free_borrow_parameter_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "struct Sample {\n"
+                         "    x: i32,\n"
+                         "}\n"
+                         "fn bump(p: lend Sample): i32 {\n"
+                         "    p.x = p.x + 1;\n"
+                         "    p.x\n"
+                         "}\n"
+                         "fn read(p: view Sample): i32 { p.x }\n"
+                         "fn main(): i32 {\n"
+                         "    var q: Sample = Sample { x: 41 };\n"
+                         "    if (bump(lend q) != 42) { return 1; }\n"
+                         "    if (read(view q) != 42) { return 2; }\n"
+                         "    q.x\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "free lend/view borrow parameters compile, link, and execute");
+    CHECK_EQ(r.exitCode, 42, "a lend parameter mutates the caller's binding in place");
+}
+
 static void test_when_narrowing_runtime() {
     ModernFileCodegenTest t;
     t.write("main.zith", "import \"stdio.h\"\n"
@@ -875,6 +897,72 @@ static void test_local_state_machine_executes() {
     auto r = t.run();
     CHECK(r.ok, "local state machine compiles and executes");
     CHECK_EQ(r.exitCode, 42, "local state machine returns through dock");
+}
+
+static void test_defer_reverse_order_before_return() {
+    CodegenTest t;
+    auto r = t.run("codegen-defer-reverse.zith", "extern fn putchar(c: i32): i32\n"
+                                                 "fn main(): i32 {\n"
+                                                 "    defer putchar(66);\n"
+                                                 "    defer putchar(65);\n"
+                                                 "    putchar(48);\n"
+                                                 "    return 0;\n"
+                                                 "}\n");
+    CHECK(r.ok, "defer expressions compile, link and run");
+    CHECK_EQ(r.output, "0AB", "defer runs in reverse registration order before return");
+}
+
+static void test_defer_block_runs_on_normal_exit() {
+    CodegenTest t;
+    auto r = t.run("codegen-defer-block.zith", "extern fn putchar(c: i32): i32\n"
+                                               "fn main() {\n"
+                                               "    defer { putchar(66); putchar(65); }\n"
+                                               "    putchar(48);\n"
+                                               "}\n");
+    CHECK(r.ok, "defer block compiles, links and runs");
+    CHECK_EQ(r.output, "0BA", "defer block body executes in written order on block exit");
+}
+
+static void test_defer_in_if_and_loop() {
+    CodegenTest t;
+    auto if_test = t.run("codegen-defer-if.zith", "extern fn putchar(c: i32): i32\n"
+                                                  "fn main() {\n"
+                                                  "    if (true) {\n"
+                                                  "        defer putchar(66);\n"
+                                                  "        putchar(48);\n"
+                                                  "    }\n"
+                                                  "    putchar(90);\n"
+                                                  "}\n");
+    CHECK(if_test.ok, "defer inside if compiles, links and runs");
+    CHECK_EQ(if_test.output, "0BZ", "defer runs when the innermost if block exits");
+
+    auto loop_test = t.run("codegen-defer-loop.zith", "extern fn putchar(c: i32): i32\n"
+                                                      "fn main() {\n"
+                                                      "    for (true) {\n"
+                                                      "        defer putchar(66);\n"
+                                                      "        putchar(65);\n"
+                                                      "        break;\n"
+                                                      "    }\n"
+                                                      "    putchar(90);\n"
+                                                      "}\n");
+    CHECK(loop_test.ok, "defer in loop with break compiles, links and runs");
+    CHECK_EQ(loop_test.output, "ABZ", "defer runs before break leaves the loop/block");
+}
+
+static void test_defer_in_state_before_jump() {
+    CodegenTest t;
+    auto r = t.run("codegen-defer-state.zith", "extern fn putchar(c: i32): i32\n"
+                                               "state Done() { return; }\n"
+                                               "state Start() {\n"
+                                               "    defer putchar(66);\n"
+                                               "    putchar(65);\n"
+                                               "    jump Done();\n"
+                                               "}\n"
+                                               "fn main() {\n"
+                                               "    dock Start();\n"
+                                               "}\n");
+    CHECK(r.ok, "void state with defer before jump compiles, links and runs");
+    CHECK_EQ(r.output, "AB", "defer runs before the state jump transfer");
 }
 
 static void test_linked_list_acceptance_program() {
@@ -1752,6 +1840,7 @@ static void test_codegen() {
     test_when_expression_runtime();
     test_tagged_union_pointer_is_type_runtime();
     test_qualified_receiver_mutation_runtime();
+    test_free_borrow_parameter_runtime();
     test_when_narrowing_runtime();
     test_for_three_clause_runtime();
     test_for_in_runtime();
@@ -1788,6 +1877,14 @@ static void test_codegen() {
     test_state_loop_does_not_grow_stack();
     printf("Running test_local_state_machine_executes\n");
     test_local_state_machine_executes();
+    printf("Running test_defer_reverse_order_before_return\n");
+    test_defer_reverse_order_before_return();
+    printf("Running test_defer_block_runs_on_normal_exit\n");
+    test_defer_block_runs_on_normal_exit();
+    printf("Running test_defer_in_if_and_loop\n");
+    test_defer_in_if_and_loop();
+    printf("Running test_defer_in_state_before_jump\n");
+    test_defer_in_state_before_jump();
     printf("Running test_linked_list_acceptance_program\n");
     test_linked_list_acceptance_program();
     printf("Running test_modern_file_pipeline_executes_program\n");

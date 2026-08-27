@@ -877,6 +877,62 @@ static void test_nested_state_declarations() {
     }
 }
 
+static void test_defer_statement_syntax() {
+    auto snapshot = frontend::parse("fn main() {\n"
+                                    "    defer release();\n"
+                                    "    defer { first(); second(); }\n"
+                                    "}\n");
+    CHECK(snapshot.diagnostics().empty(), "defer expr and defer block parse without diagnostics");
+    int defer_exprs  = 0;
+    int defer_blocks = 0;
+    bool saw_defer   = false;
+    for (const auto &stmt : snapshot.statements()) {
+        if (stmt.kind != frontend::StmtKind::Defer)
+            continue;
+        saw_defer = true;
+        if (!stmt.expression)
+            continue;
+        const auto &body = snapshot.expressions()[stmt.expression.value - 1U];
+        if (body.kind == frontend::ExprKind::Block) {
+            ++defer_blocks;
+        } else {
+            ++defer_exprs;
+        }
+    }
+    CHECK(saw_defer, "defer lowers to StmtKind::Defer");
+    CHECK_EQ(defer_exprs, 1, "defer expression statement is retained");
+    CHECK_EQ(defer_blocks, 1, "defer block statement is retained and stores a block expression");
+
+    auto keyword = frontend::parse("defer");
+    CHECK_EQ(keyword.tokens()[0].kind, frontend::TokenKind::Keyword,
+             "defer is a recognized keyword");
+
+    auto bad = frontend::parse("fn main() {\n"
+                               "    defer return;\n"
+                               "}\n");
+    CHECK(hasErrorCode(bad, diagnostics::err::ExpectedExpr),
+          "defer return reports a controlled parse diagnostic");
+
+    auto bad_break = frontend::parse("fn main() {\n"
+                                     "    for (true) { defer break; }\n"
+                                     "}\n");
+    CHECK(hasErrorCode(bad_break, diagnostics::err::ExpectedExpr),
+          "defer break reports a controlled parse diagnostic");
+}
+
+static void test_state_without_return_type_parses() {
+    auto snapshot = frontend::parse("state Done() { return; }\n"
+                                    "state Start() { jump Done(); }\n"
+                                    "fn main() { dock Start(); }\n");
+    CHECK(snapshot.diagnostics().empty(), "state without a return type parses as void");
+    for (const auto &decl : snapshot.declarations()) {
+        if (decl.kind == frontend::DeclKind::Function &&
+            decl.functionKind == frontend::FunctionKind::State) {
+            CHECK(!decl.declaredType, "state without ': T' keeps declaredType empty");
+        }
+    }
+}
+
 static void test_frontend() {
     test_lossless_trivia_and_spans();
     test_keywords_and_module_ast();
@@ -914,6 +970,8 @@ static void test_frontend() {
     test_consecutive_garbage_coalesces_into_one_diagnostic();
     test_struct_field_syntax_diagnostics();
     test_nested_state_declarations();
+    test_defer_statement_syntax();
+    test_state_without_return_type_parses();
 }
 
 TEST_MAIN(frontend)

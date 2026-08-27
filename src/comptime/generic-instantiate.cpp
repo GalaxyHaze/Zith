@@ -180,6 +180,23 @@ GenericInstantiationPass::resolveTypes(const size_t degree, const uint32_t decl_
                            sema::modern::TypeId arg) -> void {
         if ((strict && failed) || !param || !arg)
             return;
+        // A borrow parameter is represented as `*lend T` in the sema ABI. For
+        // generic inference the call-site annotation carries the pointee type,
+        // so a raw value can be unified against the declared pointer's pointee.
+        if (const auto *ptr = type_table_.pointer(type_table_.stripQualifiers(param));
+            ptr != nullptr) {
+            const auto *pointee_qual = type_table_.qualified(type_table_.canonical(ptr->pointee));
+            if (pointee_qual != nullptr &&
+                (pointee_qual->ownership == types::OwnershipKind::Lend ||
+                 pointee_qual->ownership == types::OwnershipKind::View)) {
+                if (type_table_.kindOf(arg) == sema::modern::TypeKind::Pointer) {
+                    if (const auto *arg_ptr = type_table_.pointer(type_table_.stripQualifiers(arg));
+                        arg_ptr != nullptr)
+                        arg = type_table_.stripQualifiers(arg_ptr->pointee);
+                }
+                param = ptr->pointee;
+            }
+        }
         param = type_table_.stripQualifiers(param);
         arg   = type_table_.stripQualifiers(arg);
 

@@ -309,6 +309,16 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                        }
                                        buffer += ")";
                                    },
+                                   [&](const HirCleanup &cleanup) {
+                                       buffer += "cleanup(";
+                                       for (size_t ai = 0; ai < cleanup.exprs.size(); ++ai) {
+                                           if (ai > 0)
+                                               buffer += ", ";
+                                           buffer += "%e";
+                                           buffer += std::to_string(cleanup.exprs[ai]);
+                                       }
+                                       buffer += ")";
+                                   },
                                    [&](const HirGlobalConstLoad &g) {
                                        auto n = interner.lookup(g.name);
                                        buffer += "global_const_load ";
@@ -348,6 +358,11 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                              buffer += "  state_tail_call musttail -> ret %e";
                                              buffer += std::to_string(tail.call.args.size());
                                              buffer += "\n";
+                                         },
+                                         [&](const HirCleanup &cleanup) {
+                                             buffer += "  cleanup reverse(";
+                                             buffer += std::to_string(cleanup.exprs.size());
+                                             buffer += ")\n";
                                          },
                                          [&](const auto &) {
                                              buffer += "  terminal %e";

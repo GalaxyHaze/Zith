@@ -115,6 +115,8 @@ namespace {
         return "Placeholder";
     case ExprKind::LayoutIntrinsic:
         return "LayoutIntrinsic";
+    case ExprKind::OwnershipCoerce:
+        return "OwnershipCoerce";
     case ExprKind::MacroCall:
         return "MacroCall";
     case ExprKind::Error:
@@ -185,6 +187,9 @@ void printExpression(ExprId id, const std::vector<Expression> &expressions,
             break;
         case StmtKind::Return:
             std::fputs("Return", stdout);
+            break;
+        case StmtKind::Defer:
+            std::fputs("Defer", stdout);
             break;
         case StmtKind::Break:
             std::fputs("Break", stdout);

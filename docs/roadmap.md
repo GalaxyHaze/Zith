@@ -42,6 +42,8 @@
 | F-33 | Function overloading (selection by arity and parameter types) | 5 | Working |
 | F-34 | Memory qualifier parsing and typing (`mut`, `lend`, `view`, `unique`, `share`, `belong`) | 7 | Working |
 | F-35 | Trait and interface bodies as real declarations | 4 | Parser half complete; semantic conformance half pending step-03 |
+| F-40 | Scope-guard `defer` statements | 9, Zith-- | Working |
+| F-41 | Deterministic `drop` cleanup hooks | 9, Zith-- | Spec only; depends on F-40 |
 
 ## Dependency Graph
 
@@ -131,6 +133,16 @@ work is planned here. Max parallelism: 2 agents (runtime surface + ownership int
 F-25 (assets), F-30 (stdlib), F-31 (union runtime semantics), F-32 (C interop completion).
 
 Max parallelism: 2 agents (assets + stdlib).
+
+### Wave 10 — Scoped Cleanup
+
+F-40 (`defer`) is implemented in `Zith--`: parser, sema, HIR, and codegen
+support `defer expr;` and `defer { ... }` with reverse-order cleanup on block
+exit, including `return`, `break`, `continue`, and `state` `jump`. F-41
+(`drop`) remains pending and will reuse the same scope-cleanup structure to add
+the deterministic owner method plus ownership checks. Max parallelism: 1 agent,
+because F-41 is a natural extension of F-40 and both touch the same statement
+and block-lowering paths.
 
 ## Wave 01 (Current)
 
