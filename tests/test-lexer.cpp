@@ -181,6 +181,13 @@ static void test_string_escape_invalid() {
     CHECK_GE(r.errorCount, 1u, "at least 1 error");
 }
 
+static void test_string_escape_dollar() {
+    LexerTest t;
+    auto r = t.lex("\"a\\$b\"");
+    CHECK(r.ok, "lex accepts the dollar escape hatch");
+    CHECK_EQ(r.stream.src[0].kind, lexer::TokenKind::LitVal, "token is LitVal");
+}
+
 static void test_string_unterminated() {
     LexerTest t;
     auto r = t.lex("\"hello");
@@ -360,6 +367,7 @@ static void test_lexer() {
     test_string_empty();
     test_string_escape_n();
     test_string_escape_invalid();
+    test_string_escape_dollar();
     test_string_unterminated();
     test_string_backslash_at_eof();
     test_char_literal();

@@ -317,8 +317,8 @@ private:
     TypeId inferRange(frontend::ExprId id);
     TypeId inferLayoutIntrinsic(frontend::ExprId id);
     /// Resolves a method call on a `dyn Trait` / `dyn Interface` receiver.
-    TypeId inferDynMethodCall(const frontend::Expression &call,
-                              const frontend::Expression &callee, TypeId dyn_type);
+    TypeId inferDynMethodCall(const frontend::Expression &call, const frontend::Expression &callee,
+                              TypeId dyn_type);
 
     /// Resolved method declaration plus the module that owns it. Method
     /// ownership matters at call lowering: imported methods live in the
@@ -347,8 +347,8 @@ private:
     /// ordinary `p.method()` selection.
     TypeId resolveStructMethodCall(const frontend::Expression &call,
                                    const frontend::Expression &callee,
-                                   const std::vector<ResolvedMethod> &methods,
-                                   TypeId base_type, TypeId pointee, bool is_pointer);
+                                   const std::vector<ResolvedMethod> &methods, TypeId base_type,
+                                   TypeId pointee, bool is_pointer);
 
     /// True when `type` satisfies `trait_or_interface`. Traits are nominal and
     /// must be registered; interfaces are structural and compared field-by-field

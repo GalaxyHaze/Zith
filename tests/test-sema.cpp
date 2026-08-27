@@ -2247,6 +2247,14 @@ static void test_modern_char_literal_and_escapes() {
     CHECK(!s.ok, "an unknown string escape is rejected");
     CHECK(s.hasErrorCode(diagnostics::err::InvalidEscape),
           "unknown string escape reports E0001 InvalidEscape");
+
+    ModernSemaTest dollar;
+    auto d = dollar.run("fn main() {\n"
+                        "    let p: *char = \"\\$\";\n"
+                        "    let c: char = '\\$';\n"
+                        "}\n",
+                        session::Stage::HirLowered);
+    CHECK(d.ok, "the dollar escape hatch decodes in string and char literals");
 }
 
 static void test_modern_struct_method_decl() {

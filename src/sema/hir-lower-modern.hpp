@@ -95,10 +95,10 @@ private:
     hir::HirFunction *current_fn_                                    = nullptr;
     frontend::ScopeId info_decl_parent_scope_;
     sema::modern::TypeId current_fn_return_sema_type_ = sema::modern::kInvalidTypeId;
-    bool current_fn_is_state_          = false;
-    uint32_t current_state_machine_id_ = 0;
-    size_t current_block_              = 0;
-    hir::HirSlotId next_slot_          = 0;
+    bool current_fn_is_state_                         = false;
+    uint32_t current_state_machine_id_                = 0;
+    size_t current_block_                             = 0;
+    hir::HirSlotId next_slot_                         = 0;
     std::vector<hir::HirSlotId> local_slots_;
     symbols::SymId next_sym_id_ = 1;
 

@@ -1,8 +1,9 @@
 ## 14. Runtime: Polymorphism & Dynamic Behaviour
 
 > **Implementation status:** Static dispatch via generics and `implement T as Trait {}` is
-> **working**. `dyn Trait` dynamic dispatch is **spec-only** — `dyn` is a parse error in type
-> position. Vtable layout and runtime dispatch are not implemented.
+> **working**. `dyn Trait` and `dyn Interface` dispatch are **working in Zith--**: concrete
+> values are coerced to a fat pointer (data pointer plus a method vtable), and calls on the
+> `dyn` value are lowered through that vtable.
 > See [impl-status.md](impl-status.md).
 
 ### 14.1 Static vs Dynamic Dispatch
@@ -55,7 +56,17 @@ fn modify(shape: lend dyn Drawable) {
 }
 ```
 
-`dyn` does **not** work with `interface` (see [§4.3](04-traits-interfaces.md#43-capabilities)) — only traits. Interfaces are structural and don't carry a vtable.
+Zith-- supports dynamic dispatch for both nominal traits and structural interfaces.
+Vtables are generated per `(trait/interface, concrete type)` pairing. For a nominal
+trait, `implement Owner as Trait` methods (or trait defaults) fill the slots; for an
+interface, the concrete owner methods fill the slots.
+
+The Zith-- `main` now supports `dyn Interface`, with one deliberate difference
+from the future spec beyond this file: the public surface exposes only methods.
+The fat pointer carries a concrete data pointer plus a vtable whose slots point
+to the concrete owner methods. Interface fields are used for conformance and
+are still readable through concrete types or generic bounds, but not through a
+`dyn Interface` value; `a.x` is rejected with `error[E3001]`.
 
 When you write a type that could be `dyn` or `opaque`, prefer `dyn` — it's short and clearer. Reserve `opaque` for cases where you specifically need `raw opaque` (untagged `void*`, C interop).
 

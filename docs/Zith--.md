@@ -68,6 +68,38 @@ fn main(): i32 {
 
 Sem a qualificação, `p.pick()` continua ambíguo quando o nome não é resolvido por um método concreto do owner. É esta a forma suportada; `Trait.method(p)` ainda não é aceite.
 
+`dyn Trait` e `dyn Interface` também são suportados no `main`, com uma superfície pública de
+**somente métodos**. O fat pointer carrega o data pointer e a vtable do trait/interface; os slots
+da vtable apontam para as implementações concretas (ou defaults do trait, quando aplicável).
+Campos de interface são usados para conformance e continuam acessíveis em tipos concretos ou
+em bounds genéricos, mas nunca através de um valor `dyn`:
+
+````zith
+interface Area {
+    fn area(self): i32
+}
+
+struct Square { side: i32 }
+struct Circle { radius: i32 }
+
+implement Square {
+    fn area(self): i32 { self.side * self.side }
+}
+implement Circle {
+    fn area(self): i32 { self.radius }
+}
+
+fn total(a: dyn Area): i32 { a.area() }
+
+fn main(): i32 {
+    return total(Square { side: 3 }) + total(Circle { radius: 5 });
+}
+````
+
+Um accesso como `a.x` quando `a: dyn Area` e `Area` declara `x` é rejeitado com `E3001`
+(field access on non-struct type). Use `is`/cast para um tipo concreto quando precisar do
+field, ou um bound genérico `T: Area` se o campo puder ser lido estaticamente.
+
 Funções livres e argumentos de métodos podem declarar parâmetros `lend`/`view`; nesses casos o call site precisa da anotação correspondente para bindings por valor (ver [Ownership](#ownership)).
 
 ## Const Global
@@ -123,6 +155,11 @@ enum Flag {
 ````
 
 São aceites literais inteiros (incluindo `0x`, `0b` e `0c`), `-`/`~` unários, aritmética, operadores bitwise `&.`/`|.`/`^.`, shifts `<<`/`>>`, comparações que resultem em inteiro, variantes anteriores do mesmo enum e `const` globais/locais de tipo inteiro já declarados. Chamadas, casts, literais float/string/bool, `null`, opaques e outros agregados não são aceites. O resultado é avaliado como `int64_t` e, após a avaliação, verificado contra o tipo subjacente do enum; overflow e valores negativos em `uN` são rejeitados.
+
+Strings e caracteres decodificam o conjunto de escapes estilo C (`\n`, `\r`, `\t`, `\0`,
+`\\`, `\'`, `\"` e `\xHH`). `\$` é aceite como escape adicional e produz um `$` literal; é
+útil quando o texto tem de ser preservado sem o tratamento futuro de interpolação com `$`.
+Escapes desconhecidos continuam a reportar `E0001`.
 
 ## Tipos
 
@@ -249,8 +286,9 @@ pipeline real, porque o `main` não é um modo opt-in.
 - `defer expr;` e `defer { ... }` como cleanup reverse-order do bloco lexical;
   `state` sem return type explicito é `void`.
 - Traits nominais, interfaces estruturais com fields e method requirements
-  declaration-only, `implement T as Trait {}`, conformance e bounds
-  `T: A + B`; bounds de interface expõem fields e métodos no corpo genérico.
+  declaration-only, `implement T as Trait {}`, conformance, bounds
+  `T: A + B` e `dyn Trait`/`dyn Interface` somente-métodos; bounds de
+  interface expõem fields e métodos no corpo genérico.
 - C interop comum, imports, macros normais/raw, C API/zithc, HIR/cache/LLVM.
 - O detalhe verificado está em `impl-status.md`; testes focados existem em
   `tests/test-trait-*.cpp`, `tests/test-interface-*.cpp` e
@@ -265,7 +303,7 @@ avaliadas juntas, por ordem de afinidade com o núcleo:
 | --- | --- | --- |
 | `drop` funcional | limpeza de recursos ao sair do binding/escopo (não só keyword) | NRA/ownership residual + HIR |
 | `for (x in range)` literal | `0..n` é sintaxe comum que o `when` já usa | `Range`/iterator |
-| `dyn Trait` | dispatch dinâmico está documentado, mas é `Parse error` | vtable HIR/codegen |
+| `dyn Trait` | dispatch dinâmico nominal já está no `main`; falta superfície completa de spec (`view dyn`, slices dyn, etc.) | spec semantics |
 | `requires`/`extends` explícitos | já aparecem na spec de traits | implementação de constraints |
 
 A prioridade recomendada é `drop` a seguir, reutilizando a infraestrutura de
@@ -275,8 +313,9 @@ NRA. Ver `docs/plans/defer-drop.md` para a proposta completa e
 
 ### Fora do núcleo até prova em contrário
 
-Ficam fora do `Zith--` e do roadmap de `defer`/`drop`: `dyn Trait`,
-capabilities activadas, `comptime` completo, reflexão de mutação de tipos,
+Ficam fora do `Zith--` e do roadmap de `defer`/`drop`: superfícies `dyn` ainda
+spec-only (`view dyn`, slices dyn, etc.), capabilities activadas, `comptime`
+completo, reflexão de mutação de tipos,
 ownership full NRA, `fail`/`with`/`catch`/`throw`, `use`/contexts/words, assets
 e `::` scope resolution. A spec `Zith-spec.md` pode continuar a descrevê-las
 como visão, mas a documentação operacional deve marcá-las como `Spec only` ou

@@ -1188,14 +1188,12 @@ TypeId PerModuleSema::lowerBareTypeExpr(const frontend::TypeExpression &type) {
                    diagnostics::err::TypeMismatch);
             return error_type;
         }
-        const frontend::Declaration *decl =
-            findDeclNamed(tr->name,
-                          findDeclNamed(tr->name, frontend::DeclKind::Interface) != nullptr
-                              ? frontend::DeclKind::Interface
-                              : frontend::DeclKind::Trait);
-        const bool is_iface =
-            findDeclNamed(tr->name, frontend::DeclKind::Interface) != nullptr;
-        size_t methods = 0;
+        const frontend::Declaration *decl = findDeclNamed(
+            tr->name, findDeclNamed(tr->name, frontend::DeclKind::Interface) != nullptr
+                          ? frontend::DeclKind::Interface
+                          : frontend::DeclKind::Trait);
+        const bool is_iface = findDeclNamed(tr->name, frontend::DeclKind::Interface) != nullptr;
+        size_t methods      = 0;
         if (decl != nullptr) {
             for (const auto &candidate : snapshot.declarations()) {
                 if (candidate.kind == frontend::DeclKind::Function &&
@@ -2554,8 +2552,7 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
     std::string qualifying_trait;
     if (receiver_id && receiver_id.value <= snapshot.expressions().size()) {
         const auto &outer = snapshot.expressions()[receiver_id.value - 1U];
-        if ((outer.kind == frontend::ExprKind::Field ||
-             outer.kind == frontend::ExprKind::Arrow) &&
+        if ((outer.kind == frontend::ExprKind::Field || outer.kind == frontend::ExprKind::Arrow) &&
             !outer.operands.empty()) {
             const TypeId owner_base = inferExpr(outer.operands[0]);
             const TypeId pointee    = resolve(owner_base);
@@ -2719,7 +2716,7 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
             name.resize(angle);
         return name;
     }();
-    const TypeId trait_type = type_table.lookupNamed(trait_name);
+    const TypeId trait_type     = type_table.lookupNamed(trait_name);
     const bool interface_target = trait_type && isInterfaceType(trait_type);
     std::vector<ResolvedMethod> qualified;
     for (const auto &method : findMethodsForOwner(owner_name, callee.text)) {
@@ -2727,7 +2724,7 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
             continue;
         const bool from_trait =
             !method.decl->traitName.empty() && method.decl->traitName == trait_name;
-        const bool trait_requirement = method.isTraitMethod && method.traitName == trait_name;
+        const bool trait_requirement  = method.isTraitMethod && method.traitName == trait_name;
         const bool interface_concrete = interface_target && !method.isTraitMethod;
         if (from_trait || trait_requirement || interface_concrete)
             qualified.push_back(method);
@@ -2743,30 +2740,28 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
 }
 
 TypeId PerModuleSema::inferDynMethodCall(const frontend::Expression &call,
-                                         const frontend::Expression &callee,
-                                         TypeId dyn_type) {
+                                         const frontend::Expression &callee, TypeId dyn_type) {
     const auto *dyn = type_table.dyn_type(dyn_type);
     if (dyn == nullptr)
         return kInvalidTypeId;
-    const TypeId target = resolve(dyn->target);
+    const TypeId target  = resolve(dyn->target);
     const auto *trait_ty = type_table.trait(target);
     if (trait_ty == nullptr)
         return kInvalidTypeId;
 
-    const auto findMethod = [&](const frontend::FrontendSnapshot &snap,
-                                session::ModuleKey snap_module,
-                                const frontend::Declaration **out_decl,
-                                session::ModuleKey *out_module) {
-        for (const auto &decl : snap.declarations()) {
-            if (decl.kind != frontend::DeclKind::Function || decl.ownerName != trait_ty->name ||
-                decl.name != callee.text)
-                continue;
-            *out_decl  = &decl;
-            *out_module = snap_module;
-            return true;
-        }
-        return false;
-    };
+    const auto findMethod =
+        [&](const frontend::FrontendSnapshot &snap, session::ModuleKey snap_module,
+            const frontend::Declaration **out_decl, session::ModuleKey *out_module) {
+            for (const auto &decl : snap.declarations()) {
+                if (decl.kind != frontend::DeclKind::Function || decl.ownerName != trait_ty->name ||
+                    decl.name != callee.text)
+                    continue;
+                *out_decl   = &decl;
+                *out_module = snap_module;
+                return true;
+            }
+            return false;
+        };
 
     const frontend::Declaration *method_decl = nullptr;
     session::ModuleKey method_module;
@@ -2783,18 +2778,16 @@ TypeId PerModuleSema::inferDynMethodCall(const frontend::Expression &call,
     }
     if (method_decl == nullptr) {
         report(call.span,
-               "dyn type '" + type_table.typeToString(target) + "' has no method '" +
-                   callee.text + "'",
+               "dyn type '" + type_table.typeToString(target) + "' has no method '" + callee.text +
+                   "'",
                diagnostics::err::NoMember);
         return error_type;
     }
 
-    PerModuleSema *method_sema =
-        owner != nullptr ? owner->findModuleSema(method_module) : nullptr;
-    const TypeId method_type =
-        method_sema != nullptr ? method_sema->typeOfDecl(method_decl->id)
-                               : typeOfDecl(method_decl->id);
-    const auto *fn = type_table.function(method_type);
+    PerModuleSema *method_sema = owner != nullptr ? owner->findModuleSema(method_module) : nullptr;
+    const TypeId method_type   = method_sema != nullptr ? method_sema->typeOfDecl(method_decl->id)
+                                                        : typeOfDecl(method_decl->id);
+    const auto *fn             = type_table.function(method_type);
     if (fn == nullptr)
         return kInvalidTypeId;
 
@@ -2812,8 +2805,8 @@ TypeId PerModuleSema::inferDynMethodCall(const frontend::Expression &call,
         const size_t arg_index = index + 1U;
         if (arg_index < call.operands.size()) {
             const TypeId arg_type = inferExpr(call.operands[arg_index]);
-            (void)checkOwnershipCoercion(call.operands[arg_index], fn->params[index],
-                                         seen_roots, call.span, true);
+            (void)checkOwnershipCoercion(call.operands[arg_index], fn->params[index], seen_roots,
+                                         call.span, true);
             if (!coerceValue(call.operands[arg_index], fn->params[index], arg_type))
                 reportCoercionFailure(call.span, fn->params[index], arg_type,
                                       "method call argument type mismatch",
@@ -4449,8 +4442,8 @@ TypeId PerModuleSema::inferIndex(frontend::ExprId id) {
         case TypeKind::Pack: {
             if (const auto *pack = type_table.pack(resolved_object)) {
                 int64_t index_value = 0;
-                if (!constantIntegerValue(expr.operands[1], index_value) ||
-                    index_value < 0 || static_cast<uint64_t>(index_value) >= pack->members.size()) {
+                if (!constantIntegerValue(expr.operands[1], index_value) || index_value < 0 ||
+                    static_cast<uint64_t>(index_value) >= pack->members.size()) {
                     report(expr.span, "pack index is out of bounds or not a constant",
                            diagnostics::err::TypeMismatch);
                     return error_type;
@@ -5420,9 +5413,8 @@ bool PerModuleSema::coercesTo(TypeId target, TypeId source) const noexcept {
         if (type_table.kindOf(resolved_target) == TypeKind::Dyn) {
             const auto *dyn = type_table.dyn_type(resolved_target);
             if (dyn != nullptr)
-                result =
-                    satisfiesConformance(resolve(source), resolve(dyn->target)) &&
-                    type_table.struct_type(resolve(source)) != nullptr;
+                result = satisfiesConformance(resolve(source), resolve(dyn->target)) &&
+                         type_table.struct_type(resolve(source)) != nullptr;
         } else if (type_table.kindOf(resolved_target) == TypeKind::Optional) {
             if (resolve(source) == null_type) {
                 result = true;

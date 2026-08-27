@@ -826,9 +826,9 @@ private:
                     continue;
                 }
                 if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
-                    snapshot_.diagnostics_.push_back(
-                        {tokenSpan(index_), "pack type members must be named", false,
-                         diagnostics::err::ExpectedExpr});
+                    snapshot_.diagnostics_.push_back({tokenSpan(index_),
+                                                      "pack type members must be named", false,
+                                                      diagnostics::err::ExpectedExpr});
                     ++index_;
                     continue;
                 }
@@ -840,36 +840,36 @@ private:
                         break;
                     type.arguments.push_back(member_type);
                 } else {
-                    snapshot_.diagnostics_.push_back(
-                        {tokenSpan(index_), "expected ':' after pack member name", false,
-                         diagnostics::err::ExpectedExpr});
+                    snapshot_.diagnostics_.push_back({tokenSpan(index_),
+                                                      "expected ':' after pack member name", false,
+                                                      diagnostics::err::ExpectedExpr});
                     break;
                 }
                 if (matchesToken(snapshot_, index_, ","))
                     ++index_;
                 else if (!matchesToken(snapshot_, index_, "|")) {
-                    snapshot_.diagnostics_.push_back(
-                        {range(start, index_), "expected ',' or '|' in pack type", false,
-                         diagnostics::err::ExpectedExpr});
+                    snapshot_.diagnostics_.push_back({range(start, index_),
+                                                      "expected ',' or '|' in pack type", false,
+                                                      diagnostics::err::ExpectedExpr});
                     break;
                 }
             }
             if (matchesToken(snapshot_, index_, "|"))
                 ++index_;
             else
-                snapshot_.diagnostics_.push_back(
-                    {range(start, index_), "expected '|' after pack type", false,
-                     diagnostics::err::ExpectedExpr});
+                snapshot_.diagnostics_.push_back({range(start, index_),
+                                                  "expected '|' after pack type", false,
+                                                  diagnostics::err::ExpectedExpr});
         } else if (isKeywordToken("dyn")) {
             ++index_;
-            type.kind = TypeExprKind::Dyn;
+            type.kind              = TypeExprKind::Dyn;
             const TypeExprId inner = parseType();
             if (inner)
                 type.arguments.push_back(inner);
             else
-                snapshot_.diagnostics_.push_back(
-                    {range(start, index_), "expected a trait or interface after 'dyn'", false,
-                     diagnostics::err::ExpectedExpr});
+                snapshot_.diagnostics_.push_back({range(start, index_),
+                                                  "expected a trait or interface after 'dyn'",
+                                                  false, diagnostics::err::ExpectedExpr});
         } else if (isKeywordToken("fn")) {
             // A function type value: `fn(params): result`.  Parameters are
             // parsed as bare types; the result follows `:` and is appended as
@@ -1121,8 +1121,7 @@ private:
                     continue;
                 }
                 pack_lit.operands.push_back(parseExpression());
-                if (!matchesToken(snapshot_, index_, ",") &&
-                    !matchesToken(snapshot_, index_, "|"))
+                if (!matchesToken(snapshot_, index_, ",") && !matchesToken(snapshot_, index_, "|"))
                     break;
                 if (matchesToken(snapshot_, index_, ","))
                     ++index_;
@@ -1130,9 +1129,9 @@ private:
             if (matchesToken(snapshot_, index_, "|"))
                 ++index_;
             else
-                snapshot_.diagnostics_.push_back(
-                    {range(pack_start, index_), "expected '|' after pack literal elements", false,
-                     diagnostics::err::ExpectedExpr});
+                snapshot_.diagnostics_.push_back({range(pack_start, index_),
+                                                  "expected '|' after pack literal elements", false,
+                                                  diagnostics::err::ExpectedExpr});
             pack_lit.span = range(pack_start, index_);
             return parsePostfix(addExpression(std::move(pack_lit)), pack_start);
         }
@@ -2541,9 +2540,9 @@ private:
                         continue;
                     }
                     if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
-                        snapshot_.diagnostics_.push_back(
-                            {tokenSpan(index_), "expected a pack element binding name", false,
-                             diagnostics::err::ExpectedExpr});
+                        snapshot_.diagnostics_.push_back({tokenSpan(index_),
+                                                          "expected a pack element binding name",
+                                                          false, diagnostics::err::ExpectedExpr});
                         ++index_;
                         continue;
                     }
@@ -2551,18 +2550,18 @@ private:
                     if (punctuation(index_, ','))
                         ++index_;
                     else if (!punctuation(index_, ']')) {
-                        snapshot_.diagnostics_.push_back(
-                            {range(start, index_), "expected ',' or ']' in binding pattern", false,
-                             diagnostics::err::ExpectedExpr});
+                        snapshot_.diagnostics_.push_back({range(start, index_),
+                                                          "expected ',' or ']' in binding pattern",
+                                                          false, diagnostics::err::ExpectedExpr});
                         break;
                     }
                 }
                 if (punctuation(index_, ']'))
                     ++index_;
                 else
-                    snapshot_.diagnostics_.push_back(
-                        {range(start, index_), "expected ']' after binding pattern", false,
-                         diagnostics::err::ExpectedExpr});
+                    snapshot_.diagnostics_.push_back({range(start, index_),
+                                                      "expected ']' after binding pattern", false,
+                                                      diagnostics::err::ExpectedExpr});
                 TypeExprId annotation = TypeExprId{};
                 if (punctuation(index_, ':')) {
                     ++index_;
@@ -2582,27 +2581,26 @@ private:
                 pack_stmt.kind                = StmtKind::Binding;
                 pack_stmt.binding.bindingKind = statement.binding.bindingKind;
                 pack_stmt.binding.id          = LocalId{statementCountLocals_++};
-                pack_stmt.binding.name        = "__pack" + std::to_string(pack_stmt.binding.id.value);
-                pack_stmt.binding.span        = range(start, index_);
-                pack_stmt.binding.type        = annotation;
+                pack_stmt.binding.name = "__pack" + std::to_string(pack_stmt.binding.id.value);
+                pack_stmt.binding.span = range(start, index_);
+                pack_stmt.binding.type = annotation;
                 pack_stmt.binding.initializer = initializer;
                 pack_stmt.span                = range(start, index_);
-                const StmtId pack_id = addStatement(std::move(pack_stmt));
+                const StmtId pack_id          = addStatement(std::move(pack_stmt));
 
                 std::vector<StmtId> lowered;
                 lowered.push_back(pack_id);
                 for (size_t element = 0; element < names.size(); ++element) {
                     Expression object_expr;
-                    object_expr.kind  = ExprKind::Name;
-                    object_expr.scope = current_scope_;
-                    object_expr.text  = "__pack" +
-                                       std::to_string(pack_stmt.binding.id.value);
-                    object_expr.span  = range(start, index_);
+                    object_expr.kind       = ExprKind::Name;
+                    object_expr.scope      = current_scope_;
+                    object_expr.text       = "__pack" + std::to_string(pack_stmt.binding.id.value);
+                    object_expr.span       = range(start, index_);
                     const ExprId object_id = addExpression(std::move(object_expr));
                     Expression index_expr;
-                    index_expr.kind    = ExprKind::Index;
-                    index_expr.scope   = current_scope_;
-                    index_expr.span    = range(start, index_);
+                    index_expr.kind  = ExprKind::Index;
+                    index_expr.scope = current_scope_;
+                    index_expr.span  = range(start, index_);
                     index_expr.operands.push_back(object_id);
                     Expression index_literal;
                     index_literal.kind  = ExprKind::Literal;

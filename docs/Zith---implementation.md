@@ -101,6 +101,16 @@ requirements e métodos impl são considerados apenas nesse trait, e interfaces 
 aceitam o método concreto do owner que satisfaz a interface. Sem qualificação, `p.method()`
 mantém a seleção atual e continua reportando `E2008` quando dois traits expõem o mesmo nome.
 
+`dyn Trait`/`dyn Interface` são erguidos por `lowerCoerceToDyn`, que cria `HirMakeDyn`
+(fat pointer: data pointer + vtable) e `HirVTable` com um slot por method requirement; cada slot
+é o symbol do método concreto do owner que satisfaz o trait/interface (ou do default do trait,
+quando não há override). Chamadas `p.method()` sobre `dyn` descem para `HirDynCall` com
+`slot_index` na ordem dos requirements. Field access sobre um valor `dyn` não tem lowering:
+`inferField` vê `TypeKind::Dyn` como não-struct e reporta `E3001` com "field access on non-struct
+type". Este comportamento é intencional no Zith-- e a superfície pública de `dyn` só expõe
+métodos. Para ler fields, use um tipo concreto ou um bound genérico `T: Interface` (que continua
+a expor fields e methods no corpo).
+
 Discriminantes de enum são avaliados em `lowerDeclarationTypes`, não como literais fixos.
 O evaluator percorre recursivamente literais inteiros, unários `-`/`~`, binários aritméticos,
 bitwise `&.`/`|.`/`^.`, shifts e comparações, variantes anteriores do enum e referências a

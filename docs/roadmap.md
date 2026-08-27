@@ -13,7 +13,7 @@
 | F-04 | `state` machine / `dock` / `jump` | 9 | Working (musttail transitions) |
 | F-05 | `const fn` | 5, 11 | Parse-level in progress |
 | F-06 | `is <type>` type narrowing | 3 | Parse error |
-| F-07 | `dyn Trait` dynamic dispatch | 14 | Parse error |
+| F-07 | `dyn Trait` dynamic dispatch | 14 | Working (`dyn Interface` also dispatches through vtables) |
 | F-08 | `@macro` calls | 15 | Working |
 | F-09 | Word call and sequence expressions | 16 | Parse error |
 | F-10 | `@sizeOf`, `@intrinsic` expressions | 11 | Parse error |
@@ -113,9 +113,10 @@ analysis pass with a tight contract to lowering).
 F-33 (function overloading) and F-34 (memory qualifier parsing and typing) are implemented.
 
 ### Wave 06 — Dynamic Dispatch
-F-07 (`dyn Trait`), F-29 (trait constraints `T: Trait`).
+F-07 (`dyn Trait`) and the same vtable lowering used by `dyn Interface` are **working**.
+F-29 (trait constraints `T: Trait`) is covered by generic constraints.
 
-Dependencies: needs working generic instantiation (F-38, step-04).  Max parallelism: 1 agent.
+F-07 now has codegen coverage for nominal traits; interfaces use the same HIR/codegen path.
 
 ### Wave 07 — Macros, Words & Contexts
 F-08 (`@macro` calls) and F-24 (tag macros) are implemented. Normal macros keep hygiene for template bindings and resolve other names through the call-site scope; raw macros splice literally into the call-site scope with module/global fallback. Remaining work in this wave: F-09 (word call/sequence expressions), F-21 (context semantics), F-22 (`use` semantics), F-23 (word decl semantics), F-26 (`::` scope resolution).

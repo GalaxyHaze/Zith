@@ -296,15 +296,14 @@ void CodeGen::emitVtables(hir::HirModule &hirModule) {
                 fn = module_->getFunction(llvm::StringRef(fn_name.data(), fn_name.size()));
                 break;
             }
-            slot_types.push_back(fn != nullptr ? fn->getType()
-                                               : llvm::PointerType::get(*ctx_, 0));
+            slot_types.push_back(fn != nullptr ? fn->getType() : llvm::PointerType::get(*ctx_, 0));
         }
 
         auto *array_type = llvm::ArrayType::get(llvm::PointerType::get(*ctx_, 0),
                                                 std::max<size_t>(vtable.slots.size(), 1U));
-        auto *global = new llvm::GlobalVariable(
-            *module_, array_type, true, llvm::GlobalValue::InternalLinkage, nullptr,
-            llvm::StringRef(name.data(), name.size()));
+        auto *global =
+            new llvm::GlobalVariable(*module_, array_type, true, llvm::GlobalValue::InternalLinkage,
+                                     nullptr, llvm::StringRef(name.data(), name.size()));
         if (vtable.slots.empty())
             continue;
 
@@ -321,11 +320,11 @@ void CodeGen::emitVtables(hir::HirModule &hirModule) {
                 break;
             }
             if (fn == nullptr) {
-                elements.push_back(llvm::ConstantPointerNull::get(
-                    llvm::PointerType::get(*ctx_, 0)));
+                elements.push_back(
+                    llvm::ConstantPointerNull::get(llvm::PointerType::get(*ctx_, 0)));
             } else {
-                elements.push_back(llvm::ConstantExpr::getBitCast(
-                    fn, llvm::PointerType::get(*ctx_, 0)));
+                elements.push_back(
+                    llvm::ConstantExpr::getBitCast(fn, llvm::PointerType::get(*ctx_, 0)));
             }
         }
         while (elements.size() < std::max<size_t>(vtable.slots.size(), 1U))

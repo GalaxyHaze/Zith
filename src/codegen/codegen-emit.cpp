@@ -859,20 +859,16 @@ llvm::Value *CodeGenEmit::emitMakeDyn(const hir::HirMakeDyn &make, const hir::Hi
     // register values; spill them here so the data pointer outlives the call.
     auto *storage = builder_.CreateAlloca(value->getType());
     builder_.CreateStore(value, storage);
-    auto *data =
-        builder_.CreateBitCast(storage, llvm::PointerType::get(builder_.getContext(), 0));
+    auto *data = builder_.CreateBitCast(storage, llvm::PointerType::get(builder_.getContext(), 0));
 
     const auto name = interner_.lookup(make.vtable_name);
-    auto *global =
-        module_ != nullptr
-            ? module_->getNamedGlobal(llvm::StringRef(name.data(), name.size()))
-            : nullptr;
+    auto *global    = module_ != nullptr
+                          ? module_->getNamedGlobal(llvm::StringRef(name.data(), name.size()))
+                          : nullptr;
     if (global == nullptr)
         return nullptr;
-    auto *data_field = builder_.CreateInsertValue(
-        llvm::UndefValue::get(dyn_type), data, {0U});
-    auto *vtable =
-        builder_.CreateBitCast(global, llvm::PointerType::get(builder_.getContext(), 0));
+    auto *data_field = builder_.CreateInsertValue(llvm::UndefValue::get(dyn_type), data, {0U});
+    auto *vtable = builder_.CreateBitCast(global, llvm::PointerType::get(builder_.getContext(), 0));
     return builder_.CreateInsertValue(data_field, vtable, {1U});
 }
 
@@ -881,7 +877,7 @@ llvm::Value *CodeGenEmit::emitDynCall(const hir::HirDynCall &call, const hir::Hi
     if (!receiver || !receiver->getType()->isStructTy())
         return nullptr;
 
-    auto *data = builder_.CreateExtractValue(receiver, {0U});
+    auto *data   = builder_.CreateExtractValue(receiver, {0U});
     auto *vtable = builder_.CreateExtractValue(receiver, {1U});
     if (!vtable)
         return nullptr;
@@ -889,8 +885,7 @@ llvm::Value *CodeGenEmit::emitDynCall(const hir::HirDynCall &call, const hir::Hi
         llvm::ArrayType::get(llvm::PointerType::get(builder_.getContext(), 0),
                              std::max<size_t>(static_cast<size_t>(call.slot_index) + 1U, 1U)),
         vtable, {builder_.getInt32(0), builder_.getInt32(static_cast<uint32_t>(call.slot_index))});
-    auto *fn_ptr =
-        builder_.CreateLoad(llvm::PointerType::get(builder_.getContext(), 0), slot_addr);
+    auto *fn_ptr = builder_.CreateLoad(llvm::PointerType::get(builder_.getContext(), 0), slot_addr);
     if (!fn_ptr)
         return nullptr;
 

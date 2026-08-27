@@ -1468,7 +1468,7 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             break;
         }
         case cache::CompactTypeKind::Dyn: {
-            const auto target = compactType(ct.ref0);
+            const auto target   = compactType(ct.ref0);
             compact_type_ids[i] = mTypes.internDyn(target, ct.ref1);
             break;
         }
@@ -1827,15 +1827,15 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             for (auto id : ce.arg_types)
                 arg_types.push(compactType(id));
             hir::HirDynCall call(mHirArena);
-            call.receiver    = ce.ref_a;
-            call.vtable_name = mInterner->intern(art.strings[ce.name_id]);
-            call.slot_index  = ce.ref_c;
-            call.result_type = compactType(ce.type_id);
-            call.fn_type     = compactType(ce.ref_e);
-            call.args        = std::move(args);
-            call.arg_types   = std::move(arg_types);
+            call.receiver     = ce.ref_a;
+            call.vtable_name  = mInterner->intern(art.strings[ce.name_id]);
+            call.slot_index   = ce.ref_c;
+            call.result_type  = compactType(ce.type_id);
+            call.fn_type      = compactType(ce.ref_e);
+            call.args         = std::move(args);
+            call.arg_types    = std::move(arg_types);
             call.has_receiver = (ce.flags & 1U) != 0;
-            expr             = std::move(call);
+            expr              = std::move(call);
             break;
         }
         }

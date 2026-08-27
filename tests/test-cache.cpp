@@ -411,16 +411,15 @@ static void test_byte_stability() {
     CHECK(same, "identical input produces byte-identical output");
 }
 
-// ── Artifact builder from session state ───────────────────────────
 static void test_format_version_bump() {
     // The format version is the forward-compat gate for stale caches.  A
-    // reader that only knows an older format must reject a v10 artifact.
+    // reader that only knows an older format must reject a newer artifact.
     auto art = makeMinimalArtifact("/test/main.zith", "main");
     ByteWriter writer;
     (void)Writer::write(art, writer);
 
     std::string bytes(reinterpret_cast<const char *>(writer.ptr()), writer.size());
-    CHECK_EQ(kFormatVersion, 11u, "zirl format version is bumped for parameter slot metadata");
+    CHECK_EQ(kFormatVersion, 12u, "zirl format version is bumped");
 
     // Simulate an old reader by treating the version field as v3.
     bytes[4]        = 3;
@@ -669,6 +668,45 @@ static void test_artifact_builder() {
         tail.call.argument_types.push(i32);
         state_tail_id = hir.addExpr(std::move(tail));
     }
+    hir::HirExprId make_dyn_id = hir::kInvalidHirExpr;
+    hir::HirExprId dyn_call_id = hir::kInvalidHirExpr;
+    types::TypeId source_type  = types::kErrorType;
+    types::TypeId dyn_type     = types::kErrorType;
+    types::TypeId fn_type      = types::kErrorType;
+    {
+        source_type = types.defineStruct("_DynSource");
+        types.addField(source_type, "value", i32);
+        const auto dyn_target = types.internTrait("_DynTarget");
+        dyn_type              = types.internDyn(dyn_target, 1);
+        hir::HirMakeDyn make;
+        make.value       = var_id;
+        make.source_type = source_type;
+        make.dyn_type    = dyn_type;
+        make.vtable_name = interner.intern("_test.vtable.DynTarget._DynSource");
+        make_dyn_id      = hir.addExpr(std::move(make));
+
+        memory::DynArray<types::TypeId> params(arena);
+        memory::DynArray<hir::HirExprId> args(arena);
+        memory::DynArray<types::TypeId> arg_types(arena);
+        args.push(int_id);
+        arg_types.push(i32);
+        params.push(types.internPtr(source_type));
+        fn_type = types.internFn(params, i32);
+        hir::HirDynCall call(arena);
+        call.receiver     = make_dyn_id;
+        call.vtable_name  = interner.intern("DynTarget");
+        call.slot_index   = 2;
+        call.has_receiver = true;
+        call.result_type  = i32;
+        call.fn_type      = fn_type;
+        call.args         = std::move(args);
+        call.arg_types    = std::move(arg_types);
+        dyn_call_id       = hir.addExpr(std::move(call));
+
+        auto &vtable = hir.addVTable(interner.intern("_test.vtable.DynTarget._DynSource"));
+        vtable.slots.push(main_sym);
+        vtable.slots.push(loop_sym);
+    }
 
     hir.attrs().slot(0).ownership = hir::HirOwnership::View;
     hir.attrs().slot(0).consumed  = hir::HirConsumedState::NonConsumed;
@@ -761,7 +799,7 @@ static void test_artifact_builder() {
     CHECK_EQ(art.attrs_slots.size(), 1u, "builder serializes slot attrs");
     CHECK_EQ(art.attrs_calls.size(), 1u, "builder serializes call attrs");
     CHECK_EQ(art.attrs_fns.size(), 1u, "builder serializes fn attrs");
-    CHECK_EQ(art.struct_defs.size(), 1u, "builder serializes private struct defs");
+    CHECK_EQ(art.struct_defs.size(), 2u, "builder serializes private struct defs");
     CHECK_EQ(art.enum_defs.size(), 1u, "builder serializes private enum defs");
     CHECK_EQ(art.enum_defs[0].variants.size(), 2u, "enum variants are serialized");
     CHECK_EQ(art.enum_defs[0].variants[0].discriminant, -3, "enum discriminants are not reindexed");
@@ -786,6 +824,68 @@ static void test_artifact_builder() {
             return expr.kind == cache::CompactExprKind::StateTailCall;
         });
     CHECK(state_tail != art.exprs.end(), "builder serializes state tail calls");
+    const auto make_dyn_compact =
+        std::find_if(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::MakeDyn;
+        });
+    CHECK(make_dyn_compact != art.exprs.end(), "builder serializes a MakeDyn expression");
+    if (make_dyn_compact != art.exprs.end()) {
+        CHECK_EQ(make_dyn_compact->ref_a, var_id, "MakeDyn serializes the coerced value");
+        CHECK(make_dyn_compact->ref_b < art.types.size() &&
+                  art.types[make_dyn_compact->ref_b].kind == CompactTypeKind::Struct,
+              "MakeDyn serializes the source type as a concrete struct type");
+        CHECK(make_dyn_compact->type_id < art.types.size() &&
+                  art.types[make_dyn_compact->type_id].kind == CompactTypeKind::Dyn,
+              "MakeDyn serializes the dyn type");
+        if (make_dyn_compact->type_id < art.types.size())
+            CHECK_EQ(art.types[make_dyn_compact->type_id].ref1, 1u,
+                     "MakeDyn's dyn type serializes the interface method count");
+        CHECK(make_dyn_compact->name_id < art.strings.size() &&
+                  art.strings[make_dyn_compact->name_id] == "_test.vtable.DynTarget._DynSource",
+              "MakeDyn serializes the concrete vtable name");
+    }
+    const auto dyn_call_compact =
+        std::find_if(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::DynCall;
+        });
+    CHECK(dyn_call_compact != art.exprs.end(), "builder serializes a DynCall expression");
+    if (dyn_call_compact != art.exprs.end()) {
+        CHECK_EQ(dyn_call_compact->ref_a, make_dyn_id,
+                 "DynCall serializes the fat-pointer receiver");
+        CHECK_EQ(dyn_call_compact->ref_c, 2u, "DynCall serializes the slot index");
+        CHECK(dyn_call_compact->type_id < art.types.size() &&
+                  art.types[dyn_call_compact->type_id].kind == CompactTypeKind::Int &&
+                  static_cast<types::IntWidth>(art.types[dyn_call_compact->type_id].int_width) ==
+                      types::IntWidth::I32,
+              "DynCall serializes the i32 result type");
+        CHECK(dyn_call_compact->ref_e < art.types.size() &&
+                  art.types[dyn_call_compact->ref_e].kind == CompactTypeKind::Fn,
+              "DynCall serializes the lowered fn type");
+        if (dyn_call_compact->ref_e < art.types.size())
+            CHECK_EQ(art.types[dyn_call_compact->ref_e].args.size(), 1u,
+                     "DynCall's fn type keeps the receiver pointer parameter");
+        CHECK_EQ(dyn_call_compact->args.size(), 1u, "DynCall serializes the argument list");
+        CHECK_EQ(dyn_call_compact->arg_types.size(), 1u,
+                 "DynCall serializes the argument type list");
+        CHECK((dyn_call_compact->flags & 1U) != 0, "DynCall serializes has_receiver");
+        CHECK(dyn_call_compact->name_id < art.strings.size() &&
+                  art.strings[dyn_call_compact->name_id] == "DynTarget",
+              "DynCall serializes the interface vtable requirement name");
+    }
+    CHECK_EQ(art.vtables.size(), 1u, "builder serializes HIR vtables");
+    if (art.vtables.size() == 1u) {
+        CHECK(art.vtables[0].name_id < art.strings.size() &&
+                  art.strings[art.vtables[0].name_id] == "_test.vtable.DynTarget._DynSource",
+              "vtable serializes its concrete pairing name");
+        CHECK_EQ(art.vtables[0].slot_sym_ids.size(), 2u,
+                 "vtable serializes one slot per interface method requirement");
+        if (art.vtables[0].slot_sym_ids.size() == 2u) {
+            CHECK_EQ(art.vtables[0].slot_sym_ids[0], static_cast<uint32_t>(main_sym),
+                     "first vtable slot points to the concrete method symbol");
+            CHECK_EQ(art.vtables[0].slot_sym_ids[1], static_cast<uint32_t>(loop_sym),
+                     "second vtable slot points to the concrete method symbol");
+        }
+    }
 
     // Full zirl round-trip: the artifact from in-memory state must decode with
     // the same HIR pool, blocks, and residual attrs.
@@ -829,6 +929,47 @@ static void test_artifact_builder() {
             return expr.kind == cache::CompactExprKind::StateTailCall;
         });
     CHECK(round_state_tail != round->exprs.end(), "round-trip preserves state tail calls");
+    const auto round_make_dyn =
+        std::find_if(round->exprs.begin(), round->exprs.end(), [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::MakeDyn;
+        });
+    CHECK(round_make_dyn != round->exprs.end(), "round-trip preserves MakeDyn expressions");
+    if (round_make_dyn != round->exprs.end()) {
+        CHECK_EQ(round_make_dyn->ref_a, make_dyn_compact->ref_a,
+                 "round-trip preserves MakeDyn value");
+        CHECK_EQ(round_make_dyn->ref_b, make_dyn_compact->ref_b,
+                 "round-trip preserves MakeDyn source type");
+        CHECK_EQ(round_make_dyn->type_id, make_dyn_compact->type_id,
+                 "round-trip preserves MakeDyn dyn type");
+        CHECK_EQ(round_make_dyn->name_id, make_dyn_compact->name_id,
+                 "round-trip preserves MakeDyn vtable name");
+    }
+    const auto round_dyn_call =
+        std::find_if(round->exprs.begin(), round->exprs.end(), [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::DynCall;
+        });
+    CHECK(round_dyn_call != round->exprs.end(), "round-trip preserves DynCall expressions");
+    if (round_dyn_call != round->exprs.end()) {
+        CHECK_EQ(round_dyn_call->ref_a, dyn_call_compact->ref_a,
+                 "round-trip preserves DynCall receiver");
+        CHECK_EQ(round_dyn_call->ref_c, dyn_call_compact->ref_c,
+                 "round-trip preserves DynCall slot index");
+        CHECK_EQ(round_dyn_call->type_id, dyn_call_compact->type_id,
+                 "round-trip preserves DynCall result type");
+        CHECK_EQ(round_dyn_call->ref_e, dyn_call_compact->ref_e,
+                 "round-trip preserves DynCall fn type");
+        CHECK(round_dyn_call->args == dyn_call_compact->args,
+              "round-trip preserves DynCall arguments");
+        CHECK(round_dyn_call->arg_types == dyn_call_compact->arg_types,
+              "round-trip preserves DynCall argument types");
+        CHECK_EQ(round_dyn_call->flags, dyn_call_compact->flags,
+                 "round-trip preserves DynCall receiver flag");
+    }
+    CHECK_EQ(round->vtables.size(), art.vtables.size(), "round-trip preserves vtable count");
+    if (round->vtables.size() == art.vtables.size() && round->vtables.size() == 1u)
+        CHECK(round->vtables[0].slot_sym_ids == art.vtables[0].slot_sym_ids &&
+                  round->vtables[0].name_id == art.vtables[0].name_id,
+              "round-trip preserves vtable name and concrete slot symbols");
 }
 
 } // namespace

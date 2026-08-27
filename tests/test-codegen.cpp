@@ -767,6 +767,109 @@ static void test_interface_method_bound_runtime() {
     CHECK_EQ(r.errorCount, 0u, "the emitted module passes LLVM verification");
 }
 
+static void test_dyn_interface_method_dispatch_runtime() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "interface Area {\n"
+                         "    fn area(self): i32\n"
+                         "}\n"
+                         "struct Square {\n"
+                         "    side: i32,\n"
+                         "    fn area(self): i32 { self.side * self.side }\n"
+                         "}\n"
+                         "struct Circle {\n"
+                         "    radius: i32,\n"
+                         "    fn area(self): i32 { self.radius }\n"
+                         "}\n"
+                         "fn total(a: dyn Area): i32 { return a.area() }\n"
+                         "fn main(): i32 {\n"
+                         "    let s: Square = Square { side: 3 };\n"
+                         "    let c: Circle = Circle { radius: 5 };\n"
+                         "    return total(s) + total(c);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "dyn Interface dispatch uses the modern codegen pipeline");
+    CHECK(r.ok, "dyn Interface methods compile, link, dispatch and execute");
+    CHECK_EQ(r.exitCode, 14, "dyn Area calls Square.area (9) and Circle.area (5)");
+    CHECK_EQ(r.errorCount, 0u, "the dyn Interface module passes LLVM verification");
+    CHECK(r.output.find("@_zith.vtable.Area.Square = internal constant [1 x ptr] [ptr "
+                        "@\"main.Square.area(*Square)\"]") != std::string::npos,
+          "Square's vtable slot points to the concrete Square.area function");
+    CHECK(r.output.find("@_zith.vtable.Area.Circle = internal constant [1 x ptr] [ptr "
+                        "@\"main.Circle.area(*Circle)\"]") != std::string::npos,
+          "Circle's vtable slot points to the concrete Circle.area function");
+    CHECK(r.output.find("extractvalue { ptr, ptr } %2, 0") != std::string::npos,
+          "dyn calls extract the concrete data pointer from the fat pointer");
+    CHECK(r.output.find("getelementptr [1 x ptr], ptr %4, i32 0, i32 0") != std::string::npos,
+          "dyn calls index the vtable slot before indirect invocation");
+}
+
+static void test_dyn_trait_method_dispatch_runtime() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "trait Drawable {\n"
+                         "    fn area(self): i32 { return 0 }\n"
+                         "}\n"
+                         "struct Square {\n"
+                         "    side: i32,\n"
+                         "    fn area(self): i32 { self.side * self.side }\n"
+                         "}\n"
+                         "struct Circle {\n"
+                         "    radius: i32,\n"
+                         "    fn area(self): i32 { self.radius }\n"
+                         "}\n"
+                         "implement Square as Drawable {\n"
+                         "    fn area(self): i32 { self.side * self.side }\n"
+                         "}\n"
+                         "implement Circle as Drawable {\n"
+                         "    fn area(self): i32 { self.radius }\n"
+                         "}\n"
+                         "fn total(a: dyn Drawable): i32 { return a.area() }\n"
+                         "fn main(): i32 {\n"
+                         "    let s: Square = Square { side: 3 };\n"
+                         "    let c: Circle = Circle { radius: 5 };\n"
+                         "    return total(s) + total(c);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "dyn Trait dispatch uses the modern codegen pipeline");
+    CHECK(r.ok, "dyn Trait method calls compile, link, dispatch and execute");
+    CHECK_EQ(r.exitCode, 14, "dyn Drawable calls Square.area (9) and Circle.area (5)");
+    CHECK_EQ(r.errorCount, 0u, "the dyn Trait module passes LLVM verification");
+    CHECK(r.output.find("@_zith.vtable.Drawable.Square = internal constant [1 x ptr] [ptr "
+                        "@\"main.Square.area(*Square)\"]") != std::string::npos,
+          "Square's nominal-trait vtable slot points to the concrete Square.area function");
+    CHECK(r.output.find("@_zith.vtable.Drawable.Circle = internal constant [1 x ptr] [ptr "
+                        "@\"main.Circle.area(*Circle)\"]") != std::string::npos,
+          "Circle's nominal-trait vtable slot points to the concrete Circle.area function");
+    CHECK(r.output.find("extractvalue { ptr, ptr } %2, 0") != std::string::npos,
+          "dyn Trait calls extract the concrete data pointer from the fat pointer");
+    CHECK(r.output.find("getelementptr [1 x ptr], ptr %4, i32 0, i32 0") != std::string::npos,
+          "dyn Trait calls index the vtable slot before indirect invocation");
+}
+
+static void test_dyn_interface_field_access_is_rejected() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "interface Area {\n"
+                         "    x: i32,\n"
+                         "    fn area(self): i32\n"
+                         "}\n"
+                         "struct Square {\n"
+                         "    x: i32,\n"
+                         "    fn area(self): i32 { self.x * self.x }\n"
+                         "}\n"
+                         "fn bad(a: dyn Area): i32 {\n"
+                         "    return a.x;\n"
+                         "}\n"
+                         "fn main(): i32 { return 0 }\n");
+
+    auto r = t.run();
+    CHECK(!r.ok, "field access through dyn Interface is rejected");
+    CHECK_EQ(r.errorCount, 1u, "a.x on dyn Area reports one error");
+    CHECK_EQ(r.exitCode, 0, "the rejected module never produces an executable");
+}
+
 static void test_duplicate_struct_field_names_do_not_collide_globally() {
     ModernFileCodegenTest t;
     t.write("main.zith", "struct A { value: i32 }\n"
@@ -1647,6 +1750,18 @@ static void test_c_default_arguments_and_string_escapes() {
     }
 }
 
+static void test_dollar_escape_hatch_runtime() {
+    CodegenTest t;
+    auto r = t.run("codegen-dollar-escape.zith", "extern fn printf(fmt: *char, ...): i32\n"
+                                                 "fn main(): i32 {\n"
+                                                 "    printf(\"cost=\\$5\\n\");\n"
+                                                 "    printf(\"%c\\n\", '\\$');\n"
+                                                 "    return 0;\n"
+                                                 "}\n");
+    CHECK(r.ok, "the dollar escape hatch compiles");
+    CHECK(r.output == "cost=$5\n$\n", "\\$ emits a literal dollar in string and char literals");
+}
+
 // Program output must live in takeChildOutput(), not in the compiler's
 // diagnostic buffer: `zithc run` writes the former to stdout after execution.
 static void test_child_output_is_separate_from_compiler_output() {
@@ -1961,6 +2076,12 @@ static void test_codegen() {
     test_generic_bound_by_value_parameter_runs_without_borrow_attrs();
     printf("Running test_interface_method_bound_runtime\n");
     test_interface_method_bound_runtime();
+    printf("Running test_dyn_interface_method_dispatch_runtime\n");
+    test_dyn_interface_method_dispatch_runtime();
+    printf("Running test_dyn_trait_method_dispatch_runtime\n");
+    test_dyn_trait_method_dispatch_runtime();
+    printf("Running test_dyn_interface_field_access_is_rejected\n");
+    test_dyn_interface_field_access_is_rejected();
     printf("Running test_duplicate_struct_field_names_do_not_collide_globally\n");
     test_duplicate_struct_field_names_do_not_collide_globally();
     printf("Running test_f32_literal_stores_in_32_width\n");
@@ -2019,6 +2140,8 @@ static void test_codegen() {
     test_extern_variadic_call_runs();
     printf("Running test_c_default_arguments_and_string_escapes\n");
     test_c_default_arguments_and_string_escapes();
+    printf("Running test_dollar_escape_hatch_runtime\n");
+    test_dollar_escape_hatch_runtime();
     printf("Running test_child_output_is_separate_from_compiler_output\n");
     test_child_output_is_separate_from_compiler_output();
     printf("Running test_direct_exec_inherits_parent_stdout\n");

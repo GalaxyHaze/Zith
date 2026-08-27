@@ -323,7 +323,7 @@ struct HirGlobalConstLoad {
 /// The vtable stores only the trait/interface method requirements; interface
 /// fields are accessed through the data pointer before the value is erased.
 struct HirMakeDyn {
-    HirExprId value      = hir::kInvalidHirExpr;
+    HirExprId value       = hir::kInvalidHirExpr;
     HirTypeId source_type = types::kInvalidType;
     HirTypeId dyn_type    = types::kInvalidType;
     memory::InternedId vtable_name{};
@@ -334,7 +334,7 @@ struct HirMakeDyn {
 /// pointer emitted by `HirMakeDyn`; codegen extracts the data pointer,
 /// indexes the vtable global and calls the loaded function pointer.
 struct HirDynCall {
-    HirExprId receiver    = hir::kInvalidHirExpr;
+    HirExprId receiver = hir::kInvalidHirExpr;
     memory::InternedId vtable_name{};
     uint32_t slot_index   = 0;
     bool has_receiver     = true;

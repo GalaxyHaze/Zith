@@ -51,8 +51,9 @@ tail: `f32` is widened to `f64`, and `bool`/`char`/small integer arguments are w
 Fixed parameters keep their declared ABI types.
 
 String and character literals decode the C-like escape set (`\n`, `\r`, `\t`, `\0`, `\\`, `\'`,
-`\"`, and `\xHH`) before reaching LLVM, so `printf("v=%d\n", 42)` prints a real newline. Unknown
-escape sequences are rejected with `E0001` at the literal's span.
+`\"`, `\$`, and `\xHH`) before reaching LLVM, so `printf("v=%d\n", 42)` prints a real newline.
+`\$` produces a literal `$` (useful as an escape hatch if string interpolation is added later).
+Unknown escape sequences are rejected with `E0001` at the literal's span.
 
 `char` literals such as `'B'` are typed as `char`, and `... as char` conversions are accepted.
 Plain C `char` parameters and results import as Zith `char`.

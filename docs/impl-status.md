@@ -69,7 +69,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `raw opaque` | **Working** | Dedicated `TypeExprKind::Opaque`, lowered to pointer-to-void. Castable to and from any `*T` via `as`. Bare `opaque` (the tagged reference type) is still unimplemented and reports `unknown type` |
 | `[N]T` (array), `[]T` (slice) | **Working** | Arrays coerce to slices as zero-copy views; `a[lo..hi]` and `a[i]` return optionals with static/dynamic bounds checks. `raw a[lo..hi]`/`raw a[i]` emit unchecked views/indexing |
 | `fn(...): R` (function value) | **Working** | Parses as a type value, type-checks non-generic function references, and lowers/calls through C function-pointer ABI. No closures or captures |
-| `dyn Trait` | **Parse error** | Type parser does not handle `dyn` |
+| `dyn Trait` / `dyn Interface` | **Working (methods)** | Concrete values coerce to fat pointers (`HirMakeDyn`) with per-type vtables (`HirVTable`); method calls lower to `HirDynCall`. Zith-- exposes only methods through `dyn`; interface fields remain available on concrete types and generic bounds, and `a.x` on `dyn Interface` reports `E3001` |
 | `struct`, `component`, `enum`, `union` | **Working** | Declarations parse and resolve |
 | `trait`, `interface` | **Working (conformance)** | Declaration bodies store trait method requirements/default methods and interface fields plus declaration-only method requirements. Single (`x: T`) and grouped (`[x, y]: T`) interface fields are equivalent. Trait implementations are verified against required signatures with `Self` substitution; duplicate implementations are rejected (`E2027`). Interfaces satisfy structurally by checking fields and compatible method signatures, generic interface bounds expose those members, and explicit interface implementation is rejected (`E2025`) |
 | `implement T as Trait {}` | **Working** | Records a verified nominal conformance edge and resolves calls to concrete trait defaults. The canonical syntax is `implement T as Trait`; the legacy `for Trait` spelling remains parsed |
@@ -81,7 +81,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 
 | Feature | Status | Notes |
 |---|---|---|
-| literals (`42`, `0xFF`, `0c17`, `0b101`, `3.14`, `true`, `false`, `null`, strings, chars) | **Working** | Explicit radix prefixes (`0x` hex, `0c` octal, `0b` binary) are typed and lowered to their value; a literal wider than 64 bits reports E0004. Digit separators (`1_000`) are unsupported. C-like escapes decoded in string and char literals; unknown escapes report E0001 |
+| literals (`42`, `0xFF`, `0c17`, `0b101`, `3.14`, `true`, `false`, `null`, strings, chars) | **Working** | Explicit radix prefixes (`0x` hex, `0c` octal, `0b` binary) are typed and lowered to their value; a literal wider than 64 bits reports E0004. Digit separators (`1_000`) are unsupported. C-like escapes decoded in string and char literals; `\$` is an accepted escape producing a literal `$`; unknown escapes report E0001 |
 | unary `-`, `not` | **Working** | |
 | unary `~` | **Working** | Bitwise NOT; integer operand only, lowers to `HirUnaryOp::BitNot` |
 | binary `+` `-` `*` `/` `%` `==` `!=` `<` `>` `<=` `>=` | **Working** | |
