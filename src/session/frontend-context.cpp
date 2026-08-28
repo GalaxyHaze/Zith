@@ -1106,6 +1106,19 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                     foreign_binding.isVariadic = function.isVariadic;
                     add_binding(std::move(foreign_binding), frontend::ScopeId{});
                 }
+                for (const auto &constant : edge.cHeader->constants) {
+                    ResolvedName foreign_constant{constant.name,
+                                                  ResolutionKind::Foreign,
+                                                  edge.request.pathSpan,
+                                                  {},
+                                                  {},
+                                                  {},
+                                                  {}};
+                    foreign_constant.declKind     = frontend::DeclKind::Variable;
+                    foreign_constant.bindingKind  = frontend::BindingKind::Const;
+                    foreign_constant.foreignConstant = &constant;
+                    add_binding(std::move(foreign_constant), frontend::ScopeId{});
+                }
                 if (!edge.request.alias.empty()) {
                     add_binding({edge.request.alias,
                                  ResolutionKind::ModuleAlias,

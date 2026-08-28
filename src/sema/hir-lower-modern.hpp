@@ -80,6 +80,8 @@ private:
     memory::FlatMap<uint64_t, size_t> function_index_by_key_;
     /// Maps `(interned module id, decl id)` to the predeclared HIR const global name.
     memory::FlatMap<uint64_t, memory::InternedId> global_const_by_key_;
+    /// Maps an imported C constant name to its predeclared HIR global name.
+    memory::FlatMap<memory::InternedId, memory::InternedId> global_const_by_name_;
     std::vector<FunctionInfo> functions_;
     std::vector<LoopTarget> loop_stack_;
     std::vector<Narrowing> narrowing_stack_;

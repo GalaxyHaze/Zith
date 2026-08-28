@@ -110,6 +110,13 @@ const Function *findFunction(const CHeaderArtifact &artifact, const std::string 
     return nullptr;
 }
 
+const Constant *findConstant(const CHeaderArtifact &artifact, const std::string &name) {
+    for (const auto &c : artifact.constants)
+        if (c.name == name)
+            return &c;
+    return nullptr;
+}
+
 void test_scalar_types() {
     std::printf("=== Scalar types ===\n");
 
@@ -454,6 +461,113 @@ void test_parse_options() {
     }
 }
 
+void test_object_like_macro_constants() {
+    std::printf("=== Object-like macro constants ===\n");
+
+    {
+        const auto art = parseHeaderFromContent(
+            "scalar_constants.h",
+            "#define ANSWER 42\n"
+            "#define RATIO 1.5f\n"
+            "#define YES true\n"
+            "#define LETTER 'A'\n"
+            "#define BIG 12345678901234567890u64\n"
+            "#define NEG -7i64\n"
+            "#define NAME(x) x\n");
+        CHECK(art->diagnostics.empty(), "scalar macro constants do not fail the import");
+        if (const auto *c = findConstant(*art, "ANSWER")) {
+            CHECK_EQ(static_cast<int>(c->kind), static_cast<int>(ConstantKind::Integer),
+                     "ANSWER is Integer");
+            CHECK_EQ(c->bits, 32, "ANSWER is i32");
+            CHECK(c->isSigned, "ANSWER is signed");
+            CHECK_EQ(c->integerValue, 42, "ANSWER has value 42");
+        } else {
+            CHECK(false, "ANSWER imported as a constant");
+        }
+        if (const auto *c = findConstant(*art, "RATIO")) {
+            CHECK_EQ(static_cast<int>(c->kind), static_cast<int>(ConstantKind::Float),
+                     "RATIO is Float");
+            CHECK_EQ(c->bits, 32, "RATIO is f32");
+            CHECK_EQ(c->floatValue, 1.5, "RATIO has value 1.5");
+        } else {
+            CHECK(false, "RATIO imported as a constant");
+        }
+        if (const auto *c = findConstant(*art, "YES")) {
+            CHECK_EQ(static_cast<int>(c->kind), static_cast<int>(ConstantKind::Bool),
+                     "YES is Bool");
+            CHECK(c->boolValue, "YES is true");
+        } else {
+            CHECK(false, "YES imported as a constant");
+        }
+        if (const auto *c = findConstant(*art, "LETTER")) {
+            CHECK_EQ(static_cast<int>(c->kind), static_cast<int>(ConstantKind::Char),
+                     "LETTER is Char");
+            CHECK_EQ(static_cast<char>(c->charValue), 'A', "LETTER is 'A'");
+        } else {
+            CHECK(false, "LETTER imported as a constant");
+        }
+        if (const auto *c = findConstant(*art, "BIG")) {
+            CHECK_EQ(static_cast<int>(c->kind), static_cast<int>(ConstantKind::Integer),
+                     "BIG is Integer");
+            CHECK_EQ(c->bits, 64, "BIG is u64");
+            CHECK(!c->isSigned, "BIG is unsigned");
+            CHECK_EQ(static_cast<unsigned long long>(c->integerValue),
+                     12345678901234567890ULL,
+                     "BIG preserves u64 magnitude");
+        } else {
+            std::printf("skips: ");
+            for (const auto &skipped : art->skippedFunctions)
+                std::printf("%s | ", skipped.c_str());
+            std::printf("\n");
+            CHECK(false, "BIG imported as a constant");
+        }
+        if (const auto *c = findConstant(*art, "NEG")) {
+            CHECK_EQ(static_cast<int>(c->kind), static_cast<int>(ConstantKind::Integer),
+                     "NEG is Integer");
+            CHECK_EQ(c->bits, 64, "NEG is i64");
+            CHECK(c->isSigned, "NEG is signed");
+            CHECK_EQ(c->integerValue, -7, "NEG is -7");
+        } else {
+            CHECK(false, "NEG imported as a constant");
+        }
+        CHECK(findConstant(*art, "NAME") == nullptr, "function-like macro is not a constant");
+        bool found_skip = false;
+        for (const auto &skipped : art->skippedFunctions)
+            found_skip = found_skip || skipped.find("NAME") != std::string::npos;
+        CHECK(found_skip, "function-like macro appears in skips");
+    }
+
+    {
+        const auto art = parseHeaderFromContent("unsupported_constants.h",
+                                                "#define TOKEN 1 + 2\n"
+                                                "#define MSG \"hello\"\n"
+                                                "#define TOOBIG 9999999999999999999999999\n");
+        CHECK(art->diagnostics.empty(), "unsupported constants do not fail the import");
+        CHECK(findConstant(*art, "TOKEN") == nullptr, "TOKEN is not a scalar constant");
+        CHECK(findConstant(*art, "MSG") == nullptr, "MSG is not a constant");
+        CHECK(findConstant(*art, "TOOBIG") == nullptr, "out-of-range integer is skipped");
+        bool found_token  = false;
+        bool found_msg    = false;
+        bool found_toobig = false;
+        for (const auto &skipped : art->skippedFunctions) {
+            found_token  = found_token || skipped.find("TOKEN") != std::string::npos;
+            found_msg    = found_msg || skipped.find("MSG") != std::string::npos;
+            found_toobig = found_toobig || skipped.find("TOOBIG") != std::string::npos;
+        }
+        CHECK(found_token, "TOKEN appears in skips");
+        CHECK(found_msg, "MSG appears in skips");
+        CHECK(found_toobig, "TOOBIG appears in skips");
+    }
+
+    {
+        // Compiler predefines are not part of the main-file macro visit; the
+        // artifact must not expose them even when a name collides with a test.
+        const auto art = parseHeaderFromContent("predefined.h", "#define __LINE__ 123\n");
+        CHECK(findConstant(*art, "__LINE__") == nullptr,
+              "builtin/predefined macros are not imported");
+    }
+}
+
 #endif // ZITH_ENABLE_C_INTEROP
 
 } // namespace
@@ -471,6 +585,7 @@ void test_cinterop() {
     test_dependencies();
     test_parse_errors();
     test_parse_options();
+    test_object_like_macro_constants();
 #endif
 }
 TEST_MAIN(cinterop)

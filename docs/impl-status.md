@@ -1,6 +1,6 @@
 # Zith Implementation Status
 
-> Last updated: 2026-08-27.
+> Last updated: 2026-08-28.
 
 This document is the single source of truth for what the compiler supports today. Status reflects
 actual compiler behaviour at baseline `a5f3716`. Each feature was verified by running
@@ -140,7 +140,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `alias` | **Working** | |
 | `pub`, `mod` | **Working** | |
 | `mod(..)`, `mod(N)` | **Working** | Module-depth visibility is applied to declarations and to struct fields; `mod(..)` is unlimited and `mod(N)` allows N directory levels below the owner |
-| C header imports | **Working (common C)** | libclang only; variadic functions, array-decayed parameters, `va_list`, and function-pointer parameters supported. Single unsupported decls are skipped and recorded in `skippedFunctions`; macros, globals, bitfields, packed/anonymous records and flexible arrays remain unimported. Struct-by-value ABI is not verified |
+| C header imports | **Working (common C)** | libclang only; variadic functions, array-decayed parameters, `va_list`, and function-pointer parameters supported. Object-like scalar macros are imported as constants. Single unsupported decls/macros are skipped and recorded in `skippedFunctions`; function-like macros, strings, globals, bitfields, packed/anonymous records and flexible arrays remain unimported. Struct-by-value ABI is not verified |
 
 ---
 

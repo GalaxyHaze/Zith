@@ -1482,6 +1482,20 @@ TypeId PerModuleSema::lowerForeignType(const cinterop::Type &type) {
     return error_type;
 }
 
+TypeId PerModuleSema::lowerForeignConstantType(const cinterop::Constant &constant) {
+    switch (constant.kind) {
+    case cinterop::ConstantKind::Integer:
+        return type_table.internInteger({constant.bits, constant.isSigned});
+    case cinterop::ConstantKind::Float:
+        return type_table.internFloat({constant.bits});
+    case cinterop::ConstantKind::Bool:
+        return bool_type;
+    case cinterop::ConstantKind::Char:
+        return char_type;
+    }
+    return error_type;
+}
+
 TypeId PerModuleSema::instantiateTypeExpr(frontend::TextSpan span, std::string_view name,
                                           const std::vector<frontend::TypeExprId> &arguments) {
     if (name == "Self") {
@@ -1985,6 +1999,8 @@ void PerModuleSema::setResolvedCallTarget(frontend::ExprId callee, session::Modu
 }
 
 TypeId PerModuleSema::typeOfResolvedBinding(const session::ResolvedName &binding) {
+    if (binding.foreignConstant != nullptr)
+        return lowerForeignConstantType(*binding.foreignConstant);
     if (binding.foreignFunction != nullptr) {
         auto &parameters = type_table.makeTypeStorage();
         for (const auto &parameter : binding.foreignFunction->parameters)
@@ -4645,8 +4661,12 @@ TypeId PerModuleSema::inferAssign(frontend::ExprId id) {
                        diagnostics::err::UnsupportedSyntax);
             }
         }
-        if (left_resolved->declaration && left_resolved->declKind == frontend::DeclKind::Variable &&
-            left_resolved->bindingKind == frontend::BindingKind::Const) {
+        if (left_resolved->foreignConstant != nullptr) {
+            report(expr.span, "Zith--: cannot assign to an imported C constant",
+                   diagnostics::err::UnsupportedSyntax);
+        } else if (left_resolved->declaration &&
+                   left_resolved->declKind == frontend::DeclKind::Variable &&
+                   left_resolved->bindingKind == frontend::BindingKind::Const) {
             report(expr.span, "Zith--: cannot assign to a const global",
                    diagnostics::err::UnsupportedSyntax);
         }
@@ -5561,6 +5581,8 @@ bool PerModuleSema::isConstantExpression(frontend::ExprId id) const {
         const auto *resolved = findResolvedExpr(id);
         if (resolved == nullptr)
             return false;
+        if (resolved->foreignConstant != nullptr)
+            return resolved->bindingKind == frontend::BindingKind::Const;
         if (resolved->local)
             return resolved->bindingKind == frontend::BindingKind::Const;
         if (resolved->kind == session::ResolutionKind::Import) {
@@ -5962,6 +5984,8 @@ TypeId PerModuleSema::typeOfResolvedName(frontend::ExprId id) {
     const auto *resolved = findResolvedExpr(id);
     if (!resolved)
         return kInvalidTypeId;
+    if (resolved->foreignConstant != nullptr)
+        return lowerForeignConstantType(*resolved->foreignConstant);
     if (resolved->foreignFunction != nullptr) {
         auto &parameters = type_table.makeTypeStorage();
         for (const auto &parameter : resolved->foreignFunction->parameters)

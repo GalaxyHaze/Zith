@@ -28,6 +28,21 @@ struct Function {
     bool isVariadic = false;
 };
 
+enum class ConstantKind : uint8_t { Integer, Float, Bool, Char };
+
+/// One object-like C macro that expands to an exact scalar literal importable
+/// by Zith.  The value is stored ready to lower; no external evaluation is used.
+struct Constant {
+    std::string name;
+    ConstantKind kind = ConstantKind::Integer;
+    uint8_t bits      = 32;
+    bool isSigned     = true;
+    std::int64_t integerValue  = 0;
+    double floatValue          = 0.0;
+    bool boolValue             = false;
+    char charValue             = '\0';
+};
+
 struct Diagnostic {
     std::string message;
     unsigned line   = 0;
@@ -40,6 +55,9 @@ struct CHeaderArtifact {
     std::vector<Function> functions;
     std::vector<std::string> dependencies;
     std::vector<Diagnostic> diagnostics;
+    /// Object-like scalar macros imported as module constants. They are visible
+    /// to the module that imports this header, like the external functions.
+    std::vector<Constant> constants;
     /// Declarations skipped because a parameter or result type is not representable.
     /// Kept out of `diagnostics` so one unsupported decl does not fail the import.
     std::vector<std::string> skippedFunctions;

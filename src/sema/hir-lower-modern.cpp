@@ -148,6 +148,62 @@ bool HirLowerModern::predeclareGlobalConsts() {
         if (module_sema == nullptr)
             continue;
 
+        for (const auto &edge : snapshot_.importGraph()) {
+            if (edge.importer != module.key || edge.targetKind != session::ImportTargetKind::CHeader ||
+                edge.cHeader == nullptr || !edge.error.empty())
+                continue;
+            const auto name_space = moduleNamespace(module.key, snapshot_.cacheKey());
+            for (const auto &constant : edge.cHeader->constants) {
+                const auto key = interner_.intern(constant.name);
+                if (global_const_by_name_.get(key) != nullptr)
+                    continue;
+
+                std::string global_name = "_zith_";
+                if (!name_space.empty()) {
+                    global_name += name_space;
+                    global_name += '.';
+                }
+                global_name += constant.name;
+
+                auto &global = hir_.addGlobalConst();
+                global.name  = interner_.intern(global_name);
+                switch (constant.kind) {
+                case cinterop::ConstantKind::Integer:
+                    global.type =
+                        types_.internInt(sema::mapIntegerWidth(constant.bits, constant.isSigned));
+                    break;
+                case cinterop::ConstantKind::Float:
+                    global.type = types_.internFloat(sema::mapFloatWidth(constant.bits));
+                    break;
+                case cinterop::ConstantKind::Bool:
+                    global.type = types::kBoolType;
+                    break;
+                case cinterop::ConstantKind::Char:
+                    global.type = types::kCharType;
+                    break;
+                }
+                hir::HirLiteral literal;
+                literal.type = global.type;
+                switch (constant.kind) {
+                case cinterop::ConstantKind::Integer:
+                case cinterop::ConstantKind::Char:
+                    literal.i = static_cast<int64_t>(
+                        constant.kind == cinterop::ConstantKind::Char
+                            ? static_cast<unsigned char>(constant.charValue)
+                            : constant.integerValue);
+                    break;
+                case cinterop::ConstantKind::Float:
+                    literal.f = constant.floatValue;
+                    break;
+                case cinterop::ConstantKind::Bool:
+                    literal.b = constant.boolValue;
+                    break;
+                }
+                global.init = addExpr(std::move(literal));
+                global_const_by_name_.insert(key, global.name);
+            }
+        }
+
         for (const auto &decl : module.frontend->declarations()) {
             if (decl.kind != frontend::DeclKind::Variable ||
                 decl.bindingKind != frontend::BindingKind::Const || decl.name.empty())
@@ -1385,6 +1441,15 @@ hir::HirExprId HirLowerModern::lowerName(const frontend::Expression &expr) {
                     load.type = typeOfExpr(expr.id);
                     return addExpr(std::move(load));
                 }
+            }
+        }
+        if (resolved->foreignConstant != nullptr) {
+            const auto key = interner_.intern(resolved->foreignConstant->name);
+            if (const auto *global_name = global_const_by_name_.get(key)) {
+                hir::HirGlobalConstLoad load;
+                load.name = *global_name;
+                load.type = typeOfExpr(expr.id);
+                return addExpr(std::move(load));
             }
         }
         if (resolved->foreignFunction != nullptr) {

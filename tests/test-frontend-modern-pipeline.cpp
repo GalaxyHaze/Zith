@@ -209,6 +209,122 @@ void test_c_header_import_lowers_external_function() {
 #endif
 }
 
+void test_c_header_import_lowers_macro_constants() {
+    Workspace workspace;
+    workspace.write("fixture.h",
+                    "#define ANSWER 42\n"
+                    "#define RATIO 1.5\n"
+                    "#define YES true\n"
+                    "#define LETTER 'A'\n"
+                    "int next(int value);\n");
+    workspace.write("main.zith",
+                    "import \"fixture.h\"\n"
+                    "fn main(): i32 {\n"
+                    "    let answer: i32 = ANSWER;\n"
+                    "    let ratio: f64 = RATIO;\n"
+                    "    let yes: bool = YES;\n"
+                    "    let letter: char = LETTER;\n"
+                    "    (answer + next(1)) as i32\n"
+                    "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    const bool ok = session.runTo(session::Stage::HirLowered);
+
+#ifdef ZITH_ENABLE_C_INTEROP
+    std::string message = "C header macro constants lower through the modern pipeline";
+    if (!ok && session.snapshot() != nullptr && !session.snapshot()->diagnostics().empty())
+        message += ": " + session.snapshot()->diagnostics().front().message;
+    CHECK(ok, message.c_str());
+    if (!ok)
+        return;
+    const auto *header = session.snapshot()->cHeaders().front().get();
+    CHECK(header != nullptr, "fixture artifact is present");
+    if (header == nullptr)
+        return;
+    CHECK_EQ(header->constants.size(), 4u, "fixture exposes four scalar constants");
+    CHECK_EQ(header->functions.size(), 1u, "function import remains available with constants");
+    CHECK(session.hirModule().getGlobalConstCount() >= 4u,
+          "HIR contains one immutable global per imported constant");
+    bool saw_global_load = false;
+    for (size_t index = 0; index < session.hirModule().exprCount(); ++index)
+        saw_global_load =
+            saw_global_load || std::holds_alternative<hir::HirGlobalConstLoad>(
+                                   session.hirModule().getExpr(static_cast<hir::HirExprId>(index)));
+    CHECK(saw_global_load, "constant uses lower through HirGlobalConstLoad");
+#else
+    CHECK(!ok, "C header import fails without libclang support");
+    CHECK(session.snapshot() != nullptr && !session.snapshot()->diagnostics().empty(),
+          "libclang-disabled C header import keeps the existing diagnostic");
+#endif
+}
+
+void test_c_header_constant_duplicate_diagnostic() {
+    Workspace workspace;
+    workspace.write("fixture.h", "#define ANSWER 42\n");
+    workspace.write("main.zith", "import \"fixture.h\"\n"
+                                 "fn ANSWER(): i32 { 1 }\n"
+                                 "fn main(): i32 { ANSWER() }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    (void)session.runTo(session::Stage::HirLowered);
+#ifdef ZITH_ENABLE_C_INTEROP
+    CHECK(!session.runTo(session::Stage::HirLowered),
+          "local fn colliding with imported C constant reports an error");
+    bool found_duplicate = false;
+    if (session.snapshot()) {
+        for (const auto &diagnostic : session.snapshot()->diagnostics())
+            found_duplicate = found_duplicate ||
+                              (diagnostic.code == diagnostics::err::DuplicateDecl &&
+                               diagnostic.message.find("ANSWER") != std::string::npos);
+    }
+    CHECK(found_duplicate, "duplicate says DuplicateDecl and mentions ANSWER");
+#else
+    CHECK(session.snapshot() != nullptr && !session.snapshot()->diagnostics().empty(),
+          "without libclang the existing import diagnostic is still produced");
+#endif
+}
+
+void test_c_header_constant_let_duplicate_diagnostic() {
+    Workspace workspace;
+    workspace.write("fixture.h", "#define JOINED 1\n");
+    workspace.write("main.zith", "import \"fixture.h\"\n"
+                                 "const JOINED: i32 = 2;\n"
+                                 "fn main(): i32 { JOINED }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    (void)session.runTo(session::Stage::HirLowered);
+#ifdef ZITH_ENABLE_C_INTEROP
+    CHECK(!session.runTo(session::Stage::HirLowered),
+          "local const colliding with imported C constant reports an error");
+    bool found_duplicate = false;
+    if (session.snapshot()) {
+        for (const auto &diagnostic : session.snapshot()->diagnostics())
+            found_duplicate = found_duplicate ||
+                              (diagnostic.code == diagnostics::err::DuplicateDecl &&
+                               diagnostic.message.find("JOINED") != std::string::npos);
+    }
+    CHECK(found_duplicate, "duplicate says DuplicateDecl and mentions JOINED");
+#else
+    CHECK(session.snapshot() != nullptr && !session.snapshot()->diagnostics().empty(),
+          "without libclang the existing import diagnostic is still produced");
+#endif
+}
+
 void test_pipeline_macro_expansion_lowers() {
     Workspace workspace;
     workspace.write("main.zith", "macro twice(v: expr) { v + v }\n"
@@ -642,6 +758,9 @@ static void test_frontend_modern_pipeline() {
     test_pipeline_while_loop_lowers();
     test_pipeline_if_else_lowers();
     test_c_header_import_lowers_external_function();
+    test_c_header_import_lowers_macro_constants();
+    test_c_header_constant_duplicate_diagnostic();
+    test_c_header_constant_let_duplicate_diagnostic();
     test_pipeline_macro_expansion_lowers();
     test_pipeline_raw_macro_lowers();
     test_pipeline_normal_macro_hygiene_and_call_site_scope();

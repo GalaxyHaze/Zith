@@ -1,7 +1,12 @@
 #include "cinterop/c-header.hpp"
 
+#include "support/int-literal.hpp"
+
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <utility>
@@ -26,6 +31,19 @@ bool isMainFile(const CXCursor cursor, const CXFile main_file) {
     CXFile file = nullptr;
     clang_getSpellingLocation(clang_getCursorLocation(cursor), &file, nullptr, nullptr, nullptr);
     return file != nullptr && clang_File_isEqual(file, main_file) != 0;
+}
+
+bool isCompilerPredefined(std::string_view name) {
+    // Clang's predefined macros are visited as MacroDefinition cursors with
+    // (for user `__LINE__` redefinitions) the same source file.  Filtering the
+    // classic double-underscore names keeps those out of Zith's module scope.
+    if (name == "__LINE__" || name == "__FILE__" || name == "__DATE__"
+        || name == "__TIME__" || name == "__TIMESTAMP__" || name == "__COUNTER__"
+        || name == "__BASE_FILE__" || name == "__INCLUDE_LEVEL__")
+        return true;
+    if (name.size() >= 4U && name.starts_with("__") && name.ends_with("__"))
+        return true;
+    return false;
 }
 
 bool lowerType(const CXType source, Type &result, std::string &unsupported) {
@@ -111,8 +129,202 @@ bool lowerType(const CXType source, Type &result, std::string &unsupported) {
 
 struct ParseState {
     CXFile mainFile = nullptr;
+    CXTranslationUnit unit = nullptr;
     CHeaderArtifact &artifact;
 };
+
+struct Scalars {
+    ConstantKind kind  = ConstantKind::Integer;
+    bool isSigned      = true;
+    uint8_t bits       = 32;
+    std::int64_t intValue = 0;
+    double floatValue  = 0.0;
+    bool boolValue     = false;
+    char charValue     = '\0';
+};
+
+[[nodiscard]] bool parseCharacterLiteral(std::string_view token, char &out) {
+    if (token.size() < 3U || token.front() != '\'' || token.back() != '\'')
+        return false;
+    const std::string_view body = token.substr(1U, token.size() - 2U);
+    if (body.size() != 1U)
+        return false;
+    out = body.front();
+    return true;
+}
+
+[[nodiscard]] bool scalarFromTokens(std::string_view token, Scalars &out) {
+    if (token == "true") {
+        out.kind      = ConstantKind::Bool;
+        out.boolValue = true;
+        return true;
+    }
+    if (token == "false") {
+        out.kind      = ConstantKind::Bool;
+        out.boolValue = false;
+        return true;
+    }
+    if (token.size() >= 2U && token.front() == '\'') {
+        if (!parseCharacterLiteral(token, out.charValue))
+            return false;
+        out.kind = ConstantKind::Char;
+        return true;
+    }
+
+    // Keep the suffix list and fit checks in sync with the Zith literal types.
+    constexpr std::string_view kIntSuffixes[] = {
+        "usize", "u64", "u32", "u16", "u8",
+        "isize", "i64", "i32", "i16", "i8",
+    };
+    for (const auto suffix : kIntSuffixes) {
+        if (!token.ends_with(suffix))
+            continue;
+        std::int64_t parsed             = 0;
+        const std::string_view digits = token.substr(0U, token.size() - suffix.size());
+        const support::IntLiteralStatus status = support::parseIntegerLiteral(digits, parsed);
+        if (status == support::IntLiteralStatus::Overflow)
+            return false;
+        if (status == support::IntLiteralStatus::NotInteger)
+            return false;
+        const bool is_native = suffix == "isize" || suffix == "usize";
+        std::uint64_t bits   = 64;
+        if (!is_native) {
+            const std::string_view width = suffix.substr(1U);
+            if (width == "8")
+                bits = 8;
+            else if (width == "16")
+                bits = 16;
+            else if (width == "32")
+                bits = 32;
+        }
+        const bool signed_type = !suffix.starts_with('u');
+        const std::uint64_t magnitude =
+            signed_type ? static_cast<std::uint64_t>(std::abs(parsed))
+                        : static_cast<std::uint64_t>(parsed);
+        const bool fits = [&]() {
+            if (!signed_type) {
+                if (bits == 64U)
+                    return true;
+                return magnitude <= (std::uint64_t{1} << bits) - 1U;
+            }
+            if (bits == 64U)
+                return true;
+            const std::int64_t max = static_cast<std::int64_t>(std::uint64_t{1} << (bits - 1U)) - 1;
+            return parsed >= -max - 1 && parsed <= max;
+        }();
+        if (!fits)
+            return false;
+        out.intValue = parsed;
+        out.isSigned = signed_type;
+        out.bits     = static_cast<std::uint8_t>(bits);
+        return true;
+    }
+
+    // A plain integer (unsuffixed is i32 in Zith).  `support::looksIntegerLiteral`
+    // accepts sign prefixes too, so the tokenizer keeps `-42` together.
+    if (support::parseIntegerLiteral(token, out.intValue) == support::IntLiteralStatus::Overflow)
+        return false;
+    if (support::parseIntegerLiteral(token, out.intValue) == support::IntLiteralStatus::Ok) {
+        if (out.intValue < std::numeric_limits<std::int32_t>::min() ||
+            out.intValue > std::numeric_limits<std::int32_t>::max())
+            return false;
+        out.kind  = ConstantKind::Integer;
+        out.bits  = 32;
+        out.isSigned = true;
+        return true;
+    }
+
+    // Unsuffixed float is f64 in Zith; `f`/`F` are f32.
+    if (token.size() >= 2U && (token.back() == 'f' || token.back() == 'F')) {
+        const std::string_view digits = token.substr(0U, token.size() - 1U);
+        const std::string text        = std::string(digits);
+        char *end                     = nullptr;
+        out.floatValue                = std::strtod(text.c_str(), &end);
+        if (end == nullptr || *end != '\0')
+            return false;
+        out.kind  = ConstantKind::Float;
+        out.bits  = 32;
+        out.isSigned = true;
+        return true;
+    }
+    const std::string text = std::string(token);
+    char *end      = nullptr;
+    out.floatValue = std::strtod(text.c_str(), &end);
+    if (end == nullptr || *end != '\0')
+        return false;
+    out.kind      = ConstantKind::Float;
+    out.bits      = 64;
+    out.isSigned  = true;
+    return true;
+}
+
+bool acceptConstant(const CXCursor cursor, const CXTranslationUnit unit, Constant &constant,
+                    std::string &reason) {
+    constant.name = takeString(clang_getCursorSpelling(cursor));
+    if (constant.name.empty()) {
+        reason = "empty macro name";
+        return false;
+    }
+
+    std::vector<std::string> tokens;
+    CXToken *raw_tokens  = nullptr;
+    unsigned token_count = 0;
+    const CXSourceRange extent = clang_getCursorExtent(cursor);
+    clang_tokenize(unit, extent, &raw_tokens, &token_count);
+
+    CXFile cursor_file     = nullptr;
+    unsigned cursor_line   = 0;
+    unsigned cursor_column = 0;
+    clang_getSpellingLocation(clang_getCursorLocation(cursor), &cursor_file, &cursor_line,
+                              &cursor_column, nullptr);
+
+    for (unsigned index = 0; index < token_count; ++index) {
+        CXFile file     = nullptr;
+        unsigned line   = 0;
+        unsigned column = 0;
+        clang_getSpellingLocation(clang_getTokenLocation(unit, raw_tokens[index]), &file, &line,
+                                  &column, nullptr);
+        // Macro replacement tokens are on the same physical line.  This also
+        // drops the terminating newline token that some libclang builds emit.
+        if (file == nullptr || line != cursor_line)
+            continue;
+        if (column <= cursor_column)
+            continue;
+        const auto spelling = takeString(clang_getTokenSpelling(unit, raw_tokens[index]));
+        if (!spelling.empty())
+            tokens.push_back(std::move(spelling));
+    }
+    clang_disposeTokens(unit, raw_tokens, token_count);
+
+    // The C tokenizer keeps unary `-` separate from a numeric literal.  Joining
+    // the two-token shape lets `#define NEG -7i64` import as one integer.
+    if (tokens.size() == 2U && tokens[0] == "-") {
+        if (tokens[1].empty() || tokens[1].front() == '\'' || tokens[1].front() == '"')
+            tokens.clear();
+        else {
+            tokens[0] = "-" + tokens[1];
+            tokens.resize(1U);
+        }
+    }
+    if (tokens.size() != 1U) {
+        reason = "replacement is not a single scalar token";
+        return false;
+    }
+
+    Scalars scalar;
+    if (!scalarFromTokens(tokens.front(), scalar)) {
+        reason = "unsupported replacement literal '" + tokens.front() + "'";
+        return false;
+    }
+    constant.kind         = scalar.kind;
+    constant.bits         = scalar.bits;
+    constant.isSigned     = scalar.isSigned;
+    constant.integerValue = scalar.intValue;
+    constant.floatValue   = scalar.floatValue;
+    constant.boolValue    = scalar.boolValue;
+    constant.charValue    = scalar.charValue;
+    return true;
+}
 
 void collectInclusion(const CXFile included_file, CXSourceLocation *, const unsigned,
                       CXClientData data) {
@@ -128,6 +340,44 @@ void collectInclusion(const CXFile included_file, CXSourceLocation *, const unsi
 
 CXChildVisitResult visitCursor(const CXCursor cursor, const CXCursor, CXClientData data) {
     auto &state = *static_cast<ParseState *>(data);
+    if (clang_getCursorKind(cursor) == CXCursor_MacroDefinition &&
+        clang_Cursor_isMacroFunctionLike(cursor) != 0 && isMainFile(cursor, state.mainFile)) {
+        state.artifact.skippedFunctions.push_back(
+            takeString(clang_getCursorSpelling(cursor)) + ": macro skipped: function-like");
+        return CXChildVisit_Continue;
+    }
+    if (clang_getCursorKind(cursor) == CXCursor_MacroDefinition &&
+        isMainFile(cursor, state.mainFile) &&
+        clang_Cursor_isMacroFunctionLike(cursor) == 0 &&
+        clang_Cursor_isMacroBuiltin(cursor) == 0) {
+        Constant constant;
+        std::string reason;
+        const auto name = takeString(clang_getCursorSpelling(cursor));
+        constant.name   = name;
+        if (isCompilerPredefined(name)) {
+            state.artifact.skippedFunctions.push_back(name + ": macro skipped: compiler predefined");
+        } else if (!acceptConstant(cursor, state.unit, constant, reason)) {
+            state.artifact.skippedFunctions.push_back(
+                constant.name.empty()
+                    ? "macro: " + reason
+                    : constant.name + ": macro skipped: " + reason);
+        } else {
+            bool duplicate = false;
+            for (const auto &existing : state.artifact.constants) {
+                if (existing.name == constant.name) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate) {
+                state.artifact.skippedFunctions.push_back(constant.name +
+                                                          ": duplicate constant declaration");
+            } else {
+                state.artifact.constants.push_back(std::move(constant));
+            }
+        }
+        return CXChildVisit_Continue;
+    }
     if (clang_getCursorKind(cursor) != CXCursor_FunctionDecl ||
         !isMainFile(cursor, state.mainFile)) {
         return CXChildVisit_Continue;
@@ -355,7 +605,7 @@ std::shared_ptr<const CHeaderArtifact> parseHeader(const std::string &headerPath
     }
 
     const auto main_file = clang_getFile(unit, headerPath.c_str());
-    ParseState state{main_file, *artifact};
+    ParseState state{main_file, unit, *artifact};
     clang_visitChildren(clang_getTranslationUnitCursor(unit), visitCursor, &state);
     clang_getInclusions(unit, collectInclusion, artifact.get());
     std::sort(artifact->dependencies.begin(), artifact->dependencies.end());

@@ -294,6 +294,8 @@ struct ResolvedName {
     frontend::LocalId local;
     frontend::ScopeId scope;
     const cinterop::Function *foreignFunction = nullptr;
+    /// Object-like C macro imported as a module constant.
+    const cinterop::Constant *foreignConstant = nullptr;
     /// Expression occurrence this resolution belongs to.  Node identity (not the
     /// text span) keys lookups: macro expansion gives every expanded node the
     /// span of its call site, so spans alone are ambiguous.

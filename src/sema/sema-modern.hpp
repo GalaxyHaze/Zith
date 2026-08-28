@@ -247,6 +247,7 @@ private:
                                        const frontend::Declaration &template_decl, bool named,
                                        std::vector<TypeId> explicit_args);
     TypeId lowerForeignType(const cinterop::Type &type);
+    TypeId lowerForeignConstantType(const cinterop::Constant &constant);
     TypeId inferExpr(frontend::ExprId id);
     TypeId inferLiteral(frontend::ExprId id, std::string_view text);
     TypeId inferName(frontend::ExprId id, std::string_view text);
