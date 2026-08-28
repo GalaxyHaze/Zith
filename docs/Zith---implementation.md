@@ -120,6 +120,16 @@ constantes ou não inteiras reportam `enum variant discriminant must be a consta
 expression`; valores fora do tipo subjacente são rejeitados com
 `enum variant discriminant does not fit its underlying type '<T>'`.
 
+`inferUnary` aceita `not` como o único unário booleano; `not` exige operando `bool`.
+O parser não reconhece `!` como prefixo; `!` permanece apenas no caminho postfix
+ainda por implementar e nunca é convertido em unário booleano ou HIR.
+
+O sema mantém `active_loop_labels_` enquanto infere `while`/`for`/`for-in`.
+Labels são aceitas nos loops e em `break`/`continue`; um label desconhecido,
+para fora, ou repetido entre loops ativos reporta `E2010`. Sem label,
+`break`/`continue` usam o loop mais interno. `inferBlock` também valida
+`break`/`continue` em corpos de blocos, além dos paths existentes de expression.
+
 ## HIR
 
 `predeclareGlobalConsts` roda antes das funções e cria um `HirGlobalConst` por declaração `const` top-level:
@@ -133,6 +143,13 @@ Referências por nome a um const global produzem `HirGlobalConstLoad` no lowerin
 `HirLowerModern::lowerExpr` descarta `OwnershipCoerce` e baixa o inner. Em calls, um argumento anotado é baixado como endereço do place: `lowerLValueAddr` para bindings/campos/índices, ou uma alloca temporária quando o operand não tem lvalue. O parâmetro `*lend T`/`*view T` já é baixado como ponteiro. Os slots de parâmetro carregam `HirOwnership::Lend`/`HirOwnership::View` via `NraFacts`, e `NraFacts::localOfArgument`/`ownershipOfArgument` descascam a anotação para continuar acumulando factas por call argument (`NraArgEscape::Borrow` por default).
 
 `checkAssignableOwnership` bloqueia escrita através de parâmetros `*view T` tanto no caminho arrow como no dot-member auto-deref, reportando `E4004`.
+
+`HirLoopTarget` carrega o label do loop. `lowerWhile`/`lowerFor`/`lowerForIn`
+registam o target com o label; `break`/`continue` sem label usam o último
+target da `loop_stack_`, e com label procuram o target correspondente.
+`emitCleanupFrom` percorre a stack de fora para dentro depois de escolher a
+profundidade, o que também emite o cleanup de loops interiores quando o exit
+salta um alvo exterior.
 
 ### Optional em contexto booleano
 
@@ -224,13 +241,18 @@ persiste `variadic_slice_param` para hidratar o HIR sem voltar a correr sema.
 
 `defer expr;` e `defer { ... }` registam cleanup no bloco lexical mais próximo.
 O frontend produz `StmtKind::Defer`; `defer { ... }` guarda o corpo como
-`ExprKind::Block` cleanup-only. O sema infere o corpo normalmente, rejeita
-`return`/`break`/`continue`/`jump` dentro do corpo adiado e não contribui com o
-valor do bloco. O lowering HIR acumula as expressões adiadas e emite
-`HirExprKind::Cleanup` em reverse order antes de qualquer terminator do bloco,
-incluindo `ret`, branches de `break`/`continue` e `HirStateTailCall`. Codegen
-traduz o cleanup para execução imediata antes desses transfers. `state` sem
-return type declarado é tratado como `void` e nunca tem tipo inferido do corpo.
+`ExprKind::Block` cleanup-only. O sema recolhe os `defer` do bloco, tipa depois
+os bindings diretos e só então infere cada corpo adiado; `checkDeferCaptures`
+rejeita capturas de bindings do mesmo bloco declarados depois quando um exit
+directo (ou controlo aninhado marcado como exit) antes do inicializador pode
+fazer o cleanup correr sem o binding inicializado. O corpo adiado continua a
+recusar `return`/`break`/`continue`/`jump` e não contribui com o valor do
+bloco. `lowerBlock` acumula `StmtKind::Defer` em `pending_defers_` e
+`flushPendingDefers` baixa os corpos no fim do bloco, depois dos slots das
+bindings directas; antes de `return`/`break`/`continue`/`jump` os pending defers
+são emitidos primeiro. O cleanup final é `HirExprKind::Cleanup` em reverse order
+antes de `ret`, branches de `break`/`continue` e `HirStateTailCall`. `state`
+sem return type declarado é tratado como `void` e nunca tem tipo inferido do corpo.
 
 For-in usa o protocolo `next(self)` com retorno tagged union de dois membros: um elemento e o `End` canonico (`struct End {}`). O sema exige exatamente um membro `End`; HIR chama `next` no header do loop, ramifica por `HirUnionCheck` quando o tag é `End` e extrai o elemento com `HirUnionCast` quando não é.
 

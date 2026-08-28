@@ -2131,13 +2131,26 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
 
 hir::HirExprId HirLowerModern::lowerBlock(const frontend::Expression &expr) {
     cleanup_stack_.push_back(CleanupFrame(arena_));
+    pending_defers_.emplace_back();
     hir::HirExprId last = hir::kInvalidHirExpr;
     for (const auto statement : expr.statements) {
+        if (!pending_defers_.back().empty() && statement) {
+            const auto &stmt = current_module_->frontend->statements()[statement.value - 1U];
+            if (stmt.kind == frontend::StmtKind::Return || stmt.kind == frontend::StmtKind::Break ||
+                stmt.kind == frontend::StmtKind::Continue ||
+                stmt.kind == frontend::StmtKind::Jump) {
+                if (!flushPendingDefers())
+                    return hir::kInvalidHirExpr;
+            }
+        }
         if (current_fn_->blocks[current_block_].terminator != hir::kInvalidHirExpr)
             break;
         if (!lowerStatement(statement, last))
             return hir::kInvalidHirExpr;
     }
+    if (!flushPendingDefers())
+        return hir::kInvalidHirExpr;
+    pending_defers_.pop_back();
 
     auto frame = std::move(cleanup_stack_.back());
     cleanup_stack_.pop_back();
@@ -2150,6 +2163,62 @@ hir::HirExprId HirLowerModern::lowerBlock(const frontend::Expression &expr) {
     return last;
 }
 
+bool HirLowerModern::flushPendingDefers() {
+    if (pending_defers_.empty())
+        return true;
+    for (const auto id : pending_defers_.back()) {
+        if (current_fn_->blocks[current_block_].terminator != hir::kInvalidHirExpr)
+            break;
+        if (!lowerDeferBody(id))
+            return false;
+    }
+    return true;
+}
+
+bool HirLowerModern::lowerDeferBody(frontend::StmtId id) {
+    if (!id || current_module_ == nullptr ||
+        id.value > current_module_->frontend->statements().size())
+        return true;
+    const auto &statement = current_module_->frontend->statements()[id.value - 1U];
+    if (!statement.expression) {
+        diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                      "defer requires an expression or block", {});
+        return false;
+    }
+    if (const auto *body =
+            current_module_->frontend->expressions()[statement.expression.value - 1U].kind ==
+                    frontend::ExprKind::Block
+                ? &current_module_->frontend->expressions()[statement.expression.value - 1U]
+                : nullptr;
+        body != nullptr) {
+        const auto body_id = lowerDeferBlock(*body);
+        if (body_id == hir::kInvalidHirExpr) {
+            // An empty block still produces a cleanup expression.
+            return false;
+        }
+        if (defer_body_sink_ != nullptr)
+            defer_body_sink_->push(body_id);
+        else if (!cleanup_stack_.empty())
+            cleanup_stack_.back().exprs.push(body_id);
+        else
+            current_fn_->blocks[current_block_].insts.push(body_id);
+        return true;
+    }
+    const auto deferred = lowerExpr(statement.expression);
+    if (deferred == hir::kInvalidHirExpr)
+        return false;
+    if (defer_body_sink_ != nullptr) {
+        // A nested `defer expr;` inside `defer { ... }` runs as an ordinary
+        // deferred body statement in source order.
+        defer_body_sink_->push(deferred);
+    } else if (!cleanup_stack_.empty()) {
+        cleanup_stack_.back().exprs.push(deferred);
+    } else {
+        current_fn_->blocks[current_block_].insts.push(deferred);
+    }
+    return true;
+}
+
 void HirLowerModern::emitCleanupFrom(size_t first) {
     if (first >= cleanup_stack_.size())
         return;
@@ -2157,7 +2226,7 @@ void HirLowerModern::emitCleanupFrom(size_t first) {
         return;
 
     bool any = false;
-    for (size_t index = first; index < cleanup_stack_.size(); ++index) {
+    for (size_t index = cleanup_stack_.size(); index-- > first;) {
         if (!cleanup_stack_[index].exprs.empty())
             any = true;
     }
@@ -2165,7 +2234,7 @@ void HirLowerModern::emitCleanupFrom(size_t first) {
         return;
 
     hir::HirCleanup cleanup(arena_);
-    for (size_t index = first; index < cleanup_stack_.size(); ++index) {
+    for (size_t index = cleanup_stack_.size(); index-- > first;) {
         const auto &frame = cleanup_stack_[index].exprs;
         for (size_t inner = frame.size(); inner > 0U; --inner)
             cleanup.exprs.push(frame[inner - 1U]);
@@ -2239,8 +2308,8 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
     };
     if (condition.kind == frontend::ExprKind::IsNull && !condition.operands.empty()) {
         makeOptionalNarrowing(condition.operands[0]);
-    } else if (condition.kind == frontend::ExprKind::Unary &&
-               (condition.text == "not" || condition.text == "!") && !condition.operands.empty()) {
+    } else if (condition.kind == frontend::ExprKind::Unary && condition.text == "not" &&
+               !condition.operands.empty()) {
         const auto &inner =
             current_module_->frontend->expressions()[condition.operands[0].value - 1U];
         if (inner.kind == frontend::ExprKind::IsNull && !inner.operands.empty()) {
@@ -2455,7 +2524,7 @@ hir::HirExprId HirLowerModern::lowerWhile(const frontend::Expression &expr) {
     branch.else_block = static_cast<hir::HirDeclId>(exit_block);
     setTerminator(addExpr(std::move(branch)));
 
-    loop_stack_.push_back({header_block, exit_block, 0U});
+    loop_stack_.push_back({header_block, exit_block, expr.label, 0U});
     setCurrentBlock(body_block);
     current_fn_->blocks[body_block].insts = memory::DynArray<hir::HirExprId>(arena_);
     cleanup_stack_.push_back(CleanupFrame(arena_));
@@ -2496,7 +2565,7 @@ hir::HirExprId HirLowerModern::lowerFor(const frontend::Expression &expr) {
     setTerminator(addExpr(std::move(branch)));
 
     // `continue` runs the step, so the step is the continue target; `break` exits.
-    loop_stack_.push_back({step_block, exit_block, 0U});
+    loop_stack_.push_back({step_block, exit_block, expr.label, 0U});
     setCurrentBlock(body_block);
     current_fn_->blocks[body_block].insts = memory::DynArray<hir::HirExprId>(arena_);
     cleanup_stack_.push_back(CleanupFrame(arena_));
@@ -2640,7 +2709,7 @@ hir::HirExprId HirLowerModern::lowerForIn(const frontend::Expression &expr) {
     current_fn_->blocks[body_block].insts.push(emitSlotStore(loop_slot, payload));
 
     // `continue` re-tests by jumping to the header, which calls `next` again.
-    loop_stack_.push_back({header_block, exit_block, 0U});
+    loop_stack_.push_back({header_block, exit_block, expr.label, 0U});
     const frontend::StmtId saved_for_in_stmt = current_for_in_binding_stmt_;
     current_for_in_binding_stmt_             = expr.forInBindingStmt;
     current_for_in_binding_local_            = expr.forInBinding;
@@ -4002,42 +4071,15 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
         return true;
     }
     case frontend::StmtKind::Defer:
-        if (!statement.expression) {
-            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
-                          "defer requires an expression or block", {});
-            return false;
-        }
-        if (const auto *body =
-                current_module_->frontend->expressions()[statement.expression.value - 1U].kind ==
-                        frontend::ExprKind::Block
-                    ? &current_module_->frontend->expressions()[statement.expression.value - 1U]
-                    : nullptr;
-            body != nullptr) {
-            const auto body_id = lowerDeferBlock(*body);
-            if (body_id == hir::kInvalidHirExpr) {
-                // An empty block still produces a cleanup expression.
-                return false;
-            }
-            if (defer_body_sink_ != nullptr)
-                defer_body_sink_->push(body_id);
-            else if (!cleanup_stack_.empty())
-                cleanup_stack_.back().exprs.push(body_id);
-            else
-                current_fn_->blocks[current_block_].insts.push(body_id);
-        } else {
-            const auto deferred = lowerExpr(statement.expression);
-            if (deferred == hir::kInvalidHirExpr)
-                return false;
-            if (defer_body_sink_ != nullptr) {
-                // A nested `defer expr;` inside `defer { ... }` runs as an
-                // ordinary deferred body statement in source order.
-                defer_body_sink_->push(deferred);
-            } else if (!cleanup_stack_.empty()) {
-                cleanup_stack_.back().exprs.push(deferred);
-            } else {
-                current_fn_->blocks[current_block_].insts.push(deferred);
-            }
-        }
+        // In ordinary lexical blocks, defers are flushed at end-of-block after
+        // all direct bindings have emitted their slots. Inside a deferred body
+        // (`defer { defer x(); }`) they lower immediately into that body in
+        // source order.
+        if (defer_body_sink_ != nullptr)
+            return lowerDeferBody(id);
+        if (pending_defers_.empty())
+            pending_defers_.emplace_back();
+        pending_defers_.back().push_back(id);
         last_value = hir::kInvalidHirExpr;
         return true;
     case frontend::StmtKind::Return: {
@@ -4080,8 +4122,26 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                           "break used outside of a loop", {});
             return false;
         }
-        emitCleanupFrom(loop_stack_.back().cleanup_depth);
-        emitJump(loop_stack_.back().break_block);
+        {
+            const LoopTarget *target = &loop_stack_.back();
+            if (!statement.label.empty()) {
+                target = nullptr;
+                for (auto it = loop_stack_.rbegin(); it != loop_stack_.rend(); ++it) {
+                    if (it->label == statement.label) {
+                        target = &*it;
+                        break;
+                    }
+                }
+                if (target == nullptr) {
+                    diags_.report(
+                        diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                        "break label '" + statement.label + "' does not name an active loop", {});
+                    return false;
+                }
+            }
+            emitCleanupFrom(target->cleanup_depth);
+            emitJump(target->break_block);
+        }
         setCurrentBlock(newBlock());
         current_fn_->blocks[current_block_].insts = memory::DynArray<hir::HirExprId>(arena_);
         return true;
@@ -4091,8 +4151,27 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                           "continue used outside of a loop", {});
             return false;
         }
-        emitCleanupFrom(loop_stack_.back().cleanup_depth);
-        emitJump(loop_stack_.back().continue_block);
+        {
+            const LoopTarget *target = &loop_stack_.back();
+            if (!statement.label.empty()) {
+                target = nullptr;
+                for (auto it = loop_stack_.rbegin(); it != loop_stack_.rend(); ++it) {
+                    if (it->label == statement.label) {
+                        target = &*it;
+                        break;
+                    }
+                }
+                if (target == nullptr) {
+                    diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
+                                  "continue label '" + statement.label +
+                                      "' does not name an active loop",
+                                  {});
+                    return false;
+                }
+            }
+            emitCleanupFrom(target->cleanup_depth);
+            emitJump(target->continue_block);
+        }
         setCurrentBlock(newBlock());
         current_fn_->blocks[current_block_].insts = memory::DynArray<hir::HirExprId>(arena_);
         return true;

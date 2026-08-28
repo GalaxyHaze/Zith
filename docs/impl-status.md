@@ -84,7 +84,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | Feature | Status | Notes |
 |---|---|---|
 | literals (`42`, `0xFF`, `0c17`, `0b101`, `3.14`, `true`, `false`, `null`, strings, chars) | **Working** | Explicit radix prefixes (`0x` hex, `0c` octal, `0b` binary) are typed and lowered to their value; a literal wider than 64 bits reports E0004. Digit separators (`1_000`) are unsupported. C-like escapes decoded in string and char literals; `\#` is an accepted escape producing a literal `#`; unknown escapes report E0001 |
-| unary `-`, `not` | **Working** | |
+| unary `-`, `not` | **Working** | `not` is the only boolean negation; prefix `!` is not recognized and stays reserved for a future postfix form |
 | unary `~` | **Working** | Bitwise NOT; integer operand only, lowers to `HirUnaryOp::BitNot` |
 | binary `+` `-` `*` `/` `%` `==` `!=` `<` `>` `<=` `>=` | **Working** | |
 | bitwise `&.` `|.` `^.` | **Working** | Spec spellings keep the `.`. Both operands must be integers of the same type; share `HirBinaryOp::And`/`Or`/`Xor` with the `and`/`or`/`xor` keywords |
@@ -110,15 +110,15 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 |---|---|---|
 | `if` / `else` / `else if` | **Working** | Conditions accept `bool` and, in condition position, `x?` on `?T` as a non-null test |
 | `while` | **Deprecated** | Still lowers correctly, emits `W1008` suggesting `for (cond) { }`, and accepts `x?` as a non-null condition |
-| `break`, `continue` | **Working** | |
+| `break`, `continue` | **Working** | Unlabeled forms target the innermost active loop. Labels accept `outer: for`, `break outer;`, and `continue outer;`; unknown or duplicate active labels are rejected |
 | `return` (void and typed) | **Working** | |
-| `for (cond) { }`, `for { }` | **Working** | Conditional and infinite loop forms lower to the same CFG as `while`. `x?` is accepted in condition position as a non-null test |
-| `for (init, cond, step) { }` | **Working** | Flat and parenthesized clause forms are accepted. `init` and `step` are both optional; `continue` still runs the step before the next test |
-| `for (x in xs)` | **Working** | Duck-typed iterator over a struct with `next(self)`; `next` returns a tagged union containing the element and the empty `End` marker, and the loop exits when the returned member is `End` |
+| `for (cond) { }`, `for { }` | **Working** | Conditional and infinite loop forms lower to the same CFG as `while`; labels are supported on both forms. `x?` is accepted in condition position as a non-null test |
+| `for (init, cond, step) { }` | **Working** | Flat and parenthesized clause forms are accepted. `init` and `step` are both optional; `continue` still runs the step before the next test. Labels are stored on the real `For` node |
+| `for (x in xs)` | **Working** | Duck-typed iterator over a struct with `next(self)`; `next` returns a tagged union containing the element and the empty `End` marker, and the loop exits when the returned member is `End`. Labels are supported |
 | `when` / `match` pattern match | **Working** | Arms are written `(pattern) ~> body`, comma-separated; `match` is a parser synonym for `when`. Equality, boolean and range (`1..3`) patterns lower through HIR to codegen. An `(f is Member)` arm narrows `f` for that arm's body. `(_)` is the default arm and must come last; a value-producing `when` without a default reports non-exhaustive. Covered by runtime tests |
 | `state` / `jump` | **Working** | `state Name(params): ReturnType` declares a state with the machine return type; `jump Next(args)` terminates the current block and validates arity/types against the target's own parameters before a direct `musttail tailcc` transfer |
 | `dock` | **Working** | `dock State(args)` is a `tailcc` call expression that returns the machine's final `state` return value; the old `dock { ... }` block form is rejected |
-| `defer expr;` scope guards | **Working** | `defer expr;` and `defer { ... }` register cleanup on the nearest lexical block and run in reverse registration order on normal exit, `return`, `break`, `continue`, and `state` `jump`. The deferred body is cleanup-only and rejects `return`/`break`/`continue`/`jump` |
+| `defer expr;` scope guards | **Working** | `defer expr;` and `defer { ... }` register cleanup on the nearest lexical block and run in reverse registration order on normal exit, `return`, `break`, `continue`, and `state` `jump`. A defer may capture same-block bindings declared later; exits before initializing a captured binding are rejected. The deferred body is cleanup-only and rejects `return`/`break`/`continue`/`jump` |
 | `drop` cleanup hooks | **Spec only** | Reserved keyword only, no parser branch consumes it. Candidate for the next iteration (F-41) after `defer` |
 
 ### Words, Contexts, Macros

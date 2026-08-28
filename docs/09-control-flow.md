@@ -1,8 +1,9 @@
 ## 9. Control Flow
 
-> **Implementation status:** `if`/`else`, `break`, `continue`, and `return` are **working**.
+> **Implementation status:** `if`/`else`, `break`, `continue`, `return`, and loop labels are **working**.
 > `for` is the canonical loop: `for { ... }`, `for (cond) { ... }`, the comma-based 3-clause form,
-> and duck-typed `for (x in iterable)` are **working** and lower to the same CFG machinery as the
+> and duck-typed `for (x in iterable)` are **working**; labels can target any of these forms and
+> loop bodies can lower to the same CFG machinery as the
 > old `while`. `while` still works but emits a deprecation warning (`W1008`) pointing at
 > `for (cond) { }`. The literal range forms (`0..4`) are not implemented yet. `when` pattern
 > matching is **working**, including equality, boolean, range, and tagged-union type-narrowing
@@ -20,6 +21,13 @@ if isTrue() and (x > 5) { ... }
 let mask = a &. b |. c ^. d;
 ```
 
+Boolean negation is written as `not`; `!` is not accepted as a prefix unary
+operator in this iteration and remains reserved for a future postfix form:
+
+```zith
+if (not (x > 0)) { ... }
+```
+
 ### 9.2 `for`
 
 ```zith
@@ -30,6 +38,21 @@ for (v in range(0, 100)) { @println(v); }       // over a generator
 
 // Destructured group with fallback
 let r = for ([acc, i]: i32), (i in 0..n) { acc *= i + 1 } or 0;
+```
+
+Labels use `name: for ...` / `name: while ...` and are stored on the loop
+expression. `break name;` and `continue name;` target that loop. Without a
+label they target the innermost active loop; an unknown or duplicate active
+label is rejected by semantic analysis. Labeled exits run cleanup for every
+loop between the current innermost loop and the target:
+
+```zith
+outer: for (...) {                               // labeled loop
+    for (...) {
+        break outer;                             // exits the outer loop
+        continue outer;                          // continues the outer loop
+    }
+}
 ```
 
 > If the loop body may never run, its return value is deduced as optional — unless `or` collapses it to a non-optional value.
@@ -138,6 +161,21 @@ instead of silently falling back to a marker runtime.
 whole body as a cleanup-only block that does not produce a value. Statements in
 a deferred body run in written order, while separate `defer` statements run in
 reverse registration order when their nearest lexical block exits.
+
+A `defer` may capture bindings declared later in the same lexical block. The
+sema defers typing of the deferred body until the block's direct bindings are
+known, and lowering emits deferred cleanup after those slots are created. If a
+`return`, `break`, `continue`, `jump`, or nested control-flow exit before the
+binding can leave the block while the capture is still uninitialized, the
+compiler rejects it:
+
+```zith
+fn main(): i32 {
+    defer cleanup(v);   // ok when `v` is initialized before every exit
+    var v: i32 = 1;
+    return 0;
+}
+```
 
 - `defer expr;` registers a cleanup expression for the enclosing block.
 - Expressions run when the block exits, in reverse registration order.

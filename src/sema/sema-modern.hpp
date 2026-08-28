@@ -174,6 +174,9 @@ private:
     bool optionalPropInCondition_ = false;
     /// Decl id of the declaration currently being lowered or inferred (0 = none).
     uint32_t currentDeclId_ = 0;
+    /// Labels of loops currently being inferred. A non-empty label must be
+    /// unique among active loops so it can name a `break`/`continue` target.
+    std::vector<std::string> active_loop_labels_;
 
     /// Whether the resolved binding's function accepts a trailing variadic tail.
     [[nodiscard]] static bool bindingIsVariadic(const session::ResolvedName &binding) noexcept;
@@ -263,6 +266,9 @@ private:
     /// normally and rejects statements that would transfer control away from
     /// the deferred block.
     void checkDeferStatement(const frontend::Statement &stmt);
+    /// Validates that a deferred body only reads same-block bindings that are
+    /// initialized before every exit path from that block.
+    void checkDeferCaptures(const frontend::Statement &stmt, const frontend::Expression &block);
     /// True when `id` reaches a block containing `return`, `break`, `continue`,
     /// or `jump`, including nested control-flow bodies.
     [[nodiscard]] bool deferBodyHasControlFlow(frontend::ExprId id) const noexcept;
@@ -273,6 +279,9 @@ private:
     /// Duck-typed iterator check for `for (name in iterable) { body }`.
     TypeId inferForIn(frontend::ExprId id);
     TypeId inferReturn(frontend::ExprId id);
+    /// Validates a `break`/`continue` statement against active loop labels
+    /// and reports escapes from code that is not inside a loop.
+    void checkLoopControl(const frontend::Statement &stmt, bool is_break);
     TypeId inferAssign(frontend::ExprId id);
     /// Root name of a place expression (`p.inner.x` -> `p`), or an empty id.
     frontend::ExprId assignmentRoot(frontend::ExprId id) const noexcept;

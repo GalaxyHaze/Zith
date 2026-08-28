@@ -1895,7 +1895,7 @@ TypeId PerModuleSema::inferUnary(frontend::ExprId id) {
         return error_type;
     TypeId result;
     TypeId operand = inferExpr(expr.operands[0]);
-    if (expr.text == "not" || expr.text == "!") {
+    if (expr.text == "not") {
         if (!sameType(operand, bool_type))
             report(expr.span, "unary 'not' expects a boolean operand",
                    diagnostics::err::TypeMismatch);
@@ -3459,6 +3459,7 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
         // visits expressions after it, so stop inferring once we have lowered
         // a terminating state transfer.
         bool terminated_by_state_transfer = false;
+        std::vector<frontend::StmtId> pending_defers;
         for (const auto &stmt_id : expr.statements) {
             if (!stmt_id)
                 continue;
@@ -3472,7 +3473,7 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
             if (stmt.kind == frontend::StmtKind::Expression && stmt.expression) {
                 last = inferExpr(stmt.expression);
             } else if (stmt.kind == frontend::StmtKind::Defer) {
-                checkDeferStatement(stmt);
+                pending_defers.push_back(stmt_id);
                 last = void_type;
             } else if (stmt.kind == frontend::StmtKind::Binding) {
                 TypeId ann_type = lowerTypeExpr(stmt.binding.type);
@@ -3499,6 +3500,12 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
             } else if (stmt.kind == frontend::StmtKind::Return) {
                 checkReturnStatement(stmt);
                 last = void_type;
+            } else if (stmt.kind == frontend::StmtKind::Break) {
+                checkLoopControl(stmt, true);
+                last = void_type;
+            } else if (stmt.kind == frontend::StmtKind::Continue) {
+                checkLoopControl(stmt, false);
+                last = void_type;
             } else if (stmt.kind == frontend::StmtKind::Jump) {
                 inferJump(stmt);
                 terminated_by_state_transfer = true;
@@ -3513,8 +3520,16 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
                 // structure simple and let the fallthrough infer the call.
             }
         }
+        for (const auto stmt_id : pending_defers) {
+            if (stmt_id && stmt_id.value <= snapshot.statements().size()) {
+                const auto &defer_stmt = snapshot.statements()[stmt_id.value - 1U];
+                checkDeferStatement(defer_stmt);
+                checkDeferCaptures(defer_stmt, expr);
+            }
+        }
         return last;
     }
+    std::vector<frontend::StmtId> pending_defers;
     for (const auto &stmt_id : expr.statements) {
         if (!stmt_id)
             continue;
@@ -3526,7 +3541,7 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
         if (stmt.kind == frontend::StmtKind::Expression && stmt.expression) {
             last = inferExpr(stmt.expression);
         } else if (stmt.kind == frontend::StmtKind::Defer) {
-            checkDeferStatement(stmt);
+            pending_defers.push_back(stmt_id);
             last = void_type;
         } else if (stmt.kind == frontend::StmtKind::Binding) {
             TypeId ann_type = lowerTypeExpr(stmt.binding.type);
@@ -3556,6 +3571,12 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
         } else if (stmt.kind == frontend::StmtKind::Return) {
             checkReturnStatement(stmt);
             last = void_type;
+        } else if (stmt.kind == frontend::StmtKind::Break) {
+            checkLoopControl(stmt, true);
+            last = void_type;
+        } else if (stmt.kind == frontend::StmtKind::Continue) {
+            checkLoopControl(stmt, false);
+            last = void_type;
         } else if (stmt.kind == frontend::StmtKind::Jump) {
             report(stmt.span, "jump is only allowed inside a state function",
                    diagnostics::err::UnsupportedSyntax);
@@ -3564,7 +3585,31 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
             last = void_type;
         }
     }
+    for (const auto stmt_id : pending_defers) {
+        if (stmt_id && stmt_id.value <= snapshot.statements().size()) {
+            const auto &defer_stmt = snapshot.statements()[stmt_id.value - 1U];
+            checkDeferStatement(defer_stmt);
+            checkDeferCaptures(defer_stmt, expr);
+        }
+    }
     return last;
+}
+
+void PerModuleSema::checkLoopControl(const frontend::Statement &stmt, bool is_break) {
+    const char *kind = is_break ? "break" : "continue";
+    if (active_loop_labels_.empty()) {
+        report(stmt.span, std::string(kind) + " is only allowed inside a loop",
+               diagnostics::err::UnsupportedSyntax);
+        return;
+    }
+    if (!stmt.label.empty()) {
+        if (std::find(active_loop_labels_.begin(), active_loop_labels_.end(), stmt.label) ==
+            active_loop_labels_.end()) {
+            report(stmt.span,
+                   std::string(kind) + " label '" + stmt.label + "' does not name an active loop",
+                   diagnostics::err::UnsupportedSyntax);
+        }
+    }
 }
 
 bool PerModuleSema::deferBodyHasControlFlow(frontend::ExprId id) const noexcept {
@@ -3623,6 +3668,96 @@ void PerModuleSema::checkDeferStatement(const frontend::Statement &stmt) {
     }
 }
 
+void PerModuleSema::checkDeferCaptures(const frontend::Statement &stmt,
+                                       const frontend::Expression &block) {
+    if (!stmt.expression)
+        return;
+
+    struct DirectBinding {
+        size_t index  = 0;
+        bool has_init = false;
+        std::string name;
+    };
+    std::unordered_map<uint32_t, DirectBinding> direct;
+    size_t defer_index = 0;
+    bool saw_defer     = false;
+    for (size_t index = 0; index < block.statements.size(); ++index) {
+        const auto stmt_id = block.statements[index];
+        if (!stmt_id || stmt_id.value > snapshot.statements().size())
+            continue;
+        const auto &candidate = snapshot.statements()[stmt_id.value - 1U];
+        if (candidate.id == stmt.id && !saw_defer) {
+            defer_index = index;
+            saw_defer   = true;
+        }
+        if (candidate.kind == frontend::StmtKind::Binding && candidate.binding.id) {
+            direct[candidate.binding.id.value] = DirectBinding{
+                index, candidate.binding.initializer ? true : false, candidate.binding.name};
+        }
+    }
+    if (!saw_defer)
+        return;
+
+    const auto hasEarlyExit = [&](const size_t before_index) {
+        for (size_t index = 0; index < before_index; ++index) {
+            const auto stmt_id = block.statements[index];
+            if (!stmt_id || stmt_id.value > snapshot.statements().size())
+                continue;
+            const auto &before = snapshot.statements()[stmt_id.value - 1U];
+            if (before.kind == frontend::StmtKind::Return ||
+                before.kind == frontend::StmtKind::Break ||
+                before.kind == frontend::StmtKind::Continue ||
+                before.kind == frontend::StmtKind::Jump) {
+                return true;
+            }
+            // Control flow nested inside expressions may or may not run before
+            // the binding initializer; only direct exits are guaranteed to be
+            // an uninitialized-capture hazard per the current validation rule.
+            if (before.expression && deferBodyHasControlFlow(before.expression))
+                return true;
+        }
+        return false;
+    };
+
+    const auto walk = [&](const auto &self, const frontend::ExprId expr_id) -> void {
+        if (!expr_id || expr_id.value > snapshot.expressions().size())
+            return;
+        const auto &expr = snapshot.expressions()[expr_id.value - 1U];
+        if (expr.kind == frontend::ExprKind::Name) {
+            const auto *resolved = findResolvedExpr(expr_id);
+            if (resolved != nullptr && resolved->local) {
+                const auto found = direct.find(resolved->local.value);
+                if (found != direct.end() && found->second.index > defer_index) {
+                    if (!found->second.has_init || hasEarlyExit(found->second.index)) {
+                        report(expr.span,
+                               "defer may run before captured binding '" + found->second.name +
+                                   "' is initialized",
+                               diagnostics::err::UnsupportedSyntax);
+                    }
+                }
+            }
+        }
+        for (const auto operand : expr.operands)
+            self(self, operand);
+        for (const auto stmt_id : expr.statements) {
+            if (!stmt_id || stmt_id.value > snapshot.statements().size())
+                continue;
+            const auto &inner_stmt = snapshot.statements()[stmt_id.value - 1U];
+            if (inner_stmt.expression)
+                self(self, inner_stmt.expression);
+            if (inner_stmt.kind == frontend::StmtKind::Binding && inner_stmt.binding.initializer) {
+                self(self, inner_stmt.binding.initializer);
+            }
+        }
+    };
+    // Traverse macro expansions and raw splices too; they are real deferred
+    // code once expanded and resolved.
+    walk(walk, stmt.expression);
+    const auto &defer_expr = snapshot.expressions()[stmt.expression.value - 1U];
+    if (defer_expr.expansion)
+        walk(walk, defer_expr.expansion);
+}
+
 TypeId PerModuleSema::inferIf(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     if (expr.operands.size() < 2)
@@ -3659,8 +3794,8 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
                 // `x is null` proves the payload type in the `else` branch.
             }
         }
-    } else if (condition.kind == frontend::ExprKind::Unary &&
-               (condition.text == "not" || condition.text == "!") && !condition.operands.empty()) {
+    } else if (condition.kind == frontend::ExprKind::Unary && condition.text == "not" &&
+               !condition.operands.empty()) {
         const auto &inner = snapshot.expressions()[condition.operands[0].value - 1U];
         if (inner.kind == frontend::ExprKind::IsNull && !inner.operands.empty()) {
             const auto *resolved = findResolvedExpr(inner.operands[0]);
@@ -3698,6 +3833,14 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
 
 TypeId PerModuleSema::inferWhile(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (!expr.label.empty()) {
+        if (std::find(active_loop_labels_.begin(), active_loop_labels_.end(), expr.label) !=
+            active_loop_labels_.end()) {
+            report(expr.span, "duplicate loop label '" + expr.label + "'",
+                   diagnostics::err::UnsupportedSyntax);
+        }
+    }
+    active_loop_labels_.push_back(expr.label);
     if (!expr.operands.empty()) {
         optionalPropInCondition_ = true;
         TypeId cond              = inferExpr(expr.operands[0]);
@@ -3708,11 +3851,20 @@ TypeId PerModuleSema::inferWhile(frontend::ExprId id) {
     // The body must be inferred too, otherwise locals declared inside the loop never get a type.
     if (expr.operands.size() >= 2U)
         (void)inferExpr(expr.operands[1]);
+    active_loop_labels_.pop_back();
     return void_type;
 }
 
 TypeId PerModuleSema::inferFor(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (!expr.label.empty()) {
+        if (std::find(active_loop_labels_.begin(), active_loop_labels_.end(), expr.label) !=
+            active_loop_labels_.end()) {
+            report(expr.span, "duplicate loop label '" + expr.label + "'",
+                   diagnostics::err::UnsupportedSyntax);
+        }
+    }
+    active_loop_labels_.push_back(expr.label);
     // operands: [cond, body, step].
     if (!expr.operands.empty()) {
         optionalPropInCondition_ = true;
@@ -3725,6 +3877,7 @@ TypeId PerModuleSema::inferFor(frontend::ExprId id) {
         (void)inferExpr(expr.operands[1]);
     if (expr.operands.size() >= 3U && expr.operands[2])
         (void)inferExpr(expr.operands[2]);
+    active_loop_labels_.pop_back();
     return void_type;
 }
 
@@ -3732,10 +3885,20 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     if (expr.operands.size() < 2U)
         return void_type;
+    if (!expr.label.empty()) {
+        if (std::find(active_loop_labels_.begin(), active_loop_labels_.end(), expr.label) !=
+            active_loop_labels_.end()) {
+            report(expr.span, "duplicate loop label '" + expr.label + "'",
+                   diagnostics::err::UnsupportedSyntax);
+        }
+    }
+    active_loop_labels_.push_back(expr.label);
 
     const TypeId iterable_type = inferExpr(expr.operands[0]);
-    if (!iterable_type || type_table.kindOf(resolve(iterable_type)) == TypeKind::Error)
+    if (!iterable_type || type_table.kindOf(resolve(iterable_type)) == TypeKind::Error) {
+        active_loop_labels_.pop_back();
         return void_type;
+    }
 
     TypeId pointee = resolve(type_table.stripQualifiers(iterable_type));
     if (type_table.kindOf(pointee) == TypeKind::Pointer) {
@@ -3754,6 +3917,7 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
 
     const StructType *st = type_table.struct_type(pointee);
     if (st == nullptr) {
+        active_loop_labels_.pop_back();
         report(expr.span, "iterated value is not a struct with iterator methods",
                diagnostics::err::TypeMismatch);
         return void_type;
@@ -3834,8 +3998,10 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
         }
     }
 
-    if (next_decl == nullptr || !valid_union)
+    if (next_decl == nullptr || !valid_union) {
+        active_loop_labels_.pop_back();
         return void_type;
+    }
 
     typed_map.forInNext.insert(id.value, TypedMap::ForInNext{next_module, next_decl->id});
     typed_map.forInElementIndex.insert(id.value, element_index);
@@ -3854,6 +4020,7 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
         }
     }
     (void)inferExpr(expr.operands[1]);
+    active_loop_labels_.pop_back();
     return void_type;
 }
 

@@ -1747,9 +1747,8 @@ private:
 
         const uint32_t start = index_;
         ExprId left;
-        // Prefix `?` (fallback) and `!` (failable propagation) are not implemented yet.
-        if (snapshot_.tokens_[index_].kind == TokenKind::Operator &&
-            (text(index_) == "?" || text(index_) == "!")) {
+        // Prefix `?` fallback/failable propagation is not implemented yet.
+        if (snapshot_.tokens_[index_].kind == TokenKind::Operator && text(index_) == "?") {
             const auto op = std::string(text(index_++));
             (void)parseExpression(kUnaryPrecedence); // consume the operand
             Expression error_expr;
@@ -1816,8 +1815,8 @@ private:
                 left = {};
             }
         } else if ((snapshot_.tokens_[index_].kind == TokenKind::Operator &&
-                    (text(index_) == "-" || text(index_) == "!" || text(index_) == "&" ||
-                     text(index_) == "*" || text(index_) == "~")) ||
+                    (text(index_) == "-" || text(index_) == "&" || text(index_) == "*" ||
+                     text(index_) == "~")) ||
                    text(index_) == "not") {
             const auto op = std::string(text(index_++));
             Expression unary;
@@ -2103,11 +2102,39 @@ private:
 
     /// `for` is the canonical loop: `for { }` (infinite), `for (cond) { }`
     /// (conditional), comma separated 3-clause forms, and `for (x in xs) { }`.
+    void applyLoopLabel(const ExprId id, const std::string_view label) {
+        if (!id || id.value > snapshot_.expressions_.size())
+            return;
+        auto &expr = snapshot_.expressions_[id.value - 1U];
+        if (expr.kind == ExprKind::While || expr.kind == ExprKind::For ||
+            expr.kind == ExprKind::ForIn) {
+            expr.label = std::string(label);
+            return;
+        }
+        if (expr.kind != ExprKind::Block)
+            return;
+        for (auto it = expr.statements.rbegin(); it != expr.statements.rend(); ++it) {
+            if (!*it || it->value > snapshot_.statements_.size())
+                continue;
+            const auto &inner = snapshot_.statements_[it->value - 1U];
+            if (inner.kind == frontend::StmtKind::Expression && inner.expression) {
+                applyLoopLabel(inner.expression, label);
+                return;
+            }
+        }
+    }
+
     [[nodiscard]] ExprId parseFor() {
         const uint32_t start = index_++;
         Expression expression;
         expression.kind  = ExprKind::While;
         expression.scope = current_scope_;
+
+        if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier &&
+            punctuation(index_ + 1U, ':')) {
+            expression.label = std::string(text(index_));
+            index_ += 2;
+        }
 
         if (punctuation(index_, '{')) {
             // `for { ... }` desugars to `while (true) { ... }`.
@@ -2385,6 +2412,14 @@ private:
         const uint32_t start = index_++;
         snapshot_.diagnostics_.push_back(
             {tokenSpan(start), "'while' is deprecated; use 'for (cond) { }'", true});
+        Expression expression;
+        expression.kind  = ExprKind::While;
+        expression.scope = current_scope_;
+        if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier &&
+            punctuation(index_ + 1U, ':')) {
+            expression.label = std::string(text(index_));
+            index_ += 2;
+        }
         if (punctuation(index_, '('))
             ++index_;
         const ExprId condition = parseExpression();
@@ -2394,9 +2429,6 @@ private:
             snapshot_.diagnostics_.push_back(
                 {range(start, index_), "expected ')' after condition"});
 
-        Expression expression;
-        expression.kind  = ExprKind::While;
-        expression.scope = current_scope_;
         expression.operands.push_back(condition);
         if (punctuation(index_, '{'))
             expression.operands.push_back(parseBlock());
@@ -2536,6 +2568,28 @@ private:
             return {addStatement(std::move(statement))};
 
         const auto word = text(index_);
+        // Loop labels are statement attributes, so `outer: for ...` is parsed
+        // here rather than as a `name :` expression. `parseFor()` returns an
+        // outer block for 3-clause forms; its final statement is the loop.
+        if (word != "let" && word != "var" && word != "const" &&
+            snapshot_.tokens_[index_].kind == TokenKind::Identifier && index_ + 1U < token_count_ &&
+            punctuation(index_ + 1U, ':') && index_ + 2U < token_count_ &&
+            (text(index_ + 2U) == "for" || text(index_ + 2U) == "while")) {
+            const std::string loop_label = std::string(word);
+            index_ += 2U; // leave the loop keyword in place for the loop parser
+            ExprId loop_expr;
+            if (text(index_) == "for")
+                loop_expr = parseFor();
+            else
+                loop_expr = parseWhile();
+            if (loop_expr && loop_expr.value <= snapshot_.expressions_.size())
+                applyLoopLabel(loop_expr, loop_label);
+            statement.expression = loop_expr;
+            statement.span       = range(start, index_);
+            if (punctuation(index_, ';'))
+                ++index_;
+            return {addStatement(std::move(statement))};
+        }
         if (word == "let" || word == "var" || word == "const") {
             statement.kind                = StmtKind::Binding;
             statement.binding.bindingKind = bindingKind(word);
@@ -2691,9 +2745,17 @@ private:
         } else if (word == "break") {
             statement.kind = StmtKind::Break;
             ++index_;
+            if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+                statement.label = std::string(text(index_));
+                ++index_;
+            }
         } else if (word == "continue") {
             statement.kind = StmtKind::Continue;
             ++index_;
+            if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+                statement.label = std::string(text(index_));
+                ++index_;
+            }
         } else if (word == "marker" || (word == "stackful" && index_ + 1U < token_count_ &&
                                         text(index_ + 1U) == "marker")) {
             statement.kind = StmtKind::Error;

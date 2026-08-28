@@ -274,6 +274,8 @@ struct Expression {
     std::vector<ExprId> operands;
     std::vector<StmtId> statements;
     ScopeId scope;
+    /// Label on `for`/`while`/`ForIn` loops (`outer: for (...) { ... }`).
+    std::string label;
     // Used by ExprKind::StructLiteral: parallel field name per operand
     std::vector<std::string> field_names;
     // Used by ExprKind::When: parallel case condition per operand (operand[0] is

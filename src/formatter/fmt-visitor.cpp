@@ -677,10 +677,20 @@ void FmtVisitor::visitStmt(const frontend::StmtId id) {
         }
         break;
     case frontend::StmtKind::Break:
-        emit("break;");
+        emit("break");
+        if (!stmt->label.empty()) {
+            emit(" ");
+            emit(stmt->label);
+        }
+        emit(";");
         break;
     case frontend::StmtKind::Continue:
-        emit("continue;");
+        emit("continue");
+        if (!stmt->label.empty()) {
+            emit(" ");
+            emit(stmt->label);
+        }
+        emit(";");
         break;
     case frontend::StmtKind::Jump:
         emit("jump ");
@@ -834,6 +844,10 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
             emitOriginal(expr->span);
             break;
         }
+        if (!expr->label.empty()) {
+            emit(expr->label);
+            emit(": ");
+        }
         emit("while (");
         visitExpr(expr->operands[0]);
         emit(") ");
@@ -845,6 +859,10 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
         if (expr->operands.size() < 2U) {
             emitOriginal(expr->span);
             break;
+        }
+        if (!expr->label.empty()) {
+            emit(expr->label);
+            emit(": ");
         }
         emit("for (; ");
         visitExpr(expr->operands[0]);
@@ -858,6 +876,10 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
         if (expr->operands.size() < 2U) {
             emitOriginal(expr->span);
             break;
+        }
+        if (!expr->label.empty()) {
+            emit(expr->label);
+            emit(": ");
         }
         emit("for (");
         emit(expr->text);

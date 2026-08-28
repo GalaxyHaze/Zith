@@ -575,6 +575,43 @@ static void test_for_three_clause_runtime() {
     CHECK_EQ(r.exitCode, 106, "init runs before the loop and step after each iteration");
 }
 
+static void test_labeled_loop_controls_runtime() {
+    struct Case {
+        std::string control;
+        int expected;
+    };
+    // Return `100 * outer_runs + 10 * inner_hits + outer_tail` so every control
+    // target has a distinct observable count.
+    for (const auto &test_case : {
+             Case{"break;", 107},
+             Case{"break outer;", 120},
+             Case{"continue;", 137},
+             Case{"continue outer;", 104},
+         }) {
+        CodegenTest t;
+        auto r = t.run("codegen-labels.zith",
+                       "fn main(): i32 {\n"
+                       "    var outer_runs: i32 = 0;\n"
+                       "    var outer_tail: i32 = 0;\n"
+                       "    var inner_hits: i32 = 0;\n"
+                       "    outer: for (var i: i32 = 0), (i < 3), (i = i + 1) {\n"
+                       "        outer_runs = outer_runs + 1;\n"
+                       "        for (var j: i32 = 0), (j < 3), (j = j + 1) {\n"
+                       "            inner_hits = inner_hits + 1;\n"
+                       "            if (j == 1) { " +
+                           test_case.control +
+                           " }\n"
+                           "        }\n"
+                           "        outer_tail = outer_tail + 1;\n"
+                           "    }\n"
+                           "    return outer_runs * 100 + inner_hits * 10 + outer_tail;\n"
+                           "}\n");
+        CHECK(r.ok, "labeled control program compiles, links and runs");
+        CHECK_EQ(r.exitCode, test_case.expected,
+                 ("labelled control '" + test_case.control + "' gives the expected count").c_str());
+    }
+}
+
 static void test_for_in_runtime() {
     CodegenTest t;
     auto r = t.run("codegen-for-in.zith", "struct End {}\n"
@@ -2264,6 +2301,7 @@ static void test_codegen() {
     test_free_borrow_parameter_runtime();
     test_when_narrowing_runtime();
     test_for_three_clause_runtime();
+    test_labeled_loop_controls_runtime();
     test_for_in_runtime();
     test_imported_counter_runtime();
     printf("Running test_named_struct_literal_and_defaults_runtime\n");

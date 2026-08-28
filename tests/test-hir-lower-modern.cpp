@@ -466,6 +466,36 @@ void test_while_break_lowers_loop_exit() {
     }
 }
 
+void test_labeled_nested_loop_lowers() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn main(): i32 {\n"
+                                     "    outer: for (var i: i32 = 0), (i < 3), (i = i + 1) {\n"
+                                     "        inner: for (var j: i32 = 0), (j < 3), (j = j + 1) {\n"
+                                     "            if (j == 1) { continue outer; }\n"
+                                     "            if (i == 1) { break outer; }\n"
+                                     "        }\n"
+                                     "    }\n"
+                                     "    return 0;\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "modern lowering succeeds for labeled nested loops");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "labeled loop function is present in HIR");
+    if (main != nullptr) {
+        CHECK(main->blocks.size() >= 10u,
+              "two nested loops create entry, body, step, and exit blocks");
+        CHECK(countTerminatorKind(hir, *main, hir::HirExprKind::Jump) >= 6u,
+              "labeled jumps target nested loop exits/continue blocks");
+    }
+}
+
 std::vector<hir::HirSlotId> allocatedSlots(const hir::HirModule &hir, const hir::HirFunction &fn) {
     std::vector<hir::HirSlotId> slots;
     for (const auto &block : fn.blocks) {
@@ -1837,6 +1867,34 @@ void test_defer_lowers_to_cleanup_nodes() {
     }
 }
 
+void test_defer_captures_later_binding_after_slot_alloca() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "extern fn mark(x: i32)\n"
+                                     "fn main(): i32 {\n"
+                                     "    defer mark(2);\n"
+                                     "    var v: i32 = 1;\n"
+                                     "    defer mark(v);\n"
+                                     "    return 0;\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "modern defer before a later same-block binding lowers to HIR");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "later-binding defer function is present in HIR");
+    if (main != nullptr) {
+        CHECK(countInstKind(hir, *main, hir::HirExprKind::Cleanup) >= 1u,
+              "later-binding defer emits HIR cleanup");
+        CHECK(countExprKind(hir, hir::HirExprKind::SlotLoad) >= 1u,
+              "deferred body later reads a bound slot");
+    }
+}
+
 void test_state_without_return_type_lowers_to_hir() {
     Workspace workspace;
     workspace.writeFile("main.zith", "state Done() { return; }\n"
@@ -1968,6 +2026,7 @@ static void test_hir_lower_modern() {
     test_if_else_lowers_to_branch_and_merge();
     test_while_continue_lowers_loop_cfg();
     test_while_break_lowers_loop_exit();
+    test_labeled_nested_loop_lowers();
     test_same_named_parameters_use_distinct_slots();
 #ifdef ZITH_ENABLE_C_INTEROP
     test_c_pointers_lower_to_optional_pointer();
@@ -2007,6 +2066,7 @@ static void test_hir_lower_modern() {
     test_is_type_pointer_lowers_union_check_and_keeps_terminators();
     test_distinct_generic_instances_have_distinct_symbols();
     test_defer_lowers_to_cleanup_nodes();
+    test_defer_captures_later_binding_after_slot_alloca();
     test_state_without_return_type_lowers_to_hir();
     test_variadic_slice_lowers_to_hir();
     test_variadic_slice_state_lowers_to_hir();

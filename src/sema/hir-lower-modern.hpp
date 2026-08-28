@@ -46,6 +46,7 @@ private:
     struct LoopTarget {
         size_t continue_block = 0;
         size_t break_block    = 0;
+        std::string label;
         /// Number of active cleanup frames that belong to the enclosing block.
         /// Break/continue emit cleanup from this depth up, excluding function
         /// cleanup that still has to run when the function exits normally.
@@ -88,7 +89,11 @@ private:
     std::vector<CleanupFrame> cleanup_stack_;
     /// While lowering `defer { ... }`, statement instructions are collected
     /// here instead of being emitted into the current HIR block immediately.
-    memory::DynArray<hir::HirExprId> *defer_body_sink_               = nullptr;
+    memory::DynArray<hir::HirExprId> *defer_body_sink_ = nullptr;
+    /// Defer statements seen in the current lexical block. They are lowered
+    /// only after every binding in that block has emitted its slot setup, so a
+    /// deferred body can safely read a binding declared later in the block.
+    std::vector<std::vector<frontend::StmtId>> pending_defers_;
     const session::ModuleArtifact *current_module_                   = nullptr;
     const session::ModuleResolution *current_resolution_             = nullptr;
     const TypedMap *current_types_                                   = nullptr;
@@ -113,6 +118,11 @@ private:
     /// Adds the deferred expressions from `first` to the current block before
     /// its terminator. Frames run top-down; each frame runs reverse order.
     void emitCleanupFrom(size_t first);
+    /// Lowers all pending `defer` statements from the current lexical block in
+    /// source order.
+    bool flushPendingDefers();
+    /// Lowers one deferred expression/block into the current cleanup frame.
+    bool lowerDeferBody(frontend::StmtId id);
     /// Builds a HIR sequence for a `defer { ... }` body without registering the
     /// writes as ordinary expression statements.
     hir::HirExprId lowerDeferBlock(const frontend::Expression &expr);

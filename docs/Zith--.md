@@ -203,6 +203,44 @@ Strings e caracteres decodificam o conjunto de escapes estilo C (`\n`, `\r`, `\t
 útil quando o texto tem de ser preservado sem o tratamento futuro de interpolação com `#`.
 Escapes desconhecidos continuam a reportar `E0001`.
 
+## Controlo de Fluxo
+
+O `Zith--` usa condições parentizadas e palavras inglesas para os operadores
+booleanos. A negação é `not`; `not (cond)` é a forma idiomática, embora
+`not cond` continue a ser aceite. O `!` fica reservado a uma futura forma
+postfix e não é um operador unário prefixo nesta iteração.
+
+Os loops aceitam labels na forma `outer: for ...` e `outer: while ...` para
+permitir sair ou continuar a partir de loops aninhados:
+
+```zith
+fn scan(xs: []i32): i32 {
+    var total: i32 = 0;
+    outer: for (var i: i32 = 0), (i < 10), (i = i + 1) {
+        for (var j: i32 = 0), (j < 10), (j = j + 1) {
+            if (j == 3) { continue outer; }
+            if (i == 5) { break outer; }
+            total = total + xs[i * 10 + j];
+        }
+    }
+    return total;
+}
+```
+
+`break;`/`continue;` sem label referem-se ao loop mais interno. `break outer;`
+e `continue outer;` escolhem o loop com esse label ativo; labels desconhecidas
+e labels duplicadas entre loops ativos são rejeitadas. O cleanup emitido num
+exit labelado cobre todos os blocos entre o ponto atual e o alvo.
+
+`defer expr;` e `defer { ... }` registam cleanup no bloco lexical mais próximo,
+em reverse order de registo, e correm no fallthrough e em `return`, `break`,
+`continue` e `jump`. Um `defer` pode capturar bindings declarados mais tarde no
+mesmo bloco; o sema tipa o corpo adiado depois de conhecer os bindings diretos
+do bloco e o HIR emite o cleanup depois de criar os slots. Se um exit antes da
+inicialização do binding capturado puder fazer o cleanup correr sem esse valor,
+o compilador rejeita com `defer may run before captured binding '<name>' is
+initialized`.
+
 ## Tipos
 
 Os tipos atuais são mantidos: primitivos, `struct`, `union`, `enum`, `string`, genéricos, function types e as formas compostas existentes. `ptr`, `array`, `slice` e `optional` são modificadores/compostos já existentes, não uma lista excludente de tipos.
@@ -316,6 +354,8 @@ tag macro Box(content) { <content/> }
 | `const` sem inicializador | constante precisa de valor | `E2010` |
 | `let`/`var` não-triviais sem inicializador | evita valor não inicializado | `E2010` |
 | Discriminante de enum não constante | variante precisa de valor constante inteiro | `E3001` |
+| `!` prefixo | negação usa `not`; `!` fica reservado a postfix | parse error |
+| `break label;`/`continue label;` sem label ativo | alvo inexistente ou ambíguo | `E2010` |
 
 ## Não É Desta Iteração
 

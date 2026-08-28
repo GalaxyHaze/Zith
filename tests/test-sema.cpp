@@ -724,7 +724,9 @@ static void test_fallback_and_propagation_are_rejected() {
     check_unsupported_syntax(fallback_optional.run("fn main() { ?missing; }\n"));
 
     SemaTest fallback_failable;
-    check_unsupported_syntax(fallback_failable.run("fn main() { !missing; }\n"));
+    auto prefix_bang = fallback_failable.run("fn main() { !missing; }\n");
+    CHECK(!prefix_bang.ok, "prefix '!' is rejected by the parser");
+    CHECK(prefix_bang.errorCount >= 1u, "prefix '!' reports at least one parse error");
 
     SemaTest propagate_failable;
     check_unsupported_syntax(propagate_failable.run("fn main() { missing!; }\n"));
@@ -1163,6 +1165,13 @@ static void test_modern_unary_not_on_bool() {
                    "    if (not flag) { }\n"
                    "}\n");
     CHECK(r.ok, "Modern sema accepts not on a boolean");
+
+    ModernSemaTest bang_rejected;
+    auto bang = bang_rejected.run("fn main(): bool {\n"
+                                  "    var flag: bool = true;\n"
+                                  "    return !flag;\n"
+                                  "}\n");
+    CHECK(!bang.ok, "Modern sema rejects prefix '!' as a parse/unrecognized form");
 }
 
 static void test_modern_unary_invalid_type() {
@@ -3077,6 +3086,71 @@ static void test_modern_defer_statements() {
     CHECK(!rejected_jump.ok, "defer block with jump is rejected");
     CHECK(rejected_jump.hasMessage("deferred body cannot contain return, break, continue, or jump"),
           "deferred jump reports the cleanup control-flow diagnostic");
+
+    auto later_binding = t.run("extern fn mark(x: i32)\n"
+                               "fn main(): i32 {\n"
+                               "    defer mark(2);\n"
+                               "    var v: i32 = 1;\n"
+                               "    defer mark(v);\n"
+                               "    return 0;\n"
+                               "}\n",
+                               session::Stage::HirLowered);
+    CHECK(later_binding.ok, "defer may capture a binding declared later in the same block");
+
+    auto rejected_exit = ModernSemaTest{};
+    auto exit_before   = rejected_exit.run("extern fn mark(x: i32)\n"
+                                             "fn main(): i32 {\n"
+                                             "    defer mark(v);\n"
+                                             "    return 0;\n"
+                                             "    var v: i32 = 1;\n"
+                                             "}\n");
+    CHECK(!exit_before.ok,
+          "defer capture is rejected when an exit can happen before initialization");
+    CHECK(exit_before.hasMessage("defer may run before captured binding 'v' is initialized"),
+          "the rejection names the uninitialized capture");
+}
+
+static void test_modern_loop_labels() {
+    ModernSemaTest t;
+    auto ok = t.run("fn main(): i32 {\n"
+                    "    var hits: i32 = 0;\n"
+                    "    outer: for (var i: i32 = 0), (i < 5), (i = i + 1) {\n"
+                    "        for (var j: i32 = 0), (j < 5), (j = j + 1) {\n"
+                    "            if (j == 1) { continue outer; }\n"
+                    "            if (i == 1) { break outer; }\n"
+                    "            hits = hits + 1;\n"
+                    "        }\n"
+                    "    }\n"
+                    "    return hits;\n"
+                    "}\n",
+                    session::Stage::HirLowered);
+    CHECK(ok.ok, "labeled break/continue type-check and lower to HIR");
+
+    ModernSemaTest unknown;
+    auto bad = unknown.run("fn main(): i32 {\n"
+                           "    outer: for (true) {\n"
+                           "        break missing;\n"
+                           "    }\n"
+                           "    return 0;\n"
+                           "}\n",
+                           session::Stage::HirLowered);
+    CHECK(!bad.ok, "break with an unknown label is rejected");
+    CHECK(bad.hasMessage("break label 'missing' does not name an active loop"),
+          "unknown break label names the active-loop diagnostic");
+
+    ModernSemaTest duplicate;
+    auto dup = duplicate.run("fn main(): i32 {\n"
+                             "    shared: for (true) {\n"
+                             "        shared: for (true) {\n"
+                             "            break shared;\n"
+                             "        }\n"
+                             "    }\n"
+                             "    return 0;\n"
+                             "}\n",
+                             session::Stage::HirLowered);
+    CHECK(!dup.ok, "duplicate active loop labels are rejected");
+    CHECK(dup.hasMessage("duplicate loop label 'shared'"),
+          "duplicate label reports the expected diagnostic");
 }
 
 static void test_modern_state_without_return_type_is_void() {
@@ -3215,6 +3289,7 @@ static void test_sema() {
     test_modern_integer_literal_overflow_reported();
     test_modern_pointer_compared_to_integer_literal_fails();
     test_modern_loop_body_infers_locals();
+    test_modern_loop_labels();
     test_modern_for_flat_and_parenthesized_forms();
     test_modern_for_three_clause();
     test_modern_for_in_iterators();

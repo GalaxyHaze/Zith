@@ -6,9 +6,7 @@ from c/sdl/timer
 extern fn puts(s: *char): i32
 
 fn main(): i32 {
-    defer {
-        
-    }
+    defer Sdl.quit();
     Sdl.setAppMetadata("Zith SDL3", "0.1.0", "dev.zith.sdl3");
     if not Sdl.init(0x20) {
         puts(Sdl.error());
@@ -16,20 +14,19 @@ fn main(): i32 {
     }
 
     var window = Window.create("Zith SDL3", 800, 600, 0x20);
+    defer window.destroy();
     if (window is null) {
-        Sdl.quit();
         return 2;
     }
 
     var renderer = window.createRenderer("software");
+    defer renderer.destroy();
     if (renderer is null) {
-        window.destroy();
-        Sdl.quit();
         return 3;
     }
 
     for (var quit = false), (not quit) {
-        
+
         for (var event = defaultEvent()), (poll(&event)) {
             if (wantsClose(event)) {
                 quit = true;
@@ -47,8 +44,5 @@ fn main(): i32 {
         }
     }
 
-    renderer.destroy();
-    window.destroy();
-    Sdl.quit();
     return 0;
 }

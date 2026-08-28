@@ -110,9 +110,11 @@ static void test_formatter_normalizes_simple_import() {
 
 static void test_formatter_break_continue() {
     const std::string source = "fn search(): i32 {\n"
-                               "    while (true) {\n"
+                               "    outer: while (true) {\n"
                                "        break;\n"
                                "        continue;\n"
+                               "        break outer;\n"
+                               "        continue outer;\n"
                                "    }\n"
                                "    return 0;\n"
                                "}\n";
@@ -124,6 +126,10 @@ static void test_formatter_break_continue() {
 
     CHECK(output.find("break;\n") != std::string::npos, "keeps break statement");
     CHECK(output.find("continue;\n") != std::string::npos, "keeps continue statement");
+    CHECK(output.find("outer: while (true) {\n") != std::string::npos,
+          "keeps labeled loop prefix in formatted output");
+    CHECK(output.find("break outer;\n") != std::string::npos, "keeps labeled break");
+    CHECK(output.find("continue outer;\n") != std::string::npos, "keeps labeled continue");
 }
 
 static void test_formatter_empty_file_produces_newline() {

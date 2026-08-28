@@ -46,7 +46,7 @@ hir::HirBinaryOp mapBinaryOp(std::string_view text) noexcept {
 hir::HirUnaryOp mapUnaryOp(std::string_view text) noexcept {
     if (text == "-")
         return hir::HirUnaryOp::Neg;
-    if (text == "!" || text == "not")
+    if (text == "not")
         return hir::HirUnaryOp::Not;
     if (text == "&")
         return hir::HirUnaryOp::Ref;

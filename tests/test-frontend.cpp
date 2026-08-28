@@ -367,6 +367,52 @@ static void test_for_loop_forms() {
     CHECK(found_for_in, "the iterator form lowers to a ForIn expression");
 }
 
+static void test_loop_labels_and_not_negation() {
+    auto conditional = frontend::parse("fn run(n: i32): i32 {\n"
+                                       "    outer: for (n > 0) {\n"
+                                       "        break outer;\n"
+                                       "        continue outer;\n"
+                                       "    }\n"
+                                       "    return n;\n"
+                                       "}\n");
+    CHECK(conditional.diagnostics().empty(),
+          "labeled conditional 'for' parses without diagnostics");
+    bool labeled_while = false;
+    bool labeled_break = false;
+    bool labeled_cont  = false;
+    for (const auto &expression : conditional.expressions()) {
+        if (expression.kind == frontend::ExprKind::While && expression.label == "outer")
+            labeled_while = true;
+    }
+    for (const auto &statement : conditional.statements()) {
+        labeled_break |= statement.kind == frontend::StmtKind::Break && statement.label == "outer";
+        labeled_cont |=
+            statement.kind == frontend::StmtKind::Continue && statement.label == "outer";
+    }
+    CHECK(labeled_while, "label is stored on the loop expression");
+    CHECK(labeled_break, "labeled break keeps its label");
+    CHECK(labeled_cont, "labeled continue keeps its label");
+
+    auto three_clause = frontend::parse("fn run(): i32 {\n"
+                                        "    outer: for (var i: i32 = 0), (i < 3), (i = i + 1) {\n"
+                                        "        continue outer;\n"
+                                        "    }\n"
+                                        "    return 0;\n"
+                                        "}\n");
+    CHECK(three_clause.diagnostics().empty(), "labeled 3-clause 'for' parses without diagnostics");
+    bool labeled_for = false;
+    for (const auto &expression : three_clause.expressions()) {
+        if (expression.kind == frontend::ExprKind::For && expression.label == "outer")
+            labeled_for = true;
+    }
+    CHECK(labeled_for, "3-clause loop label is applied to the For expression");
+
+    auto not_bang = frontend::parse("fn negate(b: bool): bool {\n"
+                                    "    return !b;\n"
+                                    "}\n");
+    CHECK(!not_bang.diagnostics().empty(), "prefix '!' is not accepted as a unary operator");
+}
+
 static void test_structured_imports() {
     auto snapshot = frontend::parse("from ../lib/utils(3) { render as draw, log } as utilities\n"
                                     "from assets/data.json as Data\n"
@@ -1067,6 +1113,7 @@ static void test_frontend() {
     test_is_null_expression();
     test_is_type_expression();
     test_for_loop_forms();
+    test_loop_labels_and_not_negation();
     test_structured_imports();
     test_c_header_import_syntax();
     test_variable_declarations();

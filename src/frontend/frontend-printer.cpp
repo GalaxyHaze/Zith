@@ -194,10 +194,16 @@ void printExpression(ExprId id, const std::vector<Expression> &expressions,
             std::fputs("Defer", stdout);
             break;
         case StmtKind::Break:
-            std::fputs("Break", stdout);
+            if (stmt.label.empty())
+                std::fputs("Break", stdout);
+            else
+                std::printf("Break '%s'", stmt.label.c_str());
             break;
         case StmtKind::Continue:
-            std::fputs("Continue", stdout);
+            if (stmt.label.empty())
+                std::fputs("Continue", stdout);
+            else
+                std::printf("Continue '%s'", stmt.label.c_str());
             break;
         case StmtKind::Jump:
             std::printf("Jump '%s' args=%zu", stmt.label.c_str(), stmt.arguments.size());
