@@ -20,7 +20,7 @@ static void test_lossless_trivia_and_spans() {
 }
 
 static void test_keywords_and_module_ast() {
-    for (const std::string_view word : {"fn", "from", "struct", "pub", "return"}) {
+    for (const std::string_view word : {"fn", "from", "struct", "pub", "return", "opaque"}) {
         auto snapshot = frontend::parse(std::string(word));
         CHECK_EQ(snapshot.tokens().size(), 2u, "keyword produces one token plus EOF");
         CHECK_EQ(snapshot.tokens()[0].kind, frontend::TokenKind::Keyword,
@@ -40,6 +40,35 @@ static void test_keywords_and_module_ast() {
              "import is lowered from CST");
     CHECK_EQ(module.declarations()[1].import.path[0], std::string("dep"),
              "import path is preserved");
+}
+
+static void test_bare_opaque_type_expression() {
+    auto snapshot = frontend::parse("fn erased(value: i32): opaque {\n"
+                                    "    return value as opaque;\n"
+                                    "}\n");
+    CHECK(snapshot.diagnostics().empty(), "bare 'opaque' type expressions parse cleanly");
+
+    const frontend::TypeExpression *tagged_type = nullptr;
+    for (const auto &type : snapshot.typeExpressions()) {
+        if (type.kind == frontend::TypeExprKind::OpaqueTagged)
+            tagged_type = &type;
+    }
+    CHECK(tagged_type != nullptr, "bare 'opaque' lowers to TypeExprKind::OpaqueTagged");
+    if (tagged_type != nullptr)
+        CHECK_EQ(frontend::canonicalTypeString(snapshot, tagged_type->id), std::string("opaque"),
+                 "canonical rendering keeps bare 'opaque'");
+
+    auto raw_snapshot = frontend::parse("fn thru(p: raw opaque): *i32 { return p as *i32; }\n");
+    CHECK(raw_snapshot.diagnostics().empty(), "'raw opaque' still parses cleanly");
+    const frontend::TypeExpression *raw_type = nullptr;
+    for (const auto &type : raw_snapshot.typeExpressions()) {
+        if (type.kind == frontend::TypeExprKind::Opaque)
+            raw_type = &type;
+    }
+    CHECK(raw_type != nullptr, "'raw opaque' lowers to TypeExprKind::Opaque");
+    if (raw_type != nullptr)
+        CHECK_EQ(frontend::canonicalTypeString(raw_snapshot, raw_type->id),
+                 std::string("raw opaque"), "canonical rendering keeps 'raw opaque'");
 }
 
 static void test_recovery_creates_error_nodes() {
@@ -974,9 +1003,58 @@ static void test_struct_field_visibility_parses() {
     CHECK_EQ(decl->parameters[5].modDepth, 0, "grouped fields default to no module depth");
 }
 
+static void test_external_symbol_aliases() {
+    auto snapshot =
+        frontend::parse("struct Window {}\n"
+                        "fn destroy(self: lend Window): void = extern SDL_DestroyWindow;\n"
+                        "implement Window {\n"
+                        "    fn createRenderer(self): ?*Renderer = extern SDL_CreateRenderer;\n"
+                        "}\n");
+    CHECK(snapshot.diagnostics().empty(),
+          "external symbol aliases parse at top level and in implement blocks");
+    if (snapshot.diagnostics().empty()) {
+        const frontend::Declaration *destroy = nullptr;
+        const frontend::Declaration *create  = nullptr;
+        for (const auto &decl : snapshot.declarations()) {
+            if (decl.kind != frontend::DeclKind::Function)
+                continue;
+            if (decl.name == "destroy")
+                destroy = &decl;
+            else if (decl.name == "createRenderer")
+                create = &decl;
+        }
+        CHECK(destroy != nullptr, "top-level external alias declaration is present");
+        if (destroy != nullptr) {
+            CHECK_EQ(destroy->externalSymbol, std::string("SDL_DestroyWindow"),
+                     "top-level alias records the C symbol");
+            CHECK(!destroy->body, "external alias has no body");
+            CHECK(!destroy->isExtern, "external alias keeps Zith function semantics");
+        }
+        CHECK(create != nullptr, "implement-block external alias is present");
+        if (create != nullptr)
+            CHECK_EQ(create->externalSymbol, std::string("SDL_CreateRenderer"),
+                     "implement-block alias records the C symbol");
+    }
+
+    auto missing = frontend::parse("fn bad(): i32 = extern;\n");
+    CHECK(!missing.diagnostics().empty(), "external alias without a C identifier is rejected");
+    bool has_missing = false;
+    for (const auto &diag : missing.diagnostics())
+        has_missing |= diag.message.find("requires an identifier") != std::string::npos;
+    CHECK(has_missing, "missing identifier diagnostic is specific");
+
+    auto trait_alias = frontend::parse("trait T { fn run(self) = extern doRun; }\n"
+                                       "interface I { fn run(self) = extern doRun; }\n"
+                                       "const fn bad(): i32 = extern badC;\n"
+                                       "state S(): i32 = extern badState;\n");
+    CHECK(!trait_alias.diagnostics().empty(),
+          "external aliases are rejected in trait/interface/const/state");
+}
+
 static void test_frontend() {
     test_lossless_trivia_and_spans();
     test_keywords_and_module_ast();
+    test_bare_opaque_type_expression();
     test_recovery_creates_error_nodes();
     test_function_body_ast();
     test_control_flow_and_scopes();
@@ -1014,6 +1092,7 @@ static void test_frontend() {
     test_defer_statement_syntax();
     test_state_without_return_type_parses();
     test_struct_field_visibility_parses();
+    test_external_symbol_aliases();
 }
 
 TEST_MAIN(frontend)

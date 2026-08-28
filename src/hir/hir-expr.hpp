@@ -48,6 +48,9 @@ enum class HirExprKind : uint8_t {
     GlobalConstLoad,
     MakeDyn,
     DynCall,
+    MakeOpaque,
+    OpaqueCast,
+    OpaqueCheck,
 };
 
 enum class HirBinaryOp : uint8_t {
@@ -347,13 +350,47 @@ struct HirDynCall {
     explicit HirDynCall(memory::Arena &arena) : args(arena), arg_types(arena) {}
 };
 
+/// Materialises a bare `opaque` value `{ *void, typeId }` from a concrete
+/// value. The concrete value is spilled to a temporary so the data pointer is
+/// stable for the lifetime of the erased view.
+struct HirMakeOpaque {
+    HirExprId value       = hir::kInvalidHirExpr;
+    HirTypeId source_type = types::kInvalidType;
+    HirTypeId opaque_type = types::kInvalidType;
+    uint32_t type_id      = 0;
+    HirExprKind tag       = HirExprKind::MakeOpaque;
+};
+
+/// Checked (or raw reinterpreting) extraction of a concrete value from a bare
+/// `opaque`. When `checked`, codegen compares the stored type id and emits
+/// `?T` (`Some(T)` / `None`); raw extraction ignores the tag and emits `T`.
+struct HirOpaqueCast {
+    HirExprId value       = hir::kInvalidHirExpr;
+    HirTypeId from        = types::kInvalidType;
+    HirTypeId to          = types::kInvalidType;
+    HirTypeId opaque_type = types::kInvalidType;
+    HirTypeId result_type = types::kInvalidType; // checked: `?to`, raw: `to`
+    uint32_t type_id      = 0;
+    bool checked          = false;
+    HirExprKind tag       = HirExprKind::OpaqueCast;
+};
+
+/// Tag check for `opaque is T`: compares the stored type id with the requested
+/// concrete type's module-local id.
+struct HirOpaqueCheck {
+    HirExprId value       = hir::kInvalidHirExpr;
+    HirTypeId opaque_type = types::kInvalidType;
+    uint32_t type_id      = 0;
+    HirExprKind tag       = HirExprKind::OpaqueCheck;
+};
+
 using HirExpr =
     std::variant<HirLiteral, HirBinary, HirUnary, HirLet, HirVar, HirCall, HirRet, HirBranch,
                  HirJump, HirPhi, HirAssign, HirIndex, HirField, HirStructLiteral, HirArrayLiteral,
                  HirEnumValue, HirSlotAlloca, HirSlotStore, HirSlotLoad, HirSlotAddr, HirMakeNone,
                  HirMakeSome, HirMakeSlice, HirCast, HirUnionCast, HirUnionCheck,
                  HirLayoutIntrinsic, HirStateTailCall, HirCleanup, HirGlobalConstLoad, HirMakeDyn,
-                 HirDynCall>;
+                 HirDynCall, HirMakeOpaque, HirOpaqueCast, HirOpaqueCheck>;
 
 inline HirExprKind exprKind(const HirExpr &expr) {
     return std::visit([](const auto &entry) { return entry.tag; }, expr);

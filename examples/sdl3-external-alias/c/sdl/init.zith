@@ -1,0 +1,9 @@
+pub struct Sdl {}
+
+implement Sdl {
+    pub fn init(flags: u32): bool = extern SDL_Init;
+    pub fn quit(): void = extern SDL_Quit;
+    pub fn error(): *char = extern SDL_GetError;
+    pub fn setAppMetadata(app: *char, version: *char, identifier: *char): bool =
+        extern SDL_SetAppMetadata;
+}

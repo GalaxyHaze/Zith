@@ -197,6 +197,8 @@ enum class StmtKind : uint8_t {
 
 /// `Opaque` is the parsed form of `raw opaque`, the C-interop spelling of an
 /// untyped pointer. It lowers to pointer-to-void; a literal `*void` stays rejected.
+/// `OpaqueTagged` is the parsed form of bare `opaque`: a tagged open union
+/// carrying `{ *void, u32 }` and a module-local concrete type id.
 enum class TypeExprKind : uint8_t {
     Error,
     Name,
@@ -206,6 +208,7 @@ enum class TypeExprKind : uint8_t {
     Function,
     Slice,
     Opaque,
+    OpaqueTagged,
     Pack,
     Dyn
 };
@@ -393,6 +396,13 @@ struct Declaration {
     /// True when declared with `extern fn`: the C ABI fixes its linkage name, so it
     /// is never name-qualified and never participates in overloading.
     bool isExtern = false;
+    /// Non-empty when the Zith declaration has no body and links to a C symbol
+    /// written after `= extern <identifier>`. The source name stays a normal
+    /// Zith name (module/overload/method semantics preserved); HIR codegen uses
+    /// this value as the C linker name.
+    std::string externalSymbol;
+    /// Source span of `externalSymbol`, used for parser diagnostics.
+    TextSpan externalSymbolSpan;
     /// True when the declaration ends its parameter list with `...` (`extern fn` only).
     bool isVariadic = false;
     /// True for `type Name = T`; the declaration creates a nominal wrapper.

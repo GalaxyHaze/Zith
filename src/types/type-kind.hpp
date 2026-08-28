@@ -107,6 +107,9 @@ struct TypeDyn {
     size_t method_count = 0;
 };
 struct TypeOpaque {};
+/// Bare `opaque`: a tagged open union stored as `{ *void, u32 }` plus a
+/// module-local concrete type id.
+struct TypeOpaqueTagged {};
 struct TypeUnknown {};
 struct TypeQualified {
     TypeId inner;
@@ -144,8 +147,9 @@ struct TypeIncomplete {
 using TypeData =
     std::variant<TypeError, TypeNever, TypeVoid, TypeBool, TypeChar, TypeInt, TypeFloat, TypePtr,
                  TypeArray, TypeStruct, TypeFn, TypeTypeVar, TypeOptional, TypeFailable, TypeAlias,
-                 TypeNominal, TypeTrait, TypeDyn, TypeOpaque, TypeUnknown, TypeQualified, TypeSlice,
-                 TypeEnum, TypeUnion, TypePack, TypeSum, TypeGenericParam, TypeIncomplete>;
+                 TypeNominal, TypeTrait, TypeDyn, TypeOpaque, TypeOpaqueTagged, TypeUnknown,
+                 TypeQualified, TypeSlice, TypeEnum, TypeUnion, TypePack, TypeSum, TypeGenericParam,
+                 TypeIncomplete>;
 
 enum class TypeKind : uint8_t {
     Error,
@@ -164,6 +168,9 @@ enum class TypeKind : uint8_t {
     Optional,
     Failable,
     Opaque,
+    /// Bare `opaque`: a tagged open union stored as `{ *void, u32 }` plus a
+    /// module-local concrete type id.
+    OpaqueTagged,
     Unknown,
     Slice,
     Enum,

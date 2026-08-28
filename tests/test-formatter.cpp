@@ -398,6 +398,21 @@ static void test_formatter_raw_opaque_round_trip() {
     CHECK(reparsed.diagnostics().empty(), "formatted 'raw opaque' re-parses cleanly");
 }
 
+static void test_formatter_bare_opaque_round_trip() {
+    const std::string source = "fn erased(value: i32): opaque {\n"
+                               "    return value as opaque;\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    CHECK(snapshot.diagnostics().empty(), "bare 'opaque' source parses cleanly");
+
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+    CHECK_EQ(formatter.result(), source, "'opaque' round-trips through fmt");
+
+    auto reparsed = frontend::parse(formatter.result());
+    CHECK(reparsed.diagnostics().empty(), "formatted bare 'opaque' re-parses cleanly");
+}
+
 static void test_formatter_defer_round_trip() {
     const std::string source = "fn main(){\n"
                                "    defer release();\n"
@@ -442,6 +457,7 @@ static void test_formatter() {
     test_formatter_compound_assign_round_trip();
     test_formatter_bitwise_operator_round_trip();
     test_formatter_raw_opaque_round_trip();
+    test_formatter_bare_opaque_round_trip();
     test_compilation_session_fmt_uses_frontend_snapshot();
     test_formatter_defer_round_trip();
 }

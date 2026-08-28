@@ -49,8 +49,8 @@ bool decodeEscapes(std::string_view text, std::string &output) {
         case '\\':
             output.push_back('\\');
             break;
-        case '$':
-            output.push_back('$');
+        case '#':
+            output.push_back('#');
             break;
         case '\'':
             output.push_back('\'');
@@ -149,8 +149,9 @@ bool HirLowerModern::predeclareGlobalConsts() {
             continue;
 
         for (const auto &edge : snapshot_.importGraph()) {
-            if (edge.importer != module.key || edge.targetKind != session::ImportTargetKind::CHeader ||
-                edge.cHeader == nullptr || !edge.error.empty())
+            if (edge.importer != module.key ||
+                edge.targetKind != session::ImportTargetKind::CHeader || edge.cHeader == nullptr ||
+                !edge.error.empty())
                 continue;
             const auto name_space = moduleNamespace(module.key, snapshot_.cacheKey());
             for (const auto &constant : edge.cHeader->constants) {
@@ -187,10 +188,10 @@ bool HirLowerModern::predeclareGlobalConsts() {
                 switch (constant.kind) {
                 case cinterop::ConstantKind::Integer:
                 case cinterop::ConstantKind::Char:
-                    literal.i = static_cast<int64_t>(
-                        constant.kind == cinterop::ConstantKind::Char
-                            ? static_cast<unsigned char>(constant.charValue)
-                            : constant.integerValue);
+                    literal.i =
+                        static_cast<int64_t>(constant.kind == cinterop::ConstantKind::Char
+                                                 ? static_cast<unsigned char>(constant.charValue)
+                                                 : constant.integerValue);
                     break;
                 case cinterop::ConstantKind::Float:
                     literal.f = constant.floatValue;
@@ -254,22 +255,25 @@ bool HirLowerModern::predeclareFunctions() {
 
             // Linkage name: `<namespace>.<Owner>.<name>(<param types>)`.  `extern fn`
             // (fixed C ABI) and `main` (needed verbatim by the linker) keep the
-            // source name; everything else is qualified so overloads and
-            // same-named functions in different modules get distinct symbols.
-            std::string fn_name = decl.name;
+            // source name; `= extern <symbol>` aliases to the C linker symbol;
+            // everything else is qualified so overloads and same-named
+            // functions in different modules get distinct symbols.
+            std::string fn_name = decl.externalSymbol.empty() ? decl.name : decl.externalSymbol;
             if (!decl.isExtern && decl.name != "main") {
-                const auto name_space = moduleNamespace(module.key, snapshot_.cacheKey());
-                std::string qualified;
-                if (!name_space.empty())
-                    qualified = name_space + ".";
-                if (!decl.ownerName.empty())
-                    qualified += decl.ownerName + ".";
-                if (!decl.parentName.empty())
-                    qualified += decl.parentName + "$local.";
-                qualified += decl.name;
-                qualified += frontend::functionSignature(*module.frontend, decl);
-                fn_name = std::move(qualified);
-            } else if (!decl.ownerName.empty()) {
+                if (decl.externalSymbol.empty()) {
+                    const auto name_space = moduleNamespace(module.key, snapshot_.cacheKey());
+                    std::string qualified;
+                    if (!name_space.empty())
+                        qualified = name_space + ".";
+                    if (!decl.ownerName.empty())
+                        qualified += decl.ownerName + ".";
+                    if (!decl.parentName.empty())
+                        qualified += decl.parentName + "$local.";
+                    qualified += decl.name;
+                    qualified += frontend::functionSignature(*module.frontend, decl);
+                    fn_name = std::move(qualified);
+                }
+            } else if (!decl.ownerName.empty() && decl.externalSymbol.empty()) {
                 fn_name = decl.ownerName + "." + fn_name;
             }
 
@@ -664,7 +668,9 @@ void HirLowerModern::predeclareInstantiation(session::ModuleKey module_key,
     if (module_sema == nullptr || decl == nullptr)
         return;
 
-    auto &hir_fn      = hir_.addFn(interner_.intern(instance.mangled));
+    const bool has_external_symbol = !decl->externalSymbol.empty();
+    auto &hir_fn =
+        hir_.addFn(interner_.intern(has_external_symbol ? decl->externalSymbol : instance.mangled));
     hir_fn.sym_id     = static_cast<symbols::SymId>(functions_.size() + next_sym_id_);
     hir_fn.decl_id    = static_cast<ast::DeclId>(decl->id.value);
     hir_fn.fnSpan     = memory::Span{0, decl->span.start, decl->span.end};
@@ -1020,6 +1026,10 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
         const auto *dyn = sema_.typeTable().dyn_type(type);
         lowered = dyn != nullptr ? types_.internDyn(lowerType(dyn->target), dyn->method_count)
                                  : types::kErrorType;
+        break;
+    }
+    case TypeKind::Opaque: {
+        lowered = types_.internOpaqueTagged();
         break;
     }
     case TypeKind::Alias: {
@@ -2794,6 +2804,29 @@ hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,
     const auto from = typeOfExpr(expr.operands[0]);
     if (from == type)
         return value;
+    const bool from_opaque = types_.kindOf(from) == types::TypeKind::OpaqueTagged;
+    const bool to_opaque   = types_.kindOf(type) == types::TypeKind::OpaqueTagged;
+
+    // Bare `opaque` is handled before nominal/union casts: `T as opaque` must
+    // erase the whole value, not treat a one-field aggregate as a wrapper.
+    if (to_opaque) {
+        if (current_module_ == nullptr || current_module_->key != snapshot_.rootModuleKey()) {
+            diags_.report(diagnostics::Severity::Error, diagnostics::err::UnsupportedSyntax,
+                          "bare 'opaque' type ids are module-local; imported or cached "
+                          "'opaque' values are not supported in this version",
+                          current_module_ != nullptr ? memory::Span{current_module_->fileId,
+                                                                    expr.span.start, expr.span.end}
+                                                     : memory::Span{});
+            return hir::kInvalidHirExpr;
+        }
+        hir::HirMakeOpaque make;
+        make.value       = value;
+        make.source_type = from;
+        make.opaque_type = type;
+        make.type_id     = stableConcreteTypeId(from);
+        return addExpr(std::move(make));
+    }
+
     // Nominal casts (`T as Nominal` / `Nominal as T`) are lowered as the
     // one-field wrapper's literal/extraction, not as numeric conversions.
     if (types_.kindOf(type) == types::TypeKind::Struct && from != type) {
@@ -2810,6 +2843,90 @@ hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,
         if (wrapper_count == 1U)
             return addExpr(hir::HirField{value, 0U, type, from});
     }
+
+    // `opaque as T` lowers to a checked optional extraction. The HIR cast keeps
+    // the type id so codegen can branch on it and emit Some/None payloads.
+    if (from_opaque && !to_opaque) {
+        if (current_module_ == nullptr || current_module_->key != snapshot_.rootModuleKey()) {
+            diags_.report(diagnostics::Severity::Error, diagnostics::err::UnsupportedSyntax,
+                          "bare 'opaque' type ids are module-local; imported or cached "
+                          "'opaque' values are not supported in this version",
+                          current_module_ != nullptr ? memory::Span{current_module_->fileId,
+                                                                    expr.span.start, expr.span.end}
+                                                     : memory::Span{});
+            return hir::kInvalidHirExpr;
+        }
+        if (expr.is_raw) {
+            hir::HirOpaqueCast cast;
+            cast.value       = value;
+            cast.from        = from;
+            cast.to          = type;
+            cast.checked     = false;
+            cast.type_id     = stableConcreteTypeId(type);
+            cast.opaque_type = from;
+            cast.result_type = type;
+            return addExpr(std::move(cast));
+        }
+
+        // Sema reports the checked extraction as `?T`, where `T` is the cast
+        // target written by the user. The opaque tag was recorded for the
+        // concrete payload type, so unwrap the optional here instead of hashing
+        // the optional TypeId.
+        const auto *optional_result = std::get_if<types::TypeOptional>(&types_.lookup(type));
+        const auto payload_type     = optional_result != nullptr ? optional_result->inner : type;
+        const auto result_type      = types_.internOptional(payload_type);
+        const auto value_slot       = next_slot_++;
+        const auto result_slot      = next_slot_++;
+        current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(value_slot, from));
+        current_fn_->blocks[current_block_].insts.push(emitSlotStore(value_slot, value));
+        current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(result_slot, result_type));
+
+        hir::HirOpaqueCheck check;
+        check.value         = emitSlotLoad(value_slot, from);
+        check.opaque_type   = from;
+        check.type_id       = stableConcreteTypeId(payload_type);
+        const auto check_id = addExpr(std::move(check));
+
+        const auto some_block  = newBlock();
+        const auto none_block  = newBlock();
+        const auto merge_block = newBlock();
+        hir::HirBranch branch;
+        branch.cond       = check_id;
+        branch.then_block = static_cast<hir::HirDeclId>(some_block);
+        branch.else_block = static_cast<hir::HirDeclId>(none_block);
+        setTerminator(addExpr(std::move(branch)));
+
+        setCurrentBlock(some_block);
+        current_fn_->blocks[some_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+        hir::HirOpaqueCast cast;
+        cast.value         = emitSlotLoad(value_slot, from);
+        cast.from          = from;
+        cast.to            = payload_type;
+        cast.checked       = false;
+        cast.type_id       = stableConcreteTypeId(payload_type);
+        cast.opaque_type   = from;
+        cast.result_type   = payload_type;
+        const auto payload = addExpr(std::move(cast));
+        hir::HirMakeSome some;
+        some.type  = result_type;
+        some.value = payload;
+        current_fn_->blocks[some_block].insts.push(
+            emitSlotStore(result_slot, addExpr(std::move(some))));
+        emitJump(merge_block);
+
+        setCurrentBlock(none_block);
+        current_fn_->blocks[none_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+        hir::HirMakeNone none;
+        none.type = result_type;
+        current_fn_->blocks[none_block].insts.push(
+            emitSlotStore(result_slot, addExpr(std::move(none))));
+        emitJump(merge_block);
+
+        setCurrentBlock(merge_block);
+        current_fn_->blocks[merge_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+        return emitSlotLoad(result_slot, result_type);
+    }
+
     if (types_.kindOf(from) == types::TypeKind::Union &&
         types_.kindOf(type) != types::TypeKind::Union) {
         const auto *union_type = std::get_if<types::TypeUnion>(&types_.lookup(from));
@@ -2828,7 +2945,26 @@ hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,
     if (types_.kindOf(from) == types::TypeKind::Union ||
         types_.kindOf(type) == types::TypeKind::Union)
         return addExpr(hir::HirUnionCast{value, from, type});
+
     return addExpr(hir::HirCast{value, from, type});
+}
+
+uint32_t HirLowerModern::stableConcreteTypeId(types::TypeId type) const {
+    std::string text =
+        moduleNamespace(current_module_ != nullptr ? current_module_->key : std::string_view{},
+                        snapshot_.cacheKey());
+    text += ":";
+    text += std::to_string(type);
+
+    uint32_t hash = 2166136261U;
+    for (const char raw : text) {
+        const auto byte = static_cast<unsigned char>(raw);
+        hash ^= byte;
+        hash *= 16777619U;
+    }
+    // Keep the zero tag unused so a missing/error type never looks like a valid
+    // concrete tag in codegen.
+    return hash == 0U ? 1U : hash;
 }
 
 /// `x is null` lowers to a tag/pointer comparison; no dedicated HIR node is needed.
@@ -2870,6 +3006,17 @@ hir::HirExprId HirLowerModern::lowerIsType(const frontend::Expression &expr) {
     if (operand == hir::kInvalidHirExpr)
         return hir::kInvalidHirExpr;
     const auto operand_type = typeOfExpr(expr.operands[0]);
+    if (types_.kindOf(operand_type) == types::TypeKind::OpaqueTagged) {
+        const auto target =
+            lowerType(sema_.typeTable().lowerTypeExpr(*current_module_->frontend, expr.cast_type));
+        if (target == types::kErrorType || target == types::kInvalidType)
+            return hir::kInvalidHirExpr;
+        hir::HirOpaqueCheck check;
+        check.value       = operand;
+        check.opaque_type = operand_type;
+        check.type_id     = stableConcreteTypeId(target);
+        return addExpr(std::move(check));
+    }
     if (types_.kindOf(operand_type) != types::TypeKind::Union)
         return hir::kInvalidHirExpr;
     const auto *union_type = std::get_if<types::TypeUnion>(&types_.lookup(operand_type));

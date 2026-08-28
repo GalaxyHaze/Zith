@@ -1,0 +1,54 @@
+from c/sdl/init
+from c/sdl/video
+from c/sdl/events
+from c/sdl/timer
+
+extern fn puts(s: *char): i32
+
+fn main(): i32 {
+    defer {
+        
+    }
+    Sdl.setAppMetadata("Zith SDL3", "0.1.0", "dev.zith.sdl3");
+    if not Sdl.init(0x20) {
+        puts(Sdl.error());
+        return 1;
+    }
+
+    var window = Window.create("Zith SDL3", 800, 600, 0x20);
+    if (window is null) {
+        Sdl.quit();
+        return 2;
+    }
+
+    var renderer = window.createRenderer("software");
+    if (renderer is null) {
+        window.destroy();
+        Sdl.quit();
+        return 3;
+    }
+
+    for (var quit = false), (not quit) {
+        
+        for (var event = defaultEvent()), (poll(&event)) {
+            if (wantsClose(event)) {
+                quit = true;
+            }
+        }
+
+        if (not quit) {
+            var rect: FRect = FRect { x: 250f32, y: 200f32, w: 300f32, h: 200f32 };
+            renderer.setDrawColor(30, 80u8, 46u8, 255u8);
+            renderer.clear();
+            renderer.setDrawColor(220u8, 40u8, 40u8, 255u8);
+            renderer.fillRect(&rect);
+            renderer.present();
+            delay(16u32);
+        }
+    }
+
+    renderer.destroy();
+    window.destroy();
+    Sdl.quit();
+    return 0;
+}

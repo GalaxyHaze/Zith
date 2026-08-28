@@ -317,6 +317,55 @@ static void test_raw_opaque_round_trip_runtime() {
     CHECK_EQ(r.exitCode, 42, "'raw opaque' round-trip preserves the pointed-to value");
 }
 
+static void test_bare_opaque_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "struct Box { value: i32 }\n"
+                         "implement Box {\n"
+                         "    fn get(self: view Box): i32 { self.value }\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    var v: i32 = 41;\n"
+                         "    let h: opaque = v as opaque;\n"
+                         "    if (not (h is i32)) { return 1; }\n"
+                         "    if (h is f64) { return 2; }\n"
+                         "    let got: ?i32 = h as i32;\n"
+                         "    if (got is null) { return 3; }\n"
+                         "    var boxed: Box = Box { value: 42 };\n"
+                         "    let b: opaque = boxed as opaque;\n"
+                         "    let got_box: ?Box = b as Box;\n"
+                         "    if (got_box is null) { return 4; }\n"
+                         "    got_box.get()\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "bare opaque uses the modern codegen pipeline");
+    CHECK(r.ok, "bare opaque erase/check/extract compiles, links and runs");
+    printf("EXIT CODE: %d\n", r.exitCode);
+    CHECK_EQ(r.exitCode, 42,
+             "extracting the original concrete value from bare opaque returns its payload");
+}
+
+static void test_bare_opaque_raw_and_mismatch_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "struct Box { value: i32 }\n"
+                         "fn main(): i32 {\n"
+                         "    var v: i32 = 41;\n"
+                         "    let h: opaque = v as opaque;\n"
+                         "    let raw_value: i32 = raw h as i32;\n"
+                         "    if (raw_value != 41) { return 1; }\n"
+                         "    let mismatch: ?f64 = h as f64;\n"
+                         "    if (mismatch is null) { return 2; }\n"
+                         "    let record_check: ?Box = h as Box;\n"
+                         "    if (record_check is null) { return 3; }\n"
+                         "    return 0;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "bare opaque mismatch path uses the modern codegen pipeline");
+    CHECK(r.ok, "raw opaque extraction and checked mismatch compile, link and run");
+    CHECK_EQ(r.exitCode, 2, "checked extraction of a mismatched type returns null");
+}
+
 static void test_struct_fields_and_parameter() {
     CodegenTest t;
     auto r = t.run("codegen-struct-fields.zith",
@@ -1755,6 +1804,128 @@ static void test_extern_variadic_call_runs() {
           "LLVM IR declares printf as variadic");
 }
 
+static void test_external_symbol_alias_runtime() {
+    ModernFileCodegenTest t;
+    const auto c_path   = (t.root / "external-alias.c").string();
+    const auto lib_path = (t.root / "libzith_external_alias.a").string();
+    const auto obj_path = (t.root / "external-alias.o").string();
+    {
+        std::ofstream c_source(c_path, std::ios::binary | std::ios::trunc);
+        c_source << "int zith_test_external_increment(int *p) { return ++(*p); }\n";
+    }
+    const auto compile = "cc -c " + c_path + " -o " + obj_path + " 2>/dev/null";
+    const auto archive = "ar rcs " + lib_path + " " + obj_path + " 2>/dev/null";
+    if (std::system(compile.c_str()) != 0 || std::system(archive.c_str()) != 0) {
+        std::printf("  SKIP: no C toolchain for the external symbol alias runtime test\n");
+        return;
+    }
+
+    t.opts.libraryDirs.push(t.root.string());
+    t.opts.libraries.push("zith_external_alias");
+    t.write("main.zith", "fn c_increment(p: *i32): i32 = extern zith_test_external_increment;\n"
+                         "fn main(): i32 {\n"
+                         "    var value: i32 = 41;\n"
+                         "    c_increment(&value);\n"
+                         "    return value;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "external symbol alias uses the modern codegen pipeline");
+    CHECK(r.ok, "external symbol alias compiles, links and executes");
+    CHECK_EQ(r.exitCode, 42, "external symbol alias calls the C function through the alias name");
+}
+
+static void test_external_symbol_method_receiver_runtime() {
+    ModernFileCodegenTest t;
+    const auto c_path   = (t.root / "external-alias-method.c").string();
+    const auto lib_path = (t.root / "libzith_external_alias_method.a").string();
+    const auto obj_path = (t.root / "external-alias-method.o").string();
+    {
+        std::ofstream c_source(c_path, std::ios::binary | std::ios::trunc);
+        c_source << "typedef struct zith_window { int value; } zith_window;\n"
+                    "int zith_test_method_value(zith_window *w) { return w->value; }\n";
+    }
+    const auto compile = "cc -c " + c_path + " -o " + obj_path + " 2>/dev/null";
+    const auto archive = "ar rcs " + lib_path + " " + obj_path + " 2>/dev/null";
+    if (std::system(compile.c_str()) != 0 || std::system(archive.c_str()) != 0) {
+        std::printf("  SKIP: no C toolchain for the external alias method runtime test\n");
+        return;
+    }
+
+    t.opts.libraryDirs.push(t.root.string());
+    t.opts.libraries.push("zith_external_alias_method");
+    t.write("lib.zith", "pub struct Window { pub value: i32 }\n"
+                        "implement Window {\n"
+                        "    fn value(self: lend Window): i32 = extern zith_test_method_value;\n"
+                        "}\n");
+    t.write("main.zith", "from lib\n"
+                         "fn main(): i32 {\n"
+                         "    var window: Window = Window { value: 42 };\n"
+                         "    window.value()\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "external alias method uses the modern codegen pipeline");
+    CHECK(r.ok, "external alias method compiles, links and executes");
+    CHECK_EQ(r.exitCode, 42, "external alias receiver is passed as the first C pointer argument");
+}
+
+static void test_external_symbol_optional_pointer_method_receiver_runtime() {
+    ModernFileCodegenTest t;
+    const auto c_path   = (t.root / "external-alias-optional-pointer-method.c").string();
+    const auto lib_path = (t.root / "libzith_external_alias_optional_pointer_method.a").string();
+    const auto obj_path = (t.root / "external-alias-optional-pointer-method.o").string();
+    {
+        std::ofstream c_source(c_path, std::ios::binary | std::ios::trunc);
+        c_source << "typedef struct zith_window { int value; } zith_window;\n"
+                    "int zith_test_optional_pointer_value(zith_window *w) { return w->value; }\n";
+    }
+    const auto compile = "cc -c " + c_path + " -o " + obj_path + " 2>/dev/null";
+    const auto archive = "ar rcs " + lib_path + " " + obj_path + " 2>/dev/null";
+    if (std::system(compile.c_str()) != 0 || std::system(archive.c_str()) != 0) {
+        std::printf("  SKIP: no C toolchain for optional pointer external method runtime test\n");
+        return;
+    }
+
+    t.opts.libraryDirs.push(t.root.string());
+    t.opts.libraries.push("zith_external_alias_optional_pointer_method");
+    t.write("lib.zith",
+            "pub struct Window { pub value: i32 }\n"
+            "pub fn makeWindow(value: i32): ?*Window = extern zith_optional_pointer_make;\n"
+            "implement Window {\n"
+            "    fn value(self: lend Window): i32 = extern zith_test_optional_pointer_value;\n"
+            "}\n");
+    t.write("helper.c",
+            "typedef struct zith_window { int value; } zith_window;\n"
+            "zith_window *zith_optional_pointer_make(int value) {\n"
+            "    zith_window *w = (zith_window *)__builtin_malloc(sizeof(zith_window));\n"
+            "    w->value = value;\n"
+            "    return w;\n"
+            "}\n");
+    const auto helper_obj = (t.root / "helper-optional-pointer.o").string();
+    const auto helper_compile =
+        "cc -c " + (t.root / "helper.c").string() + " -o " + helper_obj + " 2>/dev/null";
+    const auto helper_archive =
+        "ar rcs " + lib_path + " " + obj_path + " " + helper_obj + " 2>/dev/null";
+    if (std::system(helper_compile.c_str()) != 0 || std::system(helper_archive.c_str()) != 0) {
+        std::printf("  SKIP: no C toolchain for optional pointer helper\n");
+        return;
+    }
+
+    t.write("main.zith", "from lib\n"
+                         "fn main(): i32 {\n"
+                         "    var window = makeWindow(42);\n"
+                         "    if (window is null) { return 1; }\n"
+                         "    window.value()\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "optional pointer external method uses the modern codegen pipeline");
+    CHECK(r.ok, "optional pointer external method compiles, links and executes");
+    CHECK_EQ(r.exitCode, 42,
+             "optional pointer external receiver passes the pointer value to the C function");
+}
+
 static void test_c_default_arguments_and_string_escapes() {
     {
         ModernFileCodegenTest t;
@@ -1789,12 +1960,12 @@ static void test_dollar_escape_hatch_runtime() {
     CodegenTest t;
     auto r = t.run("codegen-dollar-escape.zith", "extern fn printf(fmt: *char, ...): i32\n"
                                                  "fn main(): i32 {\n"
-                                                 "    printf(\"cost=\\$5\\n\");\n"
-                                                 "    printf(\"%c\\n\", '\\$');\n"
+                                                 "    printf(\"cost=\\#5\\n\");\n"
+                                                 "    printf(\"%c\\n\", '\\#');\n"
                                                  "    return 0;\n"
                                                  "}\n");
-    CHECK(r.ok, "the dollar escape hatch compiles");
-    CHECK(r.output == "cost=$5\n$\n", "\\$ emits a literal dollar in string and char literals");
+    CHECK(r.ok, "the hash escape hatch compiles");
+    CHECK(r.output == "cost=#5\n#\n", "\\# emits a literal hash in string and char literals");
 }
 
 // Program output must live in takeChildOutput(), not in the compiler's
@@ -2076,6 +2247,8 @@ static void test_codegen() {
     test_shifts();
     test_compound_assign_runtime();
     test_raw_opaque_round_trip_runtime();
+    test_bare_opaque_runtime();
+    test_bare_opaque_raw_and_mismatch_runtime();
     printf("Running test_struct_fields_and_parameter\n");
     test_struct_fields_and_parameter();
     printf("Running test_array_of_structs\n");
@@ -2173,6 +2346,12 @@ static void test_codegen() {
     test_optional_pointer_boolean_condition_runtime();
     printf("Running test_extern_variadic_call_runs\n");
     test_extern_variadic_call_runs();
+    printf("Running test_external_symbol_alias_runtime\n");
+    test_external_symbol_alias_runtime();
+    printf("Running test_external_symbol_method_receiver_runtime\n");
+    test_external_symbol_method_receiver_runtime();
+    printf("Running test_external_symbol_optional_pointer_method_receiver_runtime\n");
+    test_external_symbol_optional_pointer_method_receiver_runtime();
     printf("Running test_c_default_arguments_and_string_escapes\n");
     test_c_default_arguments_and_string_escapes();
     printf("Running test_dollar_escape_hatch_runtime\n");

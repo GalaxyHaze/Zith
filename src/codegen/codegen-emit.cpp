@@ -44,6 +44,9 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
             [&](const hir::HirCall &call) { return emitCall(call, mod); },
             [&](const hir::HirMakeDyn &make) { return emitMakeDyn(make, mod); },
             [&](const hir::HirDynCall &call) { return emitDynCall(call, mod); },
+            [&](const hir::HirMakeOpaque &make) { return emitMakeOpaque(make, mod); },
+            [&](const hir::HirOpaqueCast &cast) { return emitOpaqueCast(cast, mod); },
+            [&](const hir::HirOpaqueCheck &check) { return emitOpaqueCheck(check, mod); },
             [&](const hir::HirRet &ret) { return emitRet(ret, mod); },
             [&](const hir::HirStateTailCall &tail) { return emitStateTailCall(tail, mod); },
             [&](const hir::HirCleanup &cleanup) { return emitCleanup(cleanup, mod); },
@@ -393,8 +396,6 @@ llvm::Value *CodeGenEmit::emitBody(const hir::HirFunction &fn, const hir::HirMod
     for (size_t i = 0; i < fn.blocks.size(); i++) {
         auto &block  = fn.blocks[i];
         auto *llvmBB = (*blocks_)[i];
-        // Move builder to this block if it's not already inserted
-        // (avoid moving if the block already has a terminator)
         builder_.SetInsertPoint(llvmBB);
         emittedValues_.clear();
 
@@ -910,6 +911,59 @@ llvm::Value *CodeGenEmit::emitDynCall(const hir::HirDynCall &call, const hir::Hi
         args.push_back(value);
     }
     return builder_.CreateCall(llvm_fn_type, fn_ptr, args);
+}
+
+llvm::Value *CodeGenEmit::emitMakeOpaque(const hir::HirMakeOpaque &make,
+                                         const hir::HirModule &mod) {
+    auto *value = emitExpr(make.value, mod);
+    if (!value)
+        return nullptr;
+
+    auto *source_type = typeGen_.lower(make.source_type);
+    auto *storage     = builder_.CreateAlloca(source_type ? source_type : value->getType());
+    builder_.CreateStore(value, storage);
+    auto *data = builder_.CreateBitCast(storage, llvm::PointerType::get(builder_.getContext(), 0));
+
+    auto *opaque_type = typeGen_.lower(make.opaque_type);
+    if (!opaque_type || !opaque_type->isStructTy() ||
+        llvm::cast<llvm::StructType>(opaque_type)->getNumElements() != 2U)
+        return nullptr;
+    llvm::Value *result = llvm::UndefValue::get(opaque_type);
+    result              = builder_.CreateInsertValue(result, data, {0U});
+    result              = builder_.CreateInsertValue(result, builder_.getInt32(make.type_id), {1U});
+    return result;
+}
+
+llvm::Value *CodeGenEmit::emitOpaqueCheck(const hir::HirOpaqueCheck &check,
+                                          const hir::HirModule &mod) {
+    auto *opaque = emitExpr(check.value, mod);
+    if (!opaque || !opaque->getType()->isStructTy())
+        return nullptr;
+    auto *tag = builder_.CreateExtractValue(opaque, {1U});
+    if (!tag || !tag->getType()->isIntegerTy())
+        return nullptr;
+    auto *expected =
+        llvm::ConstantInt::get(llvm::cast<llvm::IntegerType>(tag->getType()), check.type_id);
+    return builder_.CreateICmpEQ(tag, expected);
+}
+
+llvm::Value *CodeGenEmit::emitOpaqueCast(const hir::HirOpaqueCast &cast,
+                                         const hir::HirModule &mod) {
+    if (cast.checked)
+        return nullptr;
+    auto *opaque = emitExpr(cast.value, mod);
+    if (!opaque || !opaque->getType()->isStructTy())
+        return nullptr;
+    auto *data = builder_.CreateExtractValue(opaque, {0U});
+    if (!data)
+        return nullptr;
+
+    auto *to_type = typeGen_.lower(cast.to);
+    if (!to_type)
+        return nullptr;
+    auto *payload_addr =
+        builder_.CreateBitCast(data, llvm::PointerType::get(builder_.getContext(), 0));
+    return builder_.CreateLoad(to_type, payload_addr);
 }
 
 llvm::Value *CodeGenEmit::emitRet(const hir::HirRet &ret, const hir::HirModule &mod) {

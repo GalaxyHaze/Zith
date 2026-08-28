@@ -1,0 +1,12 @@
+[project]
+name = "sdl3-external-alias-demo"
+version = "0.1.0"
+
+[build]
+entry = "hello.zith"
+output = "target/sdl3-hello"
+mode = "debug"
+
+[ffi]
+library_dirs = ["/usr/lib"]
+libraries = ["SDL3"]

@@ -623,6 +623,28 @@ bool CompilationSession::lexStage() {
 bool CompilationSession::scanStage() {
     auto t0 = std::chrono::steady_clock::now();
     if (mCacheHydrated) {
+        if (mHydratedEntry.has_value()) {
+            const auto &art = mHydratedEntry->artifact;
+            const bool has_opaque_type =
+                std::any_of(art.types.begin(), art.types.end(), [](const cache::CompactType &ct) {
+                    return ct.kind == cache::CompactTypeKind::OpaqueTagged;
+                });
+            const bool has_opaque_node =
+                std::any_of(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &ce) {
+                    return ce.kind == cache::CompactExprKind::MakeOpaque ||
+                           ce.kind == cache::CompactExprKind::OpaqueCast ||
+                           ce.kind == cache::CompactExprKind::OpaqueCheck;
+                });
+            if (has_opaque_type || has_opaque_node) {
+                mDiags.reportError(
+                    diagnostics::err::UnsupportedSyntax,
+                    "cached bare 'opaque' values are not supported because their type ids "
+                    "are module-local in this version; invalidate the cache or disable it "
+                    "before compiling this module",
+                    memory::Span{});
+                return false;
+            }
+        }
         if (mOpts.get().flags.emitHir()) {
             const std::string hir_text =
                 captureStdioDump([this](FILE *out) { mHirModule.dump(out, *mInterner); });
@@ -1502,6 +1524,9 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
         case cache::CompactTypeKind::Opaque:
             compact_type_ids[i] = mTypes.internUnknown();
             break;
+        case cache::CompactTypeKind::OpaqueTagged:
+            compact_type_ids[i] = mTypes.internOpaqueTagged();
+            break;
         }
     }
 
@@ -1836,6 +1861,35 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             call.arg_types    = std::move(arg_types);
             call.has_receiver = (ce.flags & 1U) != 0;
             expr              = std::move(call);
+            break;
+        }
+        case cache::CompactExprKind::MakeOpaque: {
+            hir::HirMakeOpaque make;
+            make.value       = ce.ref_a;
+            make.source_type = compactType(ce.ref_b);
+            make.opaque_type = compactType(ce.type_id);
+            make.type_id     = ce.ref_c;
+            expr             = std::move(make);
+            break;
+        }
+        case cache::CompactExprKind::OpaqueCast: {
+            hir::HirOpaqueCast cast;
+            cast.value       = ce.ref_a;
+            cast.from        = compactType(ce.ref_b);
+            cast.to          = compactType(ce.ref_c);
+            cast.opaque_type = compactType(ce.ref_d);
+            cast.result_type = compactType(ce.type_id);
+            cast.type_id     = ce.ref_e;
+            cast.checked     = (ce.flags & 1U) != 0;
+            expr             = std::move(cast);
+            break;
+        }
+        case cache::CompactExprKind::OpaqueCheck: {
+            hir::HirOpaqueCheck check;
+            check.value       = ce.ref_a;
+            check.opaque_type = compactType(ce.type_id);
+            check.type_id     = ce.ref_e;
+            expr              = std::move(check);
             break;
         }
         }

@@ -85,6 +85,8 @@ std::string renderTypeExpr(const zith::frontend::TypeExpression &te,
     }
     case zith::frontend::TypeExprKind::Opaque:
         return "raw opaque";
+    case zith::frontend::TypeExprKind::OpaqueTagged:
+        return "opaque";
     case zith::frontend::TypeExprKind::Pack: {
         std::string result = "|";
         for (size_t i = 0; i < te.arguments.size(); ++i) {

@@ -810,6 +810,7 @@ ModuleArtifactPtr FrontendContext::buildModule(
                                    ? frontend::functionSignature(*artifact->frontend, declaration)
                                    : std::string{},
                                declaration.isExtern,
+                               declaration.externalSymbol,
                                declaration.isVariadic,
                                !declaration.parameters.empty() &&
                                    declaration.parameters.back().isVariadicSlice};
@@ -978,6 +979,7 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                                           {}};
                 decl_binding.declKind        = declaration.kind;
                 decl_binding.isExtern        = declaration.isExtern;
+                decl_binding.externalSymbol  = declaration.externalSymbol;
                 decl_binding.isVariadic      = declaration.isVariadic;
                 decl_binding.isVariadicSlice = !declaration.parameters.empty() &&
                                                declaration.parameters.back().isVariadicSlice;
@@ -1028,9 +1030,10 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 declaration.span,       {module->key, frontend::SymbolId{declaration.id.value}},
                 declaration.id,         {},
                 declaration.parentScope};
-            local_state.declKind   = declaration.kind;
-            local_state.isExtern   = declaration.isExtern;
-            local_state.isVariadic = declaration.isVariadic;
+            local_state.declKind       = declaration.kind;
+            local_state.isExtern       = declaration.isExtern;
+            local_state.externalSymbol = declaration.externalSymbol;
+            local_state.isVariadic     = declaration.isVariadic;
             local_state.isVariadicSlice =
                 !declaration.parameters.empty() && declaration.parameters.back().isVariadicSlice;
             local_state.signature = frontend::functionSignature(*module->frontend, declaration);
@@ -1114,8 +1117,8 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                                                   {},
                                                   {},
                                                   {}};
-                    foreign_constant.declKind     = frontend::DeclKind::Variable;
-                    foreign_constant.bindingKind  = frontend::BindingKind::Const;
+                    foreign_constant.declKind        = frontend::DeclKind::Variable;
+                    foreign_constant.bindingKind     = frontend::BindingKind::Const;
                     foreign_constant.foreignConstant = &constant;
                     add_binding(std::move(foreign_constant), frontend::ScopeId{});
                 }
@@ -1165,6 +1168,7 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                             imported.declKind        = symbol.kind;
                             imported.signature       = symbol.signature;
                             imported.isExtern        = symbol.isExtern;
+                            imported.externalSymbol  = symbol.externalSymbol;
                             imported.isVariadic      = symbol.isVariadic;
                             imported.isVariadicSlice = symbol.isVariadicSlice;
                             add_binding(std::move(imported), frontend::ScopeId{});
@@ -1200,6 +1204,7 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                         imported.declKind        = symbol.kind;
                         imported.signature       = symbol.signature;
                         imported.isExtern        = symbol.isExtern;
+                        imported.externalSymbol  = symbol.externalSymbol;
                         imported.isVariadic      = symbol.isVariadic;
                         imported.isVariadicSlice = symbol.isVariadicSlice;
                         add_binding(std::move(imported), frontend::ScopeId{});
@@ -1240,6 +1245,7 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                             imported.declKind        = symbol.kind;
                             imported.signature       = symbol.signature;
                             imported.isExtern        = symbol.isExtern;
+                            imported.externalSymbol  = symbol.externalSymbol;
                             imported.isVariadic      = symbol.isVariadic;
                             imported.isVariadicSlice = symbol.isVariadicSlice;
                             add_binding(std::move(imported), frontend::ScopeId{});
@@ -1343,6 +1349,7 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                     member.declKind        = symbol.kind;
                     member.signature       = symbol.signature;
                     member.isExtern        = symbol.isExtern;
+                    member.externalSymbol  = symbol.externalSymbol;
                     member.isVariadic      = symbol.isVariadic;
                     member.isVariadicSlice = symbol.isVariadicSlice;
                     resolution.expressions.push_back(std::move(member));

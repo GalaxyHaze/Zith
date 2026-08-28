@@ -10,6 +10,31 @@
 Zith supports manual `extern fn` bindings on every target. Native builds which find libclang also
 support a restricted, automatic C-header import path.
 
+For Zith-style binders that need normal module, overload, and method semantics,
+keep the full Zith signature on the left and put the C linker symbol on the right:
+
+```zith
+struct Window {}
+
+pub fn createWindow(self: lend Sdl, title: *char, x: i32, y: i32,
+                    width: i32, height: i32, flags: u32): ?*Window = extern SDL_CreateWindow;
+pub fn destroy(self: lend Window): void = extern SDL_DestroyWindow;
+```
+
+Receiver binders must live in an `implement` block so method calls like
+`window.destroy()` resolve through the owner type:
+
+```zith
+implement Window {
+    pub fn destroy(self: lend Window): void = extern SDL_DestroyWindow;
+}
+```
+
+The right-hand identifier must be a plain identifier. The compiler emits only an
+external C symbol declaration; it does not create a Zith body. This lets a normal
+`c/` module expose opaque SDL handles as Zith structs and attach thin methods to
+them without relying on the C header importer or generating C shims.
+
 ### 18.1 Automatic Binding via `.h`
 
 Native builds with libclang can import a `.h` file. The importer exposes supported external C
@@ -75,8 +100,8 @@ tail: `f32` is widened to `f64`, and `bool`/`char`/small integer arguments are w
 Fixed parameters keep their declared ABI types.
 
 String and character literals decode the C-like escape set (`\n`, `\r`, `\t`, `\0`, `\\`, `\'`,
-`\"`, `\$`, and `\xHH`) before reaching LLVM, so `printf("v=%d\n", 42)` prints a real newline.
-`\$` produces a literal `$` (useful as an escape hatch if string interpolation is added later).
+`\"`, `\#`, and `\xHH`) before reaching LLVM, so `printf("v=%d\n", 42)` prints a real newline.
+`\#` produces a literal `#` (useful as an escape hatch if string interpolation is added later).
 Unknown escape sequences are rejected with `E0001` at the literal's span.
 
 `char` literals such as `'B'` are typed as `char`, and `... as char` conversions are accepted.

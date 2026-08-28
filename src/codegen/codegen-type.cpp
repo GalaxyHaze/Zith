@@ -106,6 +106,9 @@ llvm::Type *CodeGenType::lower(types::TypeId id) {
             } else if constexpr (std::is_same_v<T, types::TypeDyn>) {
                 return llvm::StructType::get(
                     ctx_, {llvm::PointerType::get(ctx_, 0), llvm::PointerType::get(ctx_, 0)});
+            } else if constexpr (std::is_same_v<T, types::TypeOpaqueTagged>) {
+                return llvm::StructType::get(
+                    ctx_, {llvm::PointerType::get(ctx_, 0), llvm::Type::getInt32Ty(ctx_)});
             } else if constexpr (std::is_same_v<T, types::TypeFn>) {
                 // A `fn(...)` value is stored and passed as a C function
                 // pointer.  The underlying signature is reconstructed by the

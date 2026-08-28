@@ -144,6 +144,10 @@ private:
     hir::HirExprId rebuildTaggedUnion(types::TypeId union_type, hir::HirExprId value,
                                       uint32_t member_index);
     static uint32_t alignUp(uint32_t value, uint32_t align) noexcept;
+    /// Module-local deterministic id used for `opaque` tag checks and storage.
+    /// The id is stable for the same concrete HIR type inside one module, but is
+    /// not shared across modules in this first implementation.
+    uint32_t stableConcreteTypeId(types::TypeId type) const;
 
     types::TypeId lowerType(sema::modern::TypeId type);
     types::TypeId lowerForeignType(const cinterop::Type &type);

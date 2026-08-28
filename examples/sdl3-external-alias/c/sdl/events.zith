@@ -1,0 +1,34 @@
+pub enum EventType: u32 {
+    Quit = 0x100,
+    WindowCloseRequested = 0x210,
+}
+
+pub raw union SdlEvent {
+    u32,
+    [128]u8,
+}
+
+pub fn fromKind(kind: u32): SdlEvent {
+    SdlEvent { kind }
+}
+
+pub fn defaultEvent: SdlEvent{
+    SdlEvent { 0 }
+}
+
+pub fn kind(event: SdlEvent): u32 {
+    event as u32
+}
+
+pub fn isQuit(event: SdlEvent): bool {
+    kind(event) == EventType.Quit as u32
+}
+
+pub fn wantsClose(event: SdlEvent): bool {
+    if (kind(event) == EventType.Quit as u32) {
+        return true;
+    }
+    kind(event) == EventType.WindowCloseRequested as u32
+}
+
+pub fn poll(event: *SdlEvent): bool = extern SDL_PollEvent;

@@ -245,6 +245,8 @@ void printDeclarations(const FrontendSnapshot &snapshot) {
             std::printf(" owner='%s'", decl.ownerName.c_str());
         if (!decl.traitName.empty())
             std::printf(" trait='%s'", decl.traitName.c_str());
+        if (!decl.externalSymbol.empty())
+            std::printf(" external='%s'", decl.externalSymbol.c_str());
         if (decl.kind == DeclKind::Import) {
             std::printf(" path='%s'", decl.import.rawPath.c_str());
             if (!decl.import.alias.empty())

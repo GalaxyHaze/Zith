@@ -53,7 +53,7 @@ namespace {
         "when",    "match",  "return", "break",   "continue",  "jump",    "while",     "marker",
         "spawn",   "await",  "with",   "catch",   "must",      "throw",   "fail",      "drop",
         "require", "is",     "prefix", "suffix",  "infix",     "nop",     "and",       "or",
-        "not",     "xor",    "tag",    "defer",
+        "not",     "xor",    "tag",    "defer",   "opaque",
     };
     for (const auto keyword : keywords)
         if (word == keyword)
@@ -786,6 +786,9 @@ private:
         if (isKeywordToken("raw") && index_ + 1U < token_count_ && text(index_ + 1U) == "opaque") {
             index_ += 2U;
             type.kind = TypeExprKind::Opaque;
+        } else if (isKeywordToken("opaque")) {
+            ++index_;
+            type.kind = TypeExprKind::OpaqueTagged;
         } else if (matchesToken(snapshot_, index_, "?")) {
             ++index_;
             type.kind = TypeExprKind::Optional;
@@ -3330,6 +3333,40 @@ private:
             declaration.declaredType = parseType();
         }
         if (kind == DeclKind::Function) {
+            // `fn zithName(...): T = extern CSymbol;` keeps the Zith declaration
+            // as a normal overloadable function/method but links to the native
+            // symbol on the right. There is no body to lower.
+            if (text(index_) == "=" && text(index_ + 1U) == "extern") {
+                const bool forbidden_kind =
+                    functionKind == FunctionKind::Const || functionKind == FunctionKind::State;
+                const bool forbidden_owner =
+                    !ownerName.empty() &&
+                    (traitName == declaration.name || declaration.traitName == declaration.name);
+                if (forbidden_kind || forbidden_owner) {
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_ + 2U),
+                         "external symbol aliases are not allowed on const/state functions "
+                         "or trait/interface requirements",
+                         false, diagnostics::err::UnsupportedSyntax});
+                }
+                index_ += 2U; // consume `= extern`
+                if (index_ >= token_count_ ||
+                    snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_),
+                         "external symbol alias requires an identifier after '= extern'", false,
+                         diagnostics::err::ExpectedExpr});
+                } else {
+                    declaration.externalSymbol     = std::string(text(index_));
+                    declaration.externalSymbolSpan = tokenSpan(index_);
+                    ++index_;
+                }
+            } else if (text(index_) == "=") {
+                snapshot_.diagnostics_.push_back(
+                    {tokenSpan(index_),
+                     "function assignment syntax requires '= extern <identifier>'", false,
+                     diagnostics::err::UnsupportedSyntax});
+            }
             // A function body owns any flat `state` declarations parsed inside
             // it.  Top-level state declarations also carry this state so nested
             // state-inside-state stays rejected and HIR sees the local owner.
@@ -3930,6 +3967,8 @@ std::string canonicalTypeString(const FrontendSnapshot &snapshot, const TypeExpr
         return (type.isVariadicSlice ? "[...]" : "[]") + nested(0);
     case TypeExprKind::Opaque:
         return "raw opaque";
+    case TypeExprKind::OpaqueTagged:
+        return "opaque";
     case TypeExprKind::Pack: {
         std::string result = "|";
         for (size_t index = 0; index < type.arguments.size(); ++index) {

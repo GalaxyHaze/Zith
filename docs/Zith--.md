@@ -199,8 +199,8 @@ enum Flag {
 São aceites literais inteiros (incluindo `0x`, `0b` e `0c`), `-`/`~` unários, aritmética, operadores bitwise `&.`/`|.`/`^.`, shifts `<<`/`>>`, comparações que resultem em inteiro, variantes anteriores do mesmo enum e `const` globais/locais de tipo inteiro já declarados. Chamadas, casts, literais float/string/bool, `null`, opaques e outros agregados não são aceites. O resultado é avaliado como `int64_t` e, após a avaliação, verificado contra o tipo subjacente do enum; overflow e valores negativos em `uN` são rejeitados.
 
 Strings e caracteres decodificam o conjunto de escapes estilo C (`\n`, `\r`, `\t`, `\0`,
-`\\`, `\'`, `\"` e `\xHH`). `\$` é aceite como escape adicional e produz um `$` literal; é
-útil quando o texto tem de ser preservado sem o tratamento futuro de interpolação com `$`.
+`\\`, `\'`, `\"` e `\xHH`). `\#` é aceite como escape adicional e produz um `#` literal; é
+útil quando o texto tem de ser preservado sem o tratamento futuro de interpolação com `#`.
 Escapes desconhecidos continuam a reportar `E0001`.
 
 ## Tipos
@@ -249,6 +249,20 @@ let ready: bool;
 ## Ownership
 
 `lend` e `view` são o ownership implementado no Zith--. Um parâmetro `p: lend T` ou `p: view T` tem ABI de ponteiro para `T`; no corpo, `p.x` auto-derefs o ponteiro. `lend` continua mutável e `view` bloqueia escrita com `E4004`. Factas NRA residuais continuam a ser emitidas, e codegen aplica `readonly` para `view` e `nocapture` para ambos.
+
+Em toda a documentação, NRA é a análise completa de referências/ownership do Zith
+(Reference Analysis). O `main` compila o Zith--, que implementa uma versão parcial e
+simplificada dessa análise; quando o texto precisar de nomear esse subconjunto, usa
+`Reference Analysis (simplified)`.
+
+## Opaque tagged
+
+Além do `raw opaque` (`void*`) para interop C, o Zith-- suporta bare `opaque`: uma tagged union
+aberta guardada como `{ *void, u32 }`. `T as opaque` erradica um valor endereçável/copyable numa
+view para um slot local; `opaque is T` verifica o typeId; `opaque as T` devolve `?T`,
+produzindo `null` quando o typeId não corresponde, enquanto `raw opaque as T` reinterpreta sem
+verificação. Nesta iteração não há heap copy, vtable ou chamadas dinâmicas, e o typeId é interno
+e module-local (atravessar imports/cache de bare `opaque` reporta `E2010`).
 
 No call site de funções livres, métodos com argumentos por ponteiro e overloads, um binding `default` que alimenta um parâmetro `lend`/`view` exige a anotação `lend x` ou `view x`:
 

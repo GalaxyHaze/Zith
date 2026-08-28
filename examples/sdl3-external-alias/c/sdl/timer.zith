@@ -1,0 +1,1 @@
+pub fn delay(ms: u32): void = extern SDL_Delay;

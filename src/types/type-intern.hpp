@@ -66,6 +66,7 @@ public:
     TypeId internFn(std::span<const TypeId> params, TypeId ret);
     TypeId internOptional(TypeId inner);
     TypeId internFailable(TypeId inner);
+    TypeId internOpaqueTagged();
     TypeId internAlias(TypeId target);
     TypeId internNominal(std::string_view name, TypeId target);
     TypeId internTrait(std::string_view name);

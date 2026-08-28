@@ -183,8 +183,8 @@ static void test_string_escape_invalid() {
 
 static void test_string_escape_dollar() {
     LexerTest t;
-    auto r = t.lex("\"a\\$b\"");
-    CHECK(r.ok, "lex accepts the dollar escape hatch");
+    auto r = t.lex("\"a\\#b\"");
+    CHECK(r.ok, "lex accepts the hash escape hatch");
     CHECK_EQ(r.stream.src[0].kind, lexer::TokenKind::LitVal, "token is LitVal");
 }
 

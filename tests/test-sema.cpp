@@ -1480,6 +1480,27 @@ static void test_modern_raw_opaque_to_integer_rejected() {
     CHECK(r.hasErrorCode(diagnostics::err::InvalidCast), "'raw opaque as i64' reports E3003");
 }
 
+static void test_modern_bare_opaque_casts_and_checks() {
+    ModernSemaTest t;
+    auto r = t.run("fn erased(value: i32): opaque { value as opaque }\n"
+                   "fn checks(value: opaque): bool { value is i32 }\n"
+                   "fn extracts(value: opaque): ?i32 { value as i32 }\n"
+                   "fn raw_extracts(value: opaque): i32 { raw value as i32 }\n"
+                   "fn main(): i32 { 0 }\n");
+    CHECK(r.ok, "bare 'opaque' erase/check/extract and raw extraction type-check");
+
+    ModernSemaTest module_local;
+    module_local.write("dep.zith", "pub fn erases(v: i32): opaque { v as opaque }\n");
+    auto imported = module_local.run("from dep\n"
+                                     "fn main(): i32 { erases(1) return 0 }\n",
+                                     session::Stage::HirLowered);
+    CHECK(!imported.ok, "using bare 'opaque' in an imported module is rejected");
+    CHECK(imported.hasMessage("module-local"),
+          "cross-module 'opaque' reports the module-local limitation");
+    CHECK(imported.hasErrorCode(diagnostics::err::UnsupportedSyntax),
+          "cross-module 'opaque' reports E2010");
+}
+
 static void test_modern_pointer_cast_rejected() {
     ModernSemaTest t;
     auto r = t.run("fn main(p: *i32): i32 {\n"
@@ -1662,6 +1683,35 @@ static void test_modern_optional_method_still_rejects_is_null_then_branch() {
                    "    return 1;\n"
                    "}\n");
     CHECK(!r.ok, "reading the optional payload in the null branch is rejected");
+}
+
+static void test_modern_optional_pointer_method_after_is_null() {
+    ModernSemaTest t;
+    auto r = t.run("pub struct Window {}\n"
+                   "implement Window {\n"
+                   "    pub fn destroy(self: lend Window): void = extern SDL_DestroyWindow;\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    var window: ?*Window = null;\n"
+                   "    if (window is null) { return 1; }\n"
+                   "    window.destroy();\n"
+                   "    return 0;\n"
+                   "}\n");
+    CHECK(r.ok, "optional pointer receiver methods work after 'is null' narrowing");
+}
+
+static void test_modern_optional_pointer_method_after_not_is_null() {
+    ModernSemaTest t;
+    auto r = t.run("pub struct Window {}\n"
+                   "implement Window {\n"
+                   "    pub fn destroy(self: lend Window): void = extern SDL_DestroyWindow;\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    var window: ?*Window = null;\n"
+                   "    if (not (window is null)) { window.destroy(); return 0; }\n"
+                   "    return 1;\n"
+                   "}\n");
+    CHECK(r.ok, "optional pointer receiver methods work after 'not (is null)' narrowing");
 }
 
 static void test_modern_radix_integer_literals() {
@@ -2265,11 +2315,11 @@ static void test_modern_char_literal_and_escapes() {
 
     ModernSemaTest dollar;
     auto d = dollar.run("fn main() {\n"
-                        "    let p: *char = \"\\$\";\n"
-                        "    let c: char = '\\$';\n"
+                        "    let p: *char = \"\\#\";\n"
+                        "    let c: char = '\\#';\n"
                         "}\n",
                         session::Stage::HirLowered);
-    CHECK(d.ok, "the dollar escape hatch decodes in string and char literals");
+    CHECK(d.ok, "the hash escape hatch decodes in string and char literals");
 }
 
 static void test_modern_struct_method_decl() {
@@ -3142,6 +3192,7 @@ static void test_sema() {
     test_modern_implicit_numeric_conversion_rejected();
     test_modern_raw_opaque_cast_accepted();
     test_modern_raw_opaque_to_integer_rejected();
+    test_modern_bare_opaque_casts_and_checks();
     test_modern_pointer_cast_rejected();
     test_modern_pointer_to_void_rejected();
 #ifdef ZITH_ENABLE_C_INTEROP
@@ -3158,6 +3209,8 @@ static void test_sema() {
     test_modern_optional_method_narrowing_after_is_null();
     test_modern_optional_method_narrowing_after_not_is_null();
     test_modern_optional_method_still_rejects_is_null_then_branch();
+    test_modern_optional_pointer_method_after_is_null();
+    test_modern_optional_pointer_method_after_not_is_null();
     test_modern_radix_integer_literals();
     test_modern_integer_literal_overflow_reported();
     test_modern_pointer_compared_to_integer_literal_fails();

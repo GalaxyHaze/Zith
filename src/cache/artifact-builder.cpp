@@ -94,110 +94,111 @@ CompactType ArtifactBuilder::convertType(types::TypeId id) {
     if (id >= types_.count())
         return out;
     const auto &data = types_.lookup(id);
-    out.kind =
-        std::visit(common::overloaded{
-                       [&](const types::TypeError &) { return CompactTypeKind::Error; },
-                       [&](const types::TypeNever &) { return CompactTypeKind::Never; },
-                       [&](const types::TypeVoid &) { return CompactTypeKind::Void; },
-                       [&](const types::TypeBool &) { return CompactTypeKind::Bool; },
-                       [&](const types::TypeChar &) { return CompactTypeKind::Char; },
-                       [&](const types::TypeInt &t) {
-                           out.int_width = static_cast<uint8_t>(t.width);
-                           return CompactTypeKind::Int;
-                       },
-                       [&](const types::TypeFloat &t) {
-                           out.int_width = static_cast<uint8_t>(t.width);
-                           return CompactTypeKind::Float;
-                       },
-                       [&](const types::TypePtr &t) {
-                           out.ref0  = internType(t.pointee);
-                           out.flags = t.is_mut ? 1 : 0;
-                           return CompactTypeKind::Ptr;
-                       },
-                       [&](const types::TypeArray &t) {
-                           out.ref0 = internType(t.elem);
-                           out.ref1 = t.count;
-                           return CompactTypeKind::Array;
-                       },
-                       [&](const types::TypeStruct &t) {
-                           out.ref0 = t.def_id;
-                           return CompactTypeKind::Struct;
-                       },
-                       [&](const types::TypeFn &t) {
-                           out.ref0 = internType(t.ret);
-                           for (size_t i = 0; i < t.param_count; ++i)
-                               out.args.push_back(internType(t.params[i]));
-                           return CompactTypeKind::Fn;
-                       },
-                       [&](const types::TypeTypeVar &t) {
-                           out.ref0 = t.id;
-                           return CompactTypeKind::TypeVar;
-                       },
-                       [&](const types::TypeOptional &t) {
-                           out.ref0 = internType(t.inner);
-                           return CompactTypeKind::Optional;
-                       },
-                       [&](const types::TypeFailable &t) {
-                           out.ref0 = internType(t.inner);
-                           return CompactTypeKind::Failable;
-                       },
-                       [&](const types::TypeAlias &t) {
-                           out = convertType(t.target);
-                           return out.kind;
-                       },
-                       [&](const types::TypeNominal &t) {
-                           out = convertType(t.target);
-                           return out.kind;
-                       },
-                       [&](const types::TypeTrait &) { return CompactTypeKind::Opaque; },
-                       [&](const types::TypeOpaque &) { return CompactTypeKind::Opaque; },
-                       [&](const types::TypeUnknown &) { return CompactTypeKind::Error; },
-                       [&](const types::TypeQualified &t) {
-                           out = convertType(t.inner);
-                           return out.kind;
-                       },
-                       [&](const types::TypeSlice &t) {
-                           out.ref0 = internType(t.elem);
-                           return CompactTypeKind::Slice;
-                       },
-                       [&](const types::TypeEnum &t) {
-                           out.ref0 = t.def_id;
-                           return CompactTypeKind::Enum;
-                       },
-                       [&](const types::TypeUnion &t) {
-                           out.ref0 = t.def_id;
-                           return CompactTypeKind::Union;
-                       },
-                       [&](const types::TypePack &t) {
-                           for (size_t i = 0; i < t.count; ++i)
-                               out.args.push_back(internType(t.members[i]));
-                           for (size_t i = 0; i < t.count; ++i)
-                               out.arg_names.push_back(internString(interner_.lookup(t.names[i])));
-                           return CompactTypeKind::Pack;
-                       },
-                       [&](const types::TypeDyn &t) {
-                           out.ref0 = internType(t.target);
-                           out.ref1 = static_cast<uint32_t>(t.method_count);
-                           return CompactTypeKind::Dyn;
-                       },
-                       [&](const types::TypeSum &t) {
-                           for (size_t i = 0; i < t.count; ++i)
-                               out.args.push_back(internType(t.members[i]));
-                           return CompactTypeKind::Union;
-                       },
-                       [&](const types::TypeGenericParam &t) {
-                           out.ref0 = t.decl_id;
-                           out.ref1 = t.param_index;
-                           return CompactTypeKind::GenericParam;
-                       },
-                       [&](const types::TypeIncomplete &t) {
-                           out.ref0 = internType(t.base);
-                           for (size_t i = 0; i < t.arg_count; ++i)
-                               out.args.push_back(internType(t.args[i]));
-                           return CompactTypeKind::Incomplete;
-                       },
-                   },
-                   data);
+    out.kind         = std::visit(
+        common::overloaded{
+            [&](const types::TypeError &) { return CompactTypeKind::Error; },
+            [&](const types::TypeNever &) { return CompactTypeKind::Never; },
+            [&](const types::TypeVoid &) { return CompactTypeKind::Void; },
+            [&](const types::TypeBool &) { return CompactTypeKind::Bool; },
+            [&](const types::TypeChar &) { return CompactTypeKind::Char; },
+            [&](const types::TypeInt &t) {
+                out.int_width = static_cast<uint8_t>(t.width);
+                return CompactTypeKind::Int;
+            },
+            [&](const types::TypeFloat &t) {
+                out.int_width = static_cast<uint8_t>(t.width);
+                return CompactTypeKind::Float;
+            },
+            [&](const types::TypePtr &t) {
+                out.ref0  = internType(t.pointee);
+                out.flags = t.is_mut ? 1 : 0;
+                return CompactTypeKind::Ptr;
+            },
+            [&](const types::TypeArray &t) {
+                out.ref0 = internType(t.elem);
+                out.ref1 = t.count;
+                return CompactTypeKind::Array;
+            },
+            [&](const types::TypeStruct &t) {
+                out.ref0 = t.def_id;
+                return CompactTypeKind::Struct;
+            },
+            [&](const types::TypeFn &t) {
+                out.ref0 = internType(t.ret);
+                for (size_t i = 0; i < t.param_count; ++i)
+                    out.args.push_back(internType(t.params[i]));
+                return CompactTypeKind::Fn;
+            },
+            [&](const types::TypeTypeVar &t) {
+                out.ref0 = t.id;
+                return CompactTypeKind::TypeVar;
+            },
+            [&](const types::TypeOptional &t) {
+                out.ref0 = internType(t.inner);
+                return CompactTypeKind::Optional;
+            },
+            [&](const types::TypeFailable &t) {
+                out.ref0 = internType(t.inner);
+                return CompactTypeKind::Failable;
+            },
+            [&](const types::TypeAlias &t) {
+                out = convertType(t.target);
+                return out.kind;
+            },
+            [&](const types::TypeNominal &t) {
+                out = convertType(t.target);
+                return out.kind;
+            },
+            [&](const types::TypeTrait &) { return CompactTypeKind::Opaque; },
+            [&](const types::TypeOpaque &) { return CompactTypeKind::Opaque; },
+            [&](const types::TypeOpaqueTagged &) { return CompactTypeKind::OpaqueTagged; },
+            [&](const types::TypeUnknown &) { return CompactTypeKind::Error; },
+            [&](const types::TypeQualified &t) {
+                out = convertType(t.inner);
+                return out.kind;
+            },
+            [&](const types::TypeSlice &t) {
+                out.ref0 = internType(t.elem);
+                return CompactTypeKind::Slice;
+            },
+            [&](const types::TypeEnum &t) {
+                out.ref0 = t.def_id;
+                return CompactTypeKind::Enum;
+            },
+            [&](const types::TypeUnion &t) {
+                out.ref0 = t.def_id;
+                return CompactTypeKind::Union;
+            },
+            [&](const types::TypePack &t) {
+                for (size_t i = 0; i < t.count; ++i)
+                    out.args.push_back(internType(t.members[i]));
+                for (size_t i = 0; i < t.count; ++i)
+                    out.arg_names.push_back(internString(interner_.lookup(t.names[i])));
+                return CompactTypeKind::Pack;
+            },
+            [&](const types::TypeDyn &t) {
+                out.ref0 = internType(t.target);
+                out.ref1 = static_cast<uint32_t>(t.method_count);
+                return CompactTypeKind::Dyn;
+            },
+            [&](const types::TypeSum &t) {
+                for (size_t i = 0; i < t.count; ++i)
+                    out.args.push_back(internType(t.members[i]));
+                return CompactTypeKind::Union;
+            },
+            [&](const types::TypeGenericParam &t) {
+                out.ref0 = t.decl_id;
+                out.ref1 = t.param_index;
+                return CompactTypeKind::GenericParam;
+            },
+            [&](const types::TypeIncomplete &t) {
+                out.ref0 = internType(t.base);
+                for (size_t i = 0; i < t.arg_count; ++i)
+                    out.args.push_back(internType(t.args[i]));
+                return CompactTypeKind::Incomplete;
+            },
+        },
+        data);
     return out;
 }
 
@@ -481,6 +482,29 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                            for (auto arg_type : call.arg_types)
                                out.arg_types.push_back(internType(arg_type));
                            out.flags = call.has_receiver ? 1U : 0U;
+                       },
+                       [&](const hir::HirMakeOpaque &m) {
+                           out.kind    = CompactExprKind::MakeOpaque;
+                           out.ref_a   = m.value;
+                           out.ref_b   = internType(m.source_type);
+                           out.type_id = internType(m.opaque_type);
+                           out.ref_c   = m.type_id;
+                       },
+                       [&](const hir::HirOpaqueCast &cast) {
+                           out.kind    = CompactExprKind::OpaqueCast;
+                           out.ref_a   = cast.value;
+                           out.ref_b   = internType(cast.from);
+                           out.ref_c   = internType(cast.to);
+                           out.ref_d   = internType(cast.opaque_type);
+                           out.type_id = internType(cast.result_type);
+                           out.ref_e   = cast.type_id;
+                           out.flags   = cast.checked ? 1U : 0U;
+                       },
+                       [&](const hir::HirOpaqueCheck &check) {
+                           out.kind    = CompactExprKind::OpaqueCheck;
+                           out.ref_a   = check.value;
+                           out.type_id = internType(check.opaque_type);
+                           out.ref_e   = check.type_id;
                        },
                    });
     return out;

@@ -28,15 +28,16 @@ TypeKind kindFromIndex(size_t idx) {
         TypeKind::Trait,        // TypeTrait      → 16
         TypeKind::Dyn,          // TypeDyn        → 17
         TypeKind::Opaque,       // TypeOpaque     → 18
-        TypeKind::Unknown,      // TypeUnknown    → 19
-        TypeKind::Qualified,    // TypeQualified  → 20
-        TypeKind::Slice,        // TypeSlice      → 21
-        TypeKind::Enum,         // TypeEnum       → 22
-        TypeKind::Union,        // TypeUnion      → 23
-        TypeKind::Pack,         // TypePack       → 24
-        TypeKind::Sum,          // TypeSum        → 25
-        TypeKind::GenericParam, // TypeGenericParam → 26
-        TypeKind::Incomplete,   // TypeIncomplete → 27
+        TypeKind::OpaqueTagged, // TypeOpaqueTagged → 19
+        TypeKind::Unknown,      // TypeUnknown    → 20
+        TypeKind::Qualified,    // TypeQualified  → 21
+        TypeKind::Slice,        // TypeSlice      → 22
+        TypeKind::Enum,         // TypeEnum       → 23
+        TypeKind::Union,        // TypeUnion      → 24
+        TypeKind::Pack,         // TypePack       → 25
+        TypeKind::Sum,          // TypeSum        → 26
+        TypeKind::GenericParam, // TypeGenericParam → 27
+        TypeKind::Incomplete,   // TypeIncomplete → 28
     };
     return (idx < std::size(map)) ? map[idx] : TypeKind::Error;
 }
@@ -118,8 +119,8 @@ bool typeDataEqual(const TypeData &a, const TypeData &b) {
                         return false;
                 return true;
             },
-            // Error, Never, Void, Bool, Char, Opaque, Unknown, TypeVar, Enum, Union — no fields
-            // beyond the type itself
+            // Error, Never, Void, Bool, Char, Opaque, OpaqueTagged, Unknown, TypeVar, Enum, Union —
+            // no fields beyond the type itself
             [](const auto &, const auto &) -> bool { return true; },
         });
 }
@@ -218,7 +219,7 @@ size_t TypeIntern::computeHash(const TypeData &data) {
                       for (size_t j = 0; j < i.arg_count; j++)
                           h = hashCombine(h, i.args[j]);
                   },
-                  // Error, Never, Void, Bool, Char, Opaque, Unknown — no fields
+                  // Error, Never, Void, Bool, Char, Opaque, OpaqueTagged, Unknown — no fields
                   [](const auto &) {},
               });
     return static_cast<size_t>(h);
@@ -272,6 +273,10 @@ TypeId TypeIntern::internOptional(TypeId inner) {
 
 TypeId TypeIntern::internFailable(TypeId inner) {
     return intern(TypeFailable{inner});
+}
+
+TypeId TypeIntern::internOpaqueTagged() {
+    return intern(TypeOpaqueTagged{});
 }
 
 TypeId TypeIntern::internAlias(TypeId target) {

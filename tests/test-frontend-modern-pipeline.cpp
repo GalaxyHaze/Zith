@@ -211,21 +211,19 @@ void test_c_header_import_lowers_external_function() {
 
 void test_c_header_import_lowers_macro_constants() {
     Workspace workspace;
-    workspace.write("fixture.h",
-                    "#define ANSWER 42\n"
-                    "#define RATIO 1.5\n"
-                    "#define YES true\n"
-                    "#define LETTER 'A'\n"
-                    "int next(int value);\n");
-    workspace.write("main.zith",
-                    "import \"fixture.h\"\n"
-                    "fn main(): i32 {\n"
-                    "    let answer: i32 = ANSWER;\n"
-                    "    let ratio: f64 = RATIO;\n"
-                    "    let yes: bool = YES;\n"
-                    "    let letter: char = LETTER;\n"
-                    "    (answer + next(1)) as i32\n"
-                    "}\n");
+    workspace.write("fixture.h", "#define ANSWER 42\n"
+                                 "#define RATIO 1.5\n"
+                                 "#define YES true\n"
+                                 "#define LETTER 'A'\n"
+                                 "int next(int value);\n");
+    workspace.write("main.zith", "import \"fixture.h\"\n"
+                                 "fn main(): i32 {\n"
+                                 "    let answer: i32 = ANSWER;\n"
+                                 "    let ratio: f64 = RATIO;\n"
+                                 "    let yes: bool = YES;\n"
+                                 "    let letter: char = LETTER;\n"
+                                 "    (answer + next(1)) as i32\n"
+                                 "}\n");
 
     memory::Arena arena;
     Options options(arena);
@@ -283,9 +281,9 @@ void test_c_header_constant_duplicate_diagnostic() {
     bool found_duplicate = false;
     if (session.snapshot()) {
         for (const auto &diagnostic : session.snapshot()->diagnostics())
-            found_duplicate = found_duplicate ||
-                              (diagnostic.code == diagnostics::err::DuplicateDecl &&
-                               diagnostic.message.find("ANSWER") != std::string::npos);
+            found_duplicate =
+                found_duplicate || (diagnostic.code == diagnostics::err::DuplicateDecl &&
+                                    diagnostic.message.find("ANSWER") != std::string::npos);
     }
     CHECK(found_duplicate, "duplicate says DuplicateDecl and mentions ANSWER");
 #else
@@ -314,9 +312,9 @@ void test_c_header_constant_let_duplicate_diagnostic() {
     bool found_duplicate = false;
     if (session.snapshot()) {
         for (const auto &diagnostic : session.snapshot()->diagnostics())
-            found_duplicate = found_duplicate ||
-                              (diagnostic.code == diagnostics::err::DuplicateDecl &&
-                               diagnostic.message.find("JOINED") != std::string::npos);
+            found_duplicate =
+                found_duplicate || (diagnostic.code == diagnostics::err::DuplicateDecl &&
+                                    diagnostic.message.find("JOINED") != std::string::npos);
     }
     CHECK(found_duplicate, "duplicate says DuplicateDecl and mentions JOINED");
 #else
@@ -528,6 +526,44 @@ void test_modern_imported_receiver_method_hir() {
           "HIR includes both the imported receiver method and main");
 }
 
+void test_modern_imported_external_symbol_method_hir() {
+    Workspace workspace;
+    workspace.write("video.zith",
+                    "pub struct Window {}\n"
+                    "implement Window {\n"
+                    "    pub fn destroy(self: lend Window): void = extern SDL_DestroyWindow;\n"
+                    "}\n");
+    workspace.write("main.zith", "from video\n"
+                                 "fn main(): i32 {\n"
+                                 "    var w: Window = Window {};\n"
+                                 "    w.destroy();\n"
+                                 "    return 0;\n"
+                                 "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "imported external symbol method lowers to HIR");
+
+    const auto &hir             = session.hirModule();
+    const hir::HirFunction *sdl = nullptr;
+    for (size_t i = 0; i < hir.getFnCount(); ++i) {
+        const auto &fn = hir.getFn(i);
+        if (session.interner().lookup(fn.name) == "SDL_DestroyWindow")
+            sdl = &fn;
+    }
+    CHECK(sdl != nullptr, "imported external method keeps its C linkage name");
+    if (sdl != nullptr) {
+        CHECK(sdl->blocks.empty(), "imported external method is body-less");
+        CHECK_EQ(sdl->params.size(), 1u,
+                 "external method retains its receiver as the first ABI parameter");
+    }
+}
+
 void test_modern_imported_method_struct_literal_body_hir() {
     Workspace workspace;
     workspace.write("lib.zith", "pub struct Box { pub value: i32 }\n"
@@ -644,6 +680,59 @@ void test_modern_optional_method_not_is_null_narrowing_hir() {
     }
     CHECK(saw_payload_receiver,
           "not-is-null receiver calls pass the address of optional payload field 0");
+}
+
+void test_modern_optional_pointer_external_method_hir() {
+    Workspace workspace;
+    workspace.write("video.zith",
+                    "pub struct Window {}\n"
+                    "implement Window {\n"
+                    "    pub fn destroy(self: lend Window): void = extern SDL_DestroyWindow;\n"
+                    "}\n");
+    workspace.write("main.zith", "from video\n"
+                                 "fn main(): i32 {\n"
+                                 "    var window: ?*Window = null;\n"
+                                 "    if (window is null) { return 1; }\n"
+                                 "    window.destroy();\n"
+                                 "    return 0;\n"
+                                 "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "optional pointer receiver external method lowers through the modern pipeline");
+
+    const auto &hir             = session.hirModule();
+    const hir::HirFunction *sdl = nullptr;
+    for (size_t i = 0; i < hir.getFnCount(); ++i) {
+        const auto &fn = hir.getFn(i);
+        if (session.interner().lookup(fn.name) == "SDL_DestroyWindow")
+            sdl = &fn;
+    }
+    CHECK(sdl != nullptr, "imported external method remains body-less for optional pointers");
+    if (sdl == nullptr)
+        return;
+    CHECK(sdl->blocks.empty(), "external alias method has no HIR body");
+    CHECK_EQ(sdl->params.size(), 1u,
+             "external alias method passes the optional pointer value as its receiver");
+
+    bool saw_pointer_self = false;
+    for (size_t index = 0; index < hir.exprCount(); ++index) {
+        const auto *call =
+            std::get_if<hir::HirCall>(&hir.getExpr(static_cast<hir::HirExprId>(index)));
+        if (call == nullptr || call->args.empty())
+            continue;
+        const auto *load = std::get_if<hir::HirSlotLoad>(&hir.getExpr(call->args[0]));
+        // SlotLoad (not Ref of a payload HirField) is the shape used when the
+        // receiver is an optional pointer value and the C pointer itself is passed.
+        saw_pointer_self |= load != nullptr;
+    }
+    CHECK(saw_pointer_self,
+          "optional pointer receiver lowering passes the pointer value, not a payload field");
 }
 
 void test_pipeline_imported_macro_lowers() {
@@ -769,9 +858,11 @@ static void test_frontend_modern_pipeline() {
     test_pipeline_imported_state_machine_lowers();
     test_modern_imported_static_method_hir();
     test_modern_imported_receiver_method_hir();
+    test_modern_imported_external_symbol_method_hir();
     test_modern_imported_method_struct_literal_body_hir();
     test_modern_optional_method_narrowing_hir();
     test_modern_optional_method_not_is_null_narrowing_hir();
+    test_modern_optional_pointer_external_method_hir();
     test_pipeline_imported_macro_lowers();
     test_imported_macro_unknown_without_import();
     test_imported_macro_selector_alias();

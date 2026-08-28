@@ -238,6 +238,9 @@ struct LocalSymbolInfo {
     std::string signature;
     /// True for `extern fn`: the C ABI fixes its name, so it never overloads.
     bool isExtern = false;
+    /// C linker name when a Zith function was declared with `= extern <name>`.
+    /// Empty for ordinary functions and `extern fn` declarations.
+    std::string externalSymbol;
     /// True when a C-ABI function accepts a trailing variadic tail.
     bool isVariadic = false;
     /// True when the function's final parameter is written `[...]T`.
@@ -307,6 +310,9 @@ struct ResolvedName {
     std::string signature;
     /// True for `extern fn`: the C ABI fixes its linkage name, so it never overloads.
     bool isExtern = false;
+    /// C linker name for `fn f = extern CSymbol;` bindings. Empty for ordinary
+    /// functions and `extern fn` declarations.
+    std::string externalSymbol;
     /// True when the bound function accepts a variadic tail.
     bool isVariadic = false;
     /// True when the bound function's final parameter is `[...]T`.

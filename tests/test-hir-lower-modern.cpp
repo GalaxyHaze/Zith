@@ -263,6 +263,35 @@ void test_extern_variadic_lower_to_hir() {
         CHECK(printf->isVariadic, "HIR carries the variadic flag");
 }
 
+void test_external_symbol_alias_lower_to_hir() {
+    Workspace workspace;
+    workspace.writeFile("main.zith",
+                        "fn cAdd(a: i32, b: i32): i32 = extern zith_test_external_alias;\n"
+                        "fn overloaded(x: i32): i32 = extern zith_test_external_alias_a;\n"
+                        "fn overloaded(x: f64): f64 = extern zith_test_external_alias_b;\n"
+                        "fn main(): i32 {\n"
+                        "    cAdd(1, 2) + overloaded(3)\n"
+                        "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "modern lowering succeeds for external symbol aliases");
+
+    const auto &hir   = session.hirModule();
+    const auto *alias = findFunction(hir, session.interner(), "zith_test_external_alias");
+    CHECK(alias != nullptr, "external symbol alias becomes the HIR linkage name");
+    if (alias != nullptr)
+        CHECK(alias->blocks.empty(), "external symbol alias generates no body");
+
+    const auto *a = findFunction(hir, session.interner(), "zith_test_external_alias_a");
+    const auto *b = findFunction(hir, session.interner(), "zith_test_external_alias_b");
+    CHECK(a != nullptr, "first overload uses its assigned C symbol");
+    CHECK(b != nullptr, "second overload uses its assigned C symbol");
+}
+
 void test_bindings_lower_to_slots() {
     Workspace workspace;
     workspace.writeFile("main.zith", "fn add(a: i32, b: i32): i32 { a + b }\n"
@@ -819,6 +848,41 @@ void test_numeric_cast_lowers_to_hir_cast() {
     if (widen != nullptr) {
         CHECK_EQ(countInstKind(hir, *widen, hir::HirExprKind::Cast), 1u,
                  "'as' lowers to exactly one HirCast node");
+    }
+}
+
+void test_opaque_casts_lower_to_hir_nodes() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn erased(value: i32): opaque { value as opaque }\n"
+                                     "fn checks(value: opaque): bool { value is i32 }\n"
+                                     "fn extracts(value: opaque): ?i32 { value as i32 }\n"
+                                     "fn raw_extracts(value: opaque): i32 { raw value as i32 }\n"
+                                     "fn main(): i32 { 0 }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "bare 'opaque' operations lower to HIR");
+
+    const auto &hir = session.hirModule();
+    CHECK(countExprKind(hir, hir::HirExprKind::MakeOpaque) > 0u, "erasure lowers to HirMakeOpaque");
+    CHECK(countExprKind(hir, hir::HirExprKind::OpaqueCheck) > 0u,
+          "'opaque is T' lowers to HirOpaqueCheck");
+    CHECK(countExprKind(hir, hir::HirExprKind::OpaqueCast) > 0u,
+          "extraction lowers to HirOpaqueCast");
+
+    const auto *raw_extracts = findFunction(hir, session.interner(), "raw_extracts");
+    CHECK(raw_extracts != nullptr, "raw extraction function is present");
+    if (raw_extracts != nullptr) {
+        bool saw_raw = false;
+        for (size_t id = 0; id < hir.exprCount(); ++id) {
+            const auto *cast =
+                std::get_if<hir::HirOpaqueCast>(&hir.getExpr(static_cast<hir::HirExprId>(id)));
+            if (cast != nullptr && !cast->checked)
+                saw_raw = true;
+        }
+        CHECK(saw_raw, "raw extraction lowers to an unchecked HirOpaqueCast");
     }
 }
 
@@ -1894,9 +1958,11 @@ void test_variadic_slice_state_lowers_to_hir() {
 
 static void test_hir_lower_modern() {
     test_extern_and_main_lower_to_hir();
+    test_external_symbol_alias_lower_to_hir();
     test_no_ownership_hir_has_empty_residual_attrs();
     test_ownership_hir_carries_residual_slot_attrs();
     test_free_borrow_parameter_lowers_to_pointer_and_call_addr();
+    test_opaque_casts_lower_to_hir_nodes();
     test_extern_variadic_lower_to_hir();
     test_bindings_lower_to_slots();
     test_if_else_lowers_to_branch_and_merge();

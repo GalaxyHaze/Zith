@@ -57,6 +57,9 @@ private:
     llvm::Value *emitCall(const hir::HirCall &call, const hir::HirModule &mod);
     llvm::Value *emitMakeDyn(const hir::HirMakeDyn &make, const hir::HirModule &mod);
     llvm::Value *emitDynCall(const hir::HirDynCall &call, const hir::HirModule &mod);
+    llvm::Value *emitMakeOpaque(const hir::HirMakeOpaque &make, const hir::HirModule &mod);
+    llvm::Value *emitOpaqueCast(const hir::HirOpaqueCast &cast, const hir::HirModule &mod);
+    llvm::Value *emitOpaqueCheck(const hir::HirOpaqueCheck &check, const hir::HirModule &mod);
     llvm::Value *emitRet(const hir::HirRet &ret, const hir::HirModule &mod);
     llvm::Value *emitLet(const hir::HirLet &let, const hir::HirModule &mod);
     llvm::Value *emitVar(const hir::HirVar &var);

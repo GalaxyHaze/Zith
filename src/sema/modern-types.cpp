@@ -275,6 +275,13 @@ TypeId TypeTable::internDyn(TypeId target, size_t method_count) {
     return entry.id;
 }
 
+TypeId TypeTable::internOpaque() {
+    auto &entry         = pushEntry(EntryKind::Opaque);
+    entry.reported_kind = TypeKind::Opaque;
+    entry.opaque_ty     = {};
+    return entry.id;
+}
+
 TypeId TypeTable::internAlias(TypeId target) {
     auto &entry         = pushEntry(EntryKind::Alias);
     entry.reported_kind = TypeKind::Alias;
@@ -420,6 +427,8 @@ std::string TypeTable::typeToString(TypeId id) const {
         if (const auto *dyn = this->dyn_type(resolved); dyn != nullptr)
             return "dyn " + typeToString(dyn->target);
         return "dyn";
+    case TypeKind::Opaque:
+        return "opaque";
     case TypeKind::Alias:
         if (const auto *alias = this->alias(resolved); alias != nullptr)
             return typeToString(alias->target);
@@ -531,6 +540,11 @@ const PackType *TypeTable::pack(TypeId id) const noexcept {
 const DynType *TypeTable::dyn_type(TypeId id) const noexcept {
     const auto *entry = findEntry(id);
     return entry && entry->kind == EntryKind::Dyn ? entry->dyn_ty : nullptr;
+}
+
+const OpaqueType *TypeTable::opaque_type(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry && entry->kind == EntryKind::Opaque ? &entry->opaque_ty : nullptr;
 }
 
 const AliasType *TypeTable::alias(TypeId id) const noexcept {
@@ -710,6 +724,8 @@ TypeId TypeTable::lowerTypeExprBare(const frontend::FrontendSnapshot &snapshot,
         // `raw opaque` is pointer-to-void. `void` is registered by PerModuleSema before any
         // type expression is lowered, so the lookup only fails on a table with no primitives.
         return internPointer(lookupNamed("void"));
+    case frontend::TypeExprKind::OpaqueTagged:
+        return internOpaque();
     case frontend::TypeExprKind::Pack: {
         auto &members = makeTypeStorage();
         auto &names   = makeStringStorage();

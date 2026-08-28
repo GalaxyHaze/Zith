@@ -41,6 +41,7 @@ enum class CompactTypeKind : uint8_t {
     GenericParam = 17,
     Incomplete   = 18,
     Opaque       = 19,
+    OpaqueTagged = 22,
     Pack         = 20,
     Dyn          = 21,
 };
@@ -194,6 +195,9 @@ enum class CompactExprKind : uint8_t {
     GlobalConstLoad,
     MakeDyn,
     DynCall,
+    MakeOpaque,
+    OpaqueCast,
+    OpaqueCheck,
 };
 
 enum class CompactBinaryOp : uint8_t {

@@ -339,6 +339,9 @@ void FmtVisitor::emitType(const frontend::TypeExprId id) {
     case frontend::TypeExprKind::Opaque:
         emit("raw opaque");
         break;
+    case frontend::TypeExprKind::OpaqueTagged:
+        emit("opaque");
+        break;
     case frontend::TypeExprKind::Pack: {
         emit("|");
         for (size_t index = 0; index < type->arguments.size(); ++index) {
@@ -440,7 +443,11 @@ void FmtVisitor::emitFunctionDecl(const frontend::Declaration &decl) {
         emit(": ");
         emitType(decl.declaredType);
     }
-    if (decl.body) {
+    if (!decl.externalSymbol.empty()) {
+        emit(" = extern ");
+        emit(decl.externalSymbol);
+        emit(";");
+    } else if (decl.body) {
         emit(" ");
         visitExpr(decl.body);
     } else {

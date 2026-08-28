@@ -1161,6 +1161,8 @@ TypeId PerModuleSema::lowerBareTypeExpr(const frontend::TypeExpression &type) {
         // `raw opaque` is the only accepted spelling of an untyped pointer; a literally
         // written `*void` is still rejected above, via TypeExprKind::Pointer.
         return type_table.internPointer(void_type);
+    case frontend::TypeExprKind::OpaqueTagged:
+        return type_table.internOpaque();
     case frontend::TypeExprKind::Pack: {
         if (type.member_names.size() != type.arguments.size()) {
             report(type.span, "pack type members must be named", diagnostics::err::TypeMismatch);
@@ -2715,8 +2717,16 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
             pointee = resolve(ptr->pointee);
         is_pointer = true;
     } else if (type_table.kindOf(pointee) == TypeKind::Optional) {
-        if (const auto *opt = type_table.optional(pointee))
+        if (const auto *opt = type_table.optional(pointee)) {
             pointee = resolve(opt->inner);
+            // C pointers are modeled as `?*T`. While the optional wrapper is
+            // still present in the expression/lvalue type, method calls pass
+            // the pointer value itself as the receiver argument.
+            if (const auto *ptr = type_table.pointer(pointee)) {
+                pointee    = resolve(ptr->pointee);
+                is_pointer = true;
+            }
+        }
     }
 
     const TypeId resolved_base = resolve(base_type);
@@ -3942,6 +3952,18 @@ TypeId PerModuleSema::inferCast(frontend::ExprId id) {
         }
         const TypeId from_resolved = resolve(source);
         const TypeId to_resolved   = resolve(target);
+        // Bare `opaque` is tagged: any concrete value erases into it, and
+        // checked extraction returns `?T` so the tag-match/none path is visible.
+        if (type_table.kindOf(to_resolved) == TypeKind::Opaque) {
+            if (type_table.kindOf(from_resolved) == TypeKind::Opaque)
+                return result;
+            return type_table.internOpaque();
+        }
+        if (type_table.kindOf(from_resolved) == TypeKind::Opaque) {
+            if (type_table.kindOf(to_resolved) == TypeKind::Opaque)
+                return result;
+            return expr.is_raw ? to_resolved : type_table.internOptional(to_resolved);
+        }
         if (type_table.kindOf(from_resolved) == TypeKind::Union) {
             const auto *union_data = type_table.union_type(from_resolved);
             const bool is_tagged   = union_data != nullptr && union_data->is_tagged;
@@ -4016,7 +4038,15 @@ TypeId PerModuleSema::inferIsType(frontend::ExprId id) {
     if (operand == error_type || !operand)
         return error_type;
     const TypeId operand_resolved = resolve(operand);
-    const auto *union_data        = type_table.union_type(operand_resolved);
+    if (type_table.kindOf(operand_resolved) == TypeKind::Opaque) {
+        const TypeId target = lowerTypeExpr(expr.cast_type);
+        if (!target) {
+            report(expr.span, "unknown target type in 'is' test", diagnostics::err::TypeMismatch);
+            return error_type;
+        }
+        return bool_type;
+    }
+    const auto *union_data = type_table.union_type(operand_resolved);
     if (union_data == nullptr || !union_data->is_tagged) {
         report(expr.span, "'is Type' requires an operand whose type is a tagged union",
                diagnostics::err::TypeMismatch);
@@ -5928,6 +5958,8 @@ bool PerModuleSema::sameType(TypeId a, TypeId b) const noexcept {
         const auto *nb = type_table.nominal(resolved_b);
         return na != nullptr && nb != nullptr && na->name == nb->name;
     }
+    if (ka == TypeKind::Opaque)
+        return true;
     return false;
 }
 

@@ -32,6 +32,27 @@ fn first<T>(slice: []T): ?T {
 | `raw fn` | Always unchecked, bypassing NRA and safety checks for C interop. |
 | `extern fn` | Fixed C ABI linkage; never name-qualified and never overloaded. |
 
+An ordinary `fn` can also be declared without a body and linked to a C symbol by
+placing the full Zith signature on the left and the C identifier on the right:
+
+```zith
+fn destroy(self: lend Window): void = extern SDL_DestroyWindow;
+```
+
+Method binders that need a receiver should be declared inside an `implement`
+block, which is what gives `window.destroy()` its normal method semantics:
+
+```zith
+implement Window {
+    pub fn destroy(self: lend Window): void = extern SDL_DestroyWindow;
+}
+```
+
+The Zith name keeps normal module, overload, and receiver semantics. The right-hand
+identifier is used as the C ABI linker symbol; the compiler emits an external
+declaration with that name and never generates a body. This form is not allowed on
+`const fn`, `state`, trait requirements, or interface requirements.
+
 > The five function kinds are exclusive and cannot be combined: there is no `raw const fn`,
 > `extern raw fn`, or similar spelling. `raw fn` and `extern fn` are separate concerns: `raw fn`
 > opts out of NRA, while `extern fn` selects the C ABI.
@@ -91,6 +112,7 @@ Rules:
 - A function name may not collide with a non-function binding of the same name (`E2002`).
 - `extern fn` cannot be overloaded: it carries a fixed C linkage name.
 - `extern fn` may declare variadic parameters with `...`; no other function kind may do so.
+- `fn f = extern CSymbol` may be overloaded: each overload may select a distinct C symbol.
 - A call with no candidate that accepts the arguments is `E2007`; a call accepted by more than one
   candidate is `E2008`. There is no ranking of conversion quality, so any tie is an error rather
   than a silent choice.

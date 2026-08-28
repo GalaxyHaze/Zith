@@ -205,7 +205,7 @@ void Lexer::processString() {
             }
             char esc = *now;
             if (esc != 'n' && esc != 't' && esc != 'r' && esc != '0' && esc != '\\' && esc != '"' &&
-                esc != '\'' && esc != '$') {
+                esc != '\'' && esc != '#') {
                 diags.report(diagnostics::Severity::Error, diagnostics::err::InvalidEscape,
                              std::string("Invalid escape sequence '\\") + esc + "'",
                              spanAt(now - 1));

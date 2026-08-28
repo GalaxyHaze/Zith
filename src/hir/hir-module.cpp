@@ -380,6 +380,35 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                        }
                                        buffer += ")";
                                    },
+                                   [&](const HirMakeOpaque &m) {
+                                       buffer += "make_opaque %e";
+                                       buffer += std::to_string(m.value);
+                                       buffer += " : %t";
+                                       buffer += std::to_string(m.source_type);
+                                       buffer += " -> %t";
+                                       buffer += std::to_string(m.opaque_type);
+                                       buffer += " id ";
+                                       buffer += std::to_string(m.type_id);
+                                   },
+                                   [&](const HirOpaqueCast &c) {
+                                       buffer += "opaque_cast %e";
+                                       buffer += std::to_string(c.value);
+                                       buffer += " : %t";
+                                       buffer += std::to_string(c.from);
+                                       buffer += " -> %t";
+                                       buffer += std::to_string(c.to);
+                                       buffer += " id ";
+                                       buffer += std::to_string(c.type_id);
+                                       buffer += c.checked ? " checked" : " raw";
+                                   },
+                                   [&](const HirOpaqueCheck &c) {
+                                       buffer += "opaque_check %e";
+                                       buffer += std::to_string(c.value);
+                                       buffer += " : %t";
+                                       buffer += std::to_string(c.opaque_type);
+                                       buffer += " id ";
+                                       buffer += std::to_string(c.type_id);
+                                   },
                                });
                 buffer += "\n";
             }

@@ -687,11 +687,16 @@ static void test_artifact_builder() {
         tail.call.argument_types.push(i32);
         state_tail_id = hir.addExpr(std::move(tail));
     }
-    hir::HirExprId make_dyn_id = hir::kInvalidHirExpr;
-    hir::HirExprId dyn_call_id = hir::kInvalidHirExpr;
-    types::TypeId source_type  = types::kErrorType;
-    types::TypeId dyn_type     = types::kErrorType;
-    types::TypeId fn_type      = types::kErrorType;
+    hir::HirExprId make_dyn_id     = hir::kInvalidHirExpr;
+    hir::HirExprId dyn_call_id     = hir::kInvalidHirExpr;
+    hir::HirExprId make_opaque_id  = hir::kInvalidHirExpr;
+    hir::HirExprId opaque_cast_id  = hir::kInvalidHirExpr;
+    hir::HirExprId opaque_check_id = hir::kInvalidHirExpr;
+    const auto opaque_type         = types.internOpaqueTagged();
+    const auto opaque_opt          = types.internOptional(i32);
+    types::TypeId source_type      = types::kErrorType;
+    types::TypeId dyn_type         = types::kErrorType;
+    types::TypeId fn_type          = types::kErrorType;
     {
         source_type = types.defineStruct("_DynSource");
         types.addField(source_type, "value", i32);
@@ -725,6 +730,30 @@ static void test_artifact_builder() {
         auto &vtable = hir.addVTable(interner.intern("_test.vtable.DynTarget._DynSource"));
         vtable.slots.push(main_sym);
         vtable.slots.push(loop_sym);
+    }
+    {
+        hir::HirMakeOpaque make;
+        make.value       = int_id;
+        make.source_type = i32;
+        make.opaque_type = opaque_type;
+        make.type_id     = 0xCAFEBABEu;
+        make_opaque_id   = hir.addExpr(std::move(make));
+
+        hir::HirOpaqueCast cast;
+        cast.value       = make_opaque_id;
+        cast.from        = opaque_type;
+        cast.to          = i32;
+        cast.opaque_type = opaque_type;
+        cast.result_type = opaque_opt;
+        cast.type_id     = 0xCAFEBABEu;
+        cast.checked     = true;
+        opaque_cast_id   = hir.addExpr(std::move(cast));
+
+        hir::HirOpaqueCheck check;
+        check.value       = make_opaque_id;
+        check.opaque_type = opaque_type;
+        check.type_id     = 0xCAFEBABEu;
+        opaque_check_id   = hir.addExpr(std::move(check));
     }
 
     hir.attrs().slot(0).ownership = hir::HirOwnership::View;
@@ -907,6 +936,60 @@ static void test_artifact_builder() {
                      "second vtable slot points to the concrete method symbol");
         }
     }
+    const auto make_opaque_compact =
+        std::find_if(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::MakeOpaque;
+        });
+    CHECK(make_opaque_compact != art.exprs.end(), "builder serializes a MakeOpaque expression");
+    if (make_opaque_compact != art.exprs.end()) {
+        CHECK_EQ(make_opaque_compact->ref_a, int_id, "MakeOpaque serializes the erased value");
+        CHECK(make_opaque_compact->ref_b < art.types.size() &&
+                  art.types[make_opaque_compact->ref_b].kind == CompactTypeKind::Int,
+              "MakeOpaque serializes the source type index");
+        CHECK(make_opaque_compact->type_id < art.types.size() &&
+                  art.types[make_opaque_compact->type_id].kind == CompactTypeKind::OpaqueTagged,
+              "MakeOpaque serializes the opaque type index");
+        CHECK_EQ(make_opaque_compact->ref_c, 0xCAFEBABEu,
+                 "MakeOpaque serializes the module-local type id");
+    }
+    const auto opaque_cast_compact =
+        std::find_if(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::OpaqueCast;
+        });
+    CHECK(opaque_cast_compact != art.exprs.end(), "builder serializes an OpaqueCast expression");
+    if (opaque_cast_compact != art.exprs.end()) {
+        CHECK_EQ(opaque_cast_compact->ref_a, make_opaque_id,
+                 "OpaqueCast serializes the opaque value");
+        CHECK(opaque_cast_compact->ref_b < art.types.size() &&
+                  art.types[opaque_cast_compact->ref_b].kind == CompactTypeKind::OpaqueTagged,
+              "OpaqueCast serializes the from type");
+        CHECK(opaque_cast_compact->ref_c < art.types.size() &&
+                  art.types[opaque_cast_compact->ref_c].kind == CompactTypeKind::Int,
+              "OpaqueCast serializes the to type");
+        CHECK(opaque_cast_compact->ref_d < art.types.size() &&
+                  art.types[opaque_cast_compact->ref_d].kind == CompactTypeKind::OpaqueTagged,
+              "OpaqueCast serializes the opaque type");
+        CHECK(opaque_cast_compact->type_id < art.types.size() &&
+                  art.types[opaque_cast_compact->type_id].kind == CompactTypeKind::Optional,
+              "OpaqueCast serializes the result type");
+        CHECK_EQ(opaque_cast_compact->ref_e, 0xCAFEBABEu,
+                 "OpaqueCast serializes the expected type id");
+        CHECK((opaque_cast_compact->flags & 1U) != 0, "OpaqueCast serializes the checked flag");
+    }
+    const auto opaque_check_compact =
+        std::find_if(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::OpaqueCheck;
+        });
+    CHECK(opaque_check_compact != art.exprs.end(), "builder serializes an OpaqueCheck expression");
+    if (opaque_check_compact != art.exprs.end()) {
+        CHECK_EQ(opaque_check_compact->ref_a, make_opaque_id,
+                 "OpaqueCheck serializes the opaque value");
+        CHECK(opaque_check_compact->type_id < art.types.size() &&
+                  art.types[opaque_check_compact->type_id].kind == CompactTypeKind::OpaqueTagged,
+              "OpaqueCheck serializes the opaque type");
+        CHECK_EQ(opaque_check_compact->ref_e, 0xCAFEBABEu,
+                 "OpaqueCheck serializes the expected type id");
+    }
 
     // Full zirl round-trip: the artifact from in-memory state must decode with
     // the same HIR pool, blocks, and residual attrs.
@@ -991,6 +1074,55 @@ static void test_artifact_builder() {
         CHECK(round->vtables[0].slot_sym_ids == art.vtables[0].slot_sym_ids &&
                   round->vtables[0].name_id == art.vtables[0].name_id,
               "round-trip preserves vtable name and concrete slot symbols");
+    const auto round_make_opaque =
+        std::find_if(round->exprs.begin(), round->exprs.end(), [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::MakeOpaque;
+        });
+    CHECK(round_make_opaque != round->exprs.end(), "round-trip preserves MakeOpaque");
+    if (round_make_opaque != round->exprs.end()) {
+        CHECK_EQ(round_make_opaque->ref_a, make_opaque_compact->ref_a,
+                 "round-trip preserves MakeOpaque value");
+        CHECK_EQ(round_make_opaque->ref_b, make_opaque_compact->ref_b,
+                 "round-trip preserves MakeOpaque source type");
+        CHECK_EQ(round_make_opaque->type_id, make_opaque_compact->type_id,
+                 "round-trip preserves MakeOpaque opaque type");
+        CHECK_EQ(round_make_opaque->ref_c, make_opaque_compact->ref_c,
+                 "round-trip preserves MakeOpaque type id");
+    }
+    const auto round_opaque_cast =
+        std::find_if(round->exprs.begin(), round->exprs.end(), [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::OpaqueCast;
+        });
+    CHECK(round_opaque_cast != round->exprs.end(), "round-trip preserves OpaqueCast");
+    if (round_opaque_cast != round->exprs.end()) {
+        CHECK_EQ(round_opaque_cast->ref_a, opaque_cast_compact->ref_a,
+                 "round-trip preserves OpaqueCast value");
+        CHECK_EQ(round_opaque_cast->ref_b, opaque_cast_compact->ref_b,
+                 "round-trip preserves OpaqueCast from type");
+        CHECK_EQ(round_opaque_cast->ref_c, opaque_cast_compact->ref_c,
+                 "round-trip preserves OpaqueCast to type");
+        CHECK_EQ(round_opaque_cast->ref_d, opaque_cast_compact->ref_d,
+                 "round-trip preserves OpaqueCast opaque type");
+        CHECK_EQ(round_opaque_cast->type_id, opaque_cast_compact->type_id,
+                 "round-trip preserves OpaqueCast result type");
+        CHECK_EQ(round_opaque_cast->ref_e, opaque_cast_compact->ref_e,
+                 "round-trip preserves OpaqueCast type id");
+        CHECK_EQ(round_opaque_cast->flags, opaque_cast_compact->flags,
+                 "round-trip preserves OpaqueCast checked flag");
+    }
+    const auto round_opaque_check =
+        std::find_if(round->exprs.begin(), round->exprs.end(), [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::OpaqueCheck;
+        });
+    CHECK(round_opaque_check != round->exprs.end(), "round-trip preserves OpaqueCheck");
+    if (round_opaque_check != round->exprs.end()) {
+        CHECK_EQ(round_opaque_check->ref_a, opaque_check_compact->ref_a,
+                 "round-trip preserves OpaqueCheck value");
+        CHECK_EQ(round_opaque_check->type_id, opaque_check_compact->type_id,
+                 "round-trip preserves OpaqueCheck opaque type");
+        CHECK_EQ(round_opaque_check->ref_e, opaque_check_compact->ref_e,
+                 "round-trip preserves OpaqueCheck type id");
+    }
 }
 
 } // namespace

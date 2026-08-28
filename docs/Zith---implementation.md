@@ -148,6 +148,26 @@ de pointer) e `x?` de `?T` para leitura do discriminante em field index 1. Não 
 `return null` do lowering de propagação, pelo que não é preciso tipo de retorno opcional no
 contexto condicional.
 
+### Opaque tagged
+
+Bare `opaque` não é o antigo `raw opaque` (`void*`). No frontend usa
+`TypeExprKind::OpaqueTagged` e no tipo interno `TypeKind::Opaque`; o tipo HIR/codegen é
+`{ *void, u32 }`, sendo o primeiro campo um ponteiro para um slot local estável e o segundo
+o typeId concreto do módulo.
+
+Semanticamente, `T as opaque` aceita tipos endereçáveis/copyable e não exige `&x`. O lowering
+`HirMakeOpaque` spilla o valor para uma alloca local antes de construir a view, pela mesma
+técnica usada por `dyn`. `opaque is T` baixa para `HirOpaqueCheck` e compara o typeId no campo
+1. `opaque as T` baixa para um branch CFG que produz `Some(T)`/`None` e devolve `?T`; o ramo
+`Some` usa `HirOpaqueCast` desmarcado para ler o payload do endereço. `raw opaque as T` reutiliza
+o path `HirOpaqueCast` desmarcado sem qualquer check de tag.
+
+O typeId é derivado de `moduleNamespace + ":" + HIR TypeId` com FNV-1a e é materializado como
+constante i32 no cast. Não há vtable nem registry global nesta iteração. Para manter os ids
+determinísticos no mesmo módulo, `HirMakeOpaque`, `HirOpaqueCheck` e `HirOpaqueCast` guardam o
+mesmo HIR `TypeId` do payload; structs e outros aggregates são erradicados como um todo antes
+de qualquer extração nominal/unaria.
+
 ## Codegen
 
 `emitConstGlobals` é executado antes das funções:
@@ -159,6 +179,11 @@ contexto condicional.
 `HirGlobalConstLoad` faz load do global pelo nome. Não há armazenamento para globals const no emissor.
 
 Parâmetros HIR com residual de slot `Lend`/`View` recebem `nocapture` no LLVM; `View` recebe também `readonly`. O valor do parâmetro em si continua a ser carregado da alloca do slot, preservando o caminho sem LLVM/legacy para o corpo.
+
+Codegen emite `HirMakeOpaque` como `alloca T` + `store T` + bitcast `T*` para `void*` +
+`insertvalue { void*, i32 }`. `HirOpaqueCheck` extrai o typeId e compara com a constante.
+`HirOpaqueCast` desmarcado extrai o ponteiro e faz load do tipo pedido. O checked extraction
+foi baixado em HIR para CFG, por isso não existe branch no emissor para `HirOpaqueCast.checked`.
 
 ## Cache e ZIRL
 

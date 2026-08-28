@@ -1,0 +1,12 @@
+from c/sdl/init
+from c/sdl/timer
+
+fn main(): i32 {
+    Sdl.setAppMetadata("Zith SDL3 smoke", "0.1.0", "dev.zith.sdl3.smoke");
+    if (Sdl.init(0u32) == false) {
+        return 1;
+    }
+    delay(10u32);
+    Sdl.quit();
+    return 0;
+}

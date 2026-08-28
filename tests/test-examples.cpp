@@ -24,7 +24,8 @@ constexpr Example kExamples[] = {
     {"bitwise.zith", 0, false},      {"when-dispatch.zith", 20, false},
     {"arrays.zith", 5, false},       {"nested-structs.zith", 4, false},
     {"optionals.zith", 0, false},    {"generics-decl.zith", 3, false},
-    {"tagged-union.zith", 0, false}, {"c-interop.zith", 0, true},
+    {"tagged-union.zith", 0, false}, {"dyn-interface.zith", 18, false},
+    {"c-interop.zith", 0, true},
 };
 
 #ifdef ZITH_ENABLE_C_INTEROP

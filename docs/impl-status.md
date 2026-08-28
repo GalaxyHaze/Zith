@@ -35,7 +35,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | Type checking | **Working** | All `ExprKind` nodes. Optional/null validation. Index bounds. |
 | Generic instantiation | **Working (step 04/05)** | Generic `fn`, `struct`, `alias`, `enum`, `union`, and `implement` blocks are monomorphized before HIR. Calls and named types resolve concrete instances. `T: A + B` bounds are parsed, stored, and enforced at generic call sites; trait-bound method calls type-check through the declared trait method |
 | Comptime / Solve | **Reserved** | Macro expansion happens in frontend; the solver remains a compatibility stub. Generic monomorphization now runs before NRA/HIR in step-04 |
-| NTA / NRA | **In progress** | Pre-HIR residual-fact boundary is implemented: semantic facts are accumulated and consumed before final lowering; the alive/dead/lent state machine and full diagnostics remain |
+| NRA / Reference Analysis | **In progress** | NRA is the full Zith reference/ownership analysis. Zith-- implements a partial simplified version: residual facts are accumulated and consumed before final lowering, while the full alive/dead/lent state machine and four-rule proof remain to be completed. Internal names such as `NraFacts` and `nraStage` keep the historical NRA spelling |
 | HIR lowering | **Working** | Covers all working features; residual ownership facts attach to side tables without introducing ownership HIR nodes |
 | LLVM codegen | **Working** | x86-64 and WebAssembly targets |
 | Cache | Partial | Object caching works; `.zirl` format not yet used |
@@ -66,7 +66,8 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `?T` (optional) | **Working** | `null → ?T` and `T → ?T` coercions; `?` postfix propagation with operand/return validation. In boolean conditions, `x?` on `?T` means `x != null`. `null` is rejected for non-optional `*T` |
 | `T!` (failable) | **Working** | Declared type; lowered through HIR |
 | `*T` (pointer) | **Working** | Non-nullable: `null` requires `?*T`. `*p` deref, `&x` addr-of, and `->` arrow all work. `*void` is rejected (use `raw opaque`). Pointers imported from C are `?*T`, checked with `is null`; a `?*T` is still accepted unchecked where `*T` is expected |
-| `raw opaque` | **Working** | Dedicated `TypeExprKind::Opaque`, lowered to pointer-to-void. Castable to and from any `*T` via `as`. Bare `opaque` (the tagged reference type) is still unimplemented and reports `unknown type` |
+| `raw opaque` | **Working** | Dedicated `TypeExprKind::Opaque`, lowered to pointer-to-void (untagged C-style `void*`). Castable to and from any `*T` via `as`; `raw opaque as T` reinterprets without a tag check |
+| `opaque` | **Working** | Bare opaque is a tagged open union stored as `{ *void, u32 }` (typeId) and is always a view. `T as opaque` spills the concrete value to a stable local; `opaque is T` compares the module-local typeId; `opaque as T` returns `?T` (extraction in a call or other non-optional result is handled as a checked optional). This iteration has no heap copy, vtable or dynamic calls, and bare `opaque` typeIds are module-local only |
 | `[N]T` (array), `[]T` (slice) | **Working** | Arrays coerce to slices as zero-copy views; `a[lo..hi]` and `a[i]` return optionals with static/dynamic bounds checks. `raw a[lo..hi]`/`raw a[i]` emit unchecked views/indexing |
 | `[...]T` (variadic slice) | **Working** | Last parameter only. Auto-collects a homogeneous tail into a temporary slice; accepts an explicit final `[]T`/`[N]T` and an empty tail. Supported for free functions, methods, dyn trait/interface methods, generic inference, states/dock/jump and overloads; fixed-arity overloads are preferred |
 | `fn(...): R` (function value) | **Working** | Parses as a type value, type-checks non-generic function references, and lowers/calls through C function-pointer ABI. No closures or captures |
@@ -82,7 +83,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 
 | Feature | Status | Notes |
 |---|---|---|
-| literals (`42`, `0xFF`, `0c17`, `0b101`, `3.14`, `true`, `false`, `null`, strings, chars) | **Working** | Explicit radix prefixes (`0x` hex, `0c` octal, `0b` binary) are typed and lowered to their value; a literal wider than 64 bits reports E0004. Digit separators (`1_000`) are unsupported. C-like escapes decoded in string and char literals; `\$` is an accepted escape producing a literal `$`; unknown escapes report E0001 |
+| literals (`42`, `0xFF`, `0c17`, `0b101`, `3.14`, `true`, `false`, `null`, strings, chars) | **Working** | Explicit radix prefixes (`0x` hex, `0c` octal, `0b` binary) are typed and lowered to their value; a literal wider than 64 bits reports E0004. Digit separators (`1_000`) are unsupported. C-like escapes decoded in string and char literals; `\#` is an accepted escape producing a literal `#`; unknown escapes report E0001 |
 | unary `-`, `not` | **Working** | |
 | unary `~` | **Working** | Bitwise NOT; integer operand only, lowers to `HirUnaryOp::BitNot` |
 | binary `+` `-` `*` `/` `%` `==` `!=` `<` `>` `<=` `>=` | **Working** | |
@@ -98,7 +99,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `?` postfix propagation | **Working** | Requires optional operand in optional-returning function. In `if`/`while`/`for (cond)`, `x?` on `?T` is accepted as a non-null boolean test without requiring an optional return |
 | `as` cast | **Working** | Dedicated `ExprKind::Cast` -> `HirCast` -> LLVM conversion. Numeric pairs plus `raw opaque` <-> `*T` (`classifyCast`); pointer-to-pointer between concrete pointees, integer/pointer mixes and user-defined casts stay rejected. Tagged-union member extraction outside a narrowed/checked context requires `raw`; raw-union member casts remain free. No numeric narrowing overflow check |
 | `is null` | **Working** | Dedicated `ExprKind::IsNull`. Requires an optional operand; `?*T` uses the nullptr niche, `?T` reads the discriminant |
-| `is <type>` | **Working (tagged unions)** | Tagged-union member tests lower to a runtime tag check; inside `if`/`when` they narrow the tested local to the member type |
+| `is <type>` | **Working (tagged unions + opaque)** | Tagged-union member tests lower to a runtime tag check; inside `if`/`when` they narrow the tested local to the member type. `opaque is T` compares the bare opaque typeId and returns `bool` |
 | range `1..5` | **Check only** | Parsed as binary `..`; no dedicated sema |
 | struct literal `Foo { x: 1, y: 2 }` | **Working** | Struct literal with named fields via `{}` syntax. Inaccessible private/mod fields are rejected except in the file that declares the struct |
 | `@sizeOf`, `@offsetOf`, `@alignOf` | **Working** | `@` parses in expression position. `@sizeOf(T)` accepts any complete type and types as `u64`; `@offsetOf(S, field)` and `@alignOf(S)` are struct-only and type as `i32`. `@sizeOf(void)` reports `E3001` ("requires a complete type") |
@@ -226,6 +227,7 @@ Recorded deliberately; each item is a follow-up, not an unknown.
 | Ranges and range syntax in `for (x in 0..4)` | The iterator protocol supports user types with `next(self) -> union { T, End }`; literal range syntax is future work |
 | User-defined casts | To be added as a new branch in `classifyCast` |
 | No C struct-by-value ABI | `struct` parameters/results import as named foreign types, but there is no verified ABI and no Zith-visible layout, so constructing/passing records to C remains unsupported |
+| Bare `opaque` is module-local | The deterministic typeId is stable for the same concrete type inside one module, but imported/cached opaque values are rejected with `E2010` because a cross-module registry is not implemented yet |
 | `..` lexes per character | Its `precedence()` is -1 and the when-case range pattern depends on the two `.` tokens. Every other multi-char operator is munched longest-first as one token and wired through the parser, sema and formatter |
 | `++` / `--` | Not implemented; no increment/decrement operators exist |
 | Ownership proof still happens after premature lowering in places | The stable order is `sema -> comptime/solve -> NTA/NRA -> HIR`; residual facts are now attached before final lowering, while some paths still need the full NRA proof before emitting their final form |
