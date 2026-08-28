@@ -12,12 +12,12 @@ let aliasMap = new Map();
 function sectionDescription(items, trail) {
     const section = trail[0] || items.title;
     const descriptions = {
-        "Getting Started": "Install Zith, write your first program, and understand why the language is designed this way.",
-        "Language Guide": "Practical guide to Zith syntax, types, memory, generics, concurrency, and systems programming.",
+        "Getting Started": "Install Zith, write a first program, and learn how the language is positioned.",
+        "Language Guide": "Practical documentation of Zith syntax, types, memory model, generics, concurrency, and systems programming.",
         "Language Reference": "Canonical Zith language reference, specification chapters, and implementation status.",
-        "CLI Reference": "Reference for zithc commands: build, run, check, format, create, and project tooling.",
+        "CLI Reference": "Reference for zithc commands: build, run, check, format, create, test, and project tooling.",
         "Project": "Project overview and current direction for the Zith programming language.",
-        "FAQ": "Frequently asked questions about Zith stability, scope, and relation to other languages.",
+        "FAQ": "Frequently asked questions about Zith stability, scope, and relationship to other languages.",
         "Community": "Community resources for reporting issues and contributing to Zith documentation.",
     };
     return descriptions[section] || "Official documentation for the Zith programming language.";
@@ -232,7 +232,7 @@ function loadPage(path, anchor = null, opts = {}) {
                 : filename;
             const fullTitle = pageTitle + " — Zith Documentation";
             const meta = pageMeta.get(canonicalPath);
-            const description = meta && meta.description ? meta.description : "Official documentation for the Zith programming language.";
+            const description = meta && meta.description ? meta.description : "Documentation for the Zith programming language.";
             const pageURL = "https://zith-lang.org/html/documentation/D-home.html?page=" + encodeURIComponent(path.replace("./", ""));
 
             document.title = fullTitle;

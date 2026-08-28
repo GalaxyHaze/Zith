@@ -2,7 +2,7 @@
 <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <title>Zith &mdash; Systems Programming, Reimagined</title>
+        <title>Zith Programming Language</title>
         <link rel="icon" type="image/x-icon" href="../media/Logos/logo.png">
         <link rel="apple-touch-icon" sizes="180x180" href="../media/Logos/logo.png">
         <link rel="stylesheet" href="../css/home.css">
@@ -12,14 +12,14 @@
         <meta name="robots" content="index, follow">
         <link rel="canonical" href="https://zith-lang.org/html/home.html">
 
-        <meta name="description" content="Zith is a statically-typed systems programming language with compile-time memory safety via Node Resource Analysis &mdash; no garbage collector, no borrow checker, zero runtime overhead.">
+        <meta name="description" content="Zith is a statically typed, compiled systems language that checks memory safety at compile time through Node Resource Analysis.">
         <meta name="keywords" content="Zith, systems programming, statically typed, memory safety, NRA, Node Resource Analysis, compile-time ownership, zero-cost abstractions, programming language, open source, zithc compiler">
         <meta name="author" content="GalaxyHaze">
 
         <meta property="og:type" content="website">
         <meta property="og:url" content="https://zith-lang.org/html/home.html">
-        <meta property="og:title" content="Zith &mdash; Systems Programming, Reimagined">
-        <meta property="og:description" content="Zith proves memory safety at compile time without a garbage collector or borrow checker. Clean syntax, zero runtime overhead.">
+        <meta property="og:title" content="Zith Programming Language">
+        <meta property="og:description" content="Zith is a statically typed, compiled systems language with compile-time memory safety through Node Resource Analysis.">
         <meta property="og:image" content="https://zith-lang.org/media/Logos/social-share.png">
         <meta property="og:image:width" content="1200">
         <meta property="og:image:height" content="630">
@@ -30,8 +30,8 @@
         <meta name="twitter:card" content="summary_large_image">
         <meta name="twitter:domain" content="zith-lang.org">
         <meta name="twitter:url" content="https://zith-lang.org/html/home.html">
-        <meta name="twitter:title" content="Zith &mdash; Systems Programming, Reimagined">
-        <meta name="twitter:description" content="Zith proves memory safety at compile time without a garbage collector or borrow checker. Clean syntax, zero runtime overhead.">
+        <meta name="twitter:title" content="Zith Programming Language">
+        <meta name="twitter:description" content="Zith is a statically typed, compiled systems language with compile-time memory safety through Node Resource Analysis.">
         <meta name="twitter:image" content="https://zith-lang.org/media/Logos/social-share.png">
 
         <script type="application/ld+json">
@@ -40,7 +40,7 @@
           "@type": "WebPage",
           "name": "Zith Programming Language",
           "url": "https://zith-lang.org/html/home.html",
-          "description": "Zith is a statically-typed systems programming language with compile-time memory safety via Node Resource Analysis.",
+          "description": "Zith is a statically typed, compiled systems programming language with compile-time memory safety through Node Resource Analysis.",
           "isPartOf": {
             "@type": "WebSite",
             "name": "Zith",
@@ -59,36 +59,36 @@
             <div class="icons">
                 <div class="icon">
                     <a href="../about/">
-                        <img src="../media/Icons/Me.svg" alt="Open the Zith blog and author page">
+                        <img src="../media/Icons/Me.svg" alt="Open the Zith development diary">
                         <p>Blog</p>
                     </a>
                 </div>
 
                 <div class="icon">
                     <a href="../helios/">
-                        <img src="../media/Icons/Helios.svg" alt="Open Helios IDE">
+                        <img src="../media/Icons/Helios.svg" alt="Open the Helios IDE for Zith">
                         <p>Helios IDE</p>
                     </a>
                 </div>
 
                 <div class="icon">
                     <a href="./documentation/D-home.html">
-                        <img src="../media/Icons/Documentation.svg" alt="Open documentation">
+                        <img src="../media/Icons/Documentation.svg" alt="Open Zith documentation">
                         <p>Docs</p>
                     </a>
                 </div>
 
                 <div class="icon">
                     <a href="https://discord.gg/a7h4cpWHg4" target="_blank" rel="noopener noreferrer">
-                        <img src="../media/Icons/Discord.svg" alt="Join the Zith Discord">
+                        <img src="../media/Icons/Discord.svg" alt="Join the Zith Discord community">
                         <p>Discord</p>
                     </a>
                 </div>
 
                 <div class="icon">
                     <a href="https://github.com/GalaxyHaze/Zith" target="_blank" rel="noopener noreferrer">
-                        <img src="../media/Icons/Github.svg" alt="View the Zith source on GitHub">
-                        <p>Github</p>
+                        <img src="../media/Icons/Github.svg" alt="View Zith source code on GitHub">
+                        <p>GitHub</p>
                     </a>
                 </div>
 
@@ -109,7 +109,7 @@
 
                 <div class="icon">
                     <a href="../playground/">
-                        <img src="../media/Icons/Playground.svg" alt="Open the Zith playground">
+                        <img src="../media/Icons/Playground.svg" alt="Open the Zith browser playground">
                         <p>Playground</p>
                     </a>
                 </div>
@@ -138,7 +138,7 @@
             </div>
             <div class="content">
                 <h2>Contact</h2>
-                <p>Email: aboveHaze@gmail.com</p>
+                    <p>Email: <a href="mailto:aboveHaze@gmail.com">aboveHaze@gmail.com</a></p>
             </div>
         </div>
 
@@ -153,7 +153,14 @@
             </div>
             <div class="content">
                 <h2>Download</h2>
-                <p>Release: <a href="https://github.com/GalaxyHaze/Zith/releases" target="_blank">Downloads</a></p>
+                <p class="start-heading">Package Managers</p>
+                <p><code>brew tap galaxyhaze/zithc && brew install zithc</code> on macOS/Linux</p>
+                <p><code>scoop bucket add zithc https://github.com/GalaxyHaze/Zith.git && scoop install zithc</code> on Windows</p>
+                <p class="start-heading">Fetch Installers</p>
+                <p>Linux/macOS: <code>curl -fsSL https://raw.githubusercontent.com/GalaxyHaze/Zith/main/scripts/install.sh | sh</code></p>
+                <p>Windows PowerShell: <code>Invoke-RestMethod https://raw.githubusercontent.com/GalaxyHaze/Zith/main/scripts/install.ps1 | Invoke-Expression</code></p>
+                <p class="start-heading">Releases</p>
+                <p><a href="https://github.com/GalaxyHaze/Zith/releases" target="_blank">Download release binaries</a></p>
             </div>
         </div>
 

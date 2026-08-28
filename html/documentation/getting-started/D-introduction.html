@@ -1,6 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="introduction">Introduction</h1>
-<p>Zith is a statically typed compiled language with a specification that is ahead of its implementation. This portal is therefore language documentation in draft form, not a stability guarantee.</p>
+<p>Zith is a statically typed, compiled systems language with a specification that is ahead of its implementation. The language and compiler are under active development; documentation should be treated as draft material, not as a stability guarantee.</p>
 <p>The <code>main</code> compiler builds <code>Zith--</code>, the implemented subset of the language. The <a href="./../reference/D-zith-subset.html">Zith-- reference</a> is the operational language for <code>zithc</code>; the <a href="./../reference/D-specification.html">Specification</a> describes the larger intended language.</p>
 <h2 id="read-the-right-document">Read the right document</h2>
 <ul>
@@ -8,7 +8,7 @@
   <li>Use the <a href="./../guide/D-overview.html">Language Guide</a> for short practical explanations.</li>
   <li>Use the <a href="./../reference/D-specification.html">Language Reference</a> for the canonical specification.</li>
   <li>Use the <a href="./../reference/D-zith-subset.html">Zith-- reference</a> for the implemented subset.</li>
-  <li>Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before using a feature in production code.</li>
+  <li>Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</li>
 </ul>
 <p>The <code>Zith--</code> compiler currently supports core declarations, bindings, structs and pointers, the full operator set including compound assignment and bitwise operators, <code>when</code> pattern matching, the <code>for</code> family including iterators, <code>state</code>/<code>dock</code>/<code>jump</code>, generic instantiation, function overloading, traits/interfaces and <code>dyn</code> method dispatch, macros and <code>raw macro</code>, <code>raw opaque</code> handles, <code>lend</code>/<code>view</code>, modules, and C header imports. All of it lowers through HIR to LLVM code generation for x86-64 and WebAssembly. Tag macros parse, but are rejected in the <code>Zith--</code> pipeline.</p>
 <p>Ownership analysis (NRA) has the <code>lend</code>/<code>view</code> call-annotation slice but not the full state machine. Comptime evaluation, <code>const fn</code>, async execution, and context-based extensions remain specification-only; <code>const fn</code> and <code>global</code> report <code>E2010</code>.</p>

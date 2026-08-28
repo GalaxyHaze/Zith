@@ -6,12 +6,12 @@
   },
   {
     "file": "2026-08-04-macros-and-c-interop.html",
-    "title": "Macros Actually Expand Now",
+    "title": "Macros Land in the Zith Pipeline",
     "date": "2026-08-04"
   },
   {
     "file": "2026-07-29-structs-and-the-modern-pipeline.html",
-    "title": "Structs Finally Work — Rebuilding the Pipeline",
+    "title": "Structs and the Modern Pipeline",
     "date": "2026-07-29"
   },
   {
@@ -26,7 +26,7 @@
   },
   {
     "file": "2026-06-22-zith-lsp-progress.html",
-    "title": "The Editor Starts Answering Back",
+    "title": "Zith Language Server Progress",
     "date": "2026-06-22"
   },
   {
@@ -36,17 +36,17 @@
   },
   {
     "file": "2026-06-19-workflow-ai.html",
-    "title": "A Detour Through Workflow-AI",
+    "title": "Workflow-AI and the Zith Detour",
     "date": "2026-06-19"
   },
   {
     "file": "2026-06-19-next-plans.html",
-    "title": "What Comes Next",
+    "title": "Zith Roadmap: What Comes Next",
     "date": "2026-06-19"
   },
   {
     "file": "2026-06-13-welcome.html",
-    "title": "Welcome to the diary",
+    "title": "Welcome to the Zith Diary",
     "date": "2026-06-13"
   }
 ]

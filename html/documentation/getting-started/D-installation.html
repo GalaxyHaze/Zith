@@ -1,10 +1,23 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="installation">Installation</h1>
-<p>Build <code>zithc</code> from the compiler checkout. Packaging instructions are intentionally not published here because package availability is not part of the canonical project documentation.</p>
+<p>Zith provides package-manager installs, fetch installers, and a source build. The compiler currently works on Linux, macOS, and Windows.</p>
+<h2 id="homebrew">Homebrew</h2>
+<pre><code class="language-bash">brew tap galaxyhaze/zithc
+brew install zithc</code></pre>
+<h2 id="scoop">Scoop</h2>
+<pre><code class="language-powershell">scoop bucket add zithc https://github.com/GalaxyHaze/Zith.git
+scoop install zithc</code></pre>
+<h2 id="fetch-installer">Fetch installer</h2>
+<p>On Linux or macOS:</p>
+<pre><code class="language-bash">curl -fsSL https://raw.githubusercontent.com/GalaxyHaze/Zith/main/scripts/install.sh | sh</code></pre>
+<p>Use <code>--musl</code> to install the static musl-linked binary when dynamic linking is not suitable.</p>
+<p>On Windows PowerShell:</p>
+<pre><code class="language-powershell">Invoke-RestMethod https://raw.githubusercontent.com/GalaxyHaze/Zith/main/scripts/install.ps1 | Invoke-Expression</code></pre>
+<h2 id="build-from-source">Build from source</h2>
+<p>Required toolchain versions are documented in the <a href="https://github.com/GalaxyHaze/Zith#readme">compiler README</a>.</p>
 <pre><code class="language-bash">git clone https://github.com/GalaxyHaze/Zith.git
 cd Zith
 cmake -S . -B build
 cmake --build build</code></pre>
-<p>Run the resulting binary directly, or add its build directory to your <code>PATH</code>.</p>
 <pre><code class="language-bash">./build/zithc --help</code></pre>
-<p>Use <a href="./D-quick-start.html">Quick Start</a> once the compiler is available.</p>
+<p>Run <code>./build/zithc --help</code> after the build finishes, or add the build directory to <code>PATH</code>. LLVM 18+ is optional but required for LLVM code generation; without it, <code>zithc check</code> remains available. Use <a href="./D-quick-start.html">Quick Start</a> once the compiler is available.</p>
