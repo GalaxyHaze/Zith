@@ -20,12 +20,8 @@ struct Example {
 };
 
 constexpr Example kExamples[] = {
-    {"linked-list.zith", 7, false},  {"for-loops.zith", 10, false},
-    {"bitwise.zith", 0, false},      {"when-dispatch.zith", 20, false},
-    {"arrays.zith", 5, false},       {"nested-structs.zith", 4, false},
-    {"optionals.zith", 0, false},    {"generics-decl.zith", 3, false},
-    {"tagged-union.zith", 0, false}, {"dyn-interface.zith", 18, false},
-    {"c-interop.zith", 0, true},
+    {"simple-feature.zith", 0, false},
+    {"advance-feature.zith", 15, false},
 };
 
 #ifdef ZITH_ENABLE_C_INTEROP

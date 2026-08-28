@@ -1,5 +1,0 @@
-import "stdio.h"
-
-fn main() {
-    printf("Hello, world!");
-}
