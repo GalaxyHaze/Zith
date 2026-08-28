@@ -66,8 +66,15 @@ SPEC_CHAPTERS = [
     ("21-best-practices.md", "Best Practices"),
 ]
 
+SUBSET_CHAPTER = ("Zith--.md", "Zith--")
+
 LEGACY_ANCHORS = {
     ("04-traits-interfaces.md", "44-capabilities--built-in-reference"): ("43-capabilities",),
+    ("02-module-system.md", "23-namespace-access--scope-resolution"): (),
+    ("08-error-handling.md", "83-propagation--fallback"): (),
+    ("09-control-flow.md", "94-state-functions--state-machines"): (
+        "94-state-functions-and-state-machines",
+    ),
 }
 
 
@@ -122,6 +129,7 @@ def imported_pages() -> tuple[list[Page], dict[str, str]]:
     hashes: dict[str, str] = {}
     imports = [("Zith-spec.md", "Specification", "reference/D-specification.html")]
     imports.append(("impl-status.md", "Implementation Status", "reference/D-implementation-status.html"))
+    imports.append(SUBSET_CHAPTER + ("reference/D-zith-subset.html",))
     imports.extend(
         (filename, title, f"reference/D-{filename[3:-3]}.html")
         for filename, title in SPEC_CHAPTERS
@@ -132,14 +140,17 @@ def imported_pages() -> tuple[list[Page], dict[str, str]]:
             raise FileNotFoundError(f"Missing canonical specification source: {source}")
         body = source.read_text(encoding="utf-8")
         hashes[filename] = hashlib.sha256(body.encode("utf-8")).hexdigest()
-        page_id = "reference-" + ("implementation-status" if filename == "impl-status.md"
-                                  else "specification" if filename == "Zith-spec.md"
-                                  else filename[:-3])
+        page_id = ("reference-zith-subset" if filename == SUBSET_CHAPTER[0]
+                   else "reference-" + ("implementation-status" if filename == "impl-status.md"
+                                        else "specification" if filename == "Zith-spec.md"
+                                        else filename[:-3]))
         aliases: tuple[str, ...] = ()
         if filename == "Zith-spec.md":
             aliases = ("spec/D-overview.html",)
         elif filename == "impl-status.md":
             aliases = ("spec/D-impl-status.html",)
+        elif filename == SUBSET_CHAPTER[0]:
+            aliases = ("spec/D-zith-subset.html",)
         else:
             aliases = (f"spec/D-{filename[3:-3]}.html",)
         pages.append(Page(page_id, title, "Language Reference", output, aliases,
@@ -326,6 +337,7 @@ def build_tree() -> list[dict]:
         ("Raw & Unsafe", "guide-raw-unsafe"),
     ]
     reference = [("Implementation Status", "reference-implementation-status")]
+    reference.append(("Zith--", "reference-zith-subset"))
     reference += [(title, "reference-" + filename[:-3]) for filename, title in SPEC_CHAPTERS]
     cli = [(f"zithc {command}", f"cli-{command}") for command in
            ("build", "run", "check", "fmt", "create", "clean", "execute", "test", "deps", "docs")]

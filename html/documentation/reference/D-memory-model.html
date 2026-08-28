@@ -1,6 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="7-memory-model-nra">7. Memory Model (NRA)</h1>
-<blockquote><p><strong>Implementation status:</strong> the ownership modifiers (<code>mut</code>, <code>lend</code>, <code>view</code>, <code>unique</code>, <code>share</code>, <code>belong</code>) are <strong>parsed and typed</strong> (F-34): they are accepted wherever a type is written, compose with <code>?</code>, <code>[]</code>, and <code><em></code>, survive <code>zithc fmt</code>, and are interned in the type table, and a write through a <code>view</code> binding is rejected with <code>E4004</code>. The NRA analysis pass itself — the alive/dead/lent state machine, fact accumulation, and the four rules of <a href="#74-the-four-nra-rules">§7.4</a> — is still <strong>spec-only</strong> (F-14). The target architecture runs <code>NTA/NRA</code> before the final HIR boundary; the current implementation still strips qualifiers too early during lowering, which is the structural gap F-14 must close. Pointer types (<code></em>T</code>), <code>*p</code> dereference, and <code>&amp;x</code> address-of are <strong>working</strong>. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> the <code>lend</code>/<code>view</code> call-annotation slice is implemented: <code>lend T</code> and <code>view T</code> parameters lower to real pointers, call arguments for <code>default</code> bindings require <code>lend x</code>/<code>view x</code> (or report <code>E4005</code>), invalid call annotations are rejected (<code>E4007</code>), and the same binding cannot be borrowed twice in one call. <code>view</code> writes are rejected with <code>E4004</code>. Residual NRA facts are accumulated and attached before HIR, and LLVM emits <code>readonly</code> for views plus <code>nocapture</code> for borrows. The full alive/dead/lent state machine and the complete four-rule proof of <a href="#74-the-four-nra-rules">§7.4</a> are still <strong>spec-only</strong> (F-14). Pointer types (<code><em>T</code>), <code></em>p</code> dereference, and <code>&amp;x</code> address-of are <strong>working</strong>. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="71-what-nra-tracks">7.1 What NRA Tracks</h3>
 <p>The ownership system is split conceptually into two layers:</p>
 <ul>
@@ -115,6 +115,7 @@ a = Point { x: 3.0, y: 4.0 };      // OK: reassignment creates a new node for a<
 </table>
 <blockquote><p><code>unique</code> provides compile-time single-owner guarantees for local bindings. In a <code>global</code> context, <code>unique</code> becomes runtime-checked — the compiler enforces exclusive access at program startup. <code>global</code> bindings cannot be moved; the <code>Lent</code> capability manages thread-safe distribution.</p></blockquote>
 <blockquote><p>In practice, most code only needs <code>lend</code> and <code>view</code>.</p></blockquote>
+<p><code>share</code> nodes may participate in the <code>Branch</code> protocol. When a shared value is handed to a thread through <code>fork</code>, NRA tracks a <code>forkCount</code>: zero means the source owns the node, one means a thread branch is pending, and more than one is rejected. <code>merge</code> consumes the <code>ForkHandle</code> and returns the node to the source. See <a href="https://github.com/GalaxyHaze/Zith/blob/main/docs/plans/branch-protocol.md">the branch protocol plan</a>.</p>
 <h4 id="implicit-mutability">Implicit Mutability</h4>
 <p>Each memory modifier carries an implicit content mutability level:</p>
 <table>
@@ -172,17 +173,15 @@ a = Point { x: 3.0, y: 4.0 };      // OK: reassignment creates a new node for a<
 <h3 id="75-nra-in-practice">7.5 NRA in Practice</h3>
 <pre><code class="language-zith">// lend -- exclusive temporary borrow
 fn scale(p: lend Point, factor: f32) { p.x *= factor; p.y *= factor; }
-let pt = mut Point { x: 3.0, y: 4.0 };
-scale(pt, 2.0);
+var pt: Point = Point { x: 3.0, y: 4.0 };
+scale(lend pt, 2.0);
 @println(pt.x);   // OK: borrow ended
 
-// view -- multiple read-only refs
-let v1: view Point = pt;
-let v2: view Point = pt;   // fine
+// view -- read-only borrow
+fn center_of(p: view Point): f64 { (p.x + p.y) / 2.0 }
+center_of(view pt);   // no caller mutation
 
-// share -- no ref-count, statically proven
-let a: share Config = load();
-let b: share Config = a;   // both point to the same node
+// share/belong remain spec-only in Zith--
 
 // belong -- back-pointer cannot outlive its parent
 struct Tree&lt;T&gt; {

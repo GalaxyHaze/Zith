@@ -8,11 +8,11 @@ kind: editorial
 ---
 # Memory Model
 
-The specification defines Node Resource Analysis (NRA) and the memory qualifiers `mut`, `lend`, `view`, `unique`, `share`, and `belong`. NRA is no longer purely specification-only, but it is not finished either.
+The specification defines Node Resource Analysis (NRA) and the memory qualifiers `mut`, `lend`, `view`, `unique`, `share`, and `belong`. `Zith--` implements a simplified reference-analysis slice around `lend` and `view`; the full NRA proof is not finished.
 
 ## What exists
 
-The qualifiers parse anywhere a type is written and are carried in the type table as a qualified type. HIR and code generation strip the qualifier, so a qualified value has the same representation as an unqualified one. One rule is enforced today: writing through a `view` binding reports `E4004`.
+`lend T` and `view T` parameters lower to pointers. A `default` binding passed to a `lend`/`view` parameter requires `lend x` or `view x` at the call site; omitting it or passing the wrong annotation reports `E4005`. The same binding cannot be lent twice or used as both `lend` and `view` in one call. Writing through a `view` binding reports `E4004`; writing through `lend` is allowed. LLVM emits `nocapture` for borrows and `readonly` for views.
 
 ```zith
 fn peek(value: view i32): i32 {
@@ -24,6 +24,6 @@ The pipeline boundary that ownership proof needs is also in place. The stable or
 
 ## What is missing
 
-The alive/dead/lent state machine and the rest of the ownership diagnostics (`E4001` use-after-move, `E4002` borrow conflict, `E4003` double borrow) are not implemented. Do not present ownership examples as compiler-enforced behaviour beyond the `view` write rule.
+The alive/dead/lent state machine and the rest of the ownership diagnostics (`E4002` borrow conflict, `E4003` double borrow) are not implemented. `E4001` is emitted for logical receiver moves after calls that consume a method receiver. `unique`, `share`, `belong`, and `mut` are rejected with `E2010` in this subset.
 
 Read the [Memory Model reference](doc:reference-07-memory-model) for the design and [Implementation Status](doc:reference-implementation-status) for the boundary.

@@ -1,28 +1,53 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Welcome to the diary</title></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to the diary</title>
+    <meta name="description" content="GalaxyHaze opens the Zith dev diary with the plans and habits behind the language project.">
+    <meta name="author" content="GalaxyHaze">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://zith-lang.org/about/posts/2026-06-13-welcome.html">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://zith-lang.org/about/posts/2026-06-13-welcome.html">
+    <meta property="og:title" content="Welcome to the diary">
+    <meta property="og:description" content="GalaxyHaze opens the Zith dev diary with the plans and habits behind the language project.">
+    <meta property="og:site_name" content="Zith Programming Language">
+    <meta property="og:locale" content="en_US">
+    <meta property="article:published_time" content="2026-06-13">
+    <meta property="og:image" content="https://zith-lang.org/media/Logos/social-share.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:domain" content="zith-lang.org">
+    <meta name="twitter:url" content="https://zith-lang.org/about/posts/2026-06-13-welcome.html">
+    <meta name="twitter:title" content="Welcome to the diary">
+    <meta name="twitter:description" content="GalaxyHaze opens the Zith dev diary with the plans and habits behind the language project.">
+    <meta name="twitter:image" content="https://zith-lang.org/media/Logos/social-share.png">
+</head>
 <body>
 
 <h2>Welcome to the diary</h2>
 <p class="post-date">2026-06-13</p>
 <hr>
 <p>
-    This is the first entry in what I hope will become a regular habit — writing down thoughts
-    about the Zith compiler, programming language design, and the day-to-day joys and struggles
-    of building a systems language from scratch.
+    Zith is at <strong>v0.2.0</strong>. The lexer, parser, semantic analysis, type system and MIR
+    lowering all run end to end, which is far enough along that I have started forgetting why I
+    made half the decisions that got me here. That is what this diary is for.
 </p>
 <p>
-    Right now Zith is at <strong>v0.2.0</strong>. The lexer, parser, semantic analysis, type
-    system, and MIR lowering are all functional. I've been spending time on the heuristic
-    engine (the "did you mean?" feature) and expanding the test suite. The goal is to reach
-    a point where Zith can compile meaningful programs — maybe even self-host one day.
+    Most of my time lately has gone into the heuristic engine — the "did you mean?" suggestions —
+    and into the test suite, which is the part nobody writes about and the part that decides
+    whether the rest survives a refactor.
 </p>
 <p>
-    This blog is just a simple directory of HTML files sitting on the gh-pages branch. No
-    database, no CMS. Lightweight, retro, mine. That's how I like it.
+    The near goal is unglamorous: compile programs that are actually worth compiling. Self-hosting
+    is the far goal, and I am not going to pretend it is close.
 </p>
 <p>
-    Anyway, that's enough for today. Let's see what comes next.
+    The blog itself is a directory of HTML files on the gh-pages branch. No database, no CMS,
+    nothing to keep running. That is the whole design.
 </p>
 <hr>
 <p class="post-date"><em>— Haze</em></p>

@@ -1,51 +1,83 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Next Plans for Zith</title></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>What Comes Next</title>
+    <meta name="description" content="GalaxyHaze maps the next milestones for the Zith compiler and language roadmap.">
+    <meta name="author" content="GalaxyHaze">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://zith-lang.org/about/posts/2026-06-19-next-plans.html">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://zith-lang.org/about/posts/2026-06-19-next-plans.html">
+    <meta property="og:title" content="What Comes Next">
+    <meta property="og:description" content="GalaxyHaze maps the next milestones for the Zith compiler and language roadmap.">
+    <meta property="og:site_name" content="Zith Programming Language">
+    <meta property="og:locale" content="en_US">
+    <meta property="article:published_time" content="2026-06-19">
+    <meta property="og:image" content="https://zith-lang.org/media/Logos/social-share.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:domain" content="zith-lang.org">
+    <meta name="twitter:url" content="https://zith-lang.org/about/posts/2026-06-19-next-plans.html">
+    <meta name="twitter:title" content="What Comes Next">
+    <meta name="twitter:description" content="GalaxyHaze maps the next milestones for the Zith compiler and language roadmap.">
+    <meta name="twitter:image" content="https://zith-lang.org/media/Logos/social-share.png">
+</head>
 <body>
 
-<h2>Next Plans for Zith</h2>
+<h2>What Comes Next</h2>
 <p class="post-date">2026-06-19</p>
 <hr>
 <p>
-    Here's what's on the roadmap for the next few weeks:
+    A roadmap is mostly a way of admitting what is not done yet, so here is mine, grouped by how
+    far away it feels rather than by when I promise to ship it.
 </p>
 
 <h3>Short-term (v0.4.0)</h3>
-<ul>
-    <li><strong>Type system refinements</strong> — finish wiring the <code>TypeWalker</code> into all
-        passes that currently duplicate the type-kind switch. The unification pass was just the
-        first consumer.</li>
-    <li><strong>Compilation session overhaul</strong> — the pipeline is getting more complex and the
-        current <code>CompilationSession</code> needs better stage isolation and error recovery.</li>
-    <li><strong>More comprehensive error reporting</strong> — the heuristic diagnostic engine is
-        working but needs more "did you mean?" coverage for type mismatches and missing symbols.</li>
-    <li><strong>Standard library expansion</strong> — basic collections (<code>Array</code>,
-        <code>List</code>, <code>Map</code>) need to be usable from Zith code.</li>
-</ul>
+<p>
+    The type system needs the <code>TypeWalker</code> wired into every pass that still duplicates
+    the type-kind switch. Unification was the first consumer and it proved the shape works; the
+    rest are copy-paste waiting to drift apart.
+</p>
+<p>
+    <code>CompilationSession</code> is the other structural item. The pipeline has more stages
+    than it did when I wrote it, and stage isolation and error recovery are both weaker than the
+    number of stages now justifies. After that, the diagnostic engine needs "did you mean?"
+    coverage for type mismatches and missing symbols, not just identifiers, and the standard
+    library needs <code>Array</code>, <code>List</code> and <code>Map</code> to be usable from
+    Zith code rather than existing on paper.
+</p>
 
 <h3>Medium-term</h3>
-<ul>
-    <li><strong>Self-hosted parser</strong> — the dream is to have the Zith parser written in Zith itself.
-        This requires the FFI and bootstrapping infrastructure to be solid first.</li>
-    <li><strong>MIR optimizations</strong> — the mid-level IR needs a proper optimization pass
-        pipeline before we can generate competitive machine code.</li>
-    <li><strong>Package manager maturity</strong> — <code>zithc new</code>, <code>zithc build</code>,
-        and dependency resolution work but the UX is rough.</li>
-</ul>
+<p>
+    A Zith parser written in Zith is the milestone I want most, and it is gated on FFI and
+    bootstrapping being solid first — writing it earlier just means writing it twice. The MIR
+    needs a real optimization pass pipeline before any of the generated code is worth measuring.
+</p>
+<p>
+    The package manager works in the sense that <code>zithc new</code> and <code>zithc build</code>
+    do what they say and dependency resolution resolves dependencies. The UX around all of it is
+    rough enough that I would not hand it to anyone yet.
+</p>
 
-<h3>Long-term vision</h3>
-<ul>
-    <li><strong>LLVM backend stabilization</strong> — we have the IR, but codegen quality and
-        platform coverage need significant work.</li>
-    <li><strong>Language server (LSP)</strong> — the foundation exists but it's disabled. Proper
-        IDE support will be a force multiplier for adoption.</li>
-    <li><strong>Self-hosting</strong> — the ultimate milestone. A Zith compiler written in Zith.</li>
-</ul>
+<h3>Long-term</h3>
+<p>
+    The LLVM backend exists and emits IR; codegen quality and platform coverage are where the work
+    is. The language server has foundations but is disabled — proper IDE support is the single
+    thing most likely to make the language usable by someone other than me.
+</p>
+<p>
+    And then self-hosting, which is the point where the language stops being a project about a
+    compiler and starts being a language.
+</p>
 
 <hr>
 <p>
-    As always, this is a solo project driven by curiosity and caffeine. Things move at the pace
-    they move. But the direction is clear, and every release brings us a step closer.
+    This is a solo project, so it moves at the pace a solo project moves. The order above is more
+    reliable than any date I could put next to it.
 </p>
 <hr>
 <p class="post-date"><em>— Haze</em></p>

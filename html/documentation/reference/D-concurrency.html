@@ -17,7 +17,12 @@ runtime.join(handle);
 let task: Task&lt;Response!&gt; = runtime.schedule(fetchRequest);
 let response = runtime.blockOn(task);</code></pre>
 <p>API names above are illustrative. The compiler does not reserve them.</p>
-<h3 id="103-what-the-compiler-proves">10.3 What the Compiler Proves</h3>
+<h3 id="103-thread-forkmerge">10.3 Thread Fork/Merge</h3>
+<p>The explicit thread protocol is <code>fork</code>/<code>merge</code>, backed by the <code>Branch</code> capability. There are no coroutines, <code>await</code>, or implicit schedulers:</p>
+<pre><code class="language-zith">let handle = fork Worker(share state);
+let result = merge handle;</code></pre>
+<p><code>fork</code> hands a shared value to a thread and returns a <code>ForkHandle&lt;T&gt;</code>; <code>merge</code> blocks, consumes the handle, and restores ownership of the recollected value. NRA tracks the fork as an ownership transition and rejects unbalanced forks. See <a href="https://github.com/GalaxyHaze/Zith/blob/main/docs/plans/branch-protocol.md">the branch protocol plan</a>.</p>
+<h3 id="104-what-the-compiler-proves">10.4 What the Compiler Proves</h3>
 <p>Concurrency-related safety is enforced through the same pre-HIR ownership proof used everywhere else:</p>
 <ul>
   <li>whether a call duplicates a resource illegally;</li>

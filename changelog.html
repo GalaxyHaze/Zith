@@ -1,6 +1,33 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Changelog</title></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Changelog &mdash; Zith</title>
+    <meta name="description" content="Release notes and implementation updates for the Zith programming language and the zithc compiler.">
+    <meta name="keywords" content="Zith changelog, Zith release notes, zithc, systems programming, compiler">
+    <meta name="author" content="GalaxyHaze">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://zith-lang.org/changelog.html">
+
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://zith-lang.org/changelog.html">
+    <meta property="og:title" content="Changelog &mdash; Zith">
+    <meta property="og:description" content="Release notes and implementation updates for the Zith programming language and the zithc compiler.">
+    <meta property="og:site_name" content="Zith Programming Language">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:image" content="https://zith-lang.org/media/Logos/social-share.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/png">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:domain" content="zith-lang.org">
+    <meta name="twitter:url" content="https://zith-lang.org/changelog.html">
+    <meta name="twitter:title" content="Changelog &mdash; Zith">
+    <meta name="twitter:description" content="Release notes and implementation updates for the Zith programming language and the zithc compiler.">
+    <meta name="twitter:image" content="https://zith-lang.org/media/Logos/social-share.png">
+</head>
 <body>
 
 <div class="changelog-entry">
@@ -12,9 +39,10 @@
     <section>
         <h3>What</h3>
         <p>
-            Metaprogramming and the operator surface both landed. Macros expand through the whole
-            pipeline, the missing operators exist, and ownership finally has a place to run:
-            semantic facts are now produced and consumed before final lowering, on the stable
+            Two big pieces landed together: metaprogramming and the operator surface. Macros now
+            expand through the entire pipeline, the operators that were missing are here, and
+            ownership finally has somewhere to run. Semantic facts get produced and consumed before
+            final lowering, on the stable
             <code>sema -&gt; comptime/solve -&gt; NTA/NRA -&gt; HIR</code> boundary.
         </p>
     </section>
@@ -24,20 +52,18 @@
     <section>
         <h3>Highlights</h3>
         <ul>
-            <li>Macros — <code>macro</code> and <code>raw macro</code> declarations with <code>@name(...)</code> calls; normal macros are hygienic and resolve through the call-site scope, raw macros splice literally</li>
-            <li>Tag macros — <code>&lt;Section title: 1&gt; ... &lt;/Section&gt;</code> in statement position, with named attributes read as <code>attributes.name</code></li>
+            <li>Macros — <code>macro</code> and <code>raw macro</code> with <code>@name(...)</code> calls; normal macros are hygienic, raw macros splice literally</li>
+            <li>Tag macros — <code>&lt;Section title: 1&gt; ... &lt;/Section&gt;</code> in statement position, with attributes read as <code>attributes.name</code></li>
             <li>Compound assignment — <code>+= -= *= /= %= &lt;&lt;= &gt;&gt;= &amp;= |= ^=</code>, desugared in the parser so they yield a value like <code>=</code></li>
             <li>Bitwise operators — <code>&amp;.</code> <code>|.</code> <code>^.</code> and unary <code>~</code>, integer operands of matching width</li>
-            <li><code>&amp;&amp;</code> / <code>||</code> miscompilation fixed — they now report a dedicated error pointing at <code>and</code> / <code>or</code> instead of silently compiling to the left operand</li>
-            <li><code>raw opaque</code> — a dedicated opaque type, castable to and from any <code>*T</code> with <code>as</code>; <code>*void</code> is rejected in its favour</li>
-            <li>C interop — variadics, array-decayed parameters, <code>va_list</code> and function-pointer parameters import; unsupported declarations are skipped individually and recorded</li>
-            <li>Function overloading — by parameter count and by parameter types, with qualified linkage names <code>&lt;module&gt;.&lt;Owner&gt;.&lt;name&gt;(&lt;params&gt;)</code></li>
+            <li><code>&amp;&amp;</code> / <code>||</code> miscompilation fixed — now a dedicated error pointing at <code>and</code> / <code>or</code> instead of silently compiling to the left operand</li>
+            <li><code>raw opaque</code> — a real opaque type, castable to and from any <code>*T</code>; <code>*void</code> is rejected in its favour</li>
+            <li>C interop — variadics, array-decayed parameters, <code>va_list</code> and function-pointer parameters import; unsupported declarations are skipped individually</li>
+            <li>Function overloading — by parameter count and by type, with qualified linkage names</li>
             <li>Memory qualifiers — <code>mut</code>, <code>lend</code>, <code>view</code>, <code>unique</code>, <code>share</code>, <code>belong</code> parse and type; writing through a <code>view</code> reports <code>E4004</code></li>
-            <li><code>when</code> / <code>match</code> — arms written <code>(pattern) ~&gt; body</code>, with equality, boolean and range patterns and a mandatory-last <code>(_)</code> default</li>
-            <li>3-clause <code>for (init; cond; step)</code> — both clauses optional, <code>continue</code> still runs the step</li>
-            <li>Generic parameter lists — <code>&lt;T, U&gt;</code> on fn, struct, alias, enum, union and trait declarations</li>
-            <li><code>@sizeOf</code>, <code>@offsetOf</code>, <code>@alignOf</code> — <code>@</code> now parses in expression position</li>
-            <li>New CLI commands — <code>zithc test</code>, <code>zithc deps list</code>, <code>zithc docs</code>, plus a <code>--cache-stats</code> flag</li>
+            <li><code>when</code> / <code>match</code> — arms written <code>(pattern) ~&gt; body</code>, with a mandatory-last <code>(_)</code> default</li>
+            <li>3-clause <code>for (init; cond; step)</code>, generic parameter lists on every declaration form, and <code>@sizeOf</code> / <code>@offsetOf</code> / <code>@alignOf</code></li>
+            <li>New CLI commands — <code>zithc test</code>, <code>zithc deps list</code>, <code>zithc docs</code>, plus <code>--cache-stats</code></li>
         </ul>
     </section>
 
@@ -46,21 +72,23 @@
     <section>
         <h3>Under the hood</h3>
         <p>
-            Macro expansion resolves names by node id rather than by matching source spans, which
-            is what makes hygiene work: template-local bindings are renamed, every other name is
-            looked up in the call-site scope, and the template body is never analysed as ordinary
-            code. Compound assignment adds no HIR node at all — the parser rewrites
-            <code>a += b</code> into <code>Assign(Binary(a, b))</code>, so it inherits coercion and
-            the <code>view</code> write check for free.
+            Hygiene works because macro expansion resolves names by node id instead of matching
+            source spans. Template-local bindings get renamed, every other name is looked up in the
+            call-site scope, and the template body never goes through analysis as ordinary code.
         </p>
         <p>
-            The ownership work is structural rather than user-visible. Residual facts attach to
-            side tables instead of introducing ownership nodes into HIR, so the proof has a
-            defined place to run before lowering erases the information it needs.
+            Compound assignment, on the other hand, adds no HIR node at all: the parser rewrites
+            <code>a += b</code> into <code>Assign(Binary(a, b))</code>, so coercion and the
+            <code>view</code> write check come along for free.
         </p>
         <p>
-            The diagnostic surface is no longer four codes. It is grouped by stage: lexical
-            0001-0005, parse 1001-1008 (including the <code>W1008</code> <code>while</code>
+            The ownership work is structural, so you won't see much of it from the outside. Residual
+            facts attach to side tables rather than adding ownership nodes to HIR, which gives the
+            proof a defined place to run before lowering throws away the information it depends on.
+        </p>
+        <p>
+            Diagnostics are no longer four codes in a trench coat. They're grouped by stage now:
+            lexical 0001-0005, parse 1001-1008 (including the <code>W1008</code> <code>while</code>
             deprecation), semantic 2001-2010, macro 2011-2020, type 3001-3008, NRA/ownership
             4001-4004, lowering 5001-5002, and runtime 10001-10004.
         </p>
@@ -71,13 +99,13 @@
     <section>
         <h3>Still not there</h3>
         <p>
-            Generic instantiation fails in the comptime solver — <code>identity&lt;i32&gt;(42)</code>
-            reports "generic parameter T has no concrete type", so generic code does not compile
-            end to end. Comptime evaluation and <code>const fn</code> remain specification-only,
-            <code>const fn f()</code> still parses as a <code>const</code> binding named
-            <code>fn</code>, <code>dyn Trait</code> is unsupported in the type parser, the NRA
-            alive/dead/lent state machine is unwritten, and <code>for (x in xs)</code> is a parse
-            error. Full detail lives in
+            Generic instantiation still breaks in the comptime solver:
+            <code>identity&lt;i32&gt;(42)</code> reports "generic parameter T has no concrete type",
+            so generic code doesn't compile end to end yet. Comptime evaluation and
+            <code>const fn</code> are still specification-only, <code>const fn f()</code> parses as a
+            <code>const</code> binding named <code>fn</code>, <code>dyn Trait</code> isn't supported
+            in the type parser, the NRA alive/dead/lent state machine is unwritten, and
+            <code>for (x in xs)</code> is a parse error. Full detail lives in
             <a href="/html/documentation/reference/D-implementation-status.html">Implementation Status</a>.
         </p>
     </section>
@@ -87,10 +115,10 @@
     <section>
         <h3>Verification</h3>
         <p>
-            Every status in the implementation table was re-verified by running
-            <code>zithc check</code> on a standalone file per feature against the binary built at
-            <code>a5f3716</code>, not against spec intent. <code>when</code> is covered by a
-            runtime codegen test, and <code>import "stdio.h"</code> followed by
+            Every status in the implementation table was re-checked the boring way: one standalone
+            file per feature, run through <code>zithc check</code> against the binary built at
+            <code>a5f3716</code>, rather than against what the spec claims. <code>when</code> is
+            covered by a runtime codegen test, and <code>import "stdio.h"</code> followed by
             <code>printf("v=%d\n", 42)</code> prints exactly <code>v=42</code>.
         </p>
     </section>
@@ -107,10 +135,10 @@
     <section>
         <h3>What</h3>
         <p>
-            Structs are now usable end to end. The modern frontend, sema, and HIR lowering
-            pipeline gained field declarations, struct literals, field access, and pointer
-            operators — so a struct value can be built, read, addressed, and mutated all the
-            way down to LLVM code generation.
+            Structs are usable end to end. Field declarations, struct literals, field access, and
+            pointer operators all landed in the modern frontend, sema, and HIR lowering pipeline,
+            which means you can build a struct value, read it, take its address, and mutate it all
+            the way down to LLVM code generation.
         </p>
     </section>
 
@@ -137,15 +165,15 @@
         <h3>Under the hood</h3>
         <p>
             Three new expression kinds (<code>Field</code>, <code>Arrow</code>,
-            <code>StructLiteral</code>) run through the whole stack. The type table now carries
-            parallel field names with a <code>fieldIndex</code> lookup, sema infers the new
-            nodes, and HIR lowering resolves each field to an index before emitting. C interop
-            landed alongside it, driven by libclang.
+            <code>StructLiteral</code>) travel through the whole stack. The type table carries
+            parallel field names with a <code>fieldIndex</code> lookup, sema infers the new nodes,
+            and HIR lowering resolves each field to an index before emitting. C interop rode along
+            in the same release, driven by libclang.
         </p>
         <p>
-            This release also retires the old E2010 <em>UnsupportedSyntax</em> barrier from the
-            active pipeline — the legacy sema lives on under <code>lib/legacy-zith</code>. The
-            diagnostic surface is now E0001, E0000, E2002, and E1006.
+            The old E2010 <em>UnsupportedSyntax</em> barrier is also gone from the active pipeline;
+            the legacy sema now lives under <code>lib/legacy-zith</code>. What's left of the
+            diagnostic surface is E0001, E0000, E2002, and E1006.
         </p>
     </section>
 
@@ -154,11 +182,11 @@
     <section>
         <h3>Still not there</h3>
         <p>
-            <code>when</code> pattern matching is a parse error past the header, <code>const fn</code>
-            parses as a <code>const</code> binding named <code>fn</code>, <code>dyn Trait</code> is
-            unsupported in the type parser, and <code>@</code> is not handled in expression
-            position. NRA ownership analysis, comptime evaluation, and the async model remain
-            specification-only. Full detail lives in
+            <code>when</code> pattern matching still dies as a parse error past the header,
+            <code>const fn</code> parses as a <code>const</code> binding named <code>fn</code>,
+            <code>dyn Trait</code> isn't supported in the type parser, and <code>@</code> isn't
+            handled in expression position. NRA ownership analysis, comptime evaluation, and the
+            async model are all still specification-only. Full detail lives in
             <a href="/html/documentation/reference/D-implementation-status.html">Implementation Status</a>.
         </p>
     </section>
@@ -168,9 +196,9 @@
     <section>
         <h3>Verification</h3>
         <p>
-            <code>zithc check</code> passes on the hello-world example and the test suite is at
-            23/23. Every status in the implementation table was re-verified against the current
-            binary rather than against spec intent.
+            <code>zithc check</code> passes on the hello-world example and the suite sits at 23/23.
+            As always, every status in the implementation table was re-checked against the current
+            binary, not against what the spec intends.
         </p>
     </section>
 </div>
@@ -186,17 +214,17 @@
     <section>
         <h3>What</h3>
         <p>
-            <strong>zasm</strong> is a standalone assembler for ZIR (Zith Intermediate Representation).
-            It compiles <code>.zas</code> assembly files to ZIR bytecode and runs them through a
-            built-in interpreter. ZIR is the same IR zithc targets, so zasm gives a direct path
-            from assembly to execution.
+            <strong>zasm</strong> is a standalone assembler for ZIR (Zith Intermediate
+            Representation). It compiles <code>.zas</code> files into ZIR bytecode and runs them on a
+            built-in interpreter. Since ZIR is the same IR zithc targets, zasm gives you a direct
+            path from assembly straight to execution.
         </p>
     </section>
 
     <hr>
 
     <section>
-        <h3>Supported features</h3>
+        <h3>Highlights</h3>
         <ul>
             <li>32 registers (zero, sp, fp, ret, a0-a6, t0-t17, db, link)</li>
             <li>Integer and float arithmetic — add, sub, mul, div, rem, fadd/fsub/fmul/fdiv</li>
@@ -213,10 +241,11 @@
     <hr>
 
     <section>
-        <h3>What's next</h3>
+        <h3>Still not there</h3>
         <p>
-            The syntax needs cleanup — common patterns are too verbose. Better error messages
-            for label/function namespace rules. LLVM IR lowering from ZIR is the big one.
+            The syntax needs a cleanup pass, since common patterns are far too verbose. Error
+            messages around label and function namespace rules could say a lot more. And the big
+            one: lowering ZIR to LLVM IR.
         </p>
     </section>
 </div>
@@ -230,20 +259,18 @@
     <hr>
 
     <section>
-        <h3>Summary</h3>
+        <h3>What</h3>
         <p>
-            This is the one. The <strong>Zith Language Server</strong> finally comes alive, bringing real IDE
-            superpowers to VS Code. Hover over a symbol and see its type. Press Ctrl+Space and get completions
-            — including import path suggestions. Hit Ctrl+Shift+O and navigate your file through a structured
-            symbol tree, with children. Make a typo? The LSP will whisper "did you mean?" right in your editor.
-            And if you hover over something that <em>isn't</em> quite valid yet — don't worry, the hover still
-            shows you what it <em>thinks</em> it is.
+            The <strong>Zith Language Server</strong> is alive, and VS Code finally behaves like a
+            real editor for Zith. Hover a symbol to see its type. Press Ctrl+Space for completions,
+            import paths included. Press Ctrl+Shift+O for a symbol tree that actually nests. Typo
+            something and you get told what you probably meant.
         </p>
         <p>
-            We also shipped a brand new <a href="https://marketplace.visualstudio.com/items?itemName=AboveHaze.zith-language">VS Code extension</a>
-            that bundles it all together: the LSP auto-downloads on first activation, the standard library is
-            fetched automatically (no credentials needed), and you get syntax highlighting, snippets, task
-            runners, and problem matchers out of the box. Install once, start coding.
+            A new <a href="https://marketplace.visualstudio.com/items?itemName=AboveHaze.zith-language">VS Code extension</a>
+            packages all of it. The LSP downloads itself on first activation, the standard library is
+            fetched automatically with no credentials involved, and highlighting, snippets, task
+            runners and problem matchers are there from the start.
         </p>
     </section>
 
@@ -252,70 +279,56 @@
     <section>
         <h3>Highlights</h3>
         <ul>
-            <li><strong>Hover That Works</strong> — hover over any symbol and see its declaration info. Functions show their full signature (<code>fn greet(name: str): str</code>). Structs, enums, unions, traits, type aliases, and variables all show their kind and name. And if you hover over a typo, the LSP won't just give up — it falls back to basic info and even suggests what you <em>might</em> have meant via Levenshtein distance.</li>
-            <li><strong>Doc Comments on Hover</strong> — <code>///</code> and <code>/** */</code> doc comments are now captured during scanning and displayed when you hover over any declaration. Finally, your documentation has a home.</li>
-            <li><strong>Did-You-Mean Quick Fix</strong> — undefined identifier diagnostics now embed Levenshtein suggestions in the <code>data.suggestions</code> field. The lightbulb pops up with one-click replacement CodeActions that replace the misspelled token with the suggested name.</li>
-            <li><strong>Smart Completion</strong> — completions work in two modes: in normal code you get local + imported symbols (fully type-checked when possible); inside <code>import</code>/<code>from</code>/<code>export</code> statements you get live filesystem-driven module path suggestions (<code>std/</code>, <code>std/io/console</code>, etc).</li>
-            <li><strong>Document Symbols with Children</strong> — the outline view finally shows nested symbols. Struct fields, enum variants, function parameters, union variants, and methods all appear as proper children. No more flat lists.</li>
-            <li><strong>Auto-Download Everything</strong> — the extension downloads the LSP binary from GitHub releases (or falls back to a local build) and fetches the standard library from the public <code>GalaxyHaze/Zith</code> repo, all on first activation. No manual setup.</li>
-            <li><strong>Resilient Hover</strong> — even on incomplete or broken code, the LSP doesn't bail out. It runs to <code>TypeChecked</code> when it can (for full type info), but falls back gracefully to the symbol table when parsing fails mid-edit. Your editor stays useful no matter what state your code is in.</li>
+            <li><strong>Hover that works</strong> — full signatures for functions, kind and name for everything else, and a Levenshtein fallback when you hover a typo instead of giving up</li>
+            <li><strong>Doc comments on hover</strong> — <code>///</code> and <code>/** */</code> are captured during scanning and rendered above the signature</li>
+            <li><strong>Did-you-mean quick fix</strong> — undefined-identifier diagnostics carry suggestions, so the lightbulb offers a one-click replacement</li>
+            <li><strong>Smart completion</strong> — local and imported symbols in normal code, live filesystem-driven module paths inside <code>import</code> / <code>from</code> / <code>export</code></li>
+            <li><strong>Nested document symbols</strong> — struct fields, enum and union variants, parameters and methods appear as proper children instead of a flat list</li>
+            <li><strong>Auto-download</strong> — the extension fetches the LSP binary and the standard library on first activation, with no manual setup</li>
+            <li><strong>Resilient hover</strong> — when type checking fails mid-edit, hover falls back to the symbol table rather than bailing out</li>
         </ul>
     </section>
 
     <hr>
 
     <section>
-        <h3>Technical Details</h3>
-
-        <h4>Added</h4>
-        <ul>
-            <li><strong>Doc comment storage</strong> — <code>SymbolData::doc_span</code> field captures the span of <code>///</code> or <code>/** */</code> tokens preceding each declaration during the scan phase. Doc comments are no longer discarded.</li>
-            <li><strong>Code Actions infrastructure</strong> — <code>textDocument/codeAction</code> handler and provider in the LSP, wired into the dispatch loop and exposed as <code>"codeActionProvider": {"codeActionKinds": ["quickfix"]}</code> in capabilities</li>
-            <li><strong>Did-you-mean quick fix</strong> — <code>provideCodeActions</code> reads embedded suggestions from diagnostic <code>data.suggestions</code> and emits one <code>quickfix</code> per Levenshtein match, with a <code>TextEdit</code> replacing the misspelled token.</li>
-            <li><strong>Doc comment storage</strong> — <code>SymbolData::doc_span</code> field captures the span of <code>///</code> or <code>/** */</code> tokens preceding each declaration during the scan phase. Doc comments are no longer discarded.</li>
-            <li><strong>Doc comment hover rendering</strong> — <code>hover.cpp</code> extracts doc comment text from the source span, strips <code>///</code> and <code>/** */</code> markers, and renders as Markdown above the declaration signature.</li>
-            <li><strong>C API suggestions</strong> — <code>zithc_diag_suggestion_count()</code> and <code>zithc_diag_suggestion_get()</code> expose the compiler's Levenshtein suggestion engine to C consumers, enabling the LSP to embed suggestions in diagnostic JSON without re-running the compiler</li>
-            <li><strong>Doc comment capture in parser scan phase</strong> — consecutive <code>Docs</code> tokens are merged into a single span and passed to <code>syms.declare()</code> for top-level fn, struct, enum, union, component, trait, and interface declarations</li>
-            <li><strong>Import path completion</strong> — <code>scanStdlibPath()</code> in <code>features/completion.cpp</code> walks the stdlib filesystem for module path suggestions, prefix-filtered and deduplicated</li>
-            <li><strong>Auto-download stdlib</strong> — <code>download-lsp.js</code> fetches <code>stdlib/</code> from the public <code>GalaxyHaze/Zith</code> repo Contents API to <code>server/stdlib/</code>; extension calls <code>ensureStdlib()</code> on activation</li>
-            <li><strong>LSP binary auto-download</strong> — 3-tier fallback: GitHub release → local copy → source build, with clear failure message as last resort</li>
-            <li><strong>Stdlib path forwarding</strong> — <code>stdlibPath_</code> read from <code>initializationOptions.stdlibPath</code> in <code>onInitialize</code>, passed to diagnostics, hover, and completion providers</li>
-            <li><strong>C API</strong> — <code>zithc_session_add_include_dir()</code> exposes include directory support for the LSP's use</li>
-        </ul>
-
-        <h4>Changed</h4>
-        <ul>
-            <li><strong>Hover resilience</strong> — <code>runTo(TypeChecked)</code> failure no longer aborts hover; basic symbol info (kind + name) always shows, type-expr details render conditionally only when type-checking succeeded</li>
-            <li><strong>JSON-RPC respond()</strong> — removed <code>is_null()</code> guard so every response includes a <code>"result"</code> field, fixing malformed responses (hover on unknown tokens previously sent empty envelopes)</li>
-            <li><strong>DocumentSymbol children</strong> — replaced hardcoded <code>"children": []</code> with recursive JSON serialization; children resolved via linear sym-id scan and <code>decl_id</code> match map</li>
-            <li><strong>spanToRange</strong> — removed the <code>span.end &lt;= span.start</code> guard that zeroed all ranges (root cause: mixed byte-offset and token-index units in <code>ScanEntry.span</code>). Now computes single-point range from start position only.</li>
-            <li><strong>symKindToLspSymbolKind</strong> — fixed out-of-range LSP symbol kind values for Alias, Variable, Module, Trait, and Enum</li>
-            <li><strong>Import error positions</strong> — compiler <code>compilation-session.cpp:271</code> uses <code>import-&gt;span</code> instead of <code>{}</code>, so import errors point to the <code>import</code>/<code>from</code>/<code>export</code> keyword instead of line 1</li>
-            <li><strong>Parser scan phase</strong> — 7 <code>syms.declare()</code> calls patched with name spans for child symbols (fn params, struct fields, enum variants, union variants, struct/trait methods)</li>
-            <li><strong>Stdlib path config removed</strong> — <code>zith.lsp.stdlibPath</code> VS Code setting eliminated; path is auto-detected from <code>server/stdlib/</code></li>
-        </ul>
-
-        <h4>Fixed</h4>
-        <ul>
-            <li><strong>Hover returning malformed JSON-RPC</strong> — <code>respond()</code> no longer omits the <code>result</code> field for null results</li>
-            <li><strong>DocumentSymbol positions stuck at (1,1)</strong> — <code>spanToRange</code> no longer zeroes all spans; now computes correct single-point ranges from token start</li>
-            <li><strong>DocumentSymbol children always empty</strong> — children are now built from symbol table entries via <code>decl_id</code> matching and <code>SymbolData.members</code> iteration</li>
-            <li><strong>Hover fails on incomplete code</strong> — <code>runTo(TypeChecked)</code> failure no longer aborts the entire hover; symbol-table fallback always provides basic info</li>
-            <li><strong>Stdlib download 403</strong> — <code>User-Agent</code> header added to GitHub Contents API requests</li>
-        </ul>
-    </section>
-
-    <hr>
-
-    <section>
-        <h3>Get the Extension</h3>
+        <h3>Under the hood</h3>
         <p>
-            Install from the <a href="https://marketplace.visualstudio.com/items?itemName=AboveHaze.zith-language">VS Code Marketplace</a>.
-            Open any <code>.zith</code> file and the LSP starts automatically. No config, no fuss.
+            Most of the intelligence lives in the compiler, not the server. <code>SymbolData</code>
+            gained a <code>doc_span</code> field so doc comments survive the scan phase, and
+            <code>zithc_diag_suggestion_count()</code> / <code>zithc_diag_suggestion_get()</code>
+            expose the Levenshtein engine over the C API, which lets the LSP embed suggestions in
+            diagnostic JSON without re-running the compiler.
+        </p>
+        <p>
+            Two bugs were making the editor look broken for reasons that had nothing to do with the
+            features themselves. <code>respond()</code> dropped the <code>result</code> field for null
+            results, so hovering an unknown token sent a malformed JSON-RPC envelope. And
+            <code>spanToRange</code> carried a <code>span.end &lt;= span.start</code> guard that
+            zeroed every range — the real cause was <code>ScanEntry.span</code> mixing byte offsets
+            with token indices, so every document symbol pointed at line 1.
+        </p>
+        <p>
+            Document symbol children are now built by matching <code>decl_id</code> against the
+            symbol table and walking <code>SymbolData.members</code>, replacing a hardcoded empty
+            array. Hover no longer aborts when <code>runTo(TypeChecked)</code> fails; type details
+            render conditionally on top of symbol info that is always available. Import errors point
+            at the <code>import</code> keyword instead of line 1, and the
+            <code>zith.lsp.stdlibPath</code> setting is gone — the path is detected from
+            <code>server/stdlib/</code>.
         </p>
     </section>
 
     <hr>
+
+    <section>
+        <h3>Get the extension</h3>
+        <p>
+            Grab it from the <a href="https://marketplace.visualstudio.com/items?itemName=AboveHaze.zith-language">VS Code Marketplace</a>.
+            Open any <code>.zith</code> file and the LSP starts on its own. There's nothing to
+            configure.
+        </p>
+    </section>
 </div>
 
 <hr style="margin: 48px 0; border-color: #333;">
@@ -327,14 +340,16 @@
     <hr>
 
     <section>
-        <h3>Summary</h3>
+        <h3>What</h3>
         <p>
-            This release introduces the <strong>ZIR bytecode IR</strong> subsystem, completes the migration
-            from <code>std::vector</code> to <code>DynArray</code> in two core subsystems, adds
-            <strong>Span</strong> fields on all AST nodes, and ports the ZIR interpreter from the prototype
-            branch. The compiler now has proper arena-backed containers throughout ZIR and Diagnostics,
-            source-location tracking on every AST node, and a complete stack-based bytecode interpreter
-            ready for pipeline integration.
+            The <strong>ZIR bytecode IR</strong> arrives: 26 opcodes, an emitter from HIR, and a
+            stack-based interpreter ported over from the prototype branch. Alongside it, two more
+            subsystems moved off <code>std::vector</code> onto the arena-backed
+            <code>DynArray</code>, and every AST node now carries a <code>Span</code>.
+        </p>
+        <p>
+            None of it is wired into the pipeline yet. This release is about having the pieces exist
+            and be testable.
         </p>
     </section>
 
@@ -343,76 +358,36 @@
     <section>
         <h3>Highlights</h3>
         <ul>
-            <li><strong>ZIR Bytecode IR</strong> — 26 opcodes, bytecode emitter (HIR → ZIR), stack-based interpreter, block/function/module types. Ported from prototype and adapted for <code>DynArray</code>.</li>
-            <li><strong>AST Span coverage</strong> — every <code>ExprNode</code>, <code>StmtNode</code>, and <code>DeclNode</code> variant now carries a <code>memory::Span</code> for source location tracking</li>
-            <li><strong><code>std::vector</code> → <code>DynArray</code></strong> — ZIR structs (blocks, functions, modules) and Diagnostics (labels, suggestions) now use arena-backed <code>DynArray</code></li>
-            <li><strong>ZirInterpreter register file</strong> — fixed 16-slot <code>std::array</code> replaces <code>std::vector</code> for predictable performance</li>
-            <li><strong>Pratt parser foundation</strong> — span tracking in parser prepares for complete expression/statement parsing in v0.2.0.0</li>
-            <li><strong>Version roadmap</strong> — comprehensive plan from v0.2.0.0 through v0.8.0.0 with all 4 codegen paths documented</li>
+            <li><strong>ZIR bytecode IR</strong> — 26 opcodes, a HIR-to-ZIR emitter, a stack-based interpreter, and block/function/module types</li>
+            <li><strong>AST span coverage</strong> — every expression, statement and declaration node carries a <code>memory::Span</code></li>
+            <li><strong><code>std::vector</code> → <code>DynArray</code></strong> — ZIR structs and Diagnostics now use arena-backed storage</li>
+            <li><strong>Fixed register file</strong> — the interpreter uses a 16-slot <code>std::array</code> instead of a heap vector, for predictable cost</li>
+            <li><strong>Test coverage</strong> — 14 test functions for <code>DynArray</code>, 19 for <code>FlatMap</code></li>
+            <li><strong>Version roadmap</strong> — a plan through v0.8.0 with all four codegen paths written down</li>
         </ul>
     </section>
 
     <hr>
 
     <section>
-        <h3>Technical Details</h3>
-
-        <h4>Added</h4>
-        <ul>
-            <li><code>src/zir/zir/zir-inst.hpp</code> — 26 instruction opcodes, <code>ZirBlock</code> / <code>ZirFn</code> / <code>ZirModule</code> types with <code>DynArray</code> fields, arena-backed construction</li>
-            <li><code>src/zir/zir/zir-emitter.hpp</code> / <code>.cpp</code> — <code>ZirEmitter</code> from HIR to ZIR bytecode, takes <code>memory::Arena&amp;</code> in constructor</li>
-            <li><code>src/zir/zir/zir-interp.hpp</code> / <code>.cpp</code> — <code>ZirInterpreter</code> with stack VM, 16-slot <code>std::array&lt;Value, 16&gt;</code> register file</li>
-            <li><code>Span</code> field to all AST nodes — <code>LitValue</code>, <code>BinaryNode</code>, <code>UnaryNode</code>, <code>CallNode</code>, <code>IdentNode</code>, <code>FieldNode</code>, <code>IndexNode</code>, <code>RangeNode</code>, <code>BlockNode</code>, <code>IfNode</code>, <code>WhileNode</code>, <code>LetNode</code>, <code>AssignNode</code>, <code>RetNode</code>, <code>FnDeclNode</code>, <code>StructDeclNode</code>, <code>EnumDeclNode</code>, <code>UnionDeclNode</code>, <code>ComponentDeclNode</code>, <code>TraitDeclNode</code>, <code>InterfaceDeclNode</code>, <code>ImportNode</code></li>
-            <li><code>tests/unit/dyn-array-test.cpp</code> — 14 test functions, 272 assertions for DynArray</li>
-            <li><code>tests/unit/flat-map-test.cpp</code> — 19 test functions, 3724 assertions for FlatMap</li>
-            <li><code>.opencode/plans/version-roadmap.md</code> — full version plan v0.2.0.0 through v0.8.0.0</li>
-            <li><code>.opencode/plans/NEXT_STEPS.md</code> — phased checklists matching version roadmap</li>
-            <li><code>STATUS.md</code> — updated with 27/27 tests, pipeline states for all subsystems</li>
-        </ul>
-
-        <h4>Changed</h4>
-        <ul>
-            <li><code>ZirBlock::code</code>, <code>ZirFn::blocks</code>, <code>ZirModule::{functions, constants}</code> — <code>std::vector</code> → <code>DynArray</code></li>
-            <li><code>Diagnostic::labels</code>, <code>Diagnostic::suggestions</code> — <code>std::vector</code> → <code>DynArray</code>. <code>Diagnostic</code> now takes <code>Arena&amp;</code> + 4 core fields in constructor</li>
-            <li><code>ZirInterpreter::locals_</code> — <code>std::vector&lt;Value&gt;</code> → <code>std::array&lt;Value, 16&gt;</code></li>
-            <li><code>DynArray::emplace()</code>/<code>push()</code> — brace <code>{}</code> → parens <code>()</code> init to avoid narrowing</li>
-            <li><code>TEST_MAIN</code> macro — uses <code>#name</code> stringification</li>
-            <li><code>HeuristicEngine::generate()</code> — takes <code>DynArray&lt;std::string&gt;&amp;</code></li>
-            <li><code>AstBuilder</code> — all builder methods accept optional <code>memory::Span</code></li>
-            <li><code>Parser</code> — <code>spanFrom()</code> helper, span computation in all parse functions</li>
-        </ul>
-
-        <h4>Fixed</h4>
-        <ul>
-            <li><strong>Narrowing conversions</strong> — <code>DynArray::emplace()</code>/<code>push()</code> with <code>uint32_t</code>/<code>uint8_t</code> no longer produce narrowing errors</li>
-            <li><strong>TEST_MAIN stringification</strong> — test names now stringify correctly via <code>#name</code></li>
-        </ul>
-    </section>
-
-    <hr>
-
-    <section>
-        <h3>Modified Files Reference</h3>
-        <ul>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/zir/zir/zir-inst.hpp">src/zir/zir/zir-inst.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/zir/zir/zir-emitter.hpp">src/zir/zir/zir-emitter.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/zir/zir/zir-emitter.cpp">src/zir/zir/zir-emitter.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/zir/zir/zir-interp.hpp">src/zir/zir/zir-interp.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/zir/zir/zir-interp.cpp">src/zir/zir/zir-interp.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/ast/ast-nodes.hpp">src/ast/ast-nodes.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/ast/ast-builder.hpp">src/ast/ast-builder.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/ast/ast-builder.cpp">src/ast/ast-builder.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/parser/parser.cpp">src/parser/parser.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/parser/parser.hpp">src/parser/parser.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/diagnostics/diagnostic.hpp">src/diagnostics/diagnostic.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/diagnostics/diagnostic-engine.cpp">src/diagnostics/diagnostic-engine.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/sema/heuristic-engine.hpp">src/sema/heuristic-engine.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/sema/heuristic-engine.cpp">src/sema/heuristic-engine.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/memory/dyn-array.hpp">src/memory/dyn-array.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/tests/unit/dyn-array-test.cpp">tests/unit/dyn-array-test.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/tests/unit/flat-map-test.cpp">tests/unit/flat-map-test.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/tests/unit/zir-interp-units.cpp">tests/unit/zir-interp-units.cpp</a></li>
-        </ul>
+        <h3>Under the hood</h3>
+        <p>
+            <code>ZirBlock::code</code>, <code>ZirFn::blocks</code> and <code>ZirModule</code>'s
+            functions and constants all moved to <code>DynArray</code>, which means the emitter takes
+            an <code>Arena&amp;</code> in its constructor and ZIR allocation is bump-allocated along
+            with everything else. <code>Diagnostic</code> followed the same path for its labels and
+            suggestions.
+        </p>
+        <p>
+            Spans on AST nodes are what makes the LSP possible later, so the parser gained a
+            <code>spanFrom()</code> helper and every parse function computes one. <code>AstBuilder</code>
+            methods take an optional span throughout.
+        </p>
+        <p>
+            The only real annoyance was narrowing: <code>DynArray::emplace()</code> and
+            <code>push()</code> used brace initialization, which turns a <code>uint32_t</code> into a
+            hard error rather than a conversion. Switching to parens fixed it.
+        </p>
     </section>
 </div>
 
@@ -425,12 +400,13 @@
     <hr>
 
     <section>
-        <h3>Summary</h3>
+        <h3>What</h3>
         <p>
-            This release focuses on <strong>infrastructure and code quality</strong> — we've extracted core
-            utilities into a standalone <strong>zith-util</strong> repo, replaced all <code>std::unordered_map</code>
-            usage with a custom open-addressing <strong>FlatMap</strong>, and added <code>Span</code> fields to
-            every AST node in preparation for LSP support. The compiler is now free of STL hash maps.
+            An infrastructure and code-quality release. The core utilities moved out into a
+            standalone <strong>zith-util</strong> repo, every <code>std::unordered_map</code> was
+            replaced by a custom open-addressing <strong>FlatMap</strong>, and <code>Span</code>
+            fields went onto every AST node to prepare for the LSP. There is no STL hash map left in
+            the compiler.
         </p>
     </section>
 
@@ -439,62 +415,30 @@
     <section>
         <h3>Highlights</h3>
         <ul>
-            <li><strong>zith-util extracted</strong> — <code>Optional</code>, <code>Result</code>, <code>Arena</code>, <code>DynArray</code>, and <code>FlatMap</code> moved to their own GitHub repo for independent reuse</li>
-            <li><strong>FlatMap replaces std::unordered_map</strong> — open-addressing hash map with Fibonacci hashing, transparent string lookup, installed across 4 subsystems</li>
-            <li><strong>AST Span coverage</strong> — every <code>ExprNode</code>, <code>StmtNode</code>, and <code>DeclNode</code> variant now carries a <code>memory::Span</code> for source location tracking</li>
-            <li><strong>Zero STL hash maps</strong> — <code>&lt;unordered_map&gt;</code> and <code>&lt;unordered_set&gt;</code> completely eliminated from the compiler source</li>
-            <li><strong>LSP Preparation</strong> — span fields lay the groundwork for go-to-definition, hover, and diagnostics with precise source locations</li>
+            <li><strong>zith-util extracted</strong> — <code>Optional</code>, <code>Result</code>, <code>Arena</code>, <code>DynArray</code> and <code>FlatMap</code> now live in their own repo</li>
+            <li><strong>FlatMap everywhere</strong> — open addressing with Fibonacci hashing and transparent string lookup, installed across four subsystems</li>
+            <li><strong>Zero STL hash maps</strong> — <code>&lt;unordered_map&gt;</code> and <code>&lt;unordered_set&gt;</code> are gone from the compiler source</li>
+            <li><strong>AST span coverage</strong> — groundwork for go-to-definition, hover and precise diagnostics</li>
         </ul>
     </section>
 
     <hr>
 
     <section>
-        <h3>Technical Details</h3>
-
-        <h4>Added</h4>
-        <ul>
-            <li><code>zith-util</code> repo (<code>GalaxyHaze/zith-util</code>) — extracted headers for <code>optional.hpp</code>, <code>result.hpp</code>, <code>arena.hpp</code>, <code>dyn_array.hpp</code>, <code>flat_map.hpp</code> with their own CMake INTERFACE library target and README</li>
-            <li><code>src/memory/flat_map.hpp</code> — open-addressing <code>FlatMap&lt;Key, Value&gt;</code> with Fibonacci hashing, transparent <code>std::string</code>/<code>std::string_view</code> lookup, iterator support, and STL-like API</li>
-            <li><code>Span</code> field to all AST nodes — <code>LitValue</code>, <code>BinaryNode</code>, <code>UnaryNode</code>, <code>CallNode</code>, <code>IdentNode</code>, <code>FieldNode</code>, <code>IndexNode</code>, <code>RangeNode</code>, <code>BlockNode</code>, <code>IfNode</code>, <code>WhileNode</code>, <code>LetNode</code>, <code>AssignNode</code>, <code>RetNode</code>, <code>FnDeclNode</code>, <code>StructDeclNode</code>, <code>EnumDeclNode</code>, <code>UnionDeclNode</code>, <code>ComponentDeclNode</code>, <code>TraitDeclNode</code>, <code>InterfaceDeclNode</code>, <code>ImportNode</code></li>
-        </ul>
-
-        <h4>Changed</h4>
-        <ul>
-            <li><code>StringInterner</code> — <code>std::unordered_map&lt;std::string_view, InternedId&gt;</code> replaced with <code>FlatMap</code></li>
-            <li><code>SourceMap</code> — file path cache switched from <code>std::unordered_map&lt;std::string, FileId&gt;</code> to <code>FlatMap</code></li>
-            <li><code>ImportManager</code> — <code>index_by_path_</code> and <code>resolving_</code> (formerly <code>std::unordered_set</code>) both migrated to <code>FlatMap</code></li>
-            <li><code>TypeLower</code> — generic context pointer changed from <code>std::unordered_map&lt;std::string_view, TypeId&gt;*</code> to <code>FlatMap*</code></li>
-            <li><code>AstBuilder</code> — all builder methods now accept an optional <code>memory::Span</code> parameter</li>
-            <li><code>Parser</code> — expression, statement, and declaration builders now pass computed token spans to the AST nodes</li>
-        </ul>
-
-        <h4>Fixed</h4>
-        <ul>
-            <li><strong>vector&lt;bool&gt; specialization</strong> — <code>FlatMap</code> with <code>bool</code> value triggers <code>std::vector&lt;bool&gt;</code> bit-vector proxy reference issue; <code>resolving_</code> changed from <code>FlatMap&lt;string, bool&gt;</code> to <code>FlatMap&lt;string, char&gt;</code></li>
-            <li><strong>Missing unordered_set include</strong> — <code>import-manager.cpp</code> still used <code>std::unordered_set&lt;size_t&gt;</code> for merge visited set; include restored locally</li>
-        </ul>
-    </section>
-
-    <hr>
-
-    <section>
-        <h3>Modified Files Reference</h3>
-        <ul>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/memory/flat_map.hpp">src/memory/flat_map.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/memory/string-interner.hpp">src/memory/string-interner.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/memory/string-interner.cpp">src/memory/string-interner.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/memory/source-map.hpp">src/memory/source-map.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/memory/source-map.cpp">src/memory/source-map.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/ast/ast-nodes.hpp">src/ast/ast-nodes.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/ast/ast-builder.hpp">src/ast/ast-builder.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/ast/ast-builder.cpp">src/ast/ast-builder.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/import/import-manager.hpp">src/import/import-manager.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/import/import-manager.cpp">src/import/import-manager.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/types/type-lower.hpp">src/types/type-lower.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/types/type-lower.cpp">src/types/type-lower.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/parser/parser.cpp">src/parser/parser.cpp</a></li>
-        </ul>
+        <h3>Under the hood</h3>
+        <p>
+            <code>StringInterner</code>, <code>SourceMap</code>'s path cache,
+            <code>ImportManager</code>'s index and resolving sets, and <code>TypeLower</code>'s
+            generic context all switched to <code>FlatMap</code>. Transparent
+            <code>std::string_view</code> lookup is what made that painless — no temporary strings on
+            the hot path.
+        </p>
+        <p>
+            One fix worth remembering: <code>FlatMap&lt;string, bool&gt;</code> hits the
+            <code>std::vector&lt;bool&gt;</code> bit-vector specialization, whose proxy reference is
+            not a real <code>bool&amp;</code>. <code>resolving_</code> now stores <code>char</code>
+            instead, which is the boring correct answer.
+        </p>
     </section>
 </div>
 
@@ -507,14 +451,12 @@
     <hr>
 
     <section>
-        <h3>Summary</h3>
+        <h3>What</h3>
         <p>
-            This release focuses on <strong>stability and infrastructure</strong> — we've introduced a
-            <strong>Type Walker</strong> utility for safely traversing the type graph, added a
-            <strong>Platform Abstraction</strong> layer for cleaner cross-platform code, and fixed several
-            critical bugs including undefined behavior in the token stream, a dangling span in
-            <code>TypeFn</code>, a TOCTOU race in <code>SourceMap</code>, and null-pointer hazards in
-            <code>Optional</code>. The test suite has also grown significantly with 6 new test files.
+            A stability release. It adds a <strong>Type Walker</strong> for traversing the type graph
+            without hand-written switches, and a <strong>platform abstraction</strong> layer that cuts
+            the <code>#ifdef</code> noise, then clears out seven bugs — several of them the kind that
+            do not show up until they do.
         </p>
     </section>
 
@@ -523,89 +465,36 @@
     <section>
         <h3>Highlights</h3>
         <ul>
-            <li><strong>Type Walker</strong> — new <code>walkSubTypes()</code> utility for recursively visiting sub-types, replacing manual switch-cases in unification and future passes</li>
-            <li><strong>Platform Abstraction</strong> — <code>platform.hpp</code> centralizes OS-specific defines, reducing <code>#ifdef</code> clutter across the codebase</li>
-            <li><strong>Critical Bug Fixes</strong> — 7 security/correctness fixes in a single sweep (see Technical Details)</li>
-            <li><strong>Unifier Refactor</strong> — <code>occurs()</code> check now uses <code>walkSubTypes</code> instead of hand-written type-kind dispatch</li>
-            <li><strong>6 New Test Suites</strong> — diagnostic engine advanced, error codes lookup, platform, result, string interner, and resolver tests</li>
+            <li><strong>Type Walker</strong> — <code>walkSubTypes()</code> visits sub-types recursively, replacing manual type-kind switches</li>
+            <li><strong>Platform abstraction</strong> — <code>platform.hpp</code> centralizes OS and compiler detection macros</li>
+            <li><strong>Unifier refactor</strong> — the <code>occurs()</code> check went from a 30-line switch to a five-line <code>walkSubTypes()</code> call</li>
+            <li><strong>Seven correctness fixes</strong> — undefined behaviour, a dangling span, a TOCTOU race and null-pointer hazards</li>
+            <li><strong>Six new test suites</strong> — diagnostics, error code lookup, platform, result, string interner and resolver</li>
         </ul>
     </section>
 
     <hr>
 
     <section>
-        <h3>Technical Details</h3>
-
-        <h4>Added</h4>
-        <ul>
-            <li><code>TypeWalker</code> utility (<code>src/types/type-walker.hpp</code>) — generic <code>walkSubTypes(TypeData&amp;, Fn&amp;&amp;)</code> that dispatches on <code>TypeKind</code> and visits all child <code>TypeId</code>s, with an early-exit <code>bool</code> return</li>
-            <li><code>platform.hpp</code> (<code>src/support/platform.hpp</code>) — unified macros for OS detection (<code>ZITH_OS_WIN</code>, <code>ZITH_OS_UNIX</code>, <code>ZITH_OS_LINUX</code>, <code>ZITH_OS_MAC</code>) and compiler detection (<code>ZITH_COMPILER_MSVC</code>, <code>ZITH_COMPILER_CLANG</code>, <code>ZITH_COMPILER_GCC</code>)</li>
-            <li><code>CMakeLists.txt</code> — new source entries for <code>type-walker.hpp</code> and <code>platform.hpp</code></li>
-            <li>6 new unit test files: <code>diagnostic-engine-advanced.cpp</code>, <code>error-codes-lookup.cpp</code>, <code>platform-test.cpp</code>, <code>resolver-test.cpp</code>, <code>result-test.cpp</code>, <code>string-interner-test.cpp</code></li>
-        </ul>
-
-        <h4>Changed</h4>
-        <ul>
-            <li><code>Unifier::occurs()</code> — refactored from 30-line switch to 5-line <code>walkSubTypes()</code> call</li>
-            <li><code>ast-nodes.hpp</code> — minor type adjustments for <code>TypeFn</code> span storage</li>
-            <li><code>ast-printer.cpp</code> — updated to handle new node variants</li>
-            <li><code>sema-pipeline.cpp</code> — minor pipeline integration fixes</li>
-            <li><code>diagnostic-engine.cpp</code> — additional heuristic refinement</li>
-            <li><code>error-codes.cpp</code> — new error code entries</li>
-        </ul>
-
-        <h4>Fixed</h4>
-        <ul>
-            <li><strong>TypeFn dangling span</strong> — <code>TypeFn</code> now holds a stable span reference instead of a dangling pointer after arena reallocation</li>
-            <li><strong>Empty-token-stream UB</strong> — iterating past the end of an empty token stream no longer invokes undefined behavior</li>
-            <li><strong>Lexer null fallthrough</strong> — fixed a code path where the lexer could fall through a <code>nullptr</code> check</li>
-            <li><strong>SourceMap TOCTOU race</strong> — file-size check and mmap now happen atomically (or within the same locked section)</li>
-            <li><strong>mod() depth parsing</strong> — module path depth is now correctly bounded during recursive descent</li>
-            <li><strong><code>back()</code> const-correctness</strong> — <code>DynArray::back()</code> const overload now returns <code>const T&amp;</code></li>
-            <li><strong><code>Optional&lt;T*&gt;</code> null guards</strong> — <code>Optional</code> holding a raw pointer now properly handles <code>nullptr</code> values without triggering assertions</li>
-        </ul>
-    </section>
-
-    <hr>
-
-    <section>
-        <h3>Modified Files Reference</h3>
-        <ul>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/types/type-walker.hpp">src/types/type-walker.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/types/type-intern.cpp">src/types/type-intern.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/types/type-kind.hpp">src/types/type-kind.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/types/unify.cpp">src/types/unify.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/support/platform.hpp">src/support/platform.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/ast/ast-nodes.hpp">src/ast/ast-nodes.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/ast/ast-printer.cpp">src/ast/ast-printer.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/ast/ast-builder.cpp">src/ast/ast-builder.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/ast/ast-builder.hpp">src/ast/ast-builder.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/sema/sema-pipeline.cpp">src/sema/sema-pipeline.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/diagnostics/diagnostic-engine.cpp">src/diagnostics/diagnostic-engine.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/diagnostics/error-codes.cpp">src/diagnostics/error-codes.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/diagnostics/error-codes.hpp">src/diagnostics/error-codes.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/diagnostics/emit.cpp">src/diagnostics/emit.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/memory/source-map.cpp">src/memory/source-map.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/memory/source-map.hpp">src/memory/source-map.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/memory/dyn-array.hpp">src/memory/dyn-array.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/memory/optional.hpp">src/memory/optional.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/lexer/lexer.cpp">src/lexer/lexer.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/lexer/token.hpp">src/lexer/token.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/parser/parser.cpp">src/parser/parser.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/cli/zithc-main.cpp">src/cli/zithc-main.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/import/import-manager.cpp">src/import/import-manager.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/import/import-manager.hpp">src/import/import-manager.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/tests/unit/diagnostic-engine-advanced.cpp">tests/unit/diagnostic-engine-advanced.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/tests/unit/error-codes-lookup.cpp">tests/unit/error-codes-lookup.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/tests/unit/platform-test.cpp">tests/unit/platform-test.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/tests/unit/result-test.cpp">tests/unit/result-test.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/tests/unit/string-interner-test.cpp">tests/unit/string-interner-test.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/tests/unit/resolver-test.cpp">tests/unit/resolver-test.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/tests/unit/ast-printer.cpp">tests/unit/ast-printer.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/tests/unit/import-e2e.cpp">tests/unit/import-e2e.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/tests/unit/sema-basics.cpp">tests/unit/sema-basics.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/CMakeLists.txt">CMakeLists.txt</a></li>
-        </ul>
+        <h3>Under the hood</h3>
+        <p>
+            The fixes are the substance here. <code>TypeFn</code> held a span that dangled after the
+            arena reallocated, iterating an empty token stream ran off the end, and the lexer had a
+            path that fell through a <code>nullptr</code> check. <code>SourceMap</code> had a TOCTOU
+            race between the file-size check and the mmap, which is now a single atomic step.
+        </p>
+        <p>
+            Three smaller ones came along: module path depth is properly bounded during recursive
+            descent, <code>DynArray::back()</code>'s const overload returns <code>const T&amp;</code>
+            as it always should have, and <code>Optional&lt;T*&gt;</code> holding a <code>nullptr</code>
+            no longer trips an assertion.
+        </p>
+        <p>
+            <code>TypeWalker</code> itself is a generic <code>walkSubTypes(TypeData&amp;, Fn&amp;&amp;)</code>
+            that dispatches on <code>TypeKind</code>, visits every child <code>TypeId</code> and
+            supports early exit through a <code>bool</code> return. Unification is the first consumer;
+            it will not be the last.
+        </p>
     </section>
 </div>
 
@@ -618,15 +507,16 @@
     <hr>
 
     <section>
-        <h3>Summary</h3>
+        <h3>What</h3>
         <p>
-            This release introduces the <strong>Name Resolution System</strong> — a dedicated pipeline stage
-            between import resolution and semantic analysis. The new <code>Resolver</code> module walks the
-            AST after all imports are known, resolves every identifier to its <code>SymId</code>, and records
-            results in a side table that the Sema pipeline consumes directly. We've also extended the parser
-            with range syntax (<code>..</code>), arrow member access (<code>-&gt;</code>), and fat arrows
-            (<code>=&gt;</code>), added a <code>RangeNode</code> to the AST, fixed several diagnostic edge
-            cases, and made the compiler portable to Windows.
+            Name resolution becomes a pipeline stage of its own, sitting between import resolution
+            and semantic analysis. Once all imports are known, the new <code>Resolver</code> walks the
+            AST, resolves every identifier to its <code>SymId</code>, and writes the result into a
+            side table that Sema reads directly.
+        </p>
+        <p>
+            The parser also picked up range syntax, arrow member access and fat arrows, and the
+            compiler builds on Windows now.
         </p>
     </section>
 
@@ -635,89 +525,39 @@
     <section>
         <h3>Highlights</h3>
         <ul>
-            <li><strong>Name Resolution Pipeline Stage</strong> — new <code>Resolve</code> stage between import and sema, with qualified and unqualified name resolution</li>
-            <li><strong>Alias Resolution</strong> — import aliases (<code>import foo as f</code>) are resolved through the symbol table with target tracking</li>
-            <li><strong>Improved Diagnostics</strong> — specific error codes for non-namespace access (<code>NotNamespace</code>) and missing members (<code>NoMember</code>)</li>
-            <li><strong>Parser Extensions</strong> — range operator <code>..</code>, arrow access <code>-&gt;</code>, fat arrow <code>=&gt;</code></li>
-            <li><strong>AST RangeNode</strong> — new expression node with lhs/rhs sub-expressions, wired through builder and printer</li>
-            <li><strong>Windows Support</strong> — <code>_WIN32</code> guards added to 5 CLI command files for cross-platform compatibility</li>
-            <li><strong>Comprehensive Resolver Tests</strong> — 10 test cases covering unqualified, qualified, scope, alias, and edge-case resolution</li>
+            <li><strong>Name resolution stage</strong> — a new <code>Resolve</code> stage between import and sema, handling qualified and unqualified names</li>
+            <li><strong>Alias resolution</strong> — <code>import foo as f</code> resolves through the symbol table with target tracking</li>
+            <li><strong>Better diagnostics</strong> — dedicated codes for non-namespace access (<code>NotNamespace</code>) and missing members (<code>NoMember</code>)</li>
+            <li><strong>Parser extensions</strong> — range <code>..</code>, arrow access <code>-&gt;</code>, fat arrow <code>=&gt;</code>, plus a <code>RangeNode</code> in the AST</li>
+            <li><strong>Windows support</strong> — <code>_WIN32</code> guards across five CLI command files</li>
+            <li><strong>Resolver tests</strong> — 10 cases covering unqualified, qualified, scoped, aliased and edge-case resolution</li>
         </ul>
     </section>
 
     <hr>
 
     <section>
-        <h3>Technical Details</h3>
-
-        <h4>Added</h4>
-        <ul>
-            <li>Full <code>Resolver</code> implementation (<code>src/import/resolver.*</code>) — qualified and unqualified name lookup, scope management, alias following, side table recording</li>
-            <li><code>Stage::Resolved</code> enum value in pipeline plan — new pipeline stage between <code>Imported</code> and <code>TypeChecked</code></li>
-            <li><code>resolveStage()</code> in <code>CompilationSession</code> — instantiates Resolver, runs it, extracts resolved table for sema</li>
-            <li><code>RangeNode</code> AST node with <code>lhs</code>/<code>rhs</code> expression fields, builder method, and printer support</li>
-            <li><code>SymOrigin</code> tracking in <code>ImportManager</code> — records which file and local symbol each merged symbol originates from (<code>originOf()</code> query)</li>
-            <li><code>SymbolTable::declareInScope()</code> — declare a symbol in a specific scope (not just current)</li>
-            <li>Error codes <code>NotNamespace</code> (2005) and <code>NoMember</code> (2006) with human-readable descriptions</li>
-            <li>Windows <code>_WIN32</code> guards in <code>tool.cpp</code>, <code>run.cpp</code>, <code>project.cpp</code>, <code>interactive.cpp</code>, <code>deps.cpp</code></li>
-            <li><code>Resolver::takeResolvedTable()</code> — moves out the resolved symbol side table for consumption by later stages</li>
-            <li><code>SemaPipeline::resolved_</code> pointer — optional reference to the resolver side table, checked before fallback lookup in <code>visitIdent</code></li>
-            <li>10 resolver unit tests in <code>tests/unit/resolver-test.cpp</code></li>
-        </ul>
-
-        <h4>Changed</h4>
-        <ul>
-            <li>Resolved table integration — <code>visitIdent</code> checks the resolver side table first, falls back to <code>syms().lookup()</code>, and skips duplicate diagnostics when the resolver already reported an error</li>
-            <li>Import alias declaration now stores the target <code>SymId</code> in the symbol's <code>target</code> field, enabling alias chain resolution</li>
-            <li>Symbol table <code>SymbolData</code> struct — added <code>SymId target</code> field and updated constructor signature (8 parameters)</li>
-            <li><code>declare</code> / <code>declareInScope</code> accept optional <code>SymId target</code> parameter</li>
-            <li>Parser — <code>tryCompoundOp</code> extended for <code>=&gt;</code>, <code>..</code> range detection before <code>.</code> field access, <code>-&gt;</code> arrow member access</li>
-            <li>Diagnostics emit — fixed <code>Optional(nullptr)</code> to <code>{}</code>, added bounds checks on <code>d.primary.end</code>, clamped unsigned subtraction</li>
-            <li><code>visitIf</code> in SemaPipeline — creates proper <code>HirBranch</code> node instead of discarding the then_branch value</li>
-            <li><code>CompilationSession</code> constructor — initializes <code>resolved_syms_</code> from <code>sym_arena_</code></li>
-            <li>Import merge re-exports — restored duplicate-checking <code>declare_re_export</code> lambda</li>
-        </ul>
-
-        <h4>Fixed</h4>
-        <ul>
-            <li>Diagnostic emit — null optional crash in <code>emit.cpp</code> when optional holds <code>nullptr</code></li>
-            <li>Diagnostic emit — bounds check on <code>d.primary.end</code> before access</li>
-            <li>Import merge — re-export path was silently overwriting duplicates instead of reporting <code>DuplicateDecl</code></li>
-        </ul>
-    </section>
-
-    <hr>
-
-    <section>
-        <h3>Modified Files Reference</h3>
-        <ul>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/import/resolver.hpp">src/import/resolver.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/import/resolver.cpp">src/import/resolver.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/import/import-manager.hpp">src/import/import-manager.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/import/import-manager.cpp">src/import/import-manager.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/import/symbol-table.hpp">src/import/symbol-table.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/import/symbol-table.cpp">src/import/symbol-table.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/cli/compilation-session.hpp">src/cli/compilation-session.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/cli/compilation-session.cpp">src/cli/compilation-session.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/cli/pipeline-plan.hpp">src/cli/pipeline-plan.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/ast/ast-nodes.hpp">src/ast/ast-nodes.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/ast/ast-builder.hpp">src/ast/ast-builder.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/ast/ast-builder.cpp">src/ast/ast-builder.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/ast/ast-printer.cpp">src/ast/ast-printer.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/parser/parser.cpp">src/parser/parser.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/sema/sema-pipeline.hpp">src/sema/sema-pipeline.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/sema/sema-pipeline.cpp">src/sema/sema-pipeline.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/diagnostics/emit.cpp">src/diagnostics/emit.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/diagnostics/error-codes.hpp">src/diagnostics/error-codes.hpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/diagnostics/error-codes.cpp">src/diagnostics/error-codes.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/cli/cmd/tool.cpp">src/cli/cmd/tool.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/cli/cmd/run.cpp">src/cli/cmd/run.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/cli/cmd/project.cpp">src/cli/cmd/project.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/cli/cmd/interactive.cpp">src/cli/cmd/interactive.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/src/cli/cmd/deps.cpp">src/cli/cmd/deps.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/tests/unit/resolver-test.cpp">tests/unit/resolver-test.cpp</a></li>
-            <li><a href="https://github.com/GalaxyHaze/Zith/blob/main/CMakeLists.txt">CMakeLists.txt</a></li>
-        </ul>
+        <h3>Under the hood</h3>
+        <p>
+            The side table is the design decision worth noting. <code>visitIdent</code> checks the
+            resolver's table first and only falls back to <code>syms().lookup()</code> when there is
+            nothing there — and it skips emitting a diagnostic the resolver already reported, which is
+            how you avoid two errors for one mistake. <code>Resolver::takeResolvedTable()</code> moves
+            the table out for later stages rather than copying it.
+        </p>
+        <p>
+            Aliases work because <code>SymbolData</code> now carries a <code>target</code> field, so an
+            alias declaration stores what it points at and chains can be followed. <code>ImportManager</code>
+            tracks <code>SymOrigin</code> for every merged symbol, recording which file and local
+            symbol it came from.
+        </p>
+        <p>
+            Three fixes rode along: the diagnostic emitter crashed on an <code>Optional</code> holding
+            <code>nullptr</code> and lacked a bounds check on <code>d.primary.end</code>, and the
+            import merge path was silently overwriting duplicate re-exports instead of reporting
+            <code>DuplicateDecl</code>. <code>visitIf</code> also stopped discarding the then-branch
+            value and now builds a proper <code>HirBranch</code>.
+        </p>
     </section>
 </div>
 

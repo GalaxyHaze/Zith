@@ -1,6 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="14-runtime-polymorphism--dynamic-behaviour">14. Runtime: Polymorphism &amp; Dynamic Behaviour</h1>
-<blockquote><p><strong>Implementation status:</strong> Static dispatch via generics and <code>implement T as Trait {}</code> is <strong>working</strong>. <code>dyn Trait</code> dynamic dispatch is <strong>spec-only</strong> — <code>dyn</code> is a parse error in type position. Vtable layout and runtime dispatch are not implemented. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> Static dispatch via generics and <code>implement T as Trait {}</code> is <strong>working</strong>. <code>dyn Trait</code> and <code>dyn Interface</code> dispatch are <strong>working in Zith--</strong>: concrete values are coerced to a fat pointer (data pointer plus a method vtable), and calls on the <code>dyn</code> value are lowered through that vtable. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="141-static-vs-dynamic-dispatch">14.1 Static vs Dynamic Dispatch</h3>
 <p>By default, Zith uses static dispatch — the compiler knows the exact implementation at compile time. Zero overhead.</p>
 <p>Use <code>dyn</code> for dynamic dispatch. At the call site you get polymorphism; the compiler and LLVM can often optimize away the indirection, making it zero-cost in practice.</p>
@@ -55,7 +55,8 @@ let dynList: dyn [];
 fn modify(shape: lend dyn Drawable) {
     shape.scale(2.0);
 }</code></pre>
-<p><code>dyn</code> does <strong>not</strong> work with <code>interface</code> (see <a href="./D-traits-interfaces.html#43-capabilities">§4.3</a>) — only traits. Interfaces are structural and don't carry a vtable.</p>
+<p>Zith-- supports dynamic dispatch for both nominal traits and structural interfaces. Vtables are generated per <code>(trait/interface, concrete type)</code> pairing. For a nominal trait, <code>implement Owner as Trait</code> methods (or trait defaults) fill the slots; for an interface, the concrete owner methods fill the slots.</p>
+<p>The Zith-- <code>main</code> now supports <code>dyn Interface</code>, with one deliberate difference from the future spec beyond this file: the public surface exposes only methods. The fat pointer carries a concrete data pointer plus a vtable whose slots point to the concrete owner methods. Interface fields are used for conformance and are still readable through concrete types or generic bounds, but not through a <code>dyn Interface</code> value; <code>a.x</code> is rejected with <code>error[E3001]</code>.</p>
 <p>When you write a type that could be <code>dyn</code> or <code>opaque</code>, prefer <code>dyn</code> — it's short and clearer. Reserve <code>opaque</code> for cases where you specifically need <code>raw opaque</code> (untagged <code>void*</code>, C interop).</p>
 <h3 id="144-dyn-vs-generics">14.4 <code>dyn</code> vs Generics</h3>
 <table>

@@ -9,15 +9,15 @@
     }
 }</code></pre>
 <h2 id="loops">Loops</h2>
-<p><code>for</code> is the loop keyword. Three forms work today: the infinite loop <code>for { }</code>, the conditional loop <code>for (cond) { }</code>, and the 3-clause loop <code>for (init; cond; step) { }</code> with semicolon separators. <code>init</code> and <code>step</code> are both optional, and <code>continue</code> still runs the step before the next test.</p>
+<p><code>for</code> is the loop keyword. Three forms work today: the infinite loop <code>for { }</code>, the conditional loop <code>for (cond) { }</code>, and the 3-clause loop with parenthesized clauses <code>for (init), (cond), (step)</code> or the flat spelling <code>for (init, cond, step)</code>. <code>init</code> and <code>step</code> are both optional, and <code>continue</code> still runs the step before the next test.</p>
 <pre><code class="language-zith">fn sum(n: i32): i32 {
     var total: i32 = 0;
-    for (var i: i32 = 0; i &lt; n; i = i + 1) {
+    for (var i: i32 = 0, i &lt; n, i = i + 1) {
         total += i;
     }
     total
 }</code></pre>
-<p><code>while</code> still compiles, but it emits the deprecation warning <code>W1008</code> telling you to write <code>for (cond) { }</code> instead. The iterator form <code>for (x in xs)</code> is not implemented and reports a parse error.</p>
+<p><code>while</code> still compiles, but it emits the deprecation warning <code>W1008</code> telling you to write <code>for (cond) { }</code> instead. The iterator form <code>for (x in xs)</code> is implemented through a duck-typed <code>next(self)</code> method returning a tagged union with two members: the element value and the canonical <code>End</code> marker.</p>
 <h2 id="pattern-matching">Pattern matching</h2>
 <p><code>when</code> matches a value against comma-separated arms written <code>(pattern) ~&gt; body</code>. <code>match</code> is a synonym for the same construct. Equality, boolean, and range patterns lower through HIR to code generation.</p>
 <pre><code class="language-zith">fn classify(x: i32): i32 {
@@ -28,5 +28,5 @@
     }
 }</code></pre>
 <p><code>(_)</code> is the default arm and must be written last. A <code>when</code> used for its value without a default is rejected as non-exhaustive.</p>
-<h2 id="not-yet-available">Not yet available</h2>
-<p><code>marker</code> and <code>jump</code> work as a block-style go-to inside <code>flow fn</code>; <code>dock</code> is still a parse error. Consult the <a href="./../reference/D-control-flow.html">Control Flow reference</a> for the intended semantics and <a href="./../reference/D-implementation-status.html">Implementation Status</a> for the current boundary.</p>
+<h2 id="state-machines-and-cleanup">State machines and cleanup</h2>
+<p><code>state</code>, <code>dock</code>, and <code>jump</code> are the implemented state-machine form. <code>state Name(params): ReturnType</code> declares a state, <code>dock Name(args)</code> starts one as an expression, and <code>jump Next(args)</code> is a terminating direct transfer. The old <code>flow fn</code>, <code>marker</code>, and <code>dock { ... }</code> block syntax is rejected. <code>defer expr;</code> and <code>defer { ... }</code> also work as reverse-order lexical cleanup. Consult the <a href="./../reference/D-control-flow.html">Control Flow reference</a> for the semantics and <a href="./../reference/D-implementation-status.html">Implementation Status</a> for the current boundary.</p>

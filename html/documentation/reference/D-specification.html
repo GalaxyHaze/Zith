@@ -4,7 +4,7 @@
 <blockquote><p>Zith is a statically typed systems programming language with a small, composable core and a large toolbox for domain-specific work. It proves memory safety at compile time without a garbage collector or borrow checker.</p></blockquote>
 <h2 id="introduction">Introduction</h2>
 <p>Zith gives you full control with a minimal &amp; clean syntax — you don't have to choose between verbose but safe or readable but slow. Its memory model, Node Resource Analysis (NRA), proves ownership and lifetime safety using five keywords: <code>lend</code>, <code>view</code>, <code>unique</code>, <code>share</code>, and <code>belong</code> — plus a <code>default</code> (no keyword) modifier.</p>
-<p>Beyond memory safety, Zith has a general-purpose core with a much larger toolbox: markers, contexts (DSLs), words (custom operators), comptime. You choose when to use them. Zith also follows the <strong>Rule of Three</strong>: "if a function needs more than three specialized tools, something went wrong."</p>
+<p>Beyond memory safety, Zith has a general-purpose core with a much larger toolbox: state machines, contexts (DSLs), words (custom operators), comptime. You choose when to use them. Zith also follows the <strong>Rule of Three</strong>: "if a function needs more than three specialized tools, something went wrong."</p>
 <p>This document is a draft of the language specification, currently v0.9. Not every feature described here is implemented in the compiler. For the exact picture of what works today, see <a href="./D-implementation-status.html">Implementation Status</a>. It serves three audiences: developers learning Zith for the first time, contributors working on the <code>zithc</code> compiler, and tooling authors building editors, linters, or other infrastructure around the language.</p>
 <h3 id="notation-used-in-this-document">Notation used in this document</h3>
 <table>
@@ -57,7 +57,7 @@
   <tbody>
     <tr>
       <td><code>struct</code>, <code>fn</code>, <code>lend</code>, <code>view</code>, <code>trait</code>, <code>interface</code></td>
-      <td><code>marker</code>, <code>dock</code>, <code>jump</code> — for Games, State Machine, OS &amp; embedded</td>
+      <td><code>state</code>, <code>dock</code>, <code>jump</code> — for Games, State Machine, OS &amp; embedded</td>
     </tr>
     <tr>
       <td><code>?T</code>, <code>T!</code>, <code>or</code></td>
@@ -76,7 +76,7 @@
   <li>Composable behavior through traits, capabilities, and interfaces.</li>
   <li>Static, zero-overhead error handling with rich recovery semantics.</li>
   <li>Compile-time computation (<code>comptime</code>) as a first-class feature.</li>
-  <li>Low-level control — flow functions, markers — without sacrificing safety in everyday code.</li>
+  <li>Low-level control — state functions and musttail state transitions — without sacrificing safety in everyday code.</li>
   <li>Extensibility through words and macros, ideally scoped inside contexts rather than polluting the global namespace.</li>
 </ul>
 <h3 id="14-context-bound-extensibility-best-practice">1.4 Context-Bound Extensibility (Best Practice)</h3>
@@ -122,7 +122,7 @@ use SQL;   // pollutes the rest of the file</code></pre>
     </tr>
     <tr>
       <td><code>comptime/solve</code></td>
-      <td>Generic instantiation, macro expansion, <code>comptime</code> evaluation, and the solved semantic view that still preserves resource identity for ownership proof</td>
+      <td>Reserved for future generic instantiation, <code>comptime</code> evaluation, and the solved semantic view. Macro expansion currently happens during frontend parsing and uses the source AST directly</td>
     </tr>
     <tr>
       <td><code>NTA/NRA</code></td>
@@ -130,7 +130,7 @@ use SQL;   // pollutes the rest of the file</code></pre>
     </tr>
     <tr>
       <td><code>HIR</code></td>
-      <td>Build High-level IR — desugared, typed, NRA-validated, carrying only residual facts needed after the proof boundary</td>
+      <td>Build High-level IR — the typed, desugared program with residual ownership facts attached when available</td>
     </tr>
     <tr>
       <td><code>LLVM</code></td>
@@ -173,7 +173,7 @@ use SQL;   // pollutes the rest of the file</code></pre>
       <td>5</td>
       <td><a href="./D-functions.html">Functions</a></td>
       <td><code>05-functions.md</code></td>
-      <td><code>fn</code>, <code>const fn</code>, <code>flow fn</code>, <code>raw fn</code>, return types</td>
+      <td><code>fn</code>, <code>const fn</code>, <code>state</code>, <code>raw fn</code>, <code>extern fn</code>, return types</td>
     </tr>
     <tr>
       <td>6</td>
@@ -197,7 +197,7 @@ use SQL;   // pollutes the rest of the file</code></pre>
       <td>9</td>
       <td><a href="./D-control-flow.html">Control Flow</a></td>
       <td><code>09-control-flow.md</code></td>
-      <td><code>if</code>, <code>when</code>, <code>for</code>, <code>-&gt;</code>, <code>flow fn</code>, markers, docks</td>
+      <td><code>if</code>, <code>when</code>, <code>for</code>, <code>-&gt;</code>, <code>state</code>, docks, jumps</td>
     </tr>
     <tr>
       <td>10</td>
@@ -373,9 +373,9 @@ use SQL;   // pollutes the rest of the file</code></pre>
       <td>NRA memory modifiers — <code>default</code> is implicit when no keyword is written.</td>
     </tr>
     <tr>
-      <td><code>fn</code> / <code>const fn</code> / <code>flow fn</code> / <code>raw fn</code></td>
+      <td><code>fn</code> / <code>const fn</code> / <code>state</code> / <code>raw fn</code> / <code>extern fn</code></td>
       <td>Functions</td>
-      <td>Function kinds. Orthogonal; cannot be combined.</td>
+      <td>Five exclusive function kinds; cannot be combined.</td>
     </tr>
     <tr>
       <td><code>trait</code> / <code>interface</code> / <code>extends</code> / <code>requires</code> / <code>dyn</code></td>
@@ -398,14 +398,9 @@ use SQL;   // pollutes the rest of the file</code></pre>
       <td>Memory, runtime protocol, and safety capabilities.</td>
     </tr>
     <tr>
-      <td><code>marker</code> / <code>dock</code> / <code>jump</code></td>
-      <td>Flow</td>
-      <td>Hoisted blocks, jump sites, and invocations for <code>flow fn</code>.</td>
-    </tr>
-    <tr>
-      <td><code>stackful</code></td>
-      <td>Flow</td>
-      <td>Opt-in modifier for stackful markers (stackless is the default).</td>
+      <td><code>state</code> / <code>dock</code> / <code>jump</code></td>
+      <td>State machines</td>
+      <td><code>state</code> declarations, a state entry call, and terminating transitions.</td>
     </tr>
     <tr>
       <td><code>-&gt;</code> / <code>..</code></td>

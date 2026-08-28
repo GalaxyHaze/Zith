@@ -1,69 +1,91 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>zithc Improvements — Formatter, CAPI, Cross-Platform</title></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Formatting, a C ABI, and Three Operating Systems</title>
+    <meta name="description" content="Zith gets a formatter, a stabler C ABI, and broader cross-platform support in the zithc toolchain.">
+    <meta name="author" content="GalaxyHaze">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://zith-lang.org/about/posts/2026-06-21-zithc-improvements.html">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://zith-lang.org/about/posts/2026-06-21-zithc-improvements.html">
+    <meta property="og:title" content="Formatting, a C ABI, and Three Operating Systems">
+    <meta property="og:description" content="Zith gets a formatter, a stabler C ABI, and broader cross-platform support in the zithc toolchain.">
+    <meta property="og:site_name" content="Zith Programming Language">
+    <meta property="og:locale" content="en_US">
+    <meta property="article:published_time" content="2026-06-21">
+    <meta property="og:image" content="https://zith-lang.org/media/Logos/social-share.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:domain" content="zith-lang.org">
+    <meta name="twitter:url" content="https://zith-lang.org/about/posts/2026-06-21-zithc-improvements.html">
+    <meta name="twitter:title" content="Formatting, a C ABI, and Three Operating Systems">
+    <meta name="twitter:description" content="Zith gets a formatter, a stabler C ABI, and broader cross-platform support in the zithc toolchain.">
+    <meta name="twitter:image" content="https://zith-lang.org/media/Logos/social-share.png">
+</head>
 <body>
 
-<h2>zithc Improvements — Formatter, CAPI, Cross-Platform</h2>
+<h2>Formatting, a C ABI, and Three Operating Systems</h2>
 <p class="post-date">2026-06-21</p>
 <hr>
 <p>
-    I've been hammering on <strong>zithc</strong> — the compiler itself — and a lot has landed since
-    the last update. Three big areas got significant attention.
+    A lot has landed in <strong>zithc</strong> since the last update, in three areas that have
+    nothing to do with each other except that all three were blocking something.
 </p>
 
-<h3>1. Code Formatter</h3>
+<h3>The formatter is a real pass now</h3>
 <p>
-    The formatter is now a proper compiler pass, not an afterthought. A dedicated
-    <code>FmtVisitor</code> (938 lines in <code>fmt-visitor.cpp</code>) walks every declaration,
-    statement, and expression type with precedence-aware output and brace-block handling.
+    Formatting used to be an afterthought bolted onto the side of the compiler. It is now a proper
+    pass: a dedicated <code>FmtVisitor</code> walks every declaration, statement and expression
+    kind, with precedence-aware output and real brace-block handling.
 </p>
 <p>
-    You can run it via <code>zith fmt</code> on any source file. It handles comma-separated lists,
-    complex type expressions, semicolons vs braces, and nested blocks cleanly. There's also a
-    companion test suite at <code>tests/unit/fmt-visitor.cpp</code> to keep formatting consistent
-    across refactors.
+    Run it with <code>zith fmt</code> on any source file. It handles comma-separated lists, complex
+    type expressions, semicolons versus braces, and nested blocks without special-casing them. The
+    companion test suite in <code>tests/unit/fmt-visitor.cpp</code> is what keeps output stable
+    across refactors — formatting regressions are silent otherwise.
 </p>
 
-<h3>2. C API (zithcLib)</h3>
+<h3>The C API grew up</h3>
 <p>
-    The C ABI that the LSP consumes got major upgrades. The session lifecycle is solid — create
-    from file or buffer, destroy, run the pipeline. New additions include:
+    The C ABI that the LSP consumes got the bulk of the work. Session lifecycle is solid — create
+    from a file or a buffer, run the pipeline, destroy — and four things are new on top of it:
 </p>
 <ul>
-    <li><strong>Hover</strong> — <code>zithc_hover()</code> looks up an identifier at a byte offset
-        and returns a markdown signature</li>
-    <li><strong>Position conversion</strong> — <code>zithc_offset_to_position()</code> converts byte
-        offsets to 0-based line/column pairs</li>
-    <li><strong>Diagnostics with suggestions</strong> — the "did you mean?" heuristic engine and
-        overload error enrichment are exposed for tooling</li>
-    <li><strong>Cross-file symbol merging</strong> — <code>merge_sym()</code> preserves declaration
-        IDs, spans, kinds, and targets across imports — groundwork for go-to-definition</li>
+    <li><code>zithc_hover()</code> — resolves the identifier at a byte offset and returns a markdown signature</li>
+    <li><code>zithc_offset_to_position()</code> — byte offsets to 0-based line/column pairs</li>
+    <li>Diagnostics with suggestions — the "did you mean?" engine and overload error enrichment, exposed to tooling</li>
+    <li><code>merge_sym()</code> — preserves declaration IDs, spans, kinds and targets across imports, which is the groundwork for go-to-definition</li>
 </ul>
 <p>
-    The CAPI is now clean enough that I ripped out all the <code>try/catch</code> blocks in favor
-    of <code>nothrow new</code> — the C boundary is pure C, no exception machinery needed.
+    The boundary is also cleaner than it was: I ripped out every <code>try/catch</code> in favour
+    of <code>nothrow new</code>. A C boundary should be pure C, with no exception machinery
+    waiting to unwind through it.
 </p>
 
-<h3>3. Cross-Platform &amp; Portability</h3>
+<h3>Three platforms, one build</h3>
 <p>
-    The CI build matrix now covers Linux, Windows (MSVC + clang-cl), and macOS (x86_64 + ARM64).
-    Getting there required a bunch of fixes:
+    CI now covers Linux, Windows (MSVC and clang-cl) and macOS (x86_64 and ARM64). Getting there
+    was a list of small indignities:
 </p>
 <ul>
-    <li>Guarded <code>unistd.h</code> behind <code>_WIN32</code> checks</li>
-    <li>Fixed <code>isatty</code> on Windows</li>
-    <li>Used <code>xcrun</code> on macOS for SDK path discovery</li>
-    <li>Switched Windows ARM64 to Zig cc for reliable cross-compilation</li>
-    <li>Fixed <code>Token</code> constructor for musl libc compatibility</li>
-    <li>Removed <code>OBJECT</code> library pattern that broke macOS universal binaries</li>
+    <li><code>unistd.h</code> guarded behind <code>_WIN32</code>, and <code>isatty</code> fixed on Windows</li>
+    <li><code>xcrun</code> for SDK path discovery on macOS</li>
+    <li>Zig cc for Windows ARM64, which cross-compiles reliably where the alternatives did not</li>
+    <li>A <code>Token</code> constructor fixed for musl libc</li>
+    <li>The <code>OBJECT</code> library pattern removed, because it broke macOS universal binaries</li>
 </ul>
 <p>
-    The formatter and CLI now share a set of common file and terminal utilities, so new commands
-    don't keep reinventing the same wheels.
+    The formatter and the CLI now share common file and terminal utilities, so the next command
+    does not reinvent the same wheels a third time.
 </p>
 <p>
-    v0.3.1 captured the critical bug fixes (TypeFn dangling span, empty-token-stream UB, lexer
-    null fallthrough, SourceMap TOCTOU race), but the real headway is in the CAPI and formatter.
+    v0.3.1 shipped the critical bug fixes — a dangling <code>TypeFn</code> span, undefined
+    behaviour on an empty token stream, a lexer null fallthrough, a TOCTOU race in
+    <code>SourceMap</code> — but the real headway this week is the CAPI and the formatter.
 </p>
 
 <hr>

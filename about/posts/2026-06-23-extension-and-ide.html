@@ -1,40 +1,66 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Editor Tooling — VS Code Extension &amp; Zith IDE</title></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Two Editors, One Language Server</title>
+    <meta name="description" content="The Zith language server reaches the same editor features across two integrations.">
+    <meta name="author" content="GalaxyHaze">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://zith-lang.org/about/posts/2026-06-23-extension-and-ide.html">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://zith-lang.org/about/posts/2026-06-23-extension-and-ide.html">
+    <meta property="og:title" content="Two Editors, One Language Server">
+    <meta property="og:description" content="The Zith language server reaches the same editor features across two integrations.">
+    <meta property="og:site_name" content="Zith Programming Language">
+    <meta property="og:locale" content="en_US">
+    <meta property="article:published_time" content="2026-06-23">
+    <meta property="og:image" content="https://zith-lang.org/media/Logos/social-share.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:domain" content="zith-lang.org">
+    <meta name="twitter:url" content="https://zith-lang.org/about/posts/2026-06-23-extension-and-ide.html">
+    <meta name="twitter:title" content="Two Editors, One Language Server">
+    <meta name="twitter:description" content="The Zith language server reaches the same editor features across two integrations.">
+    <meta name="twitter:image" content="https://zith-lang.org/media/Logos/social-share.png">
+</head>
 <body>
 
-<h2>Editor Tooling — VS Code Extension &amp; Zith IDE</h2>
+<h2>Two Editors, One Language Server</h2>
 <p class="post-date">2026-06-23</p>
 <hr>
 <p>
-    Two editor-related projects got attention this week: the VS Code extension got some needed
-    fixes, and I started a minimal standalone IDE for Zith.
+    With the LSP answering queries, the question becomes what talks to it. This week that was two
+    things: the VS Code extension, which needed fixing, and a standalone IDE, which needed
+    starting.
 </p>
 
-<h3>VS Code Extension</h3>
+<h3>VS Code</h3>
 <p>
-    The <strong>Zith</strong> extension on the marketplace has been updated. The main work was
-    fixing the LSP binary download pipeline — <code>download-lsp.js</code> now pulls the correct
-    platform-specific binary from the CI artifacts, and the extension correctly discovers it at
-    startup.
+    The <strong>Zith</strong> extension has been updated on the marketplace. The real bug was the
+    binary download pipeline — <code>download-lsp.js</code> now pulls the correct platform-specific
+    build from CI artifacts and the extension finds it at startup instead of silently doing
+    nothing.
 </p>
 <p>
-    Syntax highlighting, snippets, and the "Zith Dark" theme are all stable. The TextMate grammar
-    covers all the latest keyword additions (component, union, scene, spawn, etc.) and the
-    snippets match the current function, struct, and control flow syntax.
+    Syntax highlighting, snippets and the "Zith Dark" theme are stable. The TextMate grammar covers
+    the newer keywords (component, union, scene, spawn) and the snippets match current function,
+    struct and control-flow syntax.
 </p>
 
 <h3>Zith-Studio</h3>
 <p>
-    Beyond the extension, I've been experimenting with a small standalone IDE (placeholder name:
-    <strong>Zith-Studio</strong>) — something lighter than VS Code but with deeper Zith
-    integration. It's early days, but the idea is to have a zero-config environment where you
-    just open a <code>.zith</code> file and get syntax highlighting, inline diagnostics from
-    the LSP, and quick-run without any project setup.
+    The other experiment is a small standalone IDE — placeholder name <strong>Zith-Studio</strong>
+    — aimed at being lighter than VS Code with deeper language integration. The target is zero
+    config: open a <code>.zith</code> file, get highlighting, inline diagnostics from the LSP and
+    a run command, with no project scaffolding in between.
 </p>
 <p>
-    Repository is up at <a href="https://github.com/GalaxyHaze/Zith-Studio">GalaxyHaze/Zith-Studio</a>.
-    More details soon.
+    It is early. The repository is at
+    <a href="https://github.com/GalaxyHaze/Zith-Studio">GalaxyHaze/Zith-Studio</a> if you want to
+    watch it take shape.
 </p>
 
 <hr>

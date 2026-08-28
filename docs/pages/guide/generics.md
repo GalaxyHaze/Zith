@@ -8,7 +8,7 @@ kind: editorial
 ---
 # Generics
 
-Generic parameter lists use angle brackets and are accepted on `fn`, `struct`, `type` alias, `enum`, `union`, and `trait` declarations. Inside the declaration, each parameter resolves as an opaque type.
+Generic parameter lists use angle brackets and are accepted on `fn`, `struct`, `type` alias, `enum`, `union`, and `trait` declarations. Generic functions, structs, aliases, enums, unions, and `implement` blocks are monomorphized before HIR; explicit and inferred calls work.
 
 ```zith
 struct Pair<T, U> {
@@ -21,6 +21,6 @@ fn identity<T>(value: T): T {
 }
 ```
 
-Both declarations above pass `zithc check`. Instantiation does not: calling `identity<i32>(42)`, or relying on inference with `identity(42)`, fails in the comptime solver with `E3001` — "generic parameter T has no concrete type". Generic code therefore does not compile end to end yet.
+Both declarations compile, and `identity<i32>(42)` plus inference `identity(42)` type-check and lower.
 
-Constraints of the form `T: Trait` parse but are not enforced. The complete syntax is in the [Type System reference](doc:reference-03-type-system); the boundary is in [Implementation Status](doc:reference-implementation-status).
+Constraints of the form `T: A + B` are parsed, stored, and enforced at generic call sites; an argument that does not satisfy a trait bound reports `E3009`, and an interface bound reports `E2024`. Interface bounds expose their fields and methods to the generic body. The complete syntax is in the [Type System reference](doc:reference-03-type-system); the boundary is in [Implementation Status](doc:reference-implementation-status).

@@ -1,5 +1,5 @@
-const RELEASE_API = "https://api.github.com/repos/GalaxyHaze/Zith-Lang/releases/latest";
-const LOCAL_WASM_URL = "./zith-playground.wasm";
+const WASM_URL = new URL("../playground/zith-playground.wasm", location.href);
+const RUNTIME_MANIFEST_URL = new URL("../playground/runtime.json", location.href);
 const DEFAULT_SOURCE = `fn main() {
 }`;
 
@@ -38,153 +38,119 @@ function updateEditorMeta() {
     cursorPosition.textContent = `Ln ${line}, Col ${column}`;
 }
 
-function isWasm(bytes) {
-    const view = new Uint8Array(bytes);
-    return view.length >= 4 && view[0] === 0 && view[1] === 97 && view[2] === 115 && view[3] === 109;
-}
-
-function findEndOfCentralDirectory(view) {
-    const minOffset = Math.max(0, view.byteLength - 65557);
-    for (let offset = view.byteLength - 22; offset >= minOffset; offset -= 1) {
-        if (view.getUint32(offset, true) === 0x06054b50) return offset;
+async function readVersionManifest() {
+    try {
+        const response = await fetch(RUNTIME_MANIFEST_URL);
+        if (!response.ok) return null;
+        const manifest = await response.json();
+        return typeof manifest.version === "string" ? manifest.version : null;
+    } catch (_) {
+        return null;
     }
-    throw new Error("The download is not a readable ZIP archive.");
 }
 
-async function unzip(bytes) {
-    const view = new DataView(bytes);
-    const decoder = new TextDecoder();
-    const eocd = findEndOfCentralDirectory(view);
-    const entries = view.getUint16(eocd + 10, true);
-    let offset = view.getUint32(eocd + 16, true);
-    const files = [];
+function buildImportObject(module, instanceRef, writeOutput) {
+    const imports = WebAssembly.Module.imports(module);
+    const usedModules = new Set(imports.map(entry => entry.module));
+    const importObject = {};
 
-    for (let index = 0; index < entries; index += 1) {
-        if (view.getUint32(offset, true) !== 0x02014b50) throw new Error("Invalid ZIP directory.");
-        const compression = view.getUint16(offset + 10, true);
-        const compressedSize = view.getUint32(offset + 20, true);
-        const nameLength = view.getUint16(offset + 28, true);
-        const extraLength = view.getUint16(offset + 30, true);
-        const commentLength = view.getUint16(offset + 32, true);
-        const localOffset = view.getUint32(offset + 42, true);
-        const name = decoder.decode(new Uint8Array(bytes, offset + 46, nameLength));
-        const localNameLength = view.getUint16(localOffset + 26, true);
-        const localExtraLength = view.getUint16(localOffset + 28, true);
-        const dataStart = localOffset + 30 + localNameLength + localExtraLength;
-        const compressed = new Uint8Array(bytes.slice(dataStart, dataStart + compressedSize));
-        let data;
+    const hostWrite = (stream, pointer, length) => {
+        if (!instanceRef.instance || length < 0) return;
+        const bytes = new Uint8Array(instanceRef.instance.exports.memory.buffer, pointer, length);
+        writeOutput(decoder.decode(bytes), stream === 2 ? "terminal-error" : "terminal-ok");
+    };
 
-        if (compression === 0) {
-            data = compressed;
-        } else if (compression === 8 && "DecompressionStream" in window) {
-            const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-            data = new Uint8Array(await new Response(stream).arrayBuffer());
-        } else {
-            throw new Error("This browser cannot decompress the WASM ZIP.");
-        }
+    const syscallStubs = {
+        __syscall_getcwd: () => -1,
+        __syscall_readlinkat: () => -1,
+        __syscall_unlinkat: () => -1,
+        __syscall_rmdir: () => -1
+    };
 
-        files.push({ name, data });
-        offset += 46 + nameLength + extraLength + commentLength;
-    }
-    return files;
-}
+    const wasiStubs = {
+        clock_time_get: (clockId, precision, timePointer) => {
+            if (!instanceRef.instance) return 8;
+            const memory = instanceRef.instance.exports.memory;
+            const now = BigInt(Date.now()) * 1000000n;
+            new BigUint64Array(memory.buffer, timePointer, 1)[0] = now;
+            return 0;
+        },
+        fd_write: (fd, iovecsPointer, iovecsLength, writtenPointer) => {
+            if (!instanceRef.instance) return 8;
+            const memory = instanceRef.instance.exports.memory;
+            const iov = new DataView(memory.buffer, iovecsPointer, iovecsLength * 8);
+            let total = 0;
+            for (let index = 0; index < iovecsLength; index += 1) {
+                const pointer = iov.getUint32(index * 8, true);
+                const length = iov.getUint32(index * 8 + 4, true);
+                if (length > 0) {
+                    const bytes = new Uint8Array(memory.buffer, pointer, length);
+                    writeOutput(decoder.decode(bytes), fd === 2 ? "terminal-error" : "terminal-ok");
+                    total += length;
+                }
+            }
+            if (writtenPointer && total <= 0xffffffff) {
+                new Uint32Array(memory.buffer, writtenPointer, 1)[0] = total;
+            }
+            return 0;
+        },
+        fd_read: () => 8,
+        fd_fdstat_get: () => 8,
+        fd_prestat_get: () => 8,
+        fd_prestat_dir_name: () => 8,
+        fd_readdir: () => 8,
+        fd_close: () => 0,
+        fd_seek: () => 0,
+        args_get: () => 8,
+        args_sizes_get: () => 8,
+        environ_get: () => 8,
+        environ_sizes_get: () => 8,
+        path_create_directory: () => 8,
+        path_filestat_get: () => 8,
+        path_open: () => 8,
+        path_readlink: () => 8,
+        random_get: () => 8,
+        proc_exit: () => { throw new Error("WebAssembly compiler exited."); }
+    };
 
-function unpackArArchive(bytes) {
-    const decoder = new TextDecoder();
-    if (decoder.decode(new Uint8Array(bytes.slice(0, 8))) !== "!<arch>\n") return [];
-    const files = [];
-    let stringTable = "";
-    let offset = 8;
-    while (offset + 60 <= bytes.byteLength) {
-        const entry = new Uint8Array(bytes.slice(offset, offset + 60));
-        const rawName = decoder.decode(entry.slice(0, 16)).trim();
-        const size = Number.parseInt(decoder.decode(entry.slice(48, 58)).trim(), 10);
-        const start = offset + 60;
-        if (!Number.isFinite(size) || start + size > bytes.byteLength) break;
-        const data = new Uint8Array(bytes.slice(start, start + size));
-
-        if (rawName === "//") {
-            stringTable = decoder.decode(data);
-        } else if (rawName !== "/") {
-            const nameOffset = rawName.match(/^\/(\d+)$/);
-            const name = nameOffset
-                ? stringTable.slice(Number.parseInt(nameOffset[1], 10)).split("\n")[0].replace(/\/$/, "")
-                : rawName.replace(/\/$/, "");
-            files.push({ name, data });
-        }
-        offset = start + size + (size % 2);
-    }
-    return files;
-}
-
-async function inspectWasmModules(files) {
-    const modules = [];
-    for (const file of files) {
-        if (!isWasm(file.data)) continue;
-        const module = await WebAssembly.compile(file.data);
-        modules.push({ name: file.name, exports: WebAssembly.Module.exports(module).map(entry => entry.name) });
-    }
-    return modules;
-}
-
-function getWasmAsset(release) {
-    const assets = Array.isArray(release.assets) ? release.assets : [];
-    return assets.find(asset => /playground.*\.wasm$|zithc.*\.wasm$/i.test(asset.name))
-        || assets.find(asset => /wasm.*\.zip$/i.test(asset.name))
-        || assets.find(asset => /\.wasm$/i.test(asset.name));
+    if (usedModules.has("zith")) importObject.zith = { host_write: hostWrite };
+    if (usedModules.has("wasi_snapshot_preview1")) importObject.wasi_snapshot_preview1 = wasiStubs;
+    if (usedModules.has("env")) importObject.env = syscallStubs;
+    return importObject;
 }
 
 async function loadRuntime() {
     try {
-        
-        
-        
-        
-        
-        writeOutput("Fetching local WebAssembly build...", "terminal-dim");
+        runtimeStatusCompact.textContent = "Compiler: Loading…";
+        writeOutput("Fetching local WebAssembly build…", "terminal-dim");
 
-        const response = await fetch(LOCAL_WASM_URL);
-        if (!response.ok) throw new Error(`Local module returned ${response.status}.`);
-        const module = await WebAssembly.compile(await response.arrayBuffer());
+        const wasmResponse = await fetch(WASM_URL);
+        if (!wasmResponse.ok) throw new Error(`Local module returned ${wasmResponse.status}.`);
+        const module = await WebAssembly.compile(await wasmResponse.arrayBuffer());
         const exports = WebAssembly.Module.exports(module).map(entry => entry.name);
         const requiredExports = ["memory", "zith_alloc", "zith_free", "zith_compile_source"];
         const missingExports = requiredExports.filter(name => !exports.includes(name));
-        const nativeImports = WebAssembly.Module.imports(module).filter(entry => entry.module !== "zith");
-        
 
         if (missingExports.length) {
             runtimeStatusCompact.textContent = "Compiler: ABI Incomplete";
-            
             writeOutput(`The local build is missing: ${missingExports.join(", ")}.`, "terminal-error");
             return;
         }
 
-        if (nativeImports.length) {
-            runtimeStatusCompact.textContent = "Compiler: Native missing";
-            
-            writeOutput(`The local build has ${nativeImports.length} unresolved native imports (first: ${nativeImports[0].module}.${nativeImports[0].name}).`, "terminal-warn");
-            writeOutput("Link libc++, libc++abi, libc and compiler dependencies into the WASM binary before browser execution.", "terminal-dim");
-            return;
-        }
+        const instanceRef = {};
+        const importObject = buildImportObject(module, instanceRef, writeOutput);
+        const instance = await WebAssembly.instantiate(module, importObject);
+        instanceRef.instance = instance;
 
-        let instance;
-        const hostWrite = (stream, pointer, length) => {
-            if (!instance || length < 0) return;
-            const bytes = new Uint8Array(instance.exports.memory.buffer, pointer, length);
-            writeOutput(decoder.decode(bytes), stream === 2 ? "terminal-error" : "terminal-ok");
-        };
-        instance = await WebAssembly.instantiate(module, { zith: { host_write: hostWrite } });
+        const version = await readVersionManifest();
+        const displayVersion = version ? `release ${version}` : "local";
         runtime = instance.exports;
-        runtimeStatusCompact.textContent = "Compiler: Ready (local)";
-        
-        
-        writeOutput("Local browser runtime loaded.", "terminal-ok");
+        runtimeStatusCompact.textContent = `Compiler: Ready (${displayVersion})`;
+        writeOutput(`WebAssembly compiler ready (${displayVersion}).`, "terminal-ok");
     } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown loading error.";
-        
-        
         runtimeStatusCompact.textContent = "Compiler: Load Failed";
-        writeOutput(`Could not load the local WASM build: ${message}`, "terminal-error");
+        writeOutput(`Could not load the WebAssembly compiler: ${message}`, "terminal-error");
     }
 }
 
@@ -192,11 +158,6 @@ editor.addEventListener("input", updateEditorMeta);
 editor.addEventListener("click", updateEditorMeta);
 editor.addEventListener("keyup", updateEditorMeta);
 editor.addEventListener("scroll", () => { lineNumbers.scrollTop = editor.scrollTop; });
-
-
-
-
-
 
 const terminalInput = document.getElementById("terminal-input");
 const commandHistory = [];
@@ -231,22 +192,28 @@ terminalInput.addEventListener("keydown", (e) => {
 
 function executeCommand(cmd) {
     writeOutput(`> ${cmd}`, "terminal-dim");
-    
+
     if (cmd === "clear") {
         output.textContent = "";
         return;
     }
-    
+
     if (cmd === "help") {
         writeOutput(`Available commands:
-  zithc run [--opt-level <0|1|2|3>] [--emit <tokens|ast|hir|ir|asm|all>]
-  zithc check [--opt-level <0|1|2|3>] [--emit <tokens|ast|hir|ir|asm|all>]
+  zithc check [--opt-level <0|1|2|3>] [--emit hir]
+  zithc run [--opt-level <0|1|2|3>] [--emit hir]
+  zithc build [--opt-level <0|1|2|3>]
   clear
   help`, "terminal-ok");
         return;
     }
 
-    if (cmd.startsWith("zithc run") || cmd.startsWith("zithc check")) {
+    const args = cmd.split(/\s+/).filter(Boolean);
+    const first = args[0];
+    const subcommand = first === "zithc" ? args[1] : first;
+    const commandArgs = first === "zithc" ? args.slice(2) : args.slice(1);
+
+    if (subcommand === "run" || subcommand === "check" || subcommand === "build") {
         if (!runtime) {
             writeOutput("Compiler not loaded.", "terminal-error");
             return;
@@ -255,38 +222,53 @@ function executeCommand(cmd) {
             writeOutput("Compiler ABI incompatible (missing zith_compile_source).", "terminal-error");
             return;
         }
-        
-        const mode = cmd.startsWith("zithc run") ? 1 : 0;
-        let optLevel = 0;
-        let emitMask = 0;
-        
-        const args = cmd.split(/\s+/);
-        for (let i = 2; i < args.length; i++) {
-            if (args[i] === "--opt-level" && i + 1 < args.length) {
-                optLevel = parseInt(args[i + 1], 10);
-                i++;
-            } else if (args[i] === "--emit" && i + 1 < args.length) {
-                const emits = args[i + 1].split(",");
-                for (const e of emits) {
-                    if (e === "tokens") emitMask |= 1;
-                    else if (e === "ast") emitMask |= 2;
-                    else if (e === "hir") emitMask |= 4;
-                    else if (e === "ir") emitMask |= 8;
-                    else if (e === "asm") emitMask |= 16;
-                    else if (e === "all") emitMask |= 31;
-                }
-                i++;
-            }
+
+        let parsed = null;
+        try {
+            parsed = parseCompilerArgs(subcommand, commandArgs);
+        } catch (error) {
+            writeOutput(error.message, "terminal-error");
+            return;
         }
-        
-        runCompiler(mode, optLevel, emitMask);
+        const mode = subcommand === "run" ? 1 : 0;
+        runCompiler(mode, parsed.optLevel, parsed.emitMask, subcommand);
         return;
     }
-    
-    writeOutput(`zithc: command not found: ${cmd.split(" ")[0]}`, "terminal-error");
+
+    writeOutput(`zithc: command not found: ${first || subcommand}`, "terminal-error");
 }
 
-function runCompiler(mode, optLevel, emitMask) {
+function parseCompilerArgs(subcommand, args) {
+    let optLevel = 0;
+    let emitMask = 0;
+
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === "--opt-level" && i + 1 < args.length) {
+            const raw = args[i + 1];
+            const value = Number.parseInt(raw, 10);
+            if (!Number.isInteger(value) || value < 0 || value > 3) {
+                throw new Error(`zithc: invalid optimization level: ${raw}`);
+            }
+            optLevel = value;
+            i++;
+        } else if (args[i] === "--emit" && i + 1 < args.length) {
+            const emits = args[i + 1].split(",");
+            for (const emit of emits) {
+                if (emit !== "hir") {
+                    throw new Error(`zithc: emitter '${emit}' is unavailable in this browser WASM build; only --emit hir is supported.`);
+                }
+                emitMask = 4;
+            }
+            i++;
+        } else {
+            throw new Error(`zithc: unexpected argument for ${subcommand}: ${args[i]}`);
+        }
+    }
+
+    return { optLevel, emitMask };
+}
+
+function runCompiler(mode, optLevel, emitMask, subcommand) {
     let pointer = 0;
     try {
         const sourceText = editor.value;
@@ -294,13 +276,27 @@ function runCompiler(mode, optLevel, emitMask) {
         pointer = runtime.zith_alloc(source.length);
         if (!pointer) throw new Error("The WASM allocator returned a null pointer.");
         new Uint8Array(runtime.memory.buffer, pointer, source.length).set(source);
-        
+
         const result = runtime.zith_compile_source(pointer, source.length, mode, optLevel, emitMask);
-        
+        const lastError = readLastError();
+
         if (result === 0) {
-            writeOutput(`Program finished successfully.`, "terminal-ok");
+            if (subcommand === "check") {
+                writeOutput("check passed", "terminal-ok");
+            } else if (subcommand === "build") {
+                writeOutput("build complete (browser WASM simulator stops after HIR)", "terminal-ok");
+            } else {
+                writeOutput("compiled successfully (browser WASM does not execute program output)", "terminal-ok");
+            }
         } else {
-            writeOutput(`Program finished with error. (Status: ${result})`, "terminal-error");
+            if (lastError) writeOutput(lastError, "terminal-error");
+            if (subcommand === "check") {
+                writeOutput(`check failed (Status: ${result})`, "terminal-error");
+            } else if (subcommand === "build") {
+                writeOutput(`build failed (Status: ${result})`, "terminal-error");
+            } else {
+                writeOutput(`compile error (Status: ${result})`, "terminal-error");
+            }
         }
     } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown runtime error.";
@@ -308,6 +304,14 @@ function runCompiler(mode, optLevel, emitMask) {
     } finally {
         if (pointer) runtime.zith_free(pointer, encoder.encode(editor.value).length);
     }
+}
+
+function readLastError() {
+    if (!runtime || !runtime.zith_last_error_ptr || !runtime.zith_last_error_len) return "";
+    const pointer = runtime.zith_last_error_ptr();
+    const length = runtime.zith_last_error_len();
+    if (!pointer || !length) return "";
+    return decoder.decode(new Uint8Array(runtime.memory.buffer, pointer, length));
 }
 
 const savedCode = new URLSearchParams(window.location.hash.slice(1)).get("code");

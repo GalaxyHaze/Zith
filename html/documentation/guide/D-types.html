@@ -25,9 +25,11 @@ fn restore(handle: raw opaque): *i32 {
 }</code></pre>
 <p>Pointers imported from C headers arrive as <code>?<em>T</code> and are checked with <code>is null</code>. Flow-sensitive narrowing does not exist yet, so a <code>?</em>T</code> is still accepted unchecked where a <code>*T</code> is expected; check it anyway.</p>
 <h2 id="memory-qualifiers">Memory qualifiers</h2>
-<p>The qualifiers <code>mut</code>, <code>lend</code>, <code>view</code>, <code>unique</code>, <code>share</code>, and <code>belong</code> are accepted anywhere a type is written and are carried in the type table. They are enforced at the type level today rather than by a full ownership analysis, but one rule already bites: writing through a <code>view</code> binding reports <code>E4004</code>.</p>
+<p>The subset enforces <code>lend</code> and <code>view</code>. They lower to pointer parameters and need explicit <code>lend x</code>/<code>view x</code> call annotations for <code>default</code> bindings; writing through <code>view</code> reports <code>E4004</code>. <code>mut</code>, <code>unique</code>, <code>share</code>, and <code>belong</code> are rejected with <code>E2010</code>.</p>
 <pre><code class="language-zith">fn peek(value: view i32): i32 {
     value
 }</code></pre>
-<p>Layout builtins work in expression position: <code>@sizeOf(T)</code> types as <code>u64</code> for any complete type, and <code>@offsetOf(S, field)</code> and <code>@alignOf(S)</code> are struct-only and type as <code>i32</code>. <code>dyn Trait</code> is still a parse error.</p>
+<p>Layout builtins work in expression position: <code>@sizeOf(T)</code> types as <code>u64</code> for any complete type, and <code>@offsetOf(S, field)</code> and <code>@alignOf(S)</code> are struct-only and type as <code>i32</code>.</p>
+<h2 id="dynamic-dispatch">Dynamic dispatch</h2>
+<p><code>dyn Trait</code> and <code>dyn Interface</code> are implemented for method dispatch. A concrete value coerces to a fat pointer with a per-type vtable, and method calls through the value dispatch dynamically. Interface fields are used for conformance and are still readable on concrete types or generic bounds, but not through a <code>dyn Interface</code> value.</p>
 <p>Start with explicit annotations when learning. The <a href="./../reference/D-type-system.html">Type System reference</a> defines generic types, unions, and the experimental narrowing rules; <a href="./../reference/D-implementation-status.html">Implementation Status</a> records what compiles today.</p>

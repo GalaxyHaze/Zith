@@ -1,6 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="11-comptime">11. Comptime</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>comptime</code> blocks, compile-time reflection intrinsics, and <code>const fn</code> evaluation are <strong>spec-only</strong>. <code>const</code> bindings are <strong>working</strong> (immutable at runtime) but are not evaluated at compile time. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>const fn</code> declarations are <strong>parse-level in progress</strong>; parsing them as functions is implemented, but compile-time evaluation is <strong>spec-only</strong>. <code>comptime</code> blocks, compile-time reflection intrinsics, and <code>const fn</code> evaluation are not implemented. <code>const</code> bindings are <strong>working</strong> (immutable at runtime) but are not evaluated at compile time. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <p>Comptime covers compile-time computation: reflection, type manipulation, and <code>const</code> blocks.</p>
 <h3 id="111-comptime-bindings">11.1 Comptime Bindings</h3>
 <pre><code class="language-zith">const counter: mut = 0;
@@ -8,7 +8,7 @@ counter += 1;   // valid at compile time
 // counter += input().nextI32();   // COMPILE ERROR: frozen at runtime</code></pre>
 <h3 id="112-const-blocks">11.2 <code>const</code> Blocks</h3>
 <p>A <code>const { ... }</code> block executes its contents at compile time. Every value inside must be computable at compile time — if anything depends on runtime input, the compiler reports an error.</p>
-<p><code>const fn</code> functions resolve entirely at compile time and <strong>must</strong> be called inside a <code>const</code> block or assigned to a <code>const</code> binding; they cannot be called at runtime.</p>
+<p><code>const fn</code> declarations are the future syntax for functions that resolve at compile time. Once evaluation lands, they would be required to be called only inside a <code>const</code> block or assigned to a <code>const</code> binding. Today the compiler only parses the declaration; evaluation is not implemented.</p>
 <pre><code class="language-zith">const result {
     let x = 10;
     let y = 20;

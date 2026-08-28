@@ -20,9 +20,10 @@
         <meta property="og:url" content="https://zith-lang.org/html/home.html">
         <meta property="og:title" content="Zith &mdash; Systems Programming, Reimagined">
         <meta property="og:description" content="Zith proves memory safety at compile time without a garbage collector or borrow checker. Clean syntax, zero runtime overhead.">
-        <meta property="og:image" content="https://zith-lang.org/media/Logos/social-share.svg">
+        <meta property="og:image" content="https://zith-lang.org/media/Logos/social-share.png">
         <meta property="og:image:width" content="1200">
         <meta property="og:image:height" content="630">
+        <meta property="og:image:type" content="image/png">
         <meta property="og:site_name" content="Zith Programming Language">
         <meta property="og:locale" content="en_US">
 
@@ -31,7 +32,7 @@
         <meta name="twitter:url" content="https://zith-lang.org/html/home.html">
         <meta name="twitter:title" content="Zith &mdash; Systems Programming, Reimagined">
         <meta name="twitter:description" content="Zith proves memory safety at compile time without a garbage collector or borrow checker. Clean syntax, zero runtime overhead.">
-        <meta name="twitter:image" content="https://zith-lang.org/media/Logos/social-share.svg">
+        <meta name="twitter:image" content="https://zith-lang.org/media/Logos/social-share.png">
 
         <script type="application/ld+json">
         {
@@ -57,56 +58,58 @@
 
             <div class="icons">
                 <div class="icon">
+                    <a href="../about/">
+                        <img src="../media/Icons/Me.svg" alt="Open the Zith blog and author page">
+                        <p>Blog</p>
+                    </a>
+                </div>
+
+                <div class="icon">
                     <a href="../helios/">
-                        <img src="../media/Icons/Helios.svg" alt="">
+                        <img src="../media/Icons/Helios.svg" alt="Open Helios IDE">
                         <p>Helios IDE</p>
                     </a>
                 </div>
 
                 <div class="icon">
-                    <a href="./documentation/D-home.html" >
-                        <img src="../media/Icons/Documentation.svg">
+                    <a href="./documentation/D-home.html">
+                        <img src="../media/Icons/Documentation.svg" alt="Open documentation">
                         <p>Docs</p>
                     </a>
                 </div>
 
                 <div class="icon">
-                    <a href="https://discord.gg/a7h4cpWHg4" target="_blank">
-                        <img src="../media/Icons/Discord.svg">
+                    <a href="https://discord.gg/a7h4cpWHg4" target="_blank" rel="noopener noreferrer">
+                        <img src="../media/Icons/Discord.svg" alt="Join the Zith Discord">
                         <p>Discord</p>
                     </a>
                 </div>
 
                 <div class="icon">
-                    <a href="https://github.com/GalaxyHaze/Zith" target="_">
-                        <img src="../media/Icons/Github.svg">
+                    <a href="https://github.com/GalaxyHaze/Zith" target="_blank" rel="noopener noreferrer">
+                        <img src="../media/Icons/Github.svg" alt="View the Zith source on GitHub">
                         <p>Github</p>
                     </a>
                 </div>
 
-                <div class="icon" onclick="openWindow('contact')">
-                    <img src="../media/Icons/Phone.svg">
+                <div class="icon" onclick="openWindow('contact')" role="button" tabindex="0" aria-label="Open contact info">
+                    <img src="../media/Icons/Phone.svg" alt="">
                     <p>Contact</p>
                 </div>
 
-                <div class="icon" onclick="openWindow('download')">
-                    <img src="../media/Icons/Download.svg">
+                <div class="icon" onclick="openWindow('download')" role="button" tabindex="0" aria-label="Open downloads">
+                    <img src="../media/Icons/Download.svg" alt="">
                     <p>Download</p>
                 </div>
 
-                <div class="icon" onclick="openWindow('aboutMe')">
-                    <img src="../media/Icons/Me.svg">
-                    <p>About Me</p>
-                </div>
-
-                <div class="icon" onclick="openWindow('news')">
-                    <img src="../media/Icons/News.svg">
+                <div class="icon" onclick="openWindow('news')" role="button" tabindex="0" aria-label="Open news and changelog">
+                    <img src="../media/Icons/News.svg" alt="">
                     <p>News</p>
                 </div>
 
                 <div class="icon">
                     <a href="../playground/">
-                        <img src="../media/Icons/Playground.svg" alt="">
+                        <img src="../media/Icons/Playground.svg" alt="Open the Zith playground">
                         <p>Playground</p>
                     </a>
                 </div>
@@ -114,12 +117,12 @@
             </div> 
 
             <footer>
-                <div class="start" onclick="openWindow('start')">
-                    <img src="../media/Icons/Start.svg">
+                <div class="start" onclick="openWindow('start')" role="button" tabindex="0" aria-label="Open quick start">
+                    <img src="../media/Icons/Start.svg" alt="">
                     <p>Start</p>
                 </div>
-                <div class="gear" onclick="openWindow('settings')">
-                    <img src="../media/Icons/Gear.svg">
+                <div class="gear" onclick="openWindow('settings')" role="button" tabindex="0" aria-label="Open settings">
+                    <img src="../media/Icons/Gear.svg" alt="">
                 </div>
             </footer>
         </div>
@@ -178,13 +181,13 @@
             <div class="content">
                 <div class="start-section">
                     <p class="start-heading">Getting Started</p>
-                    <a href="./documentation/D-intro-installation.html" target="_blank" class="start-link">Install Zith</a>
-                    <a href="./documentation/D-quickstart.html" target="_blank" class="start-link">Write your first program</a>
-                    <a href="./documentation/D-language-overview.html" target="_blank" class="start-link">Language overview</a>
+                    <a href="./documentation/getting-started/D-installation.html" target="_blank" class="start-link">Install Zith</a>
+                    <a href="./documentation/getting-started/D-quick-start.html" target="_blank" class="start-link">Write your first program</a>
+                    <a href="./documentation/guide/D-overview.html" target="_blank" class="start-link">Language overview</a>
                 </div>
                 <div class="start-section">
                     <p class="start-heading">Tools</p>
-                    <a href="./documentation/D-cli.html" target="_blank" class="start-link">CLI reference</a>
+                    <a href="./documentation/cli/D-overview.html" target="_blank" class="start-link">CLI reference</a>
                     <a href="./documentation/D-home.html" target="_blank" class="start-link">Full documentation</a>
                 </div>
                 <div class="start-section">

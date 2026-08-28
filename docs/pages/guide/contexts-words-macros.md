@@ -8,7 +8,7 @@ kind: editorial
 ---
 # Contexts, Words & Macros
 
-Macros work. Contexts and words do not yet.
+Normal and `raw macro` work. Tag macros parse, but are rejected in the `Zith--` pipeline. Contexts and words do not yet.
 
 ## Macros
 
@@ -30,7 +30,7 @@ A normal macro is hygienic: bindings introduced by the template are renamed, so 
 
 ## Tag macros
 
-A `tag macro` is invoked with an HTML-like statement form. It takes a `body` parameter and, optionally, the special `attributes` parameter, which exposes named attributes as `attributes.name`.
+A `tag macro` is invoked with an HTML-like statement form. It takes a `body` parameter and, optionally, the special `attributes` parameter, which exposes named attributes as `attributes.name`. The declaration itself is reported with `E2010` in `Zith--`, so the form is still useful only as future specification material here.
 
 ```zith
 tag macro RunTwice(attributes, body: body) {
@@ -48,7 +48,7 @@ fn main(): i32 {
 }
 ```
 
-Tag macros are statement-position only. Misuse has dedicated diagnostics: `E2017` for a tag macro used as a value, `E2018` for a mismatched closing tag, `E2019` for an unknown attribute, and `E2020` for attributes passed to a macro that does not accept them. The general macro codes `E2011`-`E2016` cover unknown macros, arity, argument kind, recursion, duplicates, and `raw macro` used as a value.
+The parser still recognises tag macros as statement-position only, with dedicated diagnostics for misuse: `E2017` for a tag macro used as a value, `E2018` for a mismatched closing tag, `E2019` for an unknown attribute, and `E2020` for attributes passed to a macro that does not accept them. The declaration rejection `E2010` is the current boundary in `Zith--`. The general macro codes `E2011`-`E2016` cover unknown macros, arity, argument kind, recursion, duplicates, and `raw macro` used as a value.
 
 ## Contexts and words
 

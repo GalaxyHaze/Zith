@@ -77,22 +77,28 @@ terminalInput.addEventListener("keydown", (e) => {
 
 function executeCommand(cmd) {
     writeOutput(`> ${cmd}`, "terminal-dim");
-    
+
     if (cmd === "clear") {
         output.textContent = "";
         return;
     }
-    
+
     if (cmd === "help") {
         writeOutput(`Available commands:
-  zithc run [--opt-level <0|1|2|3>] [--emit <tokens|ast|hir|ir|asm|all>]
-  zithc check [--opt-level <0|1|2|3>] [--emit <tokens|ast|hir|ir|asm|all>]
+  zithc check [--opt-level <0|1|2|3>] [--emit hir]
+  zithc run [--opt-level <0|1|2|3>] [--emit hir]
+  zithc build [--opt-level <0|1|2|3>]
   clear
   help`, "terminal-ok");
         return;
     }
 
-    if (cmd.startsWith("zithc run") || cmd.startsWith("zithc check")) {
+    const args = cmd.split(/\\s+/).filter(Boolean);
+    const first = args[0];
+    const subcommand = first === "zithc" ? args[1] : first;
+    const commandArgs = first === "zithc" ? args.slice(2) : args.slice(1);
+
+    if (subcommand === "run" || subcommand === "check" || subcommand === "build") {
         if (!runtime) {
             writeOutput("Compiler not loaded.", "terminal-error");
             return;
@@ -101,38 +107,53 @@ function executeCommand(cmd) {
             writeOutput("Compiler ABI incompatible (missing zith_compile_source).", "terminal-error");
             return;
         }
-        
-        const mode = cmd.startsWith("zithc run") ? 1 : 0;
-        let optLevel = 0;
-        let emitMask = 0;
-        
-        const args = cmd.split(/\\s+/);
-        for (let i = 2; i < args.length; i++) {
-            if (args[i] === "--opt-level" && i + 1 < args.length) {
-                optLevel = parseInt(args[i + 1], 10);
-                i++;
-            } else if (args[i] === "--emit" && i + 1 < args.length) {
-                const emits = args[i + 1].split(",");
-                for (const e of emits) {
-                    if (e === "tokens") emitMask |= 1;
-                    else if (e === "ast") emitMask |= 2;
-                    else if (e === "hir") emitMask |= 4;
-                    else if (e === "ir") emitMask |= 8;
-                    else if (e === "asm") emitMask |= 16;
-                    else if (e === "all") emitMask |= 31;
-                }
-                i++;
-            }
+
+        let parsed = null;
+        try {
+            parsed = parseCompilerArgs(subcommand, commandArgs);
+        } catch (error) {
+            writeOutput(error.message, "terminal-error");
+            return;
         }
-        
-        runCompiler(mode, optLevel, emitMask);
+        const mode = subcommand === "run" ? 1 : 0;
+        runCompiler(mode, parsed.optLevel, parsed.emitMask, subcommand);
         return;
     }
-    
-    writeOutput(`zithc: command not found: ${cmd.split(" ")[0]}`, "terminal-error");
+
+    writeOutput(`zithc: command not found: ${first || subcommand}`, "terminal-error");
 }
 
-function runCompiler(mode, optLevel, emitMask) {
+function parseCompilerArgs(subcommand, args) {
+    let optLevel = 0;
+    let emitMask = 0;
+
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === "--opt-level" && i + 1 < args.length) {
+            const raw = args[i + 1];
+            const value = Number.parseInt(raw, 10);
+            if (!Number.isInteger(value) || value < 0 || value > 3) {
+                throw new Error(`zithc: invalid optimization level: ${raw}`);
+            }
+            optLevel = value;
+            i++;
+        } else if (args[i] === "--emit" && i + 1 < args.length) {
+            const emits = args[i + 1].split(",");
+            for (const emit of emits) {
+                if (emit !== "hir") {
+                    throw new Error(`zithc: emitter '${emit}' is unavailable in this browser WASM build; only --emit hir is supported.`);
+                }
+                emitMask = 4;
+            }
+            i++;
+        } else {
+            throw new Error(`zithc: unexpected argument for ${subcommand}: ${args[i]}`);
+        }
+    }
+
+    return { optLevel, emitMask };
+}
+
+function runCompiler(mode, optLevel, emitMask, subcommand) {
     let pointer = 0;
     try {
         const sourceText = editor.value;
@@ -140,13 +161,27 @@ function runCompiler(mode, optLevel, emitMask) {
         pointer = runtime.zith_alloc(source.length);
         if (!pointer) throw new Error("The WASM allocator returned a null pointer.");
         new Uint8Array(runtime.memory.buffer, pointer, source.length).set(source);
-        
+
         const result = runtime.zith_compile_source(pointer, source.length, mode, optLevel, emitMask);
-        
+        const lastError = readLastError();
+
         if (result === 0) {
-            writeOutput(`Program finished successfully.`, "terminal-ok");
+            if (subcommand === "check") {
+                writeOutput("check passed", "terminal-ok");
+            } else if (subcommand === "build") {
+                writeOutput("build complete (browser WASM simulator stops after HIR)", "terminal-ok");
+            } else {
+                writeOutput("compiled successfully (browser WASM does not execute program output)", "terminal-ok");
+            }
         } else {
-            writeOutput(`Program finished with error. (Status: ${result})`, "terminal-error");
+            if (lastError) writeOutput(lastError, "terminal-error");
+            if (subcommand === "check") {
+                writeOutput(`check failed (Status: ${result})`, "terminal-error");
+            } else if (subcommand === "build") {
+                writeOutput(`build failed (Status: ${result})`, "terminal-error");
+            } else {
+                writeOutput(`compile error (Status: ${result})`, "terminal-error");
+            }
         }
     } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown runtime error.";
@@ -155,15 +190,20 @@ function runCompiler(mode, optLevel, emitMask) {
         if (pointer) runtime.zith_free(pointer, encoder.encode(editor.value).length);
     }
 }
+
+function readLastError() {
+    if (!runtime || !runtime.zith_last_error_ptr || !runtime.zith_last_error_len) return "";
+    const pointer = runtime.zith_last_error_ptr();
+    const length = runtime.zith_last_error_len();
+    if (!pointer || !length) return "";
+    return decoder.decode(new Uint8Array(runtime.memory.buffer, pointer, length));
+}
 '''
-# Append the new logic before the last few lines (which are savedCode and loadRuntime)
-parts = js.split('const savedCode = ')
-js = parts[0] + terminal_js + '\nconst savedCode = ' + parts[1]
-
-# Small fix for writeOutput
-js = js.replace('output.insertAdjacentHTML("beforeend", `${prefix}<span class="${className}">${escapeHtml(message)}</span>`);', 
-                'output.insertAdjacentHTML("beforeend", `${prefix}<span class="${className}">${escapeHtml(message)}</span>`);\n    document.getElementById("terminal-container").scrollTop = document.getElementById("terminal-container").scrollHeight;')
-
+# Replace the old terminal block, then append the new logic before the last few
+# lines (which are savedCode and loadRuntime).
+js = re.sub(r'const terminalInput = document\.getElementById\("terminal-input"\);\nconst commandHistory = \[\];\nlet historyIndex = -1;\n.*?\nconst savedCode = ', 'TERMINAL_MARKER\nconst savedCode = ', js, flags=re.DOTALL)
+js = js.replace('TERMINAL_MARKER', terminal_js + '\n')
+js = re.sub(r'\n{3,}', '\n\n', js)
 
 with open('js/playground.js', 'w') as f:
     f.write(js)

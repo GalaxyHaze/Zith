@@ -1,6 +1,16 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="4-traits-interfaces--capabilities">4. Traits, Interfaces &amp; Capabilities</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>trait</code>, <code>interface</code>, and <code>implement T as Trait {}</code> declarations are <strong>working</strong> (parsed, resolved, and lowered). Trait dispatch and vtable-based <code>dyn</code> dispatch are <strong>spec-only</strong> — <code>dyn Trait</code> is a parse error in type position. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>trait</code>, <code>interface</code>, and <code>implement T as Trait {}</code> declarations are <strong>working</strong> (parsed, resolved, and type-checked). Trait conformance is nominal: an implementation is validated against every required method and the conformance edge is recorded for generic bounds. Interfaces are structural: a concrete struct satisfies an interface automatically when every declared field exists with the required type and every declared method requirement has a compatible signature. Using an interface as a generic bound exposes the interface fields and methods to the generic body. Trait defaults are resolved for concrete owners during sema; <code>dyn Trait</code>, dynamic dispatch, <code>requires</code>/<code>extends</code> as explicit constraints, and per-owner default-method HIR generation remain spec-only or pending. <code>Self</code> in implementations and trait defaults resolves to the implementing type.</p></blockquote>
+<p>The <code>implement</code> owner may be a primitive, <code>?T</code>, or <code>[]T</code> in addition to a named struct/enum:</p>
+<pre><code class="language-zith">trait Describe {
+    fn describe(self): i32;
+}
+
+implement i32 as Describe {
+    fn describe(self): i32 { return 1 }
+}</code></pre>
+<p>Traits implemented for these owners participate in nominal conformance exactly like named types, so they are usable in generic bounds (<code>T: Describe</code>) and expose default methods on the receiver. Pointer and fixed-array owners remain unsupported.</p>
+<blockquote><p>See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="41-traits-vs-interfaces">4.1 Traits vs. Interfaces</h3>
 <table>
   <thead>
@@ -31,6 +41,11 @@
       <td>Only through a trait that <code>requires</code> the interface.</td>
       <td>Yes — directly, since interfaces are structural.</td>
     </tr>
+    <tr>
+      <td><strong>Methods</strong></td>
+      <td>Default bodies and requirements.</td>
+      <td>Declaration-only requirements, no default bodies.</td>
+    </tr>
   </tbody>
 </table>
 <h3 id="42-traits">4.2 Traits</h3>
@@ -50,10 +65,14 @@ trait JsonSerializable {
 Printable.print(self);
 JsonSerializable.print(self);</code></pre>
 <h3 id="43-interfaces">4.3 Interfaces</h3>
-<p>Interfaces are structural — if it quacks, it's a duck. Any type that has the required fields satisfies the interface automatically, without an explicit <code>implement</code> declaration. You can also add <code>requires</code> to interfaces.</p>
+<p>Interfaces are structural — if it quacks, it's a duck. Any type that has the required fields and compatible method signatures satisfies the interface automatically, without an explicit <code>implement</code> declaration. Interfaces accept declaration-only method requirements and both single and grouped field forms. You can also add <code>requires</code> to interfaces.</p>
 <pre><code class="language-zith">// will only accept structs and reject components
 requires @isStruct
-interface iPositioned { [x, y, z]: f32 }
+interface iPositioned {
+    x: f32,
+    [y, z]: f32,
+    fn length2(self): f32
+}
 
 requires iPositioned
 trait Movable {
@@ -62,8 +81,14 @@ trait Movable {
     }
 }
 
-// Any struct with x, y, z: f32 satisfies iPositioned automatically
-struct Enemy { [x, y, z]: f32, health: i32 }</code></pre>
+// Any struct with x, y, z: f32 and length2(self): f32 satisfies iPositioned
+struct Enemy {
+    [x, y, z]: f32,
+    health: i32,
+    fn length2(self): f32 { self.x * self.x + self.y * self.y + self.z * self.z }
+}
+
+fn distance2&lt;T: iPositioned&gt;(p: T): f32 { p.length2() }</code></pre>
 <h3 id="44-capabilities--built-in-reference">4.4 Capabilities — Built-in Reference</h3>
 <span id="43-capabilities" aria-hidden="true"></span>
 <p>Capabilities are special traits that feed the compiler more information, unlocking special rules and optimizations.</p>
@@ -110,6 +135,10 @@ struct Enemy { [x, y, z]: f32, health: i32 }</code></pre>
     <tr>
       <td><code>Share</code></td>
       <td>Required for <code>global: share</code> and crossing thread boundaries</td>
+    </tr>
+    <tr>
+      <td><code>Branch</code></td>
+      <td>Enables explicit <code>fork</code>/<code>merge</code> of a shared value to/from a thread</td>
     </tr>
     <tr>
       <td><code>Lent</code></td>
@@ -164,6 +193,11 @@ global counter: share Atomic&lt;i32&gt; = 0;
 // Without the Share capability, cross-thread access is a compile error
 struct LocalOnly { data: i32 }
 // global bad: share LocalOnly = ...;  -- COMPILE ERROR: lacks Share</code></pre>
+<h4 id="branch--thread-forkmerge"><code>Branch</code> — Thread Fork/Merge</h4>
+<p><code>Branch</code> is the capability behind explicit thread fork/merge. It is designed for types that can hand a <code>share</code> value to one thread and collect the result after the thread completes:</p>
+<pre><code class="language-zith">let handle = fork Worker(share state);
+let result = merge handle;</code></pre>
+<p>There is no <code>await</code>, future, or resumable task in this protocol. <code>merge</code> is blocking and consumes the handle once, restoring ownership of the shared value. See <a href="https://github.com/GalaxyHaze/Zith/blob/main/docs/plans/branch-protocol.md">the branch protocol plan</a> for the full design.</p>
 <h3 id="45-operator-overloading">4.5 Operator Overloading</h3>
 <p>Operator overloading is capability-based and strict — you implement only the operators you need:</p>
 <pre><code class="language-zith">implement Vec3 as Arithmetic {

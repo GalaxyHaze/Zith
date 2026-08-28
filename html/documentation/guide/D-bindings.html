@@ -1,8 +1,9 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="bindings">Bindings</h1>
-<p>Use <code>let</code> for an immutable binding and <code>var</code> when the binding will be reassigned. <code>const</code> and <code>global</code> are also part of the language, and all four forms work in the current compiler.</p>
+<p>Use <code>let</code> for an immutable binding and <code>var</code> when the binding will be reassigned. <code>const</code> is for an immutable global or local value in <code>Zith--</code>; <code>global</code> is not supported and reports an error suggesting <code>const</code>.</p>
 <pre><code class="language-zith">let answer: i32 = 42;
 var count: i32 = 0;
 count = count + 1;</code></pre>
-<p>Be aware that <code>const</code> currently means immutable, not compile-time evaluated. There is no comptime evaluation yet, so do not read <code>const</code> as a request to fold a value during compilation.</p>
+<p>Be aware that <code>const</code> currently means immutable, not compile-time evaluated. There is no comptime evaluation yet, so do not read <code>const</code> as a request to fold a value during compilation. A <code>const</code> initializer must be a constant expression: literals, aggregates of literals, <code>const</code> struct fields, and references to earlier <code>const</code> values. Function calls are not constant expressions.</p>
+<p>Parameters are immutable by default. <code>var p: T</code> makes a parameter mutable; <code>var self</code> allows in-place mutation of receiver fields.</p>
 <p>Destructuring and the full mutability model are specified in the <a href="./../reference/D-mutability-bindings.html">Bindings reference</a>.</p>

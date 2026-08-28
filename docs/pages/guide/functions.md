@@ -38,6 +38,6 @@ Because overloads share a source name, linkage names are qualified as `<module>.
 
 ## Function kinds
 
-`fn`, `flow fn`, `raw fn`, and `extern fn` parse and lower through HIR to code generation. `const fn` is still a parse error: `const` is a binding keyword, so `const fn f()` is read as a `const` binding named `fn` rather than a compile-time function.
+`fn`, `raw fn`, and `extern fn` parse and lower through HIR to code generation. `state` is a separate function kind for stackless state machines with `dock` and `jump`. `const fn` is rejected with `E2010`, and the old `flow fn` syntax is rejected; `const` is a binding keyword, not a function qualifier.
 
 See [Implementation Status](doc:reference-implementation-status) before relying on the other forms, and [Concurrency](doc:guide-concurrency) for the status of the legacy `async fn` spelling.

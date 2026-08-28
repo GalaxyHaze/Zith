@@ -1,6 +1,31 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Operators, and Where Ownership Belongs</title></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Operators, and Where Ownership Belongs</title>
+    <meta name="description" content="Zith's operator surface is complete and the ownership proof has a defined place in the pipeline.">
+    <meta name="author" content="GalaxyHaze">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://zith-lang.org/about/posts/2026-08-06-operators-and-ownership.html">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://zith-lang.org/about/posts/2026-08-06-operators-and-ownership.html">
+    <meta property="og:title" content="Operators, and Where Ownership Belongs">
+    <meta property="og:description" content="Zith's operator surface is complete and the ownership proof has a defined place in the pipeline.">
+    <meta property="og:site_name" content="Zith Programming Language">
+    <meta property="og:locale" content="en_US">
+    <meta property="article:published_time" content="2026-08-06">
+    <meta property="og:image" content="https://zith-lang.org/media/Logos/social-share.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:domain" content="zith-lang.org">
+    <meta name="twitter:url" content="https://zith-lang.org/about/posts/2026-08-06-operators-and-ownership.html">
+    <meta name="twitter:title" content="Operators, and Where Ownership Belongs">
+    <meta name="twitter:description" content="Zith's operator surface is complete and the ownership proof has a defined place in the pipeline.">
+    <meta name="twitter:image" content="https://zith-lang.org/media/Logos/social-share.png">
+</head>
 <body>
 
 <h2>Operators, and Where Ownership Belongs</h2>
@@ -8,39 +33,37 @@
 <hr>
 
 <p>
-    Two unrelated-looking pieces of work this week: finishing the operator surface, and deciding
-    where in the pipeline ownership proof runs. They are connected by the same lesson — a thing
-    that looks like a small local decision is usually a contract.
+    Two pieces of work this week that look unrelated: finishing the operator surface, and deciding
+    where in the pipeline ownership proof runs. They share a lesson — a thing that looks like a
+    small local decision is usually a contract.
 </p>
 
 <h3>The lexer bug I should have caught earlier</h3>
 <p>
-    The lexer munches multi-character operators longest-first. Every operator except one. The
+    The lexer munches multi-character operators longest-first. Every operator except one: the
     range operator <code>..</code> lexed per character and carried a precedence of -1, and
-    <code>&amp;&amp;</code> had inherited the same treatment: it lexed as two <code>&amp;</code>
+    <code>&amp;&amp;</code> had inherited the same treatment. It lexed as two <code>&amp;</code>
     tokens, and with precedence -1 the parser stopped after the left operand.
 </p>
 <p>
     So <code>if (a &amp;&amp; b)</code> compiled. It did not error. It compiled to
-    <code>if (a)</code> and silently threw away <code>b</code>. That is the worst class of bug I
+    <code>if (a)</code> and silently threw <code>b</code> away. That is the worst class of bug I
     have shipped in this compiler — not a crash, not a rejection, just a program that means
     something other than what it says.
 </p>
 <p>
-    <code>&amp;&amp;</code> and <code>||</code> are now lexed as single tokens for the sole
-    purpose of rejecting them, with a dedicated message pointing at <code>and</code> and
-    <code>or</code>, exactly one diagnostic and no cascade. Zith uses keywords for logical
-    operators, so the symbols were never going to mean anything; they just needed to say so out
-    loud.
+    <code>&amp;&amp;</code> and <code>||</code> are now lexed as single tokens for the sole purpose
+    of rejecting them, with a message pointing at <code>and</code> and <code>or</code> — exactly
+    one diagnostic, no cascade. Zith uses keywords for logical operators, so the symbols were never
+    going to mean anything. They just needed to say so out loud.
 </p>
 
 <h3>Bitwise, and the dot</h3>
 <p>
     With the keywords owning <code>and</code> / <code>or</code> / <code>xor</code>, the bitwise
     operators keep a trailing dot: <code>&amp;.</code>, <code>|.</code>, <code>^.</code>, plus
-    unary <code>~</code>. Both operands must be integers of the same width. They share the
-    underlying HIR ops with the keyword forms, which is fine — the distinction is in the type
-    rules, not the lowering.
+    unary <code>~</code>. Both operands must be integers of the same width. They share HIR ops with
+    the keyword forms, which is fine — the distinction lives in the type rules, not the lowering.
 </p>
 <pre><code class="language-zith">fn bits(a: i32, b: i32): i32 {
     let both: i32 = a &amp;. b;
@@ -52,39 +75,40 @@
 <p>
     <code>+=</code> and its nine siblings are pure parser desugaring: <code>a += b</code> becomes
     <code>Assign(Binary(a, b))</code> before sema ever sees it. No new expression kind, no new HIR
-    node, no new case in codegen. The payoff is that compound assignment automatically inherits
-    everything <code>=</code> already does — coercion rules, yielding a value, and the
-    <code>view</code> write check. If I had given it its own node I would have had to remember to
-    re-implement each of those, and I would have forgotten one.
+    node, no new case in codegen.
+</p>
+<p>
+    The payoff is that compound assignment inherits everything <code>=</code> already does —
+    coercion rules, yielding a value, the <code>view</code> write check. Give it its own node and I
+    would have had to re-implement each of those by hand, and I would have forgotten one.
 </p>
 <p>
     <code>raw opaque</code> landed alongside it. It is a real type now rather than an alias for
-    <code>*void</code> (which is rejected outright), and it casts to and from any <code>*T</code>
-    with <code>as</code>. That is what you need to hold a pointer whose pointee you do not want to
-    name, and it keeps the honest untyped case visibly distinct from a typed pointer.
+    <code>*void</code>, which is rejected outright, and it casts to and from any <code>*T</code>
+    with <code>as</code>. That is what you need to hold a pointer whose pointee you would rather
+    not name, and it keeps the honest untyped case visibly distinct from a typed pointer.
 </p>
 
 <h3>Where ownership belongs</h3>
 <p>
-    Now the part that took the actual thinking. NRA — the ownership analysis the memory model is
-    built on — needs to prove things about resources: what is alive, what has moved, what is
-    merely lent. All of that is information the frontend knows and lowering throws away. HIR is
-    deliberately small; it does not have qualifiers, it does not distinguish a <code>lend</code>
-    from a value, and that is the right design for a lowering IR.
+    Now the part that took actual thinking. NRA — the ownership analysis the memory model is built
+    on — has to prove things about resources: what is alive, what has moved, what is merely lent.
+    All of that is information the frontend knows and lowering throws away. HIR is deliberately
+    small. It has no qualifiers and does not distinguish a <code>lend</code> from a value, and that
+    is the right design for a lowering IR.
 </p>
 <p>
-    Which means the proof cannot run after lowering. If you erase the facts and then try to
-    reconstruct them from the IR, you are writing a worse analysis on worse input, and you will
-    be wrong in exactly the cases that matter. The order has to be
-    <code>sema -&gt; comptime/solve -&gt; NTA/NRA -&gt; HIR</code>, with ownership proved on a
-    representation that still knows what a resource is.
+    Which means the proof cannot run after lowering. Erase the facts and then reconstruct them
+    from the IR and you are writing a worse analysis on worse input — wrong in exactly the cases
+    that matter. The order has to be <code>sema -&gt; comptime/solve -&gt; NTA/NRA -&gt; HIR</code>,
+    with ownership proved on a representation that still knows what a resource is.
 </p>
 <p>
-    So that boundary is what I built, before building the analysis itself. Semantic facts are
-    accumulated during sema and consumed before final lowering, and residual facts attach to side
-    tables rather than adding ownership nodes to HIR. The IR stays clean; the analysis gets its
-    inputs. Getting this right first is the difference between an ownership pass and an ownership
-    pass I have to rewrite.
+    So I built that boundary before building the analysis. Semantic facts accumulate during sema
+    and are consumed before final lowering, and residual facts attach to side tables rather than
+    adding ownership nodes to HIR. The IR stays clean, the analysis gets its inputs, and the
+    difference between doing this first and doing it later is an ownership pass versus an
+    ownership pass I have to rewrite.
 </p>
 <p>
     The qualifiers themselves — <code>mut</code>, <code>lend</code>, <code>view</code>,
@@ -98,17 +122,17 @@
 <p>
     That reports <code>E4004</code>: a <code>view</code> binding is read-only, take
     <code>lend</code> to mutate it. One rule out of a state machine's worth is not much, but it is
-    the first ownership error the compiler has ever emitted, and it comes out of the real
-    mechanism rather than a special case.
+    the first ownership error the compiler has ever emitted, and it comes out of the real mechanism
+    rather than a special case.
 </p>
 
 <h3>What NRA still owes</h3>
 <p>
     The alive/dead/lent state machine is unwritten. <code>E4001</code> use-after-move,
-    <code>E4002</code> borrow conflict, and <code>E4003</code> double borrow have codes and no
-    implementation behind them. Some paths still lower before the full proof runs, which is the
-    remaining half of the boundary work. I am keeping all of that visible in
-    <code>docs/impl-status.md</code> rather than letting the spec imply it works.
+    <code>E4002</code> borrow conflict and <code>E4003</code> double borrow have codes and nothing
+    behind them. Some paths still lower before the full proof runs, which is the remaining half of
+    the boundary work. All of it stays visible in <code>docs/impl-status.md</code> rather than
+    letting the spec imply it works.
 </p>
 
 <hr>

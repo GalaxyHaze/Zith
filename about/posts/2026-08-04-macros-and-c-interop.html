@@ -1,6 +1,31 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Macros Actually Expand Now</title></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Macros Actually Expand Now</title>
+    <meta name="description" content="Normal, raw, and tag macros now expand through Zith's modern pipeline and lower to HIR.">
+    <meta name="author" content="GalaxyHaze">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://zith-lang.org/about/posts/2026-08-04-macros-and-c-interop.html">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://zith-lang.org/about/posts/2026-08-04-macros-and-c-interop.html">
+    <meta property="og:title" content="Macros Actually Expand Now">
+    <meta property="og:description" content="Normal, raw, and tag macros now expand through Zith's modern pipeline and lower to HIR.">
+    <meta property="og:site_name" content="Zith Programming Language">
+    <meta property="og:locale" content="en_US">
+    <meta property="article:published_time" content="2026-08-04">
+    <meta property="og:image" content="https://zith-lang.org/media/Logos/social-share.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:domain" content="zith-lang.org">
+    <meta name="twitter:url" content="https://zith-lang.org/about/posts/2026-08-04-macros-and-c-interop.html">
+    <meta name="twitter:title" content="Macros Actually Expand Now">
+    <meta name="twitter:description" content="Normal, raw, and tag macros now expand through Zith's modern pipeline and lower to HIR.">
+    <meta name="twitter:image" content="https://zith-lang.org/media/Logos/social-share.png">
+</head>
 <body>
 
 <h2>Macros Actually Expand Now</h2>
@@ -8,24 +33,24 @@
 <hr>
 
 <p>
-    For most of Zith's life <code>@</code> in expression position was a parse error, which meant
-    macros were a chapter in the spec and nothing else. That is over. Normal macros, raw macros,
-    and tag macros all expand through the modern pipeline and lower to HIR.
+    For most of Zith's life, <code>@</code> in expression position was a parse error. Macros were
+    a chapter in the spec and nothing else. Now normal macros, raw macros and tag macros all
+    expand through the modern pipeline and lower to HIR.
 </p>
 
 <h3>Resolution by node id</h3>
 <p>
-    The first version I wrote matched template names against the call site by comparing source
-    spans. It worked on the test I wrote it for and fell apart on everything else — a template
-    used twice produced two expansions whose spans pointed at the same original text, so the
-    second expansion happily resolved to the first one's bindings.
+    My first version matched template names against the call site by comparing source spans. It
+    worked on the one test I wrote it for and fell apart on everything else: a template used twice
+    produced two expansions whose spans pointed at the same original text, so the second expansion
+    happily resolved to the first one's bindings.
 </p>
 <p>
-    The fix was to stop thinking about text. Each expansion produces fresh nodes with fresh ids,
-    and resolution is keyed by node id, not by where the characters came from. Once that was
-    true, hygiene became a rename pass rather than a scoping trick: a binding introduced by the
-    template gets a new name, every other identifier is looked up in the call-site scope with the
-    module and globals as fallback.
+    The fix was to stop thinking about text at all. Each expansion produces fresh nodes with fresh
+    ids, and resolution is keyed by node id rather than by where the characters came from. Once
+    that held, hygiene stopped being a scoping trick and became a rename pass — a binding
+    introduced by the template gets a new name, and every other identifier is looked up in the
+    call-site scope with the module and globals as fallback.
 </p>
 <pre><code class="language-zith">macro twice(v: expr) {
     v + v
@@ -37,15 +62,15 @@ fn use_macro(v: i32): i32 {
 
 <p>
     The other thing I had to get right is that a template body is <em>not</em> code. It is not
-    name-resolved, not type-checked, and not lowered until it has been expanded at a call site.
+    name-resolved, not type-checked and not lowered until it has been expanded at a call site.
     Analysing it early is tempting — you would catch typos sooner — but it is wrong: the meaning
     of <code>v</code> does not exist until somebody passes something.
 </p>
 <p>
-    <code>raw macro</code> is the deliberate escape hatch. It splices literally into the call
-    site, names resolve there first, and it can touch the caller's bindings. That is unhygienic
-    by construction and that is the point; it just has to be spelled differently so nobody gets
-    it by accident.
+    <code>raw macro</code> is the deliberate escape hatch. It splices literally into the call site,
+    names resolve there first, and it can touch the caller's bindings. That is unhygienic by
+    construction and that is the point; it just has to be spelled differently so nobody gets it by
+    accident.
 </p>
 
 <h3>Tag macros</h3>
@@ -67,7 +92,7 @@ fn main(): i32 {
     total
 }</code></pre>
 <p>
-    They are statement-position only, and misuse has its own diagnostics rather than falling
+    They only work in statement position, and misuse gets its own diagnostics instead of falling
     through to a generic parse error: <code>E2017</code> when a tag macro is used as a value,
     <code>E2018</code> for a mismatched closing tag, <code>E2019</code> for an unknown attribute,
     <code>E2020</code> when a macro that takes no attributes is given some.
@@ -75,12 +100,13 @@ fn main(): i32 {
 
 <h3>The C importer met the real world</h3>
 <p>
-    In parallel the libclang-based header importer stopped being a demo. Variadic functions,
-    array-decayed parameters, <code>va_list</code>, and function-pointer parameters all import
-    now, and — more important than any single feature — a declaration the importer cannot
-    represent is skipped on its own and recorded, instead of failing the header. Real headers
-    contain things I have no plan for; refusing all of <code>stdio.h</code> over one of them was
-    absurd.
+    In parallel, the libclang-based header importer stopped being a demo. Variadic functions,
+    array-decayed parameters, <code>va_list</code> and function-pointer parameters all import now.
+</p>
+<p>
+    More important than any single feature: a declaration the importer cannot represent is skipped
+    on its own and recorded, instead of failing the whole header. Real headers contain things I
+    have no plan for, and refusing all of <code>stdio.h</code> over one of them was absurd.
 </p>
 <pre><code class="language-zith">import "stdio.h";
 
@@ -89,17 +115,19 @@ fn main(): i32 {
     0
 }</code></pre>
 <p>
-    That prints <code>v=42</code>. Getting there took an embarrassing detour: it printed nothing.
-    The compiler was fine and the binary was fine — <code>zithc run</code> was the bug. It
-    captured the child process's output and then tore the capture down before flushing it, so the
-    program's stdout went into a buffer nobody ever read. Now the child's output is forwarded to
-    zithc's own stdout while diagnostics stay on stderr, which is also the behaviour you want if
-    you are piping a program's output anywhere.
+    That prints <code>v=42</code>. Getting there took an embarrassing detour, because at first it
+    printed nothing at all. The compiler was fine and the binary was fine —
+    <code>zithc run</code> was the bug. It captured the child process's output and tore the
+    capture down before flushing it, so the program's stdout went into a buffer nobody ever read.
+</p>
+<p>
+    Now the child's output is forwarded to zithc's own stdout while diagnostics stay on stderr,
+    which is also what you want the moment you pipe a program's output anywhere.
 </p>
 
 <h3>What I am not pretending</h3>
 <p>
-    Macros are not comptime. There is still no compile-time evaluation, no <code>const fn</code>,
+    Macros are not comptime. There is still no compile-time evaluation, no <code>const fn</code>
     and no reflection — <code>@appendField</code> and friends remain spec text. Preprocessor
     macros, globals, bitfields, packed records and flexible arrays do not import, and
     struct-by-value across the C ABI is unverified, so I do not claim it.

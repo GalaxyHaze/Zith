@@ -31,16 +31,19 @@
   <li>Prefer to apply context per block for the same reason.</li>
 </ul>
 <h3 id="216-rule-of-three">21.6 Rule of Three</h3>
-<p>If a function needs more than three specialized tools (markers, words, contexts, macros, comptime, inline error handling), something went wrong. Split the function or reconsider your abstraction.</p>
-<pre><code>// Good — two tools: marker + word
-flow fn process() {
-    dock init { ... }
+<p>If a function needs more than three specialized tools (state machines, words, contexts, macros, comptime, inline error handling), something went wrong. Split the function or reconsider your abstraction.</p>
+<pre><code>// Good — two tools: state machine + word
+state Init() {
+    jump Ready();
+}
+fn process() {
+    dock Init();
     step1 -&gt; step2
 }
 
 // Warning sign — four tools in one function
-flow fn process() {
-    dock init { ... }          // marker
+fn process() {
+    dock spinning();           // state machine
     use Math;                  // context
     use assert AS CHECK;       // word
     risky()!                   // inline error handling

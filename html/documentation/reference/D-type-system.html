@@ -1,6 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="3-type-system">3. Type System</h1>
-<blockquote><p><strong>Implementation status:</strong> Primitive types, structs, enums, unions, <code>?T</code>, <code>T!</code>, <code>[N]T</code>, <code>[]T</code>, pointers, type aliases, <code>implement</code>, and generics (<code>&lt;T&gt;</code>) are all <strong>working</strong>. <code>as</code> casting is <strong>working</strong> for numeric conversions only, and is required: there are no implicit conversions between numeric types (a numeric <em>literal</em> still adapts to its annotated type). Pointers are non-nullable — <code>null</code> requires <code>?<em>T</code> — and <code></em>void</code> is rejected in favour of <code>raw opaque</code>. <code>is</code> is limited to <code>(val is null)</code> on an optional; union narrowing, <code>when</code> pattern matching, <code>dyn Trait</code>, and NRA ownership modifiers (<code>lend</code>, <code>view</code>, etc.) are <strong>spec-only</strong>. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> Primitive types, structs, enums, unions, <code>?T</code>, <code>T!</code>, <code>[N]T</code>, <code>[]T</code>, pointers, type aliases, <code>implement</code>, and generics (<code>&lt;T&gt;</code>) are all <strong>working</strong>. <code>as</code> casting is <strong>working</strong> for numeric conversions only, and is required: there are no implicit conversions between numeric types (a numeric <em>literal</em> still adapts to its annotated type). Pointers are non-nullable — <code>null</code> requires <code>?<em>T</code> — and <code></em>void</code> is rejected in favour of <code>raw opaque</code>. <code>is</code> is limited to <code>(val is null)</code> on an optional; union narrowing, <code>when</code> pattern matching, and NRA ownership modifiers (<code>lend</code>, <code>view</code>, etc.) are <strong>spec-only</strong>. <code>dyn Trait</code>/<code>dyn Interface</code> dispatch is <strong>working</strong> for methods in Zith--. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="31-primitive-types">3.1 Primitive Types</h3>
 <table>
   <thead>
@@ -125,6 +125,29 @@ implement Node&lt;T&gt; as Printable {
 
 // Specific implementation for a concrete type
 implement Node&lt;f32&gt; { ... }</code></pre>
+<p>Primitives, <code>?T</code>, and <code>[]T</code> can also be the owner of an <code>implement</code> block. Methods on these owners use the same implicit <code>self</code> receiver and can be called with the normal <code>.method()</code> syntax:</p>
+<pre><code class="language-zith">trait Numeric {
+    fn double(self): i32;
+}
+
+implement i32 as Numeric {
+    fn double(self): i32 { return self * 2 }
+}
+
+trait Present {
+    fn present(self): bool { return self is null; }
+}
+
+implement ?char as Present {}
+
+trait ByteLen {
+    fn len(self): i32;
+}
+
+implement []u8 as ByteLen {
+    fn len(self): i32 { return 4 }
+}</code></pre>
+<p><code>implement</code> owners are limited to primitives, <code>?T</code>, <code>[]T</code>, and named types in this iteration. Pointer and fixed-array owners (<code>*T</code>, <code>[N]T</code>) are rejected.</p>
 <p>Components define method bodies inline — they cannot use <code>implement</code>:</p>
 <pre><code class="language-zith">component Vec2 {
     [x, y]: f32,

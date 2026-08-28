@@ -117,6 +117,11 @@
               "children": []
             },
             {
+              "title": "Zith--",
+              "link": "./reference/D-zith-subset.html",
+              "children": []
+            },
+            {
               "title": "Module System",
               "link": "./reference/D-module-system.html",
               "children": []
@@ -364,6 +369,7 @@
     "./spec/D-standard-library.html": "./reference/D-standard-library.html",
     "./spec/D-traits-interfaces.html": "./reference/D-traits-interfaces.html",
     "./spec/D-type-system.html": "./reference/D-type-system.html",
-    "./spec/D-words.html": "./reference/D-words.html"
+    "./spec/D-words.html": "./reference/D-words.html",
+    "./spec/D-zith-subset.html": "./reference/D-zith-subset.html"
   }
 }

@@ -19,6 +19,6 @@ fn halve(value: ?i32): ?i32 {
 
 The recovery vocabulary around those types is not implemented. `fail`, `with`, `catch`, `must`, and `throw` remain specification-only. Keep examples to optionals and explicit branching until error values land.
 
-`as` is a real cast that lowers to an LLVM conversion, covering numeric pairs and `raw opaque` <-> `*T`; other conversions are rejected and there is no narrowing overflow check. `is` supports only `is null`, which requires an optional operand; any other operand reports a dedicated diagnostic. Flow-sensitive narrowing after an `is null` check does not exist yet, so `E3005` is reported where non-null proof is required.
+`as` is a real cast that lowers to an LLVM conversion, covering numeric pairs and `raw opaque` <-> `*T`; other conversions are rejected and there is no narrowing overflow check. `is null` requires an optional operand, and `is Type` is implemented for tagged-union members and `opaque`. Flow-sensitive narrowing after an `is null` check on `?*T` does not exist yet, so `E3005` is reported where non-null pointer proof is required.
 
 The planned rules are in the [Error Handling reference](doc:reference-08-error-handling); the current boundary is in [Implementation Status](doc:reference-implementation-status).

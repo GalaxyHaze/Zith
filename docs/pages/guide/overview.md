@@ -8,11 +8,11 @@ kind: editorial
 ---
 # Language Guide
 
-This guide is the practical entry point to Zith. It stays deliberately short and links to the reference for formal rules.
+This guide is the practical entry point to Zith. The `main` compiler builds the `Zith--` subset documented in the [Zith-- reference](doc:reference-zith-subset); Zith-spec remains the larger specification ahead of implementation.
 
 ## Start with working features
 
-Read [Syntax](doc:guide-syntax), [Bindings](doc:guide-bindings), [Types](doc:guide-types), [Functions](doc:guide-functions), and [Control Flow](doc:guide-control-flow) first. These topics cover working compiler functionality.
+Read [Syntax](doc:guide-syntax), [Bindings](doc:guide-bindings), [Types](doc:guide-types), [Functions](doc:guide-functions), and [Control Flow](doc:guide-control-flow) first. These topics cover working `Zith--` functionality.
 
 ## Check experimental features
 

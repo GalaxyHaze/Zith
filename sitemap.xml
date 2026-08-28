@@ -6,7 +6,27 @@
         <priority>1.0</priority>
     </url>
     <url>
+        <loc>https://zith-lang.org/html/home.html</loc>
+        <priority>0.9</priority>
+    </url>
+    <url>
         <loc>https://zith-lang.org/helios/</loc>
         <priority>0.8</priority>
+    </url>
+    <url>
+        <loc>https://zith-lang.org/playground/</loc>
+        <priority>0.7</priority>
+    </url>
+    <url>
+        <loc>https://zith-lang.org/html/documentation/D-home.html</loc>
+        <priority>0.9</priority>
+    </url>
+    <url>
+        <loc>https://zith-lang.org/about/</loc>
+        <priority>0.6</priority>
+    </url>
+    <url>
+        <loc>https://zith-lang.org/changelog.html</loc>
+        <priority>0.6</priority>
     </url>
 </urlset>

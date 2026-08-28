@@ -1,6 +1,31 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Introducing zasm — ZIR Assembler</title></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Introducing zasm &mdash; ZIR Assembler</title>
+    <meta name="description" content="Introducing zasm, the standalone ZIR assembler and interpreter for Zith.">
+    <meta name="author" content="GalaxyHaze">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://zith-lang.org/about/posts/2026-06-24-introducing-zasm.html">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://zith-lang.org/about/posts/2026-06-24-introducing-zasm.html">
+    <meta property="og:title" content="Introducing zasm &mdash; ZIR Assembler">
+    <meta property="og:description" content="Introducing zasm, the standalone ZIR assembler and interpreter for Zith.">
+    <meta property="og:site_name" content="Zith Programming Language">
+    <meta property="og:locale" content="en_US">
+    <meta property="article:published_time" content="2026-06-24">
+    <meta property="og:image" content="https://zith-lang.org/media/Logos/social-share.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:domain" content="zith-lang.org">
+    <meta name="twitter:url" content="https://zith-lang.org/about/posts/2026-06-24-introducing-zasm.html">
+    <meta name="twitter:title" content="Introducing zasm &mdash; ZIR Assembler">
+    <meta name="twitter:description" content="Introducing zasm, the standalone ZIR assembler and interpreter for Zith.">
+    <meta name="twitter:image" content="https://zith-lang.org/media/Logos/social-share.png">
+</head>
 <body>
 
 <h2>Introducing zasm — ZIR Assembler</h2>
@@ -8,34 +33,22 @@
 <hr>
 
 <p>
-    I started working on <strong>zasm</strong> — a standalone assembler for ZIR (Zith Intermediate
-    Representation). It's still WIP, but already usable for small programs.
+    <strong>zasm</strong> is a standalone assembler for ZIR, the Zith Intermediate Representation.
+    It takes <code>.zas</code> files, assembles them to ZIR bytecode and runs them through a
+    built-in interpreter. Since ZIR is the same IR <code>zithc</code> targets, that gives a direct
+    path from assembly to execution without dragging the whole compiler along.
+</p>
+<p>
+    It is still WIP, but small programs work today.
 </p>
 
-<h3>What it does</h3>
-<p>
-    zasm takes <code>.zas</code> files and assembles them to ZIR bytecode, then runs them
-    through a built-in interpreter. ZIR is the same IR that <code>zithc</code> targets, so zasm
-    gives a direct path from assembly to execution without going through the full compiler
-    pipeline.
-</p>
-
-<h3>Current state</h3>
-<p>
-    Supported features:
-</p>
+<h3>What's in it</h3>
 <ul>
-    <li>Base arithmetic — add, sub, mul, div, rem (both int and float)</li>
-    <li>External C function calls via <code>callext</code> (FFI)</li>
-    <li>Branching — <code>br</code>, conditional branches (<code>bz</code>, <code>bnz</code>, <code>bgt</code>, <code>ble</code>, etc.)</li>
-    <li>Internal function calls with <code>call</code> — supports recursion (factorial, fibonacci)</li>
-    <li>Memory ops — load/store, push/pop, alloca, stm (store multiple registers)</li>
-    <li>Float support — fadd/fsub/fmul/fdiv, fld/fst, type conversion (ftoi, itof, etc.)</li>
-    <li>Constants via <code>.const</code> — integers, floats, strings, typed data</li>
-    <li><code>.extern</code> for declaring external C functions</li>
-    <li>Macros with <code>#define</code> for textual substitution</li>
-    <li>Scoped labels in <code>{ }</code> blocks — local to the enclosing function</li>
-    <li>Forward references — both for branches and function calls</li>
+    <li><strong>Arithmetic and floats</strong> — add, sub, mul, div, rem for integers, fadd/fsub/fmul/fdiv plus fld/fst for floats, and conversions in both directions (ftoi, itof)</li>
+    <li><strong>Control flow and calls</strong> — <code>br</code> and the conditional branches (<code>bz</code>, <code>bnz</code>, <code>bgt</code>, <code>ble</code>), <code>call</code> with working recursion, and <code>callext</code> for external C functions</li>
+    <li><strong>Memory</strong> — load/store, push/pop, alloca, and <code>stm</code> for storing multiple registers at once</li>
+    <li><strong>Directives</strong> — <code>.const</code> for integers, floats, strings and typed data, <code>.extern</code> for external C declarations, and <code>#define</code> for textual macros</li>
+    <li><strong>Names</strong> — labels scoped to the enclosing function inside <code>{ }</code> blocks, and forward references for both branches and calls</li>
 </ul>
 
 <p>Some examples. Arithmetic:</p>
@@ -46,7 +59,7 @@
     add     ret, a0, zero
     ret</code></pre>
 
-<p>Recursive factorial:</p>
+<p>Recursive factorial — note the scoped block, which keeps <code>base_case</code> from leaking:</p>
 <pre><code class="language-zasm">main:
     li      a0, 5
     call    fact, 1
@@ -71,7 +84,7 @@ base_case:
     pop     t0
     ret</code></pre>
 
-<p>Calling libc's <code>write</code> via FFI:</p>
+<p>And calling libc's <code>write</code> through FFI, where the argument block is built by hand:</p>
 <pre><code class="language-zasm">.const msg .asciz "hello from write\n"
 
 main: (i32, *char, i64) > i64 {
@@ -86,23 +99,23 @@ main: (i32, *char, i64) > i64 {
     ret
 }</code></pre>
 
-<h3>How it fits</h3>
+<h3>Why it exists</h3>
 <p>
-    The assembler compiles to ZIR, which is also the target of zithc. This means small
-    programs can mix both — write performance-critical hot paths in zasm and the rest in
-    Zith, both reaching the same bytecode format.
+    Because zasm and zithc reach the same bytecode format, a program can mix them — hot paths
+    written directly in zasm, the rest in Zith. It also gives me a way to poke at ZIR without
+    going through the frontend, which is worth a lot when the frontend is the thing I am debugging.
 </p>
 <p>
-    Repository is part of the main Zith repo at <code>lib/zasm/</code>. Build with
-    <code>cmake -B build && cmake --build build</code>. More examples in
+    It lives in the main repo under <code>lib/zasm/</code>. Build with
+    <code>cmake -B build &amp;&amp; cmake --build build</code>; more examples are in
     <code>lib/zasm/examples/</code>.
 </p>
 
 <h3>What's next</h3>
 <p>
-    I want to make the syntax cleaner — looking at ways to reduce boilerplate for common
-    patterns. The namespace rules for labels vs functions are solid but still need better
-    error messages. ZIR emission is done; LLVM IR lowering from ZIR is the next big piece.
+    The syntax is noisier than it needs to be, especially around FFI argument setup, and I want to
+    cut the boilerplate. The namespace rules for labels versus functions are correct but their
+    error messages are not. ZIR emission is done; lowering ZIR to LLVM IR is the next real piece.
 </p>
 
 <hr>

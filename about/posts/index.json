@@ -21,27 +21,27 @@
   },
   {
     "file": "2026-06-23-extension-and-ide.html",
-    "title": "Editor Tooling — VS Code Extension &amp; Zith IDE",
+    "title": "Two Editors, One Language Server",
     "date": "2026-06-23"
   },
   {
     "file": "2026-06-22-zith-lsp-progress.html",
-    "title": "zith-lsp Progress — Hover, Position, Diagnostics",
+    "title": "The Editor Starts Answering Back",
     "date": "2026-06-22"
   },
   {
     "file": "2026-06-21-zithc-improvements.html",
-    "title": "zithc Improvements — Formatter, CAPI, Cross-Platform",
+    "title": "Formatting, a C ABI, and Three Operating Systems",
     "date": "2026-06-21"
   },
   {
     "file": "2026-06-19-workflow-ai.html",
-    "title": "Working on Workflow-AI",
+    "title": "A Detour Through Workflow-AI",
     "date": "2026-06-19"
   },
   {
     "file": "2026-06-19-next-plans.html",
-    "title": "Next Plans for Zith",
+    "title": "What Comes Next",
     "date": "2026-06-19"
   },
   {

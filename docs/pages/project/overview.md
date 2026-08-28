@@ -12,7 +12,7 @@ Zith is developed alongside its compiler and specification. The language remains
 
 ## Contributing to documentation
 
-Edit the Markdown files under `docs/pages` for editorial pages. The Language Reference is imported from `../Zith/docs`; update that checkout for specification and implementation-status changes.
+Edit the Markdown files under `docs/pages` for editorial pages. The Language Reference is imported from `../Zith/docs`, including `Zith-spec.md`, `Zith--.md`, and `impl-status.md`; update that checkout for specification and implementation-status changes.
 
 ```bash
 make docs

@@ -1,54 +1,73 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>zith-lsp Progress — Hover, Position, Diagnostics</title></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Editor Starts Answering Back</title>
+    <meta name="description" content="Progress report on the Zith language server: diagnostics, completion, and editor integration.">
+    <meta name="author" content="GalaxyHaze">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://zith-lang.org/about/posts/2026-06-22-zith-lsp-progress.html">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://zith-lang.org/about/posts/2026-06-22-zith-lsp-progress.html">
+    <meta property="og:title" content="The Editor Starts Answering Back">
+    <meta property="og:description" content="Progress report on the Zith language server: diagnostics, completion, and editor integration.">
+    <meta property="og:site_name" content="Zith Programming Language">
+    <meta property="og:locale" content="en_US">
+    <meta property="article:published_time" content="2026-06-22">
+    <meta property="og:image" content="https://zith-lang.org/media/Logos/social-share.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:domain" content="zith-lang.org">
+    <meta name="twitter:url" content="https://zith-lang.org/about/posts/2026-06-22-zith-lsp-progress.html">
+    <meta name="twitter:title" content="The Editor Starts Answering Back">
+    <meta name="twitter:description" content="Progress report on the Zith language server: diagnostics, completion, and editor integration.">
+    <meta name="twitter:image" content="https://zith-lang.org/media/Logos/social-share.png">
+</head>
 <body>
 
-<h2>zith-lsp Progress — Hover, Position, Diagnostics</h2>
+<h2>The Editor Starts Answering Back</h2>
 <p class="post-date">2026-06-22</p>
 <hr>
 <p>
-    The <strong>zith-lsp</strong> server has been the focus this week, and it's finally taking
-    shape. Most of the groundwork lives in the CAPI layer of zithc itself — the LSP binary is
-    a thin wrapper that talks to zithcLib over a C ABI.
+    <strong>zith-lsp</strong> is finally doing something. The binary itself is thin — almost all
+    the intelligence lives in the CAPI layer I wrote up yesterday, and the server is a wrapper
+    that speaks LSP on one side and the C ABI on the other. That split was deliberate and it is
+    paying off: every capability below came from work already done in the compiler.
 </p>
 
-<h3>What's Working Now</h3>
-
-<p><strong>Hover.</strong>
-    <code>zithc_hover()</code> takes a session and a byte offset, finds the identifier at that
-    position, and returns a markdown-formatted function signature. This means an editor can show
-    type information on mouseover without re-parsing the source.
-</p>
-
-<p><strong>Position conversion.</strong>
-    The <code>zithc_offset_to_position()</code> function converts byte offsets to 0-based
-    line/column pairs — essential for LSP protocol compatibility.
-</p>
-
-<p><strong>Diagnostics with intelligence.</strong>
-    The heuristic engine has been integrated into the LSP path. When you have an undefined
-    identifier, the compiler not only reports the error but suggests the closest match via
-    Levenshtein distance. For ambiguous calls or no-matching-function errors, it lists all
-    candidate signatures so you can see what went wrong.
-</p>
-
-<p><strong>Cross-file support.</strong>
-    The <code>merge_sym()</code> function now preserves declaration IDs, spans, kinds, targets,
-    and documentation spans across import boundaries. This is the data foundation for
-    go-to-definition and find-references — the LSP just needs to be wired through.
-</p>
-
-<h3>Build System</h3>
+<h3>What works</h3>
 <p>
-    The LSP builds alongside the compiler in CI. The macOS build produces a universal binary
-    (x86_64 + ARM64), and the Windows build works with both MSVC and clang-cl. The CI caches
-    have been cleaned up to avoid the corruption issues we were seeing before.
+    <strong>Hover.</strong> Point at an identifier and the editor shows its type, rendered as a
+    markdown function signature, without re-parsing the file.
+</p>
+<p>
+    <strong>Diagnostics that guess.</strong> The heuristic engine is on the LSP path now. An
+    undefined identifier does not just get reported — the closest match by Levenshtein distance
+    comes with it. For ambiguous calls and no-matching-function errors you get every candidate
+    signature listed, which is usually enough to see what went wrong without opening the
+    definition.
+</p>
+<p>
+    <strong>Cross-file symbols.</strong> Declaration IDs, spans, kinds, targets and documentation
+    spans now survive an import boundary. Nothing user-visible depends on that yet; it is the data
+    foundation that go-to-definition and find-references will sit on.
 </p>
 
-<h3>What's Next</h3>
+<h3>Build</h3>
 <p>
-    Completions and go-to-definition are the next targets. The symbol table and cross-file
-    merging infrastructure is ready — it's a matter of wiring the LSP protocol messages.
+    The LSP builds alongside the compiler in CI. macOS produces a universal binary, Windows works
+    under both MSVC and clang-cl, and the CI caches have been cleaned out to stop the corruption
+    we kept hitting.
+</p>
+
+<h3>Next</h3>
+<p>
+    Completions and go-to-definition. The symbol table and the cross-file merging are ready — what
+    is left is wiring the protocol messages, which is the least interesting half and the half that
+    makes it real.
 </p>
 
 <hr>

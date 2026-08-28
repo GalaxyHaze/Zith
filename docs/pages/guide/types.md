@@ -49,7 +49,7 @@ Pointers imported from C headers arrive as `?*T` and are checked with `is null`.
 
 ## Memory qualifiers
 
-The qualifiers `mut`, `lend`, `view`, `unique`, `share`, and `belong` are accepted anywhere a type is written and are carried in the type table. They are enforced at the type level today rather than by a full ownership analysis, but one rule already bites: writing through a `view` binding reports `E4004`.
+The subset enforces `lend` and `view`. They lower to pointer parameters and need explicit `lend x`/`view x` call annotations for `default` bindings; writing through `view` reports `E4004`. `mut`, `unique`, `share`, and `belong` are rejected with `E2010`.
 
 ```zith
 fn peek(value: view i32): i32 {
@@ -57,6 +57,10 @@ fn peek(value: view i32): i32 {
 }
 ```
 
-Layout builtins work in expression position: `@sizeOf(T)` types as `u64` for any complete type, and `@offsetOf(S, field)` and `@alignOf(S)` are struct-only and type as `i32`. `dyn Trait` is still a parse error.
+Layout builtins work in expression position: `@sizeOf(T)` types as `u64` for any complete type, and `@offsetOf(S, field)` and `@alignOf(S)` are struct-only and type as `i32`.
+
+## Dynamic dispatch
+
+`dyn Trait` and `dyn Interface` are implemented for method dispatch. A concrete value coerces to a fat pointer with a per-type vtable, and method calls through the value dispatch dynamically. Interface fields are used for conformance and are still readable on concrete types or generic bounds, but not through a `dyn Interface` value.
 
 Start with explicit annotations when learning. The [Type System reference](doc:reference-03-type-system) defines generic types, unions, and the experimental narrowing rules; [Implementation Status](doc:reference-implementation-status) records what compiles today.

@@ -1,6 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="contexts-words--macros">Contexts, Words &amp; Macros</h1>
-<p>Macros work. Contexts and words do not yet.</p>
+<p>Normal and <code>raw macro</code> work. Tag macros parse, but are rejected in the <code>Zith--</code> pipeline. Contexts and words do not yet.</p>
 <h2 id="macros">Macros</h2>
 <p>Declare a macro with <code>macro name(param: meta_type) { body }</code> and call it with the <code>@</code> prefix. Parameter meta-types are <code>identifier</code>, <code>expr</code>, <code>condition</code>, <code>block</code>, and <code>body</code>.</p>
 <pre><code class="language-zith">macro twice(v: expr) {
@@ -13,7 +13,7 @@ fn use_macro(v: i32): i32 {
 <p>A normal macro is hygienic: bindings introduced by the template are renamed, so they cannot capture or be captured by names at the call site. Every other name in the template resolves through the call-site scope, with globals and imports visible when they are not shadowed. A macro body is not analysed as code before expansion; resolution is keyed by node identity, not by source text.</p>
 <p><code>raw macro</code> opts out of hygiene. Its body splices literally into the call site, and names resolve there first and only then fall back to the module and global scope. Use it when the macro is meant to touch the caller's bindings.</p>
 <h2 id="tag-macros">Tag macros</h2>
-<p>A <code>tag macro</code> is invoked with an HTML-like statement form. It takes a <code>body</code> parameter and, optionally, the special <code>attributes</code> parameter, which exposes named attributes as <code>attributes.name</code>.</p>
+<p>A <code>tag macro</code> is invoked with an HTML-like statement form. It takes a <code>body</code> parameter and, optionally, the special <code>attributes</code> parameter, which exposes named attributes as <code>attributes.name</code>. The declaration itself is reported with <code>E2010</code> in <code>Zith--</code>, so the form is still useful only as future specification material here.</p>
 <pre><code class="language-zith">tag macro RunTwice(attributes, body: body) {
     let title = attributes.title;
     body;
@@ -27,7 +27,7 @@ fn main(): i32 {
     &lt;/RunTwice&gt;
     total
 }</code></pre>
-<p>Tag macros are statement-position only. Misuse has dedicated diagnostics: <code>E2017</code> for a tag macro used as a value, <code>E2018</code> for a mismatched closing tag, <code>E2019</code> for an unknown attribute, and <code>E2020</code> for attributes passed to a macro that does not accept them. The general macro codes <code>E2011</code>-<code>E2016</code> cover unknown macros, arity, argument kind, recursion, duplicates, and <code>raw macro</code> used as a value.</p>
+<p>The parser still recognises tag macros as statement-position only, with dedicated diagnostics for misuse: <code>E2017</code> for a tag macro used as a value, <code>E2018</code> for a mismatched closing tag, <code>E2019</code> for an unknown attribute, and <code>E2020</code> for attributes passed to a macro that does not accept them. The declaration rejection <code>E2010</code> is the current boundary in <code>Zith--</code>. The general macro codes <code>E2011</code>-<code>E2016</code> cover unknown macros, arity, argument kind, recursion, duplicates, and <code>raw macro</code> used as a value.</p>
 <h2 id="contexts-and-words">Contexts and words</h2>
 <p><code>context</code> blocks, <code>use</code> statements, and the <code>prefix</code>, <code>suffix</code>, <code>infix</code>, and <code>nop</code> word declarations are accepted as declarations and then skipped entirely: the body is consumed without semantics. Word call and word sequence expressions have no parser support.</p>
 <p>Read the <a href="./../reference/D-contexts.html">Contexts</a>, <a href="./../reference/D-words.html">Words</a>, and <a href="./../reference/D-macros.html">Macros</a> reference chapters for the intended design, and <a href="./../reference/D-implementation-status.html">Implementation Status</a> for the boundary.</p>

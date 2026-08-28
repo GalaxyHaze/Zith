@@ -1,6 +1,6 @@
 <div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="generics">Generics</h1>
-<p>Generic parameter lists use angle brackets and are accepted on <code>fn</code>, <code>struct</code>, <code>type</code> alias, <code>enum</code>, <code>union</code>, and <code>trait</code> declarations. Inside the declaration, each parameter resolves as an opaque type.</p>
+<p>Generic parameter lists use angle brackets and are accepted on <code>fn</code>, <code>struct</code>, <code>type</code> alias, <code>enum</code>, <code>union</code>, and <code>trait</code> declarations. Generic functions, structs, aliases, enums, unions, and <code>implement</code> blocks are monomorphized before HIR; explicit and inferred calls work.</p>
 <pre><code class="language-zith">struct Pair&lt;T, U&gt; {
     first: T,
     second: U,
@@ -9,5 +9,5 @@
 fn identity&lt;T&gt;(value: T): T {
     value
 }</code></pre>
-<p>Both declarations above pass <code>zithc check</code>. Instantiation does not: calling <code>identity&lt;i32&gt;(42)</code>, or relying on inference with <code>identity(42)</code>, fails in the comptime solver with <code>E3001</code> — "generic parameter T has no concrete type". Generic code therefore does not compile end to end yet.</p>
-<p>Constraints of the form <code>T: Trait</code> parse but are not enforced. The complete syntax is in the <a href="./../reference/D-type-system.html">Type System reference</a>; the boundary is in <a href="./../reference/D-implementation-status.html">Implementation Status</a>.</p>
+<p>Both declarations compile, and <code>identity&lt;i32&gt;(42)</code> plus inference <code>identity(42)</code> type-check and lower.</p>
+<p>Constraints of the form <code>T: A + B</code> are parsed, stored, and enforced at generic call sites; an argument that does not satisfy a trait bound reports <code>E3009</code>, and an interface bound reports <code>E2024</code>. Interface bounds expose their fields and methods to the generic body. The complete syntax is in the <a href="./../reference/D-type-system.html">Type System reference</a>; the boundary is in <a href="./../reference/D-implementation-status.html">Implementation Status</a>.</p>

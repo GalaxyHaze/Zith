@@ -9,6 +9,20 @@ let flatPages = [];
 let pageMeta = new Map();
 let aliasMap = new Map();
 
+function sectionDescription(items, trail) {
+    const section = trail[0] || items.title;
+    const descriptions = {
+        "Getting Started": "Install Zith, write your first program, and understand why the language is designed this way.",
+        "Language Guide": "Practical guide to Zith syntax, types, memory, generics, concurrency, and systems programming.",
+        "Language Reference": "Canonical Zith language reference, specification chapters, and implementation status.",
+        "CLI Reference": "Reference for zithc commands: build, run, check, format, create, and project tooling.",
+        "Project": "Project overview and current direction for the Zith programming language.",
+        "FAQ": "Frequently asked questions about Zith stability, scope, and relation to other languages.",
+        "Community": "Community resources for reporting issues and contributing to Zith documentation.",
+    };
+    return descriptions[section] || "Official documentation for the Zith programming language.";
+}
+
 (function loadMenu() {
     const cached = sessionStorage.getItem("tree_json");
     if (cached) {
@@ -85,7 +99,8 @@ function buildPageIndex(items, trail = []) {
             flatPages.push(item.link);
             pageMeta.set(item.link, {
                 title: item.title,
-                trail: nextTrail
+                trail: nextTrail,
+                description: sectionDescription(item, nextTrail)
             });
         }
 
@@ -215,7 +230,30 @@ function loadPage(path, anchor = null, opts = {}) {
             const pageTitle = titleMatch
                 ? titleMatch[1].replace(/<[^>]+>/g, "").trim()
                 : filename;
-            document.title = pageTitle + " — Zith Documentation";
+            const fullTitle = pageTitle + " — Zith Documentation";
+            const meta = pageMeta.get(canonicalPath);
+            const description = meta && meta.description ? meta.description : "Official documentation for the Zith programming language.";
+            const pageURL = "https://zith-lang.org/html/documentation/D-home.html?page=" + encodeURIComponent(path.replace("./", ""));
+
+            document.title = fullTitle;
+
+            const descriptionMeta = document.querySelector('meta[name="description"]');
+            const ogTitle = document.querySelector('meta[property="og:title"]');
+            const ogDescription = document.querySelector('meta[property="og:description"]');
+            const ogURL = document.querySelector('meta[property="og:url"]');
+            const twitterTitle = document.querySelector('meta[name="twitter:title"]');
+            const twitterDescription = document.querySelector('meta[name="twitter:description"]');
+            const twitterURL = document.querySelector('meta[name="twitter:url"]');
+            const canonical = document.querySelector('link[rel="canonical"]');
+
+            if (descriptionMeta) descriptionMeta.setAttribute("content", description);
+            if (ogTitle) ogTitle.setAttribute("content", fullTitle);
+            if (ogDescription) ogDescription.setAttribute("content", description);
+            if (ogURL) ogURL.setAttribute("content", pageURL);
+            if (twitterTitle) twitterTitle.setAttribute("content", fullTitle);
+            if (twitterDescription) twitterDescription.setAttribute("content", description);
+            if (twitterURL) twitterURL.setAttribute("content", pageURL);
+            if (canonical) canonical.setAttribute("href", pageURL);
 
             if (initialLoad) {
                 initialLoad = false;

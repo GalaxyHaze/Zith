@@ -10,11 +10,11 @@ kind: editorial
 
 ## Is Zith stable?
 
-No. Zith language documentation is draft and experimental. The [Implementation Status](doc:reference-implementation-status) page separates working compiler functionality from check-only, parse-skipped, parse-error, stub, and specification-only features.
+No. Zith language documentation is draft and experimental. The `main` compiler builds the `Zith--` subset documented in the [Zith-- reference](doc:reference-zith-subset); the [Implementation Status](doc:reference-implementation-status) page separates working compiler functionality from check-only, parse-skipped, parse-error, stub, and specification-only features.
 
 ## What actually compiles today?
 
-Structs and pointers, the full operator set (including compound assignment and the `&.` `|.` `^.` bitwise family), `when` / `match` pattern matching, the conditional and 3-clause `for` loops, function overloading, macros and tag macros, `raw opaque`, memory qualifiers as types, modules, and C header imports. Generic declarations type-check but cannot be instantiated, and comptime, `const fn`, `dyn`, and the full ownership analysis are not implemented.
+Structs and pointers, the full operator set (including compound assignment and the `&.` `|.` `^.` bitwise family), `when` / `match` pattern matching, `for` loops including iterators, `state`/`dock`/`jump`, generic instantiation and bounds, function overloading, traits/interfaces and `dyn` method dispatch, macros and `raw macro`, `raw opaque`, `lend`/`view`, modules, and C header imports. Tag macros, comptime, `const fn`, async execution, contexts/words, and the full NRA ownership analysis are not implemented in `Zith--`.
 
 ## Is this a Rust replacement?
 
