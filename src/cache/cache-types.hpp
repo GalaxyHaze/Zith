@@ -255,6 +255,7 @@ struct CompactFunction {
     bool uses_tailcc                = false;
     uint32_t machine_id             = 0;
     uint32_t machine_return_type_id = 0;
+    uint32_t variadic_slice_param   = ~uint32_t{0};
 };
 
 struct CompactGlobalConst {

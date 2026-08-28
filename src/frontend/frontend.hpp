@@ -221,6 +221,11 @@ struct TypeExpression {
     std::string name;
     std::vector<TypeExprId> arguments;
     uint64_t arrayLength = 0;
+    /// True only for the last parameter type of a Zith function declaration,
+    /// written `[...]T`. It lowers to the same slice type as `[]T`; the
+    /// declaration/call-site machinery uses this flag to collect extra
+    /// homogeneous arguments into a slice.
+    bool isVariadicSlice = false;
     /// Ownership qualifier written before the type, if any.
     OwnershipKind ownership = OwnershipKind::Default;
     /// Resolved mutability: `lend`/`unique`/`share`/`belong` are mutable, `view` is
@@ -315,6 +320,10 @@ struct Parameter {
     LocalId id;
     std::string name;
     TextSpan span;
+    /// True when this parameter's type was declared as `[...]T`. Only the
+    /// final parameter of a Zith `fn`/`raw fn`/`extern fn`/`const fn`/`state`
+    /// declaration may carry the flag; C `...` variadics keep `Declaration::isVariadic`.
+    bool isVariadicSlice = false;
     /// `var p: T` makes a parameter locally mutable; parameters default to
     /// immutable. `self` keeps its implicit receiver semantics for the first
     /// method parameter; `var self` additionally permits in-place mutation.

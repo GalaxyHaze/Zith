@@ -367,6 +367,21 @@ static void test_state_return_type_checked_against_machine_result() {
           "state return mismatch reports TypeMismatch");
 }
 
+static void test_variadic_slice_state_jump_and_dock() {
+    ModernSemaTest t;
+    auto ok = t.run("state Start(n: i32, rest: [...]i32): i32 {\n"
+                    "    if (n == 0) {\n"
+                    "        return raw rest[0];\n"
+                    "    }\n"
+                    "    jump Start(n - 1, 4, 5);\n"
+                    "}\n"
+                    "fn main(): i32 {\n"
+                    "    return dock Start(2, 1, 2);\n"
+                    "}\n",
+                    session::Stage::HirLowered);
+    CHECK(ok.ok, "variadic slices lower in state jumps and dock calls");
+}
+
 static void test_nested_state_machines() {
     ModernSemaTest t;
     auto ok = t.run("fn machine(): i32 {\n"
@@ -2591,6 +2606,96 @@ static void test_modern_raw_slice_and_index_sema() {
     CHECK(!malformed.ok, "raw prefix is rejected on a non-index/slice expression");
 }
 
+static void test_modern_variadic_slice_sema() {
+    ModernSemaTest t;
+
+    auto auto_collect = t.run("fn sum(rest: [...]i32): i32 { 0 }\n"
+                              "fn main(): i32 {\n"
+                              "    return sum(1, 2, 3);\n"
+                              "}\n");
+    CHECK(auto_collect.ok, "homogeneous tail arguments auto-collect into the variadic slice");
+
+    auto empty_tail = t.run("fn count(rest: [...]i32): i32 { 0 }\n"
+                            "fn main(): i32 {\n"
+                            "    return count();\n"
+                            "}\n");
+    CHECK(empty_tail.ok, "a variadic slice call accepts an empty tail");
+
+    auto explicit_slice = t.run("fn sum(rest: [...]i32): i32 {\n"
+                                "    0\n"
+                                "}\n"
+                                "fn main(): i32 {\n"
+                                "    let values: []i32 = [1, 2, 3];\n"
+                                "    return sum(values);\n"
+                                "}\n");
+    CHECK(explicit_slice.ok, "an explicit slice is accepted as the final argument");
+
+    auto explicit_array = t.run("fn sum(rest: [...]i32): i32 {\n"
+                                "    0\n"
+                                "}\n"
+                                "fn main(): i32 {\n"
+                                "    let values: [3]i32 = [1, 2, 3];\n"
+                                "    return sum(values);\n"
+                                "}\n");
+    CHECK(explicit_array.ok, "an explicit array coerces to the variadic slice");
+
+    auto too_few = t.run("fn f(a: i32, rest: [...]i32): i32 { 0 }\n"
+                         "fn main(): i32 {\n"
+                         "    return f();\n"
+                         "}\n");
+    CHECK(!too_few.ok, "a variadic slice call still needs its fixed leading arguments");
+    CHECK(too_few.hasMessage("variadic slice function call has too few arguments"),
+          "too-few arguments reports a variadic-slice specific diagnostic");
+
+    auto mismatch = t.run("fn f(rest: [...]i32): i32 { 0 }\n"
+                          "fn main(): i32 {\n"
+                          "    return f(\"no\");\n"
+                          "}\n");
+    CHECK(!mismatch.ok, "a non-homogeneous tail element is rejected");
+    CHECK(mismatch.hasMessage("variadic slice argument type mismatch"),
+          "tail mismatch reports the variadic slice argument diagnostic");
+
+    auto generic = t.run("fn first<T>(rest: [...]T): T {\n"
+                         "    raw rest[0]\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    return first(10, 20, 30);\n"
+                         "}\n");
+    CHECK(generic.ok, "a generic variadic slice infers T from the tail elements");
+
+    auto fixed_wins = t.run("fn pick(x: i32): i32 { 1 }\n"
+                            "fn pick(rest: [...]i32): i32 { 2 }\n"
+                            "fn main(): i32 {\n"
+                            "    return pick(1);\n"
+                            "}\n");
+    CHECK(fixed_wins.ok,
+          "a fixed-arity overload is selected over an equally applicable variadic slice");
+
+    auto method = t.run("struct Box { v: i32 }\n"
+                        "impl Box {\n"
+                        "    fn first(self, rest: [...]i32): i32 { raw rest[0] }\n"
+                        "}\n"
+                        "fn main(): i32 {\n"
+                        "    var b = Box{ v: 1 };\n"
+                        "    return b.first(10, 20, 30);\n"
+                        "}\n");
+    CHECK(method.ok, "receiver methods support homogeneous variadic slice tails");
+
+    auto dyn_method = t.run("trait Sum {\n"
+                            "    fn add(self, rest: [...]i32): i32;\n"
+                            "}\n"
+                            "struct Box { v: i32 }\n"
+                            "implement Box as Sum {\n"
+                            "    fn add(self, rest: [...]i32): i32 { raw rest[0] }\n"
+                            "}\n"
+                            "fn main(): i32 {\n"
+                            "    var b = Box{ v: 1 };\n"
+                            "    var d: dyn Sum = b;\n"
+                            "    return d.add(2, 3, 4);\n"
+                            "}\n");
+    CHECK(dyn_method.ok, "dyn trait methods support homogeneous variadic slice tails");
+}
+
 static void test_modern_zith_bindings() {
     ModernSemaTest t;
 
@@ -2956,6 +3061,7 @@ static void test_sema() {
     test_state_transition_arity_and_type_mismatch();
     test_dock_argument_arity_and_type_mismatch();
     test_state_return_type_checked_against_machine_result();
+    test_variadic_slice_state_jump_and_dock();
     test_nested_state_machines();
     test_extern_fn_call_ok();
     test_extern_fn_call_bad_arg();
@@ -3087,6 +3193,7 @@ static void test_sema() {
     test_modern_array_to_slice_element_mismatch();
     test_modern_slice_range_sema();
     test_modern_raw_slice_and_index_sema();
+    test_modern_variadic_slice_sema();
     test_modern_zith_bindings();
     test_modern_mutability_propagates_to_struct_fields();
     test_modern_enum_constant_discriminants();

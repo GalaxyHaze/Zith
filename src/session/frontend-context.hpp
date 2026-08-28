@@ -240,6 +240,8 @@ struct LocalSymbolInfo {
     bool isExtern = false;
     /// True when a C-ABI function accepts a trailing variadic tail.
     bool isVariadic = false;
+    /// True when the function's final parameter is written `[...]T`.
+    bool isVariadicSlice = false;
 };
 
 struct ModuleTimings {
@@ -305,6 +307,8 @@ struct ResolvedName {
     bool isExtern = false;
     /// True when the bound function accepts a variadic tail.
     bool isVariadic = false;
+    /// True when the bound function's final parameter is `[...]T`.
+    bool isVariadicSlice = false;
     /// Source binding kind for `DeclKind::Variable` and local variable bindings.
     frontend::BindingKind bindingKind = frontend::BindingKind::Let;
 };

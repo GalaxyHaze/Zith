@@ -223,6 +223,8 @@ bool HirLowerModern::predeclareFunctions() {
             hir_fn.fnSpan     = memory::Span{0, decl.span.start, decl.span.end};
             hir_fn.isVariadic = decl.isVariadic;
             hir_fn.isState    = decl.functionKind == frontend::FunctionKind::State;
+            if (!decl.parameters.empty() && decl.parameters.back().isVariadicSlice)
+                hir_fn.variadicSliceParam = decl.parameters.size() - 1U;
 
             bool is_main_void  = false;
             const auto fn_type = module_sema->typeOfDecl(decl.id);
@@ -612,6 +614,8 @@ void HirLowerModern::predeclareInstantiation(session::ModuleKey module_key,
     hir_fn.fnSpan     = memory::Span{0, decl->span.start, decl->span.end};
     hir_fn.isVariadic = decl->isVariadic;
     hir_fn.isState    = decl->functionKind == frontend::FunctionKind::State;
+    if (!decl->parameters.empty() && decl->parameters.back().isVariadicSlice)
+        hir_fn.variadicSliceParam = decl->parameters.size() - 1U;
 
     const auto template_type  = module_sema->typeOfDecl(decl->id);
     const auto *template_fn   = sema_.typeTable().function(template_type);
@@ -1684,8 +1688,33 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
             dyncall.result_type  = lowerType(fn->result);
             dyncall.fn_type      = lowered_fn;
 
+            const size_t dyn_slice_param =
+                !method_decl->parameters.empty() && method_decl->parameters.back().isVariadicSlice
+                    ? fn->params.size() - 1U
+                    : fn->params.size();
+            const bool dyn_explicit_slice =
+                dyn_slice_param < fn->params.size() &&
+                expr.operands.size() == dyn_slice_param + 1U && !expr.operands.empty() &&
+                (types_.kindOf(typeOfExpr(expr.operands.back())) == types::TypeKind::Slice ||
+                 types_.kindOf(typeOfExpr(expr.operands.back())) == types::TypeKind::Array);
+            const bool dyn_collect_tail =
+                dyn_slice_param < fn->params.size() && !dyn_explicit_slice;
+            bool dyn_tail_lowered = false;
             for (size_t index = 1; index < expr.operands.size(); ++index) {
                 const size_t call_index = has_receiver ? index : index - 1U;
+                if (dyn_collect_tail && call_index >= dyn_slice_param) {
+                    std::vector<frontend::ExprId> tail;
+                    tail.reserve(expr.operands.size() - index);
+                    for (size_t tail_index = index; tail_index < expr.operands.size(); ++tail_index)
+                        tail.push_back(expr.operands[tail_index]);
+                    auto slice = lowerVariadicSliceTail(fn->params[dyn_slice_param], tail);
+                    if (slice == hir::kInvalidHirExpr)
+                        return hir::kInvalidHirExpr;
+                    dyncall.args.push(slice);
+                    dyncall.arg_types.push(lowerType(fn->params[dyn_slice_param]));
+                    dyn_tail_lowered = true;
+                    break;
+                }
                 if (call_index >= fn->params.size())
                     continue;
                 auto argument = lowerExpr(expr.operands[index]);
@@ -1699,6 +1728,13 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
                                                 argument, fn->params[call_index]);
                     dyncall.args.back() = argument;
                 }
+            }
+            if (dyn_collect_tail && !dyn_tail_lowered) {
+                auto slice = lowerVariadicSliceTail(fn->params[dyn_slice_param], {});
+                if (slice == hir::kInvalidHirExpr)
+                    return hir::kInvalidHirExpr;
+                dyncall.args.push(slice);
+                dyncall.arg_types.push(lowerType(fn->params[dyn_slice_param]));
             }
             return addExpr(std::move(dyncall));
         }
@@ -1783,8 +1819,82 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
             arg_types.push(self_type);
     }
 
+    // Resolve the callee signature once so variadic-slice auto-collection can
+    // be computed from the same declaration used by sema/overload selection.
+    sema::modern::TypeId callee_sema_type = semaTypeOfExpr(callee_id);
+    if (callee_sema_type == sema::modern::kInvalidTypeId) {
+        if (const auto *target = overloadTarget(callee_id)) {
+            const auto *target_sema = sema_.findModuleSema(target->module);
+            if (target_sema != nullptr)
+                callee_sema_type = target_sema->typeOfDecl(target->decl);
+        } else if (const auto *resolved = findResolvedExpr(callee_id)) {
+            const session::ModuleArtifact *decl_module = nullptr;
+            const auto *decl = resolvedFunctionDecl(*resolved, &decl_module);
+            if (decl != nullptr && decl_module != nullptr) {
+                if (const auto *decl_sema = sema_.findModuleSema(decl_module->key))
+                    callee_sema_type = decl_sema->typeOfDecl(decl->id);
+            }
+        }
+    }
+    const auto *callee_fn = callee_sema_type != sema::modern::kInvalidTypeId
+                                ? sema_.typeTable().function(callee_sema_type)
+                                : nullptr;
+    size_t slice_param    = ~static_cast<size_t>(0);
+    if (callee_fn != nullptr && method_decl != nullptr && !method_decl->parameters.empty() &&
+        method_decl->parameters.back().isVariadicSlice) {
+        slice_param = callee_fn->params.size() - 1U;
+    } else if (const auto *resolved = findResolvedExpr(callee_id);
+               resolved != nullptr && resolved->isVariadicSlice && callee_fn != nullptr &&
+               !callee_fn->params.empty()) {
+        slice_param = callee_fn->params.size() - 1U;
+    } else if (const auto *target = overloadTarget(callee_id);
+               target != nullptr && callee_fn != nullptr && !callee_fn->params.empty()) {
+        const auto *target_artifact = snapshot_.findModule(target->module);
+        if (target_artifact != nullptr && target_artifact->frontend != nullptr &&
+            target->decl.value <= target_artifact->frontend->declarations().size()) {
+            const auto &target_decl =
+                target_artifact->frontend->declarations()[target->decl.value - 1U];
+            if (!target_decl.parameters.empty() && target_decl.parameters.back().isVariadicSlice)
+                slice_param = callee_fn->params.size() - 1U;
+        }
+    }
+
+    // A single trailing slice is an explicit `[]T` argument, not one element
+    // to auto-collect. The frontend marks it with the same type as the slice
+    // parameter, so the check mirrors sema's `explicit_slice_arg` decision.
+    const bool explicit_slice_arg =
+        slice_param != ~static_cast<size_t>(0) && expr.operands.size() > 1 && [&]() {
+            const size_t last_index = expr.operands.size() - 1U;
+            const size_t last_call  = is_receiver_method ? last_index : last_index - 1U;
+            if (last_call != slice_param)
+                return false;
+            const auto last_type = typeOfExpr(expr.operands.back());
+            return types_.kindOf(last_type) == types::TypeKind::Slice ||
+                   types_.kindOf(last_type) == types::TypeKind::Array;
+        }();
+    const bool collect_tail = slice_param != ~static_cast<size_t>(0) && !explicit_slice_arg;
+    bool tail_lowered       = false;
     for (size_t index = 1; index < expr.operands.size(); ++index) {
-        const size_t call_index = is_receiver_method ? index : index - 1U;
+        const size_t call_index          = is_receiver_method ? index : index - 1U;
+        const bool is_first_tail_element = collect_tail && call_index >= slice_param;
+        if (is_first_tail_element) {
+            std::vector<frontend::ExprId> tail;
+            tail.reserve(expr.operands.size() - index);
+            for (size_t tail_index = index; tail_index < expr.operands.size(); ++tail_index)
+                tail.push_back(expr.operands[tail_index]);
+            const sema::modern::TypeId slice_sema = callee_fn->params[slice_param];
+            auto slice                            = lowerVariadicSliceTail(slice_sema, tail);
+            if (slice == hir::kInvalidHirExpr)
+                return hir::kInvalidHirExpr;
+            if (sema_.typeTable().kindOf(slice_sema) == sema::modern::TypeKind::Dyn ||
+                sema_.typeTable().kindOf(sema_.typeTable().canonical(slice_sema)) ==
+                    sema::modern::TypeKind::Dyn)
+                slice = lowerCoerceToDyn(slice_sema, expr.operands[index], slice, slice_sema);
+            args.push(slice);
+            arg_types.push(lowerType(slice_sema));
+            tail_lowered = true;
+            break;
+        }
         const auto &arg_expr =
             current_module_->frontend->expressions()[expr.operands[index].value - 1U];
         const bool annotated =
@@ -1807,24 +1917,6 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
         const auto argument_type = typeOfExpr(expr.operands[index]);
         if (argument_type != types::kInvalidType)
             arg_types.push(argument_type);
-        sema::modern::TypeId callee_sema_type = semaTypeOfExpr(callee_id);
-        if (callee_sema_type == sema::modern::kInvalidTypeId) {
-            if (const auto *target = overloadTarget(callee_id)) {
-                const auto *target_sema = sema_.findModuleSema(target->module);
-                if (target_sema != nullptr)
-                    callee_sema_type = target_sema->typeOfDecl(target->decl);
-            } else if (const auto *resolved = findResolvedExpr(callee_id)) {
-                const session::ModuleArtifact *decl_module = nullptr;
-                const auto *decl = resolvedFunctionDecl(*resolved, &decl_module);
-                if (decl != nullptr && decl_module != nullptr) {
-                    if (const auto *decl_sema = sema_.findModuleSema(decl_module->key))
-                        callee_sema_type = decl_sema->typeOfDecl(decl->id);
-                }
-            }
-        }
-        const auto *callee_fn = callee_sema_type != sema::modern::kInvalidTypeId
-                                    ? sema_.typeTable().function(callee_sema_type)
-                                    : nullptr;
         const auto param_type = callee_fn != nullptr && call_index < callee_fn->params.size()
                                     ? lowerType(callee_fn->params[call_index])
                                     : types::kInvalidType;
@@ -1839,6 +1931,16 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
                                                     lowered_argument, param_sema);
         }
         args.push(lowered_argument);
+    }
+    if (collect_tail && !tail_lowered) {
+        // A variadic-slice callee is still callable with an empty tail. Lower
+        // `[0, 0]` so the call keeps the slice parameter in its signature.
+        const sema::modern::TypeId slice_sema = callee_fn->params[slice_param];
+        auto slice                            = lowerVariadicSliceTail(slice_sema, {});
+        if (slice == hir::kInvalidHirExpr)
+            return hir::kInvalidHirExpr;
+        args.push(slice);
+        arg_types.push(lowerType(slice_sema));
     }
 
     hir::HirCall call{callee, std::move(args), std::move(arg_types)};
@@ -2940,6 +3042,72 @@ hir::HirExprId HirLowerModern::lowerCoerceToSliceIfArray(types::TypeId target,
     return addExpr(std::move(slice));
 }
 
+hir::HirExprId
+HirLowerModern::lowerVariadicSliceTail(sema::modern::TypeId slice_sema_type,
+                                       const std::vector<frontend::ExprId> &tail_exprs) {
+    const types::TypeId slice_type = lowerType(slice_sema_type);
+    const auto *slice              = std::get_if<types::TypeSlice>(&types_.lookup(slice_type));
+    if (slice == nullptr)
+        return hir::kInvalidHirExpr;
+
+    const types::TypeId element_type = slice->elem;
+    const size_t tail_count          = tail_exprs.size();
+    const types::TypeId array_type =
+        types_.internArray(element_type, static_cast<uint32_t>(tail_count));
+
+    hir::HirArrayLiteral array(arena_);
+    array.type = array_type;
+    for (size_t index = 0; index < tail_count; ++index) {
+        const auto &arg_expr =
+            current_module_->frontend->expressions()[tail_exprs[index].value - 1U];
+        const bool annotated =
+            arg_expr.kind == frontend::ExprKind::OwnershipCoerce && !arg_expr.operands.empty();
+        const frontend::ExprId inner_id = annotated ? arg_expr.operands[0] : tail_exprs[index];
+        auto argument                   = lowerExpr(inner_id);
+        if (annotated) {
+            auto address = lowerLValueAddr(inner_id);
+            if (address == hir::kInvalidHirExpr) {
+                const auto inner_type = typeOfExpr(inner_id);
+                const auto slot       = next_slot_++;
+                current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, inner_type));
+                current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, argument));
+                address = addExpr(hir::HirSlotAddr{slot, inner_type});
+            }
+            argument = address;
+        }
+        if (argument == hir::kInvalidHirExpr)
+            return hir::kInvalidHirExpr;
+        array.elements.push(argument);
+    }
+
+    const auto array_id = addExpr(std::move(array));
+    // Keep the temporary array alive for the lifetime of the slice. Callers
+    // lower every argument into the current slot/block model, so the array is
+    // materialised as a slot before the slice takes its address.
+    const auto array_slot = next_slot_++;
+    current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(array_slot, array_type));
+    current_fn_->blocks[current_block_].insts.push(emitSlotStore(array_slot, array_id));
+    const auto array_slot_addr = addExpr(hir::HirSlotAddr{array_slot, array_type});
+
+    hir::HirMakeSlice result;
+    result.type        = slice_type;
+    result.object      = array_slot_addr;
+    result.object_type = array_type;
+    result.bound_type  = types_.internInt(types::IntWidth::I64);
+    result.is_array    = true;
+    result.is_pointer  = false;
+    result.checked     = false;
+    hir::HirLiteral lo;
+    lo.type = result.bound_type;
+    lo.i    = 0;
+    hir::HirLiteral hi;
+    hi.type   = result.bound_type;
+    hi.i      = static_cast<int64_t>(tail_count);
+    result.lo = addExpr(std::move(lo));
+    result.hi = addExpr(std::move(hi));
+    return addExpr(std::move(result));
+}
+
 hir::HirExprId HirLowerModern::lowerCoerceToDyn(sema::modern::TypeId target,
                                                 frontend::ExprId expression, hir::HirExprId value,
                                                 sema::modern::TypeId target_sema) {
@@ -3765,18 +3933,29 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                           "state target has no function type: '" + statement.label + "'", {});
             return false;
         }
-        if (statement.arguments.size() != target_fn->params.size()) {
-            diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
-                          "state transition arity mismatch for '" + statement.label + "'", {});
-            return false;
-        }
-        for (size_t index = 0; index < statement.arguments.size(); ++index) {
+        const bool target_is_slice =
+            target_fn->params.size() > 0 && target->parameters.back().isVariadicSlice;
+        const size_t slice_index =
+            target_is_slice ? target_fn->params.size() - 1U : target_fn->params.size();
+        const bool explicit_slice_arg =
+            target_is_slice && statement.arguments.size() == slice_index + 1U &&
+            !statement.arguments.empty() &&
+            (types_.kindOf(typeOfExpr(statement.arguments.back())) == types::TypeKind::Slice ||
+             types_.kindOf(typeOfExpr(statement.arguments.back())) == types::TypeKind::Array);
+        const bool auto_collect_tail = target_is_slice && !explicit_slice_arg;
+
+        // Sema already rejected arity/type mismatches before HIR lowering.
+        // Lower only the arguments that exist; a variadic slice tail is packed
+        // below, and an explicit slice argument is kept as-is.
+        size_t lowered_fixed = 0;
+        for (; lowered_fixed < std::min(statement.arguments.size(), slice_index); ++lowered_fixed) {
             const auto &arg_expr =
-                current_module_->frontend->expressions()[statement.arguments[index].value - 1U];
+                current_module_->frontend
+                    ->expressions()[statement.arguments[lowered_fixed].value - 1U];
             const bool annotated =
                 arg_expr.kind == frontend::ExprKind::OwnershipCoerce && !arg_expr.operands.empty();
             const frontend::ExprId inner_id =
-                annotated ? arg_expr.operands[0] : statement.arguments[index];
+                annotated ? arg_expr.operands[0] : statement.arguments[lowered_fixed];
             auto argument = lowerExpr(inner_id);
             if (annotated) {
                 auto address = lowerLValueAddr(inner_id);
@@ -3792,10 +3971,40 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
             }
             if (argument == hir::kInvalidHirExpr)
                 return false;
-            argument = lowerCoerceToSliceIfArray(lowerType(target_fn->params[index]),
-                                                 statement.arguments[index], argument);
-            tail.call.argument_types.push(lowerType(target_fn->params[index]));
+            argument = lowerCoerceToSliceIfArray(lowerType(target_fn->params[lowered_fixed]),
+                                                 statement.arguments[lowered_fixed], argument);
+            tail.call.argument_types.push(lowerType(target_fn->params[lowered_fixed]));
             tail.call.args.push(argument);
+        }
+        if (auto_collect_tail && statement.arguments.size() > slice_index) {
+            std::vector<frontend::ExprId> tail_exprs(statement.arguments.begin() +
+                                                         static_cast<ptrdiff_t>(slice_index),
+                                                     statement.arguments.end());
+            auto slice = lowerVariadicSliceTail(target_fn->params[slice_index], tail_exprs);
+            if (slice == hir::kInvalidHirExpr)
+                return false;
+            tail.call.argument_types.push(lowerType(target_fn->params[slice_index]));
+            tail.call.args.push(slice);
+        } else if (explicit_slice_arg ||
+                   (target_is_slice && statement.arguments.size() == slice_index)) {
+            // The slice parameter is vacuous (`f()`) or passed as a single
+            // explicit slice value.
+            const auto slice_type = lowerType(target_fn->params[slice_index]);
+            if (!explicit_slice_arg) {
+                auto slice = lowerVariadicSliceTail(target_fn->params[slice_index], {});
+                if (slice == hir::kInvalidHirExpr)
+                    return false;
+                tail.call.argument_types.push(lowerType(target_fn->params[slice_index]));
+                tail.call.args.push(slice);
+            } else {
+                auto argument = lowerExpr(statement.arguments.back());
+                if (argument == hir::kInvalidHirExpr)
+                    return false;
+                argument =
+                    lowerCoerceToSliceIfArray(slice_type, statement.arguments.back(), argument);
+                tail.call.argument_types.push(lowerType(target_fn->params[slice_index]));
+                tail.call.args.push(argument);
+            }
         }
         tail.call.resolved_fn = functions_[*function_index].sym_id;
         tail.call.musttail    = true;

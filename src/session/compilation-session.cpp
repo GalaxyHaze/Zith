@@ -1859,11 +1859,13 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
         fn.isVariadic                   = cfn.is_variadic;
         fn.isState                      = cfn.is_state;
         fn.usesTailCC                   = cfn.uses_tailcc;
-        fn.machineId                    = cfn.machine_id;
-        fn.machineReturnType            = cfn.machine_return_type_id != 0
-                                              ? compactType(cfn.machine_return_type_id)
-                                              : fn.return_type;
-        fn.sym_id                       = next_sym++;
+        fn.variadicSliceParam = cfn.variadic_slice_param != ~uint32_t{0} ? cfn.variadic_slice_param
+                                                                         : ~static_cast<size_t>(0);
+        fn.machineId          = cfn.machine_id;
+        fn.machineReturnType  = cfn.machine_return_type_id != 0
+                                    ? compactType(cfn.machine_return_type_id)
+                                    : fn.return_type;
+        fn.sym_id             = next_sym++;
         for (size_t pi = 0; pi < cfn.param_type_ids.size() && pi < cfn.param_name_ids.size();
              ++pi) {
             fn.params.push(compactType(cfn.param_type_ids[pi]));

@@ -177,6 +177,29 @@ private:
 
     /// Whether the resolved binding's function accepts a trailing variadic tail.
     [[nodiscard]] static bool bindingIsVariadic(const session::ResolvedName &binding) noexcept;
+    /// True when the binding declares a homogeneous `[...]T` tail parameter.
+    [[nodiscard]] static bool bindingIsVariadicSlice(const session::ResolvedName &binding) noexcept;
+
+    /// Returns the function's variadic-slice parameter index when the resolved
+    /// binding carries `isVariadicSlice`, otherwise `fn->params.size()`.
+    [[nodiscard]] size_t variadicSliceParam(const session::ResolvedName *binding,
+                                            const FunctionType *fn) const;
+
+    /// Validates and retypes the `[...]T` tail around the inferred element type.
+    /// Returns the slice parameter type when all tail arguments fit. `span` is
+    /// used for diagnostics; `args` must hold the arguments to validate.
+    [[nodiscard]] TypeId checkVariadicTail(frontend::TextSpan span,
+                                           const std::vector<frontend::ExprId> &args,
+                                           const FunctionType *fn, size_t slice_index,
+                                           bool allow_literals);
+
+    /// Validates the `[...]T` tail arguments after the first explicit index
+    /// in `args`. The element type comes from `slice_type`, so method paths
+    /// can pass a slice parameter that includes an implicit receiver.
+    [[nodiscard]] TypeId checkVariadicTailArgs(frontend::TextSpan span,
+                                               const std::vector<frontend::ExprId> &args,
+                                               TypeId slice_type, size_t first_tail_index,
+                                               bool allow_literals);
 
     friend class SemaPipeline;
     friend class HirLowerModern;
@@ -385,6 +408,7 @@ private:
         const session::ResolvedName *binding = nullptr;
         TypeId type                          = kInvalidTypeId;
         const FunctionType *fn               = nullptr;
+        bool variadicSlice                   = false;
         frontend::TextSpan span{};
         session::ModuleKey module;
         frontend::DeclId decl;
@@ -396,7 +420,7 @@ private:
     /// when none survives and `AmbiguousCall` when more than one does.  Returns
     /// nullptr in both failure cases; `reported` says whether it diagnosed.
     const OverloadCandidate *selectOverload(const frontend::Expression &call,
-                                            const std::vector<OverloadCandidate> &candidates,
+                                            std::vector<OverloadCandidate> &candidates,
                                             size_t implicit_args, bool &reported);
     /// Non-mutating form of `adaptNumericLiteral`, used while probing candidates.
     bool literalAdaptsTo(frontend::ExprId value, TypeId target) const noexcept;

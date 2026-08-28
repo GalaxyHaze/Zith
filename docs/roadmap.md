@@ -40,6 +40,7 @@
 | F-31 | `union` runtime semantics | 3 | Spec only |
 | F-32 | C header import completion (macros, variadics, callbacks) | 18 | Working (common C); macros/globals/bitfields remain |
 | F-33 | Function overloading (selection by arity and parameter types) | 5 | Working |
+| F-36 | Variadic slices (`[...]T` homogeneous tail parameters) | 5 | Working |
 | F-34 | Memory qualifier parsing and typing (`mut`, `lend`, `view`, `unique`, `share`, `belong`) | 7 | Working |
 | F-35 | Trait and interface bodies as real declarations | 4 | Working; interface bodies accept single/grouped fields and declaration-only method requirements |
 | F-40 | Scope-guard `defer` statements | 9, Zith-- | Working |

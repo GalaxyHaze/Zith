@@ -38,7 +38,7 @@ inline constexpr uint32_t kMagic = 0x5A49524Cu; // "ZIRL"
 /// machine return type alongside the machine id.
 /// Version 11: HIR functions persist the parameter-to-HIR-slot mapping so
 /// codegen can attach borrow attributes to the exact ABI argument.
-inline constexpr uint32_t kFormatVersion = 12;
+inline constexpr uint32_t kFormatVersion = 13;
 inline constexpr uint8_t kEndianLittle   = 1;
 
 enum class SectionId : uint8_t {

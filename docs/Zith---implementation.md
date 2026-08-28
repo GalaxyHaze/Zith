@@ -162,14 +162,38 @@ Parâmetros HIR com residual de slot `Lend`/`View` recebem `nocapture` no LLVM; 
 
 ## Cache e ZIRL
 
-A versão de formato ZIRL passa para 10. O Code section serializa:
+A versão de formato ZIRL passa para 13. O Code section serializa:
 
 - `Artifact.exprs` como pool de expressões ao nível do módulo.
 - `Artifact.globals` como `CompactGlobalConst` com name, type e init.
 - `HirFunction` com `isState`/`machineId`/`machineReturnType`/`usesTailCC` para declaracoes `state`.
+- `HirFunction.variadicSliceParam` como `CompactFunction.variadic_slice_param`.
 - `HirStateTailCall` como expressao de terminacao com `musttail tailcc` direto.
 
 Isso mantém os ids de HIR estáveis entre módulos vazios de funções, const globals, loads por `HirGlobalConstLoad` e transitions `state`. Maquinas `state` agrupam por retorno canonico e permitem listas de parametros diferentes entre estados; codegen declara e chama essas funcoes com LLVM `tailcc` e sem contexto/`alloca` adicional.
+
+## Variadic Slices
+
+O parser marca `Parameter.isVariadicSlice` quando o último parâmetro usa `[...]T` e
+propaga o flag para `ResolvedName.isVariadicSlice` e `HirFunction.variadicSliceParam`.
+O sema trata `[...]T` como um parâmetro de slice normal, mas aceita:
+
+- zero argumentos no tail;
+- um último argumento `[]T`/`[N]T` explícito, sem recolha elemento a elemento;
+- qualquer quantidade de argumentos homogéneos desde `slice_index` até ao fim, recolhidos
+  em `checkVariadicTailArgs`/`checkVariadicTail` pelo elemento do slice param.
+
+`checkVariadicTailArgs` recebe o slice param e o primeiro índice de tail; a versão usada
+em métodos e chamadas dyn precisa deste separador porque `call.operands` não inclui `self`
+mas o `FunctionType` inclui o receiver. Calls genéricos e métodos genéricos sintetizam
+`[]T` a partir do primeiro elemento do tail para `resolveArgs`, depois validam o tail com
+o tipo instanciado.
+
+No HIR, `HirLowerModern::lowerCall` detecta o variadic slice no callee e baixa o tail para
+`HirArrayLiteral` + `HirMakeSlice` num slot temporário; um único argumento slice/array final
+é passado pelo caminho normal com `lowerCoerceToSliceIfArray`. O mesmo algoritmo cobre calls
+livres, métodos, `dyn`, state/jump/dock se o alvo tiver o flag. O code section do cache
+persiste `variadic_slice_param` para hidratar o HIR sem voltar a correr sema.
 
 ## Defer e Cleanup de Escopo
 

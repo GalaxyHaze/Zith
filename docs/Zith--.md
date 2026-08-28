@@ -96,6 +96,48 @@ fn main(): i32 {
 }
 ````
 
+## Variadic Slices
+
+O último parâmetro de uma função ou método pode ser um variadic slice `[...]T`. Em
+`Zith--`, a chamada recolhe todos os argumentos finais homogéneos a partir desse ponto
+para um slice temporário; não há varargs de C com tail heterogéneo:
+
+````zith
+fn sum(rest: [...]i32): i32 {
+    var total: i32 = 0;
+    total = total + raw rest[0];
+    total = total + raw rest[1];
+    total = total + raw rest[2];
+    return total;
+}
+
+fn main(): i32 {
+    return sum(1, 2, 3); // 6
+}
+````
+
+O `[...]T` só é permitido na última posição. Os argumentos antes dele são parâmetros
+fixos normais; uma chamada com menos argumentos do que esses parâmetros reporta erro.
+Uma chamada pode também passar como último argumento um `[]T` ou `[N]T` já existente:
+nesse caso o valor não é recolhido elemento a elemento e o array coerce para o slice
+parâmetro. O tail vazio é aceite.
+
+````zith
+fn sum(rest: [...]i32): i32 { 0 }
+
+fn main(): i32 {
+    sum();                          // tail vazio
+    let values: []i32 = [1, 2, 3];
+    sum(values);                    // slice explícito
+    sum(1, 2, 3);                   // auto-collect homogéneo
+}
+````
+
+Variadic slices funcionam em funções livres, métodos com `self`, métodos de `dyn
+Trait`/`dyn Interface` e funções genéricas. Num parâmetro genérico, `[...]T` infere `T`
+a partir do primeiro elemento do tail, ou do tipo do slice/array explícito.
+Overloads com arity fixa continuam a preferir a assinatura exata sobre o variadic slice.
+
 Um accesso como `a.x` quando `a: dyn Area` e `Area` declara `x` é rejeitado com `E3001`
 (field access on non-struct type). Use `is`/cast para um tipo concreto quando precisar do
 field, ou um bound genérico `T: Area` se o campo puder ser lido estaticamente.

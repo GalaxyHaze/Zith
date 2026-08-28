@@ -792,7 +792,17 @@ private:
             type.arguments.push_back(parseType());
         } else if (matchesToken(snapshot_, index_, "[")) {
             ++index_;
-            if (matchesToken(snapshot_, index_, "]")) {
+            if (matchesToken(snapshot_, index_, "...")) {
+                ++index_;
+                if (matchesToken(snapshot_, index_, "]")) {
+                    ++index_;
+                    type.kind            = TypeExprKind::Slice;
+                    type.isVariadicSlice = true;
+                } else {
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_), "expected ']' after variadic slice marker '...'"});
+                }
+            } else if (matchesToken(snapshot_, index_, "]")) {
                 ++index_;
                 type.kind = TypeExprKind::Slice;
             } else {
@@ -3284,6 +3294,18 @@ private:
                         ++index_;
                         parameter.type = parseType();
                     }
+                    if (parameter.type &&
+                        parameter.type.value <= snapshot_.typeExpressions().size()) {
+                        parameter.isVariadicSlice =
+                            snapshot_.typeExpressions()[parameter.type.value - 1U].isVariadicSlice;
+                    }
+                    // A variadic slice is only meaningful when no parameter follows it.
+                    if (parameter.isVariadicSlice && punctuation(index_, ',')) {
+                        snapshot_.diagnostics_.push_back(
+                            {tokenSpan(index_),
+                             "variadic slice parameter must be the last parameter", false,
+                             diagnostics::err::ExpectedExpr});
+                    }
                     declaration.parameters.push_back(std::move(parameter));
                 } else {
                     snapshot_.diagnostics_.push_back(
@@ -3905,7 +3927,7 @@ std::string canonicalTypeString(const FrontendSnapshot &snapshot, const TypeExpr
     case TypeExprKind::Optional:
         return "?" + nested(0);
     case TypeExprKind::Slice:
-        return "[]" + nested(0);
+        return (type.isVariadicSlice ? "[...]" : "[]") + nested(0);
     case TypeExprKind::Opaque:
         return "raw opaque";
     case TypeExprKind::Pack: {

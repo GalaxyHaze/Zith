@@ -304,6 +304,24 @@ static void test_store_invalidation() {
     fs::remove_all(root);
 }
 
+static void test_variadic_slice_param_round_trip() {
+    auto original                              = makeMinimalArtifact("/test/variadic.zith", "main");
+    original.functions[0].is_variadic          = true;
+    original.functions[0].variadic_slice_param = 1;
+
+    ByteWriter writer;
+    (void)Writer::write(original, writer);
+
+    auto decoded =
+        Reader::read(std::string_view(reinterpret_cast<const char *>(writer.ptr()), writer.size()));
+    CHECK(decoded.has_value(), "variadic slice artifact round-trips");
+    if (!decoded)
+        return;
+    CHECK(decoded->functions[0].is_variadic, "variadic flag survives round-trip");
+    CHECK_EQ(decoded->functions[0].variadic_slice_param, 1u,
+             "variadic slice parameter survives round-trip");
+}
+
 static void test_zero_abi_dependency_skips_validation() {
     auto root = fs::temp_directory_path() / "zith-cache-test-zero-abi";
     fs::remove_all(root);
@@ -419,12 +437,12 @@ static void test_format_version_bump() {
     (void)Writer::write(art, writer);
 
     std::string bytes(reinterpret_cast<const char *>(writer.ptr()), writer.size());
-    CHECK_EQ(kFormatVersion, 12u, "zirl format version is bumped");
+    CHECK_EQ(kFormatVersion, 13u, "zirl format version is bumped");
 
     // Simulate an old reader by treating the version field as v3.
     bytes[4]        = 3;
     auto old_reader = Reader::read(bytes);
-    CHECK(!old_reader.has_value(), "v10 artifact is rejected by a v3-only reader");
+    CHECK(!old_reader.has_value(), "v13 artifact is rejected by a v3-only reader");
 }
 
 static void test_artifact_builder() {
@@ -451,10 +469,11 @@ static void test_artifact_builder() {
     const auto opt = types.internOptional(i32);
 
     // Add a concrete HIR function.
-    auto &fn       = hir.addFn(interner.intern("main"));
-    fn.return_type = i32;
-    fn.isVariadic  = true;
-    fn.sym_id      = main_sym;
+    auto &fn              = hir.addFn(interner.intern("main"));
+    fn.return_type        = i32;
+    fn.isVariadic         = true;
+    fn.variadicSliceParam = 1;
+    fn.sym_id             = main_sym;
 
     hir::HirLiteral int_lit;
     int_lit.type      = i32;
@@ -762,6 +781,8 @@ static void test_artifact_builder() {
     CHECK_EQ(art.exprs.size(), hir.exprCount(), "builder serializes module expression pool");
     CHECK_EQ(art.source_fp_hi, 0u, "builder stores source fingerprint hi");
     CHECK_EQ(art.functions[0].is_variadic, true, "builder stores HIR variadic flag");
+    CHECK_EQ(art.functions[0].variadic_slice_param, 1u,
+             "builder stores the HIR variadic slice parameter");
     const auto indirect_call =
         std::find_if(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &expr) {
             return expr.kind == cache::CompactExprKind::Call && expr.ref_b == symbols::kInvalidSym;
@@ -977,6 +998,7 @@ static void test_artifact_builder() {
 static void test_cache() {
     test_binary_round_trip();
     test_deps_round_trip();
+    test_variadic_slice_param_round_trip();
     test_header_size_covered_by_writer();
     test_corrupted_artifact_rejected();
     test_corrupted_header_size_rejected();

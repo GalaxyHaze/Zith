@@ -1491,6 +1491,41 @@ static void test_mutable_slice_from_c() {
     CHECK_EQ(r.exitCode, 10, "assignment to a slice element reads the updated value");
 }
 
+static void test_variadic_slice_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn sum(rest: [...]i32): i32 {\n"
+                         "    var total: i32 = 0;\n"
+                         "    total = total + raw rest[0];\n"
+                         "    total = total + raw rest[1];\n"
+                         "    total = total + raw rest[2];\n"
+                         "    return total;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    return sum(1, 2, 3);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "homogeneous variadic slice program compiles, links and runs");
+    CHECK_EQ(r.exitCode, 6, "auto-collected tail values are materialized and summed at runtime");
+}
+
+static void test_variadic_slice_state_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "state Start(n: i32, rest: [...]i32): i32 {\n"
+                         "    if (n == 0) {\n"
+                         "        return raw rest[0];\n"
+                         "    }\n"
+                         "    jump Start(n - 1, 4, 5);\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    return dock Start(2, 1, 2);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "variadic slice state/dock/jump program compiles, links and runs");
+    CHECK_EQ(r.exitCode, 4, "jump auto-collects the tail for the next state transition");
+}
+
 static void test_optional_and_slice_layouts() {
     memory::Arena arena;
     memory::StringInterner interner(arena);
@@ -2177,6 +2212,10 @@ static void test_codegen() {
     test_native_function_value_call();
     printf("Running test_mutable_slice_from_c\n");
     test_mutable_slice_from_c();
+    printf("Running test_variadic_slice_runtime\n");
+    test_variadic_slice_runtime();
+    printf("Running test_variadic_slice_state_runtime\n");
+    test_variadic_slice_state_runtime();
 }
 
 TEST_MAIN(codegen)

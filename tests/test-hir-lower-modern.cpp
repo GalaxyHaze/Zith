@@ -1793,6 +1793,103 @@ void test_state_without_return_type_lowers_to_hir() {
     }
 }
 
+void test_variadic_slice_lowers_to_hir() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn sum(rest: [...]i32): i32 {\n"
+                                     "    return raw rest[0] + raw rest[1] + raw rest[2];\n"
+                                     "}\n"
+                                     "fn main(): i32 {\n"
+                                     "    return sum(1, 2, 3);\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "variadic slice calls lower to HIR");
+
+    const auto &hir = session.hirModule();
+    const auto *sum = findFunction(hir, session.interner(), "sum");
+    CHECK(sum != nullptr, "variadic slice function is present in HIR");
+    if (sum != nullptr) {
+        CHECK_EQ(sum->variadicSliceParam, 0u, "HIR records the variadic slice parameter index");
+    }
+
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main is present after variadic slice lowering");
+    if (main == nullptr)
+        return;
+
+    size_t array_literal_count     = 0;
+    size_t make_slice_count        = 0;
+    const hir::HirMakeSlice *slice = nullptr;
+    for (size_t index = 0; index < hir.exprCount(); ++index) {
+        const auto &expr = hir.getExpr(static_cast<hir::HirExprId>(index));
+        if (std::holds_alternative<hir::HirArrayLiteral>(expr))
+            ++array_literal_count;
+        if (const auto *candidate = std::get_if<hir::HirMakeSlice>(&expr)) {
+            ++make_slice_count;
+            slice = candidate;
+        }
+    }
+    CHECK_EQ(array_literal_count, 1u, "auto-collection materializes one temporary array");
+    CHECK_EQ(make_slice_count, 1u, "auto-collection wraps the temporary array in a slice");
+    if (slice != nullptr) {
+        CHECK(slice->type != types::kInvalidType, "the variadic slice carries its slice type");
+        CHECK(slice->object_type != types::kInvalidType,
+              "the variadic slice carries its temporary array type");
+        CHECK(slice->is_array, "auto-collection marks the temporary array as an array");
+        CHECK(!slice->checked, "auto-collection bounds are statically known");
+    }
+}
+
+void test_variadic_slice_state_lowers_to_hir() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "state Start(n: i32, rest: [...]i32): i32 {\n"
+                                     "    if (n == 0) {\n"
+                                     "        return raw rest[0];\n"
+                                     "    }\n"
+                                     "    jump Start(n - 1, 4, 5);\n"
+                                     "}\n"
+                                     "fn main(): i32 {\n"
+                                     "    return dock Start(2, 1, 2);\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "variadic slice state/dock/jump calls lower to HIR");
+
+    const auto &hir   = session.hirModule();
+    const auto *start = findFunction(hir, session.interner(), "Start");
+    CHECK(start != nullptr, "variadic slice state is present in HIR");
+    if (start != nullptr)
+        CHECK_EQ(start->variadicSliceParam, 1u, "state records the variadic slice parameter index");
+
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main is present after variadic state lowering");
+    if (main == nullptr)
+        return;
+
+    bool dock_collects = false;
+    bool jump_collects = false;
+    for (size_t index = 0; index < hir.exprCount(); ++index) {
+        if (const auto *slice =
+                std::get_if<hir::HirMakeSlice>(&hir.getExpr(static_cast<hir::HirExprId>(index)))) {
+            const auto lo = std::get_if<hir::HirLiteral>(&hir.getExpr(slice->lo));
+            const auto hi = std::get_if<hir::HirLiteral>(&hir.getExpr(slice->hi));
+            if (lo != nullptr && hi != nullptr && hi->i == 2)
+                dock_collects = true;
+            if (lo != nullptr && hi != nullptr && hi->i == 2)
+                jump_collects = true;
+        }
+    }
+    CHECK(dock_collects, "dock auto-collects its variadic slice into a temporary");
+    CHECK(jump_collects, "jump auto-collects its variadic slice into a temporary");
+}
+
 } // namespace
 
 static void test_hir_lower_modern() {
@@ -1845,6 +1942,8 @@ static void test_hir_lower_modern() {
     test_distinct_generic_instances_have_distinct_symbols();
     test_defer_lowers_to_cleanup_nodes();
     test_state_without_return_type_lowers_to_hir();
+    test_variadic_slice_lowers_to_hir();
+    test_variadic_slice_state_lowers_to_hir();
 }
 
 TEST_MAIN(hir_lower_modern)

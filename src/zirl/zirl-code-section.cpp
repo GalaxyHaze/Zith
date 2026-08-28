@@ -73,6 +73,7 @@ bool encodeCode(const cache::Artifact &artifact, ByteWriter &w) {
         w.writeU32(fn.machine_return_type_id);
         w.writeU32(fn.machine_id);
         w.writeU32(fn.instance_index);
+        w.writeU32(fn.variadic_slice_param);
         w.writeU32(static_cast<uint32_t>(fn.param_type_ids.size()));
         for (auto id : fn.param_type_ids)
             w.writeU32(id);
@@ -122,7 +123,7 @@ bool decodeCode(ByteReader &r, cache::Artifact &out) {
         if (!r.readU32(fn.name_id) || !r.readU8(ext) || !r.readU8(a) || !r.readU8(b) ||
             !r.readU8(c) || !r.readU32(fn.return_type_id) ||
             !r.readU32(fn.machine_return_type_id) || !r.readU32(fn.machine_id) ||
-            !r.readU32(fn.instance_index))
+            !r.readU32(fn.instance_index) || !r.readU32(fn.variadic_slice_param))
             return false;
         if (fn.name_id < out.strings.size())
             fn.name = out.strings[fn.name_id];

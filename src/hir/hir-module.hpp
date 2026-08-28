@@ -34,8 +34,10 @@ struct HirFunction {
     HirTypeId machineReturnType = types::kInvalidType;
     uint32_t machineId          = 0;
     bool isVariadic             = false;
-    ast::DeclId decl_id         = ast::kInvalidDecl;
-    symbols::SymId sym_id       = symbols::kInvalidSym;
+    /// Index of the final `[...]T` parameter when the function declares one.
+    size_t variadicSliceParam = ~static_cast<size_t>(0);
+    ast::DeclId decl_id       = ast::kInvalidDecl;
+    symbols::SymId sym_id     = symbols::kInvalidSym;
     /// Source span of the `fn` declaration; empty for foreign/synthesized functions.
     memory::Span fnSpan{};
     memory::DynArray<HirBasicBlock> blocks;
