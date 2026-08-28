@@ -192,6 +192,12 @@ private:
     hir::HirExprId lowerUnary(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerBinary(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerCall(const frontend::Expression &expr);
+    /// Lowers `defaultId` in the module that declared the callee/parameter.
+    /// Default expressions live in the declaring module's frontend snapshot
+    /// and typed map, so switching only those context pointers is required.
+    hir::HirExprId lowerVisibleDefault(const session::ModuleArtifact &module,
+                                       const comptime::InstantiationInstance *instance,
+                                       frontend::ExprId default_id);
     hir::HirExprId lowerBlock(const frontend::Expression &expr);
     hir::HirExprId lowerIf(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerWhen(const frontend::Expression &expr, types::TypeId type);

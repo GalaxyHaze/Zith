@@ -121,6 +121,34 @@ implement Node<T> as Printable {
 implement Node<f32> { ... }
 ```
 
+Primitives, `?T`, and `[]T` can also be the owner of an `implement` block. Methods on these owners use the same implicit `self` receiver and can be called with the normal `.method()` syntax:
+
+```zith
+trait Numeric {
+    fn double(self): i32;
+}
+
+implement i32 as Numeric {
+    fn double(self): i32 { return self * 2 }
+}
+
+trait Present {
+    fn present(self): bool { return self is null; }
+}
+
+implement ?char as Present {}
+
+trait ByteLen {
+    fn len(self): i32;
+}
+
+implement []u8 as ByteLen {
+    fn len(self): i32 { return 4 }
+}
+```
+
+`implement` owners are limited to primitives, `?T`, `[]T`, and named types in this iteration. Pointer and fixed-array owners (`*T`, `[N]T`) are rejected.
+
 Components define method bodies inline — they cannot use `implement`:
 
 ```zith

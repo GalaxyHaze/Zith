@@ -10,6 +10,21 @@
 > Trait`, dynamic dispatch, `requires`/`extends` as explicit constraints, and per-owner
 > default-method HIR generation remain spec-only or pending. `Self` in implementations and trait
 > defaults resolves to the implementing type.
+
+The `implement` owner may be a primitive, `?T`, or `[]T` in addition to a named struct/enum:
+
+```zith
+trait Describe {
+    fn describe(self): i32;
+}
+
+implement i32 as Describe {
+    fn describe(self): i32 { return 1 }
+}
+```
+
+Traits implemented for these owners participate in nominal conformance exactly like named types, so they are usable in generic bounds (`T: Describe`) and expose default methods on the receiver. Pointer and fixed-array owners remain unsupported.
+
 > See [impl-status.md](impl-status.md).
 
 ### 4.1 Traits vs. Interfaces

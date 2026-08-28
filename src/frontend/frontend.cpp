@@ -42,18 +42,18 @@ namespace {
 
 [[nodiscard]] bool isKeyword(const std::string_view word) {
     constexpr std::string_view keywords[] = {
-        "i8",      "i16",    "i32",    "i64",     "i128",      "u8",      "u16",       "u32",
-        "u64",     "u128",   "f32",    "f64",     "bool",      "char",    "void",      "invalid",
-        "unknown", "null",   "true",   "false",   "type",      "struct",  "component", "enum",
-        "raw",     "unsafe", "union",  "trait",   "interface", "extends", "dyn",       "implement",
-        "fn",      "import", "use",    "context", "macro",     "export",  "extern",    "from",
-        "alias",   "as",     "let",    "var",     "auto",      "const",   "mut",       "global",
-        "lend",    "share",  "view",   "unique",  "belong",    "yield",   "async",     "state",
-        "dock",    "never",  "pub",    "mod",     "if",        "else",    "for",       "in",
-        "when",    "match",  "return", "break",   "continue",  "jump",    "while",     "marker",
-        "spawn",   "await",  "with",   "catch",   "must",      "throw",   "fail",      "drop",
-        "require", "is",     "prefix", "suffix",  "infix",     "nop",     "and",       "or",
-        "not",     "xor",    "tag",    "defer",   "opaque",
+        "i8",      "i16",    "i32",    "i64",     "i128",      "u8",       "u16",       "u32",
+        "u64",     "u128",   "f32",    "f64",     "bool",      "char",     "void",      "invalid",
+        "unknown", "null",   "true",   "false",   "type",      "struct",   "component", "enum",
+        "raw",     "unsafe", "union",  "trait",   "interface", "extends",  "dyn",       "implement",
+        "fn",      "import", "use",    "context", "macro",     "export",   "extern",    "from",
+        "alias",   "as",     "let",    "var",     "auto",      "const",    "mut",       "global",
+        "lend",    "share",  "view",   "unique",  "belong",    "yield",    "async",     "state",
+        "dock",    "never",  "pub",    "mod",     "if",        "else",     "for",       "in",
+        "when",    "match",  "return", "break",   "continue",  "jump",     "while",     "marker",
+        "spawn",   "await",  "with",   "catch",   "must",      "throw",    "fail",      "drop",
+        "require", "is",     "prefix", "suffix",  "infix",     "nop",      "and",       "or",
+        "not",     "xor",    "tag",    "defer",   "opaque",    "optional",
     };
     for (const auto keyword : keywords)
         if (word == keyword)
@@ -646,6 +646,9 @@ private:
     /// When set (while parsing a when-case condition), a '.' followed by another
     /// '.' is left unconsumed by postfix so the caller can form a `lo..hi` range.
     bool range_mode_ = false;
+    /// When set, the condition parser suppresses `Name {` struct-literal
+    /// handling so that the `{` opens the loop/if body instead.
+    bool suppress_struct_literal_ = false;
 
     [[nodiscard]] std::string_view text(const uint32_t index) const {
         return tokenText(snapshot_, index);
@@ -1301,7 +1304,7 @@ private:
             ++index_;
             // Struct literal: Name { field: expr, ... }
             // Only treat as struct literal when immediately followed by '{' after a Name.
-            if (!is_literal && punctuation(index_, '{')) {
+            if (!suppress_struct_literal_ && !is_literal && punctuation(index_, '{')) {
                 const std::string struct_name = expression.text;
                 ++index_; // consume '{'
                 Expression struct_lit;
@@ -1527,7 +1530,8 @@ private:
                 else
                     snapshot_.diagnostics_.push_back(
                         {range(gen_start, index_), "expected '>' after generic arguments"});
-                const bool generic_struct_literal = result && punctuation(index_, '{');
+                const bool generic_struct_literal =
+                    !suppress_struct_literal_ && result && punctuation(index_, '{');
                 if (generic_struct_literal) {
                     // Generic struct literal: `Pair<i32, f64>{ left: 1, right: 2.0 }`
                     // keeps the generic type arguments on a StructLiteral node.
@@ -1983,7 +1987,7 @@ private:
         const uint32_t start = index_++;
         if (punctuation(index_, '('))
             ++index_;
-        const ExprId condition = parseExpression();
+        const ExprId condition = parseConditionExpression();
         if (punctuation(index_, ')'))
             ++index_;
         else if (!punctuation(index_, '{'))
@@ -2144,6 +2148,10 @@ private:
             always.scope = current_scope_;
             always.span  = tokenSpan(start);
             expression.operands.push_back(addExpression(std::move(always)));
+        } else if (isKeywordToken("optional") || isKeywordToken("not")) {
+            // `for not cond { }` and `for optional x { }` are tolerated in
+            // condition style, mirroring the `if`/`while` sugar.
+            expression.operands.push_back(parseConditionExpression());
         } else if (punctuation(index_, '(')) {
             ++index_;
             const uint32_t clause_start = index_;
@@ -2174,7 +2182,7 @@ private:
                 stmt.span = range(clause_start, index_);
                 init_stmt = addStatement(std::move(stmt));
             } else if (!punctuation(index_, ',') && !punctuation(index_, ')')) {
-                init_expr = parseExpression();
+                init_expr = parseConditionExpression();
             }
 
             // Flat 3-clause form: `for (init, cond, step)`.  The first comma
@@ -2192,7 +2200,7 @@ private:
                 ExprId cond_expr;
                 bool cond_omitted = false;
                 if (!punctuation(index_, ',') && !punctuation(index_, ')')) {
-                    cond_expr = parseExpression();
+                    cond_expr = parseConditionExpression();
                 } else {
                     cond_omitted = true;
                 }
@@ -2203,7 +2211,7 @@ private:
                     ++index_;
                 ExprId step_expr;
                 if (!punctuation(index_, ')'))
-                    step_expr = parseExpression();
+                    step_expr = parseConditionExpression();
                 if (punctuation(index_, ')'))
                     ++index_;
                 else
@@ -2320,7 +2328,7 @@ private:
                         if (!punctuation(index_, '('))
                             return {};
                         ++index_;
-                        const ExprId group = parseExpression();
+                        const ExprId group = parseConditionExpression();
                         if (punctuation(index_, ')'))
                             ++index_;
                         else
@@ -2422,7 +2430,7 @@ private:
         }
         if (punctuation(index_, '('))
             ++index_;
-        const ExprId condition = parseExpression();
+        const ExprId condition = parseConditionExpression();
         if (punctuation(index_, ')'))
             ++index_;
         else if (!punctuation(index_, '{'))
@@ -2436,6 +2444,46 @@ private:
             snapshot_.diagnostics_.push_back({range(start, index_), "expected while body"});
         expression.span = range(start, index_);
         return addExpression(std::move(expression));
+    }
+
+    /// Condition position accepts `not expr` without parentheses and the
+    /// `optional expr` boolean sugar in addition to the normal expression
+    /// grammar.  Parenthesised clauses are handled by the caller, which closes
+    /// the group after this helper returns, so `not (done)` never leaks the
+    /// closing parenthesis into the unary operand.
+    [[nodiscard]] ExprId parseConditionExpression() {
+        const uint32_t start = index_;
+        if (isKeywordToken("optional") && index_ + 1U < token_count_ &&
+            !punctuation(index_ + 1U, ')') && !punctuation(index_ + 1U, ',') &&
+            !punctuation(index_ + 1U, '{')) {
+            ++index_;
+            Expression prop;
+            prop.kind                = ExprKind::OptionalProp;
+            prop.scope               = current_scope_;
+            const bool saved         = suppress_struct_literal_;
+            suppress_struct_literal_ = true;
+            const ExprId operand     = parseExpression();
+            suppress_struct_literal_ = saved;
+            if (operand)
+                prop.operands.push_back(operand);
+            prop.span = range(start, index_);
+            return addExpression(std::move(prop));
+        }
+        if (isKeywordToken("not") && index_ + 1U < token_count_ && !punctuation(index_ + 1U, ')') &&
+            !punctuation(index_ + 1U, ',') && !punctuation(index_ + 1U, '{')) {
+            ++index_;
+            Expression unary;
+            unary.kind               = ExprKind::Unary;
+            unary.text               = "not";
+            unary.scope              = current_scope_;
+            const bool saved         = suppress_struct_literal_;
+            suppress_struct_literal_ = true;
+            unary.operands.push_back(parseExpression());
+            suppress_struct_literal_ = saved;
+            unary.span               = range(start, index_);
+            return addExpression(std::move(unary));
+        }
+        return parseExpression();
     }
 
     /// True when the token at `index_ + offset` is the operator `text`.
@@ -3120,67 +3168,46 @@ private:
     void lowerImplementBlock(const uint32_t start, const Visibility visibility) {
         ++index_; // consume `implement` or `impl`
 
-        if (index_ >= token_count_ || snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
+        const TypeExprId owner_type = parseType();
+        if (!owner_type) {
             snapshot_.diagnostics_.push_back(
-                {tokenSpan(index_), "expected a type name after 'implement'"});
+                {tokenSpan(index_), "expected a type after 'implement'"});
             return;
         }
-        std::string owner_name = std::string(text(index_++));
-        // An implementation can target the generic template (`implement Box`).
-        // The method's receiver type then instantiates it; ownerName stays the
-        // template name so owner lookup works for both Box and Box<T>.
-        while (index_ < token_count_ &&
-               (snapshot_.tokens_[index_].kind == TokenKind::Operator ||
-                snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
-                snapshot_.tokens_[index_].kind == TokenKind::Literal) &&
-               !isOperatorToken("as") && !isKeywordToken("for") && !punctuation(index_, '{')) {
-            if (text(index_) == "<")
-                break;
-            if (isOperatorToken(">"))
-                break;
-            owner_name += text(index_);
-            ++index_;
-        }
+        std::string owner_name = canonicalTypeString(snapshot_, owner_type);
         // `implement Box<T>` is accepted but methods still attach to the template
         // name; concrete instances are resolved through explicit receiver types.
+        const auto &owner_expr = snapshot_.typeExpressions()[owner_type.value - 1U];
+        if (const size_t angle = owner_name.find('<'); angle != std::string::npos)
+            owner_name.resize(angle);
+        if (owner_expr.kind == frontend::TypeExprKind::Pointer ||
+            owner_expr.kind == frontend::TypeExprKind::Array) {
+            snapshot_.diagnostics_.push_back(
+                {owner_expr.span,
+                 "implement targets are primitives, optionals, slices and named types "
+                 "in this iteration; pointer and fixed-array owners are not supported",
+                 false, diagnostics::err::UnsupportedSyntax});
+        }
+
         std::vector<GenericParam> ownerGenericParams;
-        if (isOperatorToken("<")) {
-            int depth                  = 0;
-            std::string generic_suffix = "<";
-            ++index_;
-            while (index_ < token_count_) {
-                if (isOperatorToken("<")) {
-                    ++depth;
-                } else if (snapshot_.tokens_[index_].kind == TokenKind::Identifier && depth == 0) {
-                    GenericParam param;
-                    param.name = std::string(text(index_));
-                    param.span = tokenSpan(index_);
-                    ownerGenericParams.push_back(std::move(param));
-                    ++index_;
+        if (owner_expr.kind == frontend::TypeExprKind::Name && !owner_expr.arguments.empty()) {
+            for (const TypeExprId arg : owner_expr.arguments) {
+                const auto &arg_expr = snapshot_.typeExpressions()[arg.value - 1U];
+                if (arg_expr.kind != frontend::TypeExprKind::Name)
                     continue;
-                } else if (isOperatorToken(">")) {
-                    if (depth == 0) {
-                        generic_suffix += ">";
-                        ++index_;
-                        break;
-                    }
-                    --depth;
-                }
-                if (index_ < token_count_) {
-                    generic_suffix += text(index_);
-                    ++index_;
-                }
+                GenericParam param;
+                param.name = arg_expr.name;
+                param.span = arg_expr.span;
+                ownerGenericParams.push_back(std::move(param));
             }
-            // The owner template keeps its base name; concrete receiver types on
-            // methods drive monomorphization.
-            (void)generic_suffix;
         }
 
         std::string trait_name;
         // Optional `as TraitName` or `for TraitName` — parsed but not enforced.
-        if (index_ < token_count_ && (isKeywordToken("as") || isKeywordToken("for"))) {
+        if (index_ < token_count_ && isKeywordToken("as")) {
             ++index_;
-            if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+            if (index_ < token_count_ && (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
+                                          snapshot_.tokens_[index_].kind == TokenKind::Keyword)) {
                 trait_name = std::string(text(index_));
                 ++index_;
             } else {
@@ -3211,7 +3238,7 @@ private:
                                                   diagnostics::err::NotATrait});
             }
             snapshot_.implement_records_.push_back(
-                ImplementRecord{owner_name, trait_name, range(start, index_)});
+                ImplementRecord{owner_name, owner_type, trait_name, range(start, index_)});
         }
         ++index_;
         Visibility method_visibility = visibility;
@@ -3358,6 +3385,13 @@ private:
                     if (punctuation(index_, ':')) {
                         ++index_;
                         parameter.type = parseType();
+                        // `fn f(p: T = expr)` keeps the default inside the
+                        // parameter list.  A `= extern` alias is handled after
+                        // the return type and never reaches this branch.
+                        if (index_ < token_count_ && text(index_) == "=") {
+                            ++index_;
+                            parameter.defaultValue = parseExpression();
+                        }
                     }
                     if (parameter.type &&
                         parameter.type.value <= snapshot_.typeExpressions().size()) {

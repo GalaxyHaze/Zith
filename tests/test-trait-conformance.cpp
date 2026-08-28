@@ -247,6 +247,78 @@ void test_qualified_trait_missing_member() {
           "missing trait or method reports E2013-style NoMember");
 }
 
+void test_primitive_optional_slice_conformance() {
+    SessionRunner t("conformance");
+    auto r = t.run("trait Value {\n"
+                   "   fn value(self): i32\n"
+                   "}\n"
+                   "implement i32 as Value {\n"
+                   "   fn value(self): i32 { return 7 }\n"
+                   "}\n"
+                   "trait OptionalValue {\n"
+                   "   fn gets(self): i32 { return 11 }\n"
+                   "}\n"
+                   "implement ?char as OptionalValue {}\n"
+                   "trait SliceValue {\n"
+                   "   fn len(self): i32\n"
+                   "}\n"
+                   "implement []u8 as SliceValue {\n"
+                   "   fn len(self): i32 { return 5 }\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "   let a: i32 = 1;\n"
+                   "   let o: ?char = 'x';\n"
+                   "   let arr: [2]u8 = [1u8, 2u8];\n"
+                   "   let s: []u8 = raw arr[0..2];\n"
+                   "   return a.value() + o.gets() + s.len();\n"
+                   "}\n");
+    CHECK(r.ok, "concrete method calls on i32, ?char and []u8 type-check");
+    CHECK(!r.hasErrorCode(diagnostics::err::TraitRequirementMissing),
+          "required trait methods on primitive and slice owners are implemented");
+    CHECK(!r.hasErrorCode(diagnostics::err::TraitMethodSignatureMismatch),
+          "implemented signatures match the trait requirements");
+}
+
+void test_primitive_optional_slice_duplicates_and_bounds() {
+    SessionRunner t("conformance");
+    auto duplicate = t.run("trait Value {}\n"
+                           "implement i32 as Value {}\n"
+                           "implement i32 as Value {}\n"
+                           "fn main(): i32 { return 1 }\n");
+    CHECK(!duplicate.ok, "a duplicate primitive implementation fails");
+    CHECK(duplicate.hasErrorCode(diagnostics::err::DuplicateImplementation),
+          "duplicate primitive implementation reports E2027");
+
+    SessionRunner bound_t("bounds");
+    auto bounds = bound_t.run("trait Show {\n"
+                              "   fn show(self): i32\n"
+                              "}\n"
+                              "implement i32 as Show { fn show(self): i32 { return 3 } }\n"
+                              "implement ?char as Show { fn show(self): i32 { return 4 } }\n"
+                              "implement []u8 as Show { fn show(self): i32 { return 5 } }\n"
+                              "fn pick<T: Show>(x: T): i32 { return x.show() }\n"
+                              "fn main(): i32 {\n"
+                              "   let a: i32 = 1;\n"
+                              "   let o: ?char = 'x';\n"
+                              "   let arr: [2]u8 = [1u8, 2u8];\n"
+                              "   let s: []u8 = raw arr[0..2];\n"
+                              "   return pick(a) + pick(o) + pick(s);\n"
+                              "}\n");
+    CHECK(bounds.ok, "generic bounds T: Trait accept i32, ?char and []u8");
+}
+
+void test_primitive_slice_missing_requirement() {
+    SessionRunner t("conformance");
+    auto r = t.run("trait SliceValue {\n"
+                   "   fn len(self): i32\n"
+                   "}\n"
+                   "implement []char as SliceValue {}\n"
+                   "fn main(): i32 { return 1 }\n");
+    CHECK(!r.ok, "a missing slice requirement fails");
+    CHECK(r.hasErrorCode(diagnostics::err::TraitRequirementMissing),
+          "missing slice requirement reports E2021");
+}
+
 void test_trait_conformance() {
     test_requirement_default_and_override();
     test_default_method_available();
@@ -259,6 +331,9 @@ void test_trait_conformance() {
     test_struct_and_interface_method_coexist();
     test_qualified_trait_method_selection();
     test_qualified_trait_missing_member();
+    test_primitive_optional_slice_conformance();
+    test_primitive_optional_slice_duplicates_and_bounds();
+    test_primitive_slice_missing_requirement();
 }
 
 } // namespace

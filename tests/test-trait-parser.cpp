@@ -126,11 +126,59 @@ static void test_implement_trait_name_checks() {
           "non-trait implemented name reports E2023 NotATrait");
 }
 
+static void test_implement_primitive_optional_slice() {
+    auto snapshot = frontend::parse("trait Foo {}\n"
+                                    "implement i32 as Foo { fn value(self): i32 { return 1 } }\n"
+                                    "implement ?char as Foo { fn get(self): i32 { return 2 } }\n"
+                                    "implement []char as Foo { fn len(self): i32 { return 3 } }\n");
+
+    CHECK(snapshot.diagnostics().empty(),
+          "primitive, optional and slice implement owners parse without diagnostics");
+
+    bool saw_i32       = false;
+    bool saw_optional  = false;
+    bool saw_slice     = false;
+    bool saw_ownerType = false;
+    for (const auto &record : snapshot.implementRecords()) {
+        if (record.owner == "i32")
+            saw_i32 = true;
+        if (record.owner == "?char")
+            saw_optional = true;
+        if (record.owner == "[]char")
+            saw_slice = true;
+        if (record.ownerType)
+            saw_ownerType = true;
+    }
+    CHECK(saw_i32, "implement i32 keeps the canonical owner name");
+    CHECK(saw_optional, "implement ?char keeps the canonical owner name");
+    CHECK(saw_slice, "implement []char keeps the canonical owner name");
+    CHECK(saw_ownerType, "composite implement owners carry a type expression");
+
+    bool saw_owner_i32      = false;
+    bool saw_owner_optional = false;
+    bool saw_owner_slice    = false;
+    for (const auto &decl : snapshot.declarations()) {
+        if (decl.kind == frontend::DeclKind::Function && decl.ownerName == "i32" &&
+            decl.name == "value")
+            saw_owner_i32 = true;
+        if (decl.kind == frontend::DeclKind::Function && decl.ownerName == "?char" &&
+            decl.name == "get")
+            saw_owner_optional = true;
+        if (decl.kind == frontend::DeclKind::Function && decl.ownerName == "[]char" &&
+            decl.name == "len")
+            saw_owner_slice = true;
+    }
+    CHECK(saw_owner_i32, "methods inside implement i32 inherit the canonical owner");
+    CHECK(saw_owner_optional, "methods inside implement ?char inherit the canonical owner");
+    CHECK(saw_owner_slice, "methods inside implement []char inherit the canonical owner");
+}
+
 static void test_trait_parser() {
     test_trait_member_storage();
     test_interface_method_diagnostic();
     test_interface_method_default_body_rejected();
     test_implement_trait_name_checks();
+    test_implement_primitive_optional_slice();
 }
 
 TEST_MAIN(trait_parser)

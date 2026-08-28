@@ -1169,6 +1169,36 @@ HirLowerModern::methodDeclFromTarget(frontend::ExprId callee,
     return decl;
 }
 
+hir::HirExprId HirLowerModern::lowerVisibleDefault(const session::ModuleArtifact &module,
+                                                   const comptime::InstantiationInstance *instance,
+                                                   frontend::ExprId default_id) {
+    if (!default_id || module.frontend == nullptr ||
+        default_id.value > module.frontend->expressions().size())
+        return hir::kInvalidHirExpr;
+    const session::ModuleResolution *decl_resolution = snapshot_.findResolution(module.key);
+    const TypedMap *decl_types                       = sema_.findTypedMap(module.key);
+    if (decl_resolution == nullptr || decl_types == nullptr)
+        return hir::kInvalidHirExpr;
+
+    const session::ModuleArtifact *saved_module           = current_module_;
+    const session::ModuleResolution *saved_resolution     = current_resolution_;
+    const TypedMap *saved_types                           = current_types_;
+    const comptime::GenericInstantiationPass *saved_inst  = current_instantiation_;
+    const comptime::InstantiationInstance *saved_instance = current_instance_;
+    current_module_                                       = &module;
+    current_resolution_                                   = decl_resolution;
+    current_types_                                        = decl_types;
+    current_instantiation_ = instance != nullptr ? sema_.instantiations() : nullptr;
+    current_instance_      = instance;
+    const auto value       = lowerExpr(default_id);
+    current_module_        = saved_module;
+    current_resolution_    = saved_resolution;
+    current_types_         = saved_types;
+    current_instantiation_ = saved_inst;
+    current_instance_      = saved_instance;
+    return value;
+}
+
 const session::ResolvedName *HirLowerModern::findResolvedExpr(frontend::ExprId id) const noexcept {
     if (current_module_ == nullptr || current_resolution_ == nullptr || !id ||
         id.value > current_module_->frontend->expressions().size()) {
@@ -1804,6 +1834,32 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
                     dyncall.args.back() = argument;
                 }
             }
+            if (method_decl != nullptr) {
+                const session::ModuleArtifact *dyn_decl_module =
+                    owner_artifact != nullptr ? owner_artifact : current_module_;
+                const comptime::InstantiationInstance *dyn_decl_instance = nullptr;
+                if (const auto *instantiations = sema_.instantiations();
+                    instantiations != nullptr) {
+                    if (const auto *binding =
+                            instantiations->callBinding(current_module_->key, callee_id))
+                        dyn_decl_instance = instantiations->at(binding->instance);
+                }
+                const size_t dyn_explicit_fixed =
+                    has_receiver ? dyncall.args.size() - 1U : dyncall.args.size();
+                for (size_t index = (has_receiver ? 1U : 0U) + dyn_explicit_fixed;
+                     index < method_decl->parameters.size() && index < dyn_slice_param; ++index) {
+                    if (!method_decl->parameters[index].defaultValue)
+                        continue;
+                    auto value = lowerVisibleDefault(*dyn_decl_module, dyn_decl_instance,
+                                                     method_decl->parameters[index].defaultValue);
+                    if (value == hir::kInvalidHirExpr)
+                        return hir::kInvalidHirExpr;
+                    dyncall.args.push(lowerCoerceToDyn(fn->params[index],
+                                                       method_decl->parameters[index].defaultValue,
+                                                       value, fn->params[index]));
+                    dyncall.arg_types.push(lowerType(fn->params[index]));
+                }
+            }
             if (dyn_collect_tail && !dyn_tail_lowered) {
                 auto slice = lowerVariadicSliceTail(fn->params[dyn_slice_param], {});
                 if (slice == hir::kInvalidHirExpr)
@@ -1852,11 +1908,16 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
             base_optional != nullptr &&
             sema_.typeTable().kindOf(sema_.typeTable().stripQualifiers(base_optional->inner)) !=
                 TypeKind::Pointer;
+        const bool optional_has_exact_owner =
+            base_optional != nullptr && method_decl != nullptr &&
+            sema_.typeTable().typeToString(base_sema_resolved) == method_decl->ownerName;
         const bool base_is_ptr = base_hir_ty != types::kErrorType &&
                                  base_hir_ty != types::kInvalidType &&
                                  (types_.kindOf(base_hir_ty) == types::TypeKind::Ptr ||
                                   types_.kindOf(base_hir_ty) == types::TypeKind::Optional);
-        if (base_optional_aggregate) {
+        if (base_optional_aggregate && optional_has_exact_owner)
+            self_arg = lowerLValueAddr(base_id);
+        else if (base_optional_aggregate) {
             // The receiver points at the stored payload, never at the
             // aggregate `{payload, tag}` wrapper.
             const auto slot = next_slot_++;
@@ -1949,6 +2010,7 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
         }();
     const bool collect_tail = slice_param != ~static_cast<size_t>(0) && !explicit_slice_arg;
     bool tail_lowered       = false;
+
     for (size_t index = 1; index < expr.operands.size(); ++index) {
         const size_t call_index          = is_receiver_method ? index : index - 1U;
         const bool is_first_tail_element = collect_tail && call_index >= slice_param;
@@ -2006,6 +2068,43 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
                                                     lowered_argument, param_sema);
         }
         args.push(lowered_argument);
+    }
+    // Default arguments are validated by sema but not present in the caller's
+    // expression nodes. Materialize missing fixed parameters as ordinary
+    // arguments once the explicit (or explicit-slice) tail is known.
+    const session::ModuleArtifact *decl_module       = owner_artifact;
+    const comptime::InstantiationInstance *decl_inst = nullptr;
+    const frontend::Declaration *param_decl          = method_decl;
+    const size_t receiver_offset                     = is_receiver_method ? 1U : 0U;
+    if (param_decl == nullptr) {
+        if (const auto *target = overloadTarget(callee_id); target != nullptr) {
+            decl_module = snapshot_.findModule(target->module);
+            param_decl  = decl_module != nullptr ? findDecl(*decl_module, target->decl) : nullptr;
+        } else if (const auto *resolved = findResolvedExpr(callee_id)) {
+            param_decl = resolvedFunctionDecl(*resolved, &decl_module);
+        }
+    }
+    if (decl_module == nullptr)
+        decl_module = current_module_;
+    if (const auto *instantiations = sema_.instantiations(); instantiations != nullptr) {
+        if (const auto *binding = instantiations->callBinding(current_module_->key, callee_id))
+            decl_inst = instantiations->at(binding->instance);
+    }
+    if (param_decl != nullptr && decl_module != nullptr) {
+        const size_t explicit_fixed = args.size() - receiver_offset;
+        const size_t max_fixed =
+            slice_param != ~static_cast<size_t>(0) ? slice_param : callee_fn->params.size();
+        for (size_t index = receiver_offset + explicit_fixed;
+             index < param_decl->parameters.size() && index < max_fixed; ++index) {
+            if (!param_decl->parameters[index].defaultValue)
+                continue;
+            auto value = lowerVisibleDefault(*decl_module, decl_inst,
+                                             param_decl->parameters[index].defaultValue);
+            if (value == hir::kInvalidHirExpr)
+                return hir::kInvalidHirExpr;
+            args.push(value);
+            arg_types.push(lowerType(callee_fn->params[index]));
+        }
     }
     if (collect_tail && !tail_lowered) {
         // A variadic-slice callee is still callable with an empty tail. Lower
@@ -2078,13 +2177,13 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
             if (const auto *instantiations = sema_.instantiations(); instantiations != nullptr) {
                 if (const auto *binding =
                         instantiations->callBinding(current_module_->key, callee_id)) {
-                    const session::ModuleArtifact *decl_module = nullptr;
-                    const auto *decl     = resolvedFunctionDecl(*resolved, &decl_module);
+                    const session::ModuleArtifact *resolved_module = nullptr;
+                    const auto *decl     = resolvedFunctionDecl(*resolved, &resolved_module);
                     const auto *instance = instantiations->at(binding->instance);
-                    if (decl != nullptr && decl_module != nullptr && instance != nullptr) {
+                    if (decl != nullptr && resolved_module != nullptr && instance != nullptr) {
                         for (const auto &function : functions_) {
                             if (function.instance != nullptr && function.module != nullptr &&
-                                function.module->key == decl_module->key &&
+                                function.module->key == resolved_module->key &&
                                 function.instance->decl == decl->id &&
                                 function.instance->args == instance->args) {
                                 call.resolved_fn = function.sym_id;
@@ -2100,10 +2199,10 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
     }
     const hir::HirExprId call_id = addExpr(std::move(call));
     if (call_id != hir::kInvalidHirExpr) {
-        const session::ModuleArtifact *decl_module = nullptr;
-        const auto *resolved                       = findResolvedExpr(callee_id);
+        const session::ModuleArtifact *resolved_module = nullptr;
+        const auto *resolved                           = findResolvedExpr(callee_id);
         const auto *target_decl =
-            resolved != nullptr ? resolvedFunctionDecl(*resolved, &decl_module) : nullptr;
+            resolved != nullptr ? resolvedFunctionDecl(*resolved, &resolved_module) : nullptr;
         if (target_decl != nullptr && target_decl->kind == frontend::DeclKind::Function &&
             target_decl->functionKind == frontend::FunctionKind::State) {
             auto &hir_call      = std::get<hir::HirCall>(hir_.getExprMut(call_id));
@@ -2925,6 +3024,27 @@ hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,
                                                      : memory::Span{});
             return hir::kInvalidHirExpr;
         }
+
+        // `opaque as raw opaque` is the explicit unchecked way to reinterpret a
+        // bare opaque as the `void*` it stores: it is a pointer extraction, not a
+        // load of a concrete T payload.
+        if (types_.kindOf(type) == types::TypeKind::Ptr) {
+            const auto *ptr = std::get_if<types::TypePtr>(&types_.lookup(type));
+            if (ptr != nullptr && ptr->pointee != types::kInvalidType &&
+                types_.kindOf(ptr->pointee) == types::TypeKind::Void) {
+                hir::HirOpaqueCast cast;
+                cast.value       = value;
+                cast.from        = from;
+                cast.to          = type;
+                cast.checked     = false;
+                cast.type_id     = stableConcreteTypeId(from);
+                cast.opaque_type = from;
+                cast.result_type = type;
+                cast.returns_ptr = true;
+                return addExpr(std::move(cast));
+            }
+        }
+
         if (expr.is_raw) {
             hir::HirOpaqueCast cast;
             cast.value       = value;
@@ -4266,6 +4386,36 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                                                  statement.arguments[lowered_fixed], argument);
             tail.call.argument_types.push(lowerType(target_fn->params[lowered_fixed]));
             tail.call.args.push(argument);
+        }
+        if (target != nullptr && current_module_ != nullptr) {
+            const comptime::InstantiationInstance *target_instance = nullptr;
+            if (const auto *instantiations = sema_.instantiations(); instantiations != nullptr) {
+                const auto *func_index2 = function_index_by_key_.get(target_key);
+                if (func_index2 != nullptr) {
+                    const auto &function = functions_[*func_index2];
+                    if (function.instance != nullptr && function.instance->decl == target->id) {
+                        for (size_t index = 0; index < instantiations->instanceCount(); ++index) {
+                            const auto *instance = instantiations->at(index);
+                            if (instance->decl == target->id &&
+                                instance->args == function.instance->args) {
+                                target_instance = instance;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            for (size_t index = lowered_fixed;
+                 index < target->parameters.size() && index < slice_index; ++index) {
+                if (!target->parameters[index].defaultValue)
+                    continue;
+                auto value = lowerVisibleDefault(*current_module_, target_instance,
+                                                 target->parameters[index].defaultValue);
+                if (value == hir::kInvalidHirExpr)
+                    return false;
+                tail.call.args.push(value);
+                tail.call.argument_types.push(lowerType(target_fn->params[index]));
+            }
         }
         if (auto_collect_tail && statement.arguments.size() > slice_index) {
             std::vector<frontend::ExprId> tail_exprs(statement.arguments.begin() +

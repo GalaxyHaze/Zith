@@ -576,6 +576,16 @@ llvm::Value *CodeGenEmit::emitBinary(const hir::HirBinary &bin, const hir::HirMo
     if (!lhs || !rhs)
         return nullptr;
 
+    // Bare `opaque` is `{payload*, typeId}`. When the other operand is a
+    // pointer, compare the payload pointer (field 0) instead of calling LLVM
+    // with an aggregate and a pointer operand.
+    if (lhs->getType()->isStructTy() && rhs->getType()->isPointerTy())
+        lhs = builder_.CreateExtractValue(lhs, {0U});
+    else if (rhs->getType()->isStructTy() && lhs->getType()->isPointerTy())
+        rhs = builder_.CreateExtractValue(rhs, {0U});
+    if (lhs->getType() != rhs->getType())
+        return nullptr;
+
     bool isFloat    = lhs->getType()->isFloatingPointTy();
     bool isUnsigned = false;
     // Comparisons/arithmetic derive signedness from the operand type, not the
@@ -957,6 +967,13 @@ llvm::Value *CodeGenEmit::emitOpaqueCast(const hir::HirOpaqueCast &cast,
     auto *data = builder_.CreateExtractValue(opaque, {0U});
     if (!data)
         return nullptr;
+
+    if (cast.returns_ptr) {
+        auto *ptr_type = typeGen_.lower(cast.to);
+        if (!ptr_type || !ptr_type->isPointerTy())
+            return nullptr;
+        return builder_.CreateBitCast(data, ptr_type);
+    }
 
     auto *to_type = typeGen_.lower(cast.to);
     if (!to_type)

@@ -47,7 +47,54 @@ A imutabilidade de um binding propaga-se a qualquer caminho de escrita num valor
 
 Parâmetros de função são imutáveis por defeito, tal como `let`: `p.x = 1` numa função `fn set(p: P)` é rejeitado. `var p: T` torna o parâmetro localmente mutável, permitindo `p.x = 1`; `let p: T` continua opcional e mantém o default. A atribuição direta ao nome do parâmetro segue a mesma regra: sem `var` é rejeitada, com `var` é permitida na medida em que a assinatura existente continue por valor.
 
+Parâmetros de função podem declarar um default por posição com `= expr` depois do tipo. O default é usado quando o call site omite esse argumento e os argumentos seguintes (dentro do limite de parâmetros fixos) também têm default. Um parâmetro sem default não pode seguir um parâmetro com default, e o tipo da expressão default é verificado contra o tipo do parâmetro. A sintaxe é por posição nesta iteração; não há named arguments nem disambiguation de overloads por defaults.
+
+````zith
+fn add(left: i32, right: i32 = 5): i32 {
+    return left + right;
+}
+
+fn main(): i32 {
+    return add(7) + add(1, 2); // 12 + 3
+}
+````
+
+O `=` interno à lista de parâmetros pertence ao default do parâmetro. Um alias `fn f(...): T = extern name` continua a ser parseado depois do retorno e não colide com a sintaxe de defaults.
+
 Methods continuam com `self` implícito. `self.field` é a forma canónica e auto-derefs o receiver; `self->field` continua aceite como legacy. Um `self` simples é read-only: `self.x = 1` é rejeitado. `var self` permite mutação in-place dos campos do receiver, como `self.x += 1`.
+
+O owner de um bloco `implement` pode ser um primitivo, `?T` ou `[]T`, além de um tipo nomeado:
+
+````zith
+trait Value {
+    fn value(self): i32;
+}
+implement i32 as Value {
+    fn value(self): i32 { return 7; }
+}
+
+trait OptionalValue {
+    fn get(self): i32 { return 1; }
+}
+implement ?char as OptionalValue {}
+
+trait SliceLen {
+    fn len(self): i32;
+}
+implement []char as SliceLen {
+    fn len(self): i32 { return 3; }
+}
+
+fn main(): i32 {
+    let a: i32 = 1;
+    let o: ?char = 'x';
+    var arr: [3]char = ['a', 'b', 'c'];
+    let s: []char = raw arr[0..3];
+    return a.value() + o.get() + s.len();  // 7 + 1 + 3
+}
+````
+
+Estes owners participam na conformação nominal: requirements e defaults são verificados, duplicatas continuam a falhar, e tipos concretos satisfazem bounds genéricos `T: Trait`. Pointer (`*T`) e fixed-array (`[N]T`) continuam fora desta iteração.
 
 Quando um método com `self` simples ou `var self` é chamado, o sema invalida logicamente a ligação do receiver no chamador: leituras subsequentes reportam `E4001 UseAfterMove`, e escrita através do receiver inválido também. Atribuir diretamente ao nome da variável revive a ligação. `view`/`lend`, receivers explícitos por pointer e chamadas de funções livres ainda não marcam o valor no chamador nesta fase.
 
@@ -210,6 +257,17 @@ booleanos. A negação é `not`; `not (cond)` é a forma idiomática, embora
 `not cond` continue a ser aceite. O `!` fica reservado a uma futura forma
 postfix e não é um operador unário prefixo nesta iteração.
 
+Em posição de condição, `not expr` sem parêntesis extra é aceite em `if`, `while`, nas três cláusulas do `for (init), (cond), (step)` e em `for (cond)`. O parser fecha a cláusula depois do operando, por isso também não deixa o parêntesis de fecho pendurado: `for (var i = 0), (not done), (i += 1) { ... }` e `for (var i = 0), (not (done)), ...` são equivalentes.
+
+Uma condição opcional também pode ser escrita como `optional expr`, açúcar curto para o teste booleano `expr?`: é verdadeira quando o optional tem payload e falsa quando é `null`. Serve apenas para condição (`if`, `while`, `for` e cláusulas de `for`); fora desse contexto, `optional` continua a ser o modificador de tipo. O operando tem de ser `?T` e o teste não faz narrowing do payload.
+
+````zith
+fn main(x: ?i32): i32 {
+    if optional x { return 1; }   // payload presente
+    return 0;                     // x é null
+}
+````
+
 Os loops aceitam labels na forma `outer: for ...` e `outer: while ...` para
 permitir sair ou continuar a partir de loops aninhados:
 
@@ -323,6 +381,13 @@ A exclusividade é validada por chamada e por root lógico do binding: o mesmo b
 Em unions tagged, `is Tipo` estreita o local testado para o membro dentro do braço `if`/`when` correspondente, sem `as`. Extrair um membro tagged fora desse contexto exige `raw f as Tipo`; unions `raw` mantêm casts livres entre membros.
 
 `unique`, `share` e `belong` são rejeitados com `E2010 UnsupportedSyntax` e mensagem `Zith--: unique/share/belong ownership is not supported; use lend or view`.
+
+O bare `opaque` não é implicitamente compatível com qualquer tipo. `opaque -> T` e `T -> opaque` exigem o cast explícito: `T as opaque` erradica para `opaque`, `opaque as T` devolve `?T` com verificação de typeId, e `raw opaque as T` reinterpreta sem verificação. Um binding ou argumento `let x: u32 = d` quando `d: opaque` reporta `implicit 'opaque' conversion is not allowed; use 'as' (or 'raw as' for an unchecked extraction)` e não chega a codegen. Bare `opaque` continua module-local: atravessar imports/cache reporta `E2010`.
+
+`opaque as raw opaque` é a extração explícita e unchecked do payload como `void*`: devolve
+o ponteiro guardado no campo 0 da tagged union, sem verificar o typeId nem fazer load do
+payload. Isto é útil para comparar ponteiros reais guardados por valores `opaque`, por exemplo
+depois de um teste `value is *char`.
 
 ## Macros
 

@@ -366,6 +366,62 @@ static void test_bare_opaque_raw_and_mismatch_runtime() {
     CHECK_EQ(r.exitCode, 2, "checked extraction of a mismatched type returns null");
 }
 
+static void test_bare_opaque_raw_pointer_same_payload_same_allocation_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn main(): i32 {\n"
+                         "    var v: i32 = 41;\n"
+                         "    let a: opaque = v as opaque;\n"
+                         "    let p0: raw opaque = a as raw opaque;\n"
+                         "    let p1: raw opaque = a as raw opaque;\n"
+                         "    if (p0 != p1) { return 1; }\n"
+                         "    return 0;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "bare opaque raw pointer comparison uses the modern codegen pipeline");
+    CHECK(r.ok, "opaque as raw opaque compiles and runs");
+    CHECK_EQ(r.exitCode, 0, "the same opaque value exposes the same payload pointer");
+}
+
+static void test_bare_opaque_raw_pointer_different_payload_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn main(): i32 {\n"
+                         "    var first: i32 = 1;\n"
+                         "    var second: i32 = 2;\n"
+                         "    let a: opaque = first as opaque;\n"
+                         "    let b: opaque = second as opaque;\n"
+                         "    if ((a as raw opaque) == (b as raw opaque)) { return 1; }\n"
+                         "    return 0;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "bare opaque raw pointer comparison uses the modern codegen pipeline");
+    CHECK(r.ok, "opaque as raw opaque with distinct payloads compiles and runs");
+    CHECK_EQ(r.exitCode, 0, "opaque raw pointer comparisons run without an LLVM type mismatch");
+}
+
+static void test_bare_opaque_raw_pointer_literal_after_narrow_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn printOpaque(value: opaque): i32 {\n"
+                         "    if (value is *char) {\n"
+                         "        if ((value as raw opaque) != (\"hello,\" as raw opaque)) {\n"
+                         "            return 9;\n"
+                         "        }\n"
+                         "    }\n"
+                         "    return 7;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    let any: opaque = \"hello,\" as opaque;\n"
+                         "    printOpaque(any)\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "opaque string payload narrowing uses the modern codegen pipeline");
+    CHECK(r.ok, "opaque + raw opaque pointer comparison after 'is *char' compiles and runs");
+    CHECK_EQ(r.exitCode, 9,
+             "the payload pointer compares as a pointer without an LLVM type mismatch");
+}
+
 static void test_struct_fields_and_parameter() {
     CodegenTest t;
     auto r = t.run("codegen-struct-fields.zith",
@@ -1801,6 +1857,100 @@ static void test_optional_pointer_boolean_condition_runtime() {
     CHECK_EQ(r.exitCode, 0, "the non-null ?*i32 branch runs and the null ?*i32 branch does not");
 }
 
+static void test_optional_condition_keyword_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn non_null(): i32 {\n"
+                         "    let x: ?i32 = 7;\n"
+                         "    if (optional x) { return 1; }\n"
+                         "    return 9;\n"
+                         "}\n"
+                         "fn null_value(): i32 {\n"
+                         "    let y: ?i32 = null;\n"
+                         "    if (optional y) { return 9; }\n"
+                         "    return 0;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    if (non_null() != 1) { return 2; }\n"
+                         "    return null_value();\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "the optional condition keyword uses the modern codegen pipeline");
+    CHECK(r.ok, "'optional expr' conditions compile, link and run");
+    CHECK_EQ(r.exitCode, 0, "the non-null ?i32 branch runs and the null ?i32 branch does not");
+}
+
+static void test_bare_condition_forms_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn force(ok: bool): i32 {\n"
+                         "    if not ok { return 1; }\n"
+                         "    return 7;\n"
+                         "}\n"
+                         "fn pick(): i32 {\n"
+                         "    var x: ?i32 = 4;\n"
+                         "    if optional x { return 3; }\n"
+                         "    while optional x { return 5; }\n"
+                         "    for optional x { return 9; }\n"
+                         "    return 0;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    if (force(false) != 1) { return 2; }\n"
+                         "    return pick();\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "bare condition forms use the modern codegen pipeline");
+    CHECK(r.ok, "bare optional/not conditions compile, link and run");
+    CHECK_EQ(r.exitCode, 3, "bare not reaches its branch and bare optional is truthy");
+}
+
+static void test_function_default_arguments_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn add(left: i32, right: i32 = 5): i32 {\n"
+                         "    return left + right;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    return add(7) + add(1, 2);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "default arguments use the modern codegen pipeline");
+    CHECK(r.ok, "default argument calls compile, link and run");
+    CHECK_EQ(r.exitCode, 15, "omitting a defaulted argument materializes its default value");
+}
+
+static void test_primitive_optional_slice_implement_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "trait Foo {\n"
+                         "    fn value(self): i32;\n"
+                         "}\n"
+                         "implement i32 as Foo {\n"
+                         "    fn value(self): i32 { return 7; }\n"
+                         "}\n"
+                         "trait O {\n"
+                         "    fn get(self): i32 { return 1; }\n"
+                         "}\n"
+                         "implement ?char as O {}\n"
+                         "trait S {\n"
+                         "    fn len(self): i32;\n"
+                         "}\n"
+                         "implement []char as S {\n"
+                         "    fn len(self): i32 { return 3; }\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    let a: i32 = 1;\n"
+                         "    let o: ?char = 'x';\n"
+                         "    var arr: [3]char = ['a', 'b', 'c'];\n"
+                         "    let s: []char = raw arr[0..3];\n"
+                         "    return a.value() + o.get() + s.len();\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "primitive/optional/slice implementations use the modern pipeline");
+    CHECK(r.ok, "method calls on i32, ?char and []char compile, link and run");
+    CHECK_EQ(r.exitCode, 11, "a.value() + o.get() + s.len() returns 7 + 1 + 3");
+}
+
 static void test_overloaded_functions_link_and_run() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
@@ -2286,6 +2436,9 @@ static void test_codegen() {
     test_raw_opaque_round_trip_runtime();
     test_bare_opaque_runtime();
     test_bare_opaque_raw_and_mismatch_runtime();
+    test_bare_opaque_raw_pointer_same_payload_same_allocation_runtime();
+    test_bare_opaque_raw_pointer_different_payload_runtime();
+    test_bare_opaque_raw_pointer_literal_after_narrow_runtime();
     printf("Running test_struct_fields_and_parameter\n");
     test_struct_fields_and_parameter();
     printf("Running test_array_of_structs\n");
@@ -2382,6 +2535,14 @@ static void test_codegen() {
     test_optional_boolean_condition_runtime();
     printf("Running test_optional_pointer_boolean_condition_runtime\n");
     test_optional_pointer_boolean_condition_runtime();
+    printf("Running test_optional_condition_keyword_runtime\n");
+    test_optional_condition_keyword_runtime();
+    printf("Running test_bare_condition_forms_runtime\n");
+    test_bare_condition_forms_runtime();
+    printf("Running test_function_default_arguments_runtime\n");
+    test_function_default_arguments_runtime();
+    printf("Running test_primitive_optional_slice_implement_runtime\n");
+    test_primitive_optional_slice_implement_runtime();
     printf("Running test_extern_variadic_call_runs\n");
     test_extern_variadic_call_runs();
     printf("Running test_external_symbol_alias_runtime\n");

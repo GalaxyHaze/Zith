@@ -749,6 +749,16 @@ static void test_artifact_builder() {
         cast.checked     = true;
         opaque_cast_id   = hir.addExpr(std::move(cast));
 
+        hir::HirOpaqueCast raw_ptr_cast;
+        raw_ptr_cast.value       = make_opaque_id;
+        raw_ptr_cast.from        = opaque_type;
+        raw_ptr_cast.to          = types.internPtr(types::kVoidType);
+        raw_ptr_cast.opaque_type = opaque_type;
+        raw_ptr_cast.result_type = raw_ptr_cast.to;
+        raw_ptr_cast.type_id     = 0xCAFEBABEu;
+        raw_ptr_cast.returns_ptr = true;
+        hir.addExpr(std::move(raw_ptr_cast));
+
         hir::HirOpaqueCheck check;
         check.value       = make_opaque_id;
         check.opaque_type = opaque_type;
@@ -975,6 +985,30 @@ static void test_artifact_builder() {
         CHECK_EQ(opaque_cast_compact->ref_e, 0xCAFEBABEu,
                  "OpaqueCast serializes the expected type id");
         CHECK((opaque_cast_compact->flags & 1U) != 0, "OpaqueCast serializes the checked flag");
+        CHECK((opaque_cast_compact->flags & 2U) == 0,
+              "a checked OpaqueCast does not serialize the pointer-return flag");
+    }
+    const auto raw_ptr_cast_compact =
+        std::find_if(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::OpaqueCast &&
+                   (expr.flags & 2U) != 0;
+        });
+    CHECK(raw_ptr_cast_compact != art.exprs.end(),
+          "builder serializes a pointer-returning OpaqueCast");
+    if (raw_ptr_cast_compact != art.exprs.end()) {
+        CHECK_EQ(raw_ptr_cast_compact->ref_a, make_opaque_id,
+                 "raw pointer OpaqueCast serializes the opaque value");
+        CHECK(raw_ptr_cast_compact->ref_b < art.types.size() &&
+                  art.types[raw_ptr_cast_compact->ref_b].kind == CompactTypeKind::OpaqueTagged,
+              "raw pointer OpaqueCast serializes the from type");
+        CHECK(raw_ptr_cast_compact->ref_c < art.types.size() &&
+                  art.types[raw_ptr_cast_compact->ref_c].kind == CompactTypeKind::Ptr,
+              "raw pointer OpaqueCast serializes pointer-to-void as the to type");
+        CHECK(raw_ptr_cast_compact->type_id < art.types.size() &&
+                  art.types[raw_ptr_cast_compact->type_id].kind == CompactTypeKind::Ptr,
+              "raw pointer OpaqueCast serializes pointer-to-void as the result type");
+        CHECK_EQ(raw_ptr_cast_compact->flags & ~2U, 0U,
+                 "raw pointer OpaqueCast is unchecked and pointer-returning");
     }
     const auto opaque_check_compact =
         std::find_if(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &expr) {
@@ -1109,6 +1143,29 @@ static void test_artifact_builder() {
                  "round-trip preserves OpaqueCast type id");
         CHECK_EQ(round_opaque_cast->flags, opaque_cast_compact->flags,
                  "round-trip preserves OpaqueCast checked flag");
+    }
+    const auto round_raw_ptr_cast =
+        std::find_if(round->exprs.begin(), round->exprs.end(), [](const cache::CompactExpr &expr) {
+            return expr.kind == cache::CompactExprKind::OpaqueCast &&
+                   (expr.flags & 2U) != 0;
+        });
+    CHECK(round_raw_ptr_cast != round->exprs.end(),
+          "round-trip preserves a pointer-returning OpaqueCast");
+    if (round_raw_ptr_cast != round->exprs.end() && raw_ptr_cast_compact != art.exprs.end()) {
+        CHECK_EQ(round_raw_ptr_cast->ref_a, raw_ptr_cast_compact->ref_a,
+                 "round-trip preserves raw pointer OpaqueCast value");
+        CHECK_EQ(round_raw_ptr_cast->ref_b, raw_ptr_cast_compact->ref_b,
+                 "round-trip preserves raw pointer OpaqueCast from type");
+        CHECK_EQ(round_raw_ptr_cast->ref_c, raw_ptr_cast_compact->ref_c,
+                 "round-trip preserves raw pointer OpaqueCast to type");
+        CHECK_EQ(round_raw_ptr_cast->ref_d, raw_ptr_cast_compact->ref_d,
+                 "round-trip preserves raw pointer OpaqueCast opaque type");
+        CHECK_EQ(round_raw_ptr_cast->type_id, raw_ptr_cast_compact->type_id,
+                 "round-trip preserves raw pointer OpaqueCast result type");
+        CHECK_EQ(round_raw_ptr_cast->ref_e, raw_ptr_cast_compact->ref_e,
+                 "round-trip preserves raw pointer OpaqueCast type id");
+        CHECK_EQ(round_raw_ptr_cast->flags, raw_ptr_cast_compact->flags,
+                 "round-trip preserves raw pointer OpaqueCast pointer-return flag");
     }
     const auto round_opaque_check =
         std::find_if(round->exprs.begin(), round->exprs.end(), [](const cache::CompactExpr &expr) {

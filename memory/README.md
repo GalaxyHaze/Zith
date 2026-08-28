@@ -26,7 +26,7 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
   while landing the feature.
 - [simd-intrinsics-asm.md](simd-intrinsics-asm.md): decision to prefer LLVM
   intrinsics over assembly for native/SIMD support; vector types come after
-  scalar intrinsics.
+  scalar intrinsics. Also records the known `@sizeOf` `E5001` lowering gap.
 - [stalin-debug.md](stalin-debug.md): strategy for narrowing compiler bugs by
   disabling reproducer/code paths step by step before deep debugging.
 - [tests-and-defer-codegen.md](tests-and-defer-codegen.md): test binary

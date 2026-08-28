@@ -413,6 +413,55 @@ static void test_loop_labels_and_not_negation() {
     CHECK(!not_bang.diagnostics().empty(), "prefix '!' is not accepted as a unary operator");
 }
 
+static void test_default_parameters_and_condition_syntax() {
+    auto defaults = frontend::parse("fn add_with_default(left: i32, right: i32 = 5): i32 {\n"
+                                    "    return left + right;\n"
+                                    "}\n");
+    CHECK(defaults.diagnostics().empty(), "function parameter defaults parse without diagnostics");
+    if (defaults.declarations().size() == 1U) {
+        const auto &fn = defaults.declarations()[0];
+        CHECK(fn.parameters.size() == 2U, "defaulted function keeps both parameters");
+        CHECK(fn.parameters[1].defaultValue,
+              "the '=' expression is recorded as the parameter default");
+    }
+
+    auto conditions         = frontend::parse("fn run(ok: bool, done: bool, keep: bool): i32 {\n"
+                                                      "    if (not ok) { return 0; }\n"
+                                                      "    while (not done) { break; }\n"
+                                                      "    for (var i: i32 = 0), (not done), (i = i + 1) {\n"
+                                                      "        for (var j: i32 = 0), (not (done)), (j = j + 1) {\n"
+                                                      "        }\n"
+                                                      "    }\n"
+                                                      "    return 1;\n"
+                                                      "}\n");
+    bool only_while_warning = true;
+    for (const auto &diagnostic : conditions.diagnostics()) {
+        if (diagnostic.isWarning)
+            continue;
+        only_while_warning = false;
+    }
+    CHECK(only_while_warning,
+          "'not' conditions in if/while/flat and parenthesized for clauses parse cleanly");
+
+    auto bare_conditions          = frontend::parse("fn run(x: ?i32, ok: bool): i32 {\n"
+                                                             "    if not ok { return 0; }\n"
+                                                             "    while not ok { break; }\n"
+                                                             "    for not ok { break; }\n"
+                                                             "    if optional x { return 1; }\n"
+                                                             "    while optional x { break; }\n"
+                                                             "    for optional x { return 2; }\n"
+                                                             "    return 3;\n"
+                                                             "}\n");
+    bool only_bare_while_warnings = true;
+    for (const auto &diagnostic : bare_conditions.diagnostics()) {
+        if (diagnostic.isWarning)
+            continue;
+        only_bare_while_warnings = false;
+    }
+    CHECK(only_bare_while_warnings,
+          "bare 'not'/'optional' condition forms in if/while/for parse cleanly");
+}
+
 static void test_structured_imports() {
     auto snapshot = frontend::parse("from ../lib/utils(3) { render as draw, log } as utilities\n"
                                     "from assets/data.json as Data\n"
@@ -1114,6 +1163,7 @@ static void test_frontend() {
     test_is_type_expression();
     test_for_loop_forms();
     test_loop_labels_and_not_negation();
+    test_default_parameters_and_condition_syntax();
     test_structured_imports();
     test_c_header_import_syntax();
     test_variable_declarations();

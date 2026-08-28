@@ -106,6 +106,7 @@ bool PerModuleSema::run() {
 bool PerModuleSema::prepareTypes() {
     registerPrimitiveTypes();
     registerNamedTypes();
+    prepareImplementOwners();
     lowerDeclarationTypes();
     checkImplementBlocks();
     return true;
@@ -114,6 +115,7 @@ bool PerModuleSema::prepareTypes() {
 bool PerModuleSema::checkExpressions() {
     inferExpressionTypes();
     checkStructFieldDefaults();
+    checkFunctionDefaults();
     checkConstFieldAssignments();
     checkZithDeclarations();
     checkReturnsAndCalls();
@@ -211,8 +213,9 @@ void PerModuleSema::registerPrimitiveTypes() {
         else if (spelling.name == "i64")
             i64_type = id;
     }
-    f32_type = registerPrimitive("f32", TypeKind::Float, 32, true);
-    f64_type = registerPrimitive("f64", TypeKind::Float, 64, true);
+    f32_type    = registerPrimitive("f32", TypeKind::Float, 32, true);
+    f64_type    = registerPrimitive("f64", TypeKind::Float, 64, true);
+    opaque_type = type_table.internOpaque();
 }
 
 TypeId PerModuleSema::registerPrimitive(std::string_view name, TypeKind kind, uint8_t bits,
@@ -260,6 +263,25 @@ void PerModuleSema::registerNamedTypes() {
         default:
             break;
         }
+    }
+}
+
+void PerModuleSema::prepareImplementOwners() {
+    for (const auto &record : snapshot.implementRecords()) {
+        const frontend::TypeExprId id = record.ownerType;
+        if (!id || id.value > snapshot.typeExpressions().size())
+            continue;
+        const auto &owner_expr = snapshot.typeExpressions()[id.value - 1U];
+        // Named owners are registered by `registerNamedTypes`; composites are
+        // interned here so `self` on primitive/optional/slice methods resolves.
+        TypeId owner_type = kInvalidTypeId;
+        if (owner_expr.kind == frontend::TypeExprKind::Name) {
+            owner_type = type_table.lookupNamed(record.owner);
+        } else {
+            owner_type = lowerTypeExpr(id);
+        }
+        if (owner_type)
+            implementOwnerTypes_[record.owner] = owner_type;
     }
 }
 
@@ -346,7 +368,7 @@ void PerModuleSema::lowerDeclarationTypes() {
             bool is_method       = !decl.ownerName.empty();
             TypeId owner_type    = kInvalidTypeId;
             if (is_method) {
-                owner_type = type_table.lookupNamed(decl.ownerName);
+                owner_type = ownerTypeFromName(decl.ownerName);
                 if (!owner_type) {
                     report(decl.span, "owner type '" + decl.ownerName + "' is not defined",
                            diagnostics::err::UndefinedIdent);
@@ -881,7 +903,8 @@ void PerModuleSema::checkImplementBlocks() {
     // Group method declarations by `(owner, trait)` so an empty implement block
     // is still checked for duplicate implementation and missing requirements.
     struct ImplGroup {
-        const frontend::Declaration *owner = nullptr;
+        TypeId ownerType = kInvalidTypeId;
+        std::string ownerName;
         const frontend::Declaration *trait = nullptr;
         std::vector<const frontend::Declaration *> methods;
         frontend::TextSpan span;
@@ -893,17 +916,6 @@ void PerModuleSema::checkImplementBlocks() {
         const uint64_t key =
             (static_cast<uint64_t>(std::hash<std::string_view>{}(record.owner)) << 32U) ^
             static_cast<uint32_t>(std::hash<std::string_view>{}(record.traitName));
-        const frontend::Declaration *decl_owner = nullptr;
-        for (const auto &candidate : snapshot.declarations()) {
-            if (candidate.name == record.owner &&
-                (candidate.kind == frontend::DeclKind::Struct ||
-                 candidate.kind == frontend::DeclKind::Enum ||
-                 candidate.kind == frontend::DeclKind::Union ||
-                 candidate.kind == frontend::DeclKind::TypeAlias)) {
-                decl_owner = &candidate;
-                break;
-            }
-        }
         const frontend::Declaration *trait = nullptr;
         for (const auto &candidate : snapshot.declarations()) {
             if (candidate.name == record.traitName &&
@@ -915,9 +927,10 @@ void PerModuleSema::checkImplementBlocks() {
         }
         auto &group = groups[key];
         if (group.trait == nullptr) {
-            group.span  = record.span;
-            group.owner = decl_owner;
-            group.trait = trait;
+            group.span      = record.span;
+            group.ownerName = record.owner;
+            group.ownerType = ownerTypeFromName(record.owner);
+            group.trait     = trait;
         }
         group.spans.push_back(record.span);
     }
@@ -941,12 +954,15 @@ void PerModuleSema::checkImplementBlocks() {
                    diagnostics::err::NotATrait);
             continue;
         }
-        if (group.owner == nullptr)
+        if (!group.ownerType) {
+            report(group.span, "owner type '" + group.ownerName + "' is not defined",
+                   diagnostics::err::UndefinedIdent);
             continue;
+        }
         if (group.spans.size() > 1U) {
             report(group.spans[1],
                    "duplicate implementation of trait '" + group.trait->name + "' for type '" +
-                       group.owner->name + "'",
+                       group.ownerName + "'",
                    diagnostics::err::DuplicateImplementation);
             continue;
         }
@@ -956,10 +972,11 @@ void PerModuleSema::checkImplementBlocks() {
             continue;
         }
 
-        const TypeId owner_type = type_table.lookupNamed(group.owner->name);
+        const TypeId owner_type = type_table.canonical(group.ownerType);
         const TypeId trait_type = type_table.lookupNamed(group.trait->name);
         if (!owner_type || !trait_type)
             continue;
+        type_table.conformanceTable().registerConformance(owner_type, trait_type);
         // Validate every trait requirement without a default against the impl.
         for (const auto &requirement : snapshot.declarations()) {
             if (requirement.kind != frontend::DeclKind::Function ||
@@ -1010,8 +1027,6 @@ void PerModuleSema::checkImplementBlocks() {
                        diagnostics::err::TraitMethodSignatureMismatch);
             }
         }
-
-        type_table.conformanceTable().registerConformance(owner_type, trait_type);
 
         // Expose the trait's default methods as owner calls. The signature is
         // substituted with the concrete owner for `Self`; the declaration stays
@@ -1162,7 +1177,7 @@ TypeId PerModuleSema::lowerBareTypeExpr(const frontend::TypeExpression &type) {
         // written `*void` is still rejected above, via TypeExprKind::Pointer.
         return type_table.internPointer(void_type);
     case frontend::TypeExprKind::OpaqueTagged:
-        return type_table.internOpaque();
+        return opaque_type;
     case frontend::TypeExprKind::Pack: {
         if (type.member_names.size() != type.arguments.size()) {
             report(type.span, "pack type members must be named", diagnostics::err::TypeMismatch);
@@ -2066,17 +2081,28 @@ PerModuleSema::selectOverload(const frontend::Expression &call,
         candidate.variadicSlice = candidate.binding != nullptr &&
                                   candidate.binding->isVariadicSlice && candidate.fn != nullptr &&
                                   !candidate.fn->params.empty();
+        const auto *candidate_decl =
+            candidate.binding != nullptr ? declarationForResolved(*candidate.binding) : nullptr;
         const size_t fixed_params = candidate.fn->params.size() - (slice_candidate ? 1U : 0U);
+        const bool defaults_cover =
+            written_args < fixed_params && candidate_decl != nullptr &&
+            missingArgsHaveDefaults(*candidate_decl, written_args, implicit_args,
+                                    slice_candidate ? fixed_params : ~static_cast<size_t>(0));
         if (slice_candidate) {
-            if (written_args < fixed_params)
+            if (!defaults_cover && written_args < fixed_params)
                 continue;
-        } else if (candidate.fn->params.size() != written_args + implicit_args) {
-            continue;
+        } else {
+            const size_t expected = written_args + implicit_args;
+            if (expected > candidate.fn->params.size())
+                continue;
+            if (expected < candidate.fn->params.size() && !defaults_cover)
+                continue;
         }
-        bool fits                 = true;
-        bool exact                = true;
-        bool widens_ptr           = false;
-        const size_t probe_params = slice_candidate ? fixed_params : written_args;
+        bool fits       = true;
+        bool exact      = true;
+        bool widens_ptr = false;
+        const size_t probe_params =
+            slice_candidate ? fixed_params : std::min(written_args, candidate.fn->params.size());
         for (size_t index = 0; index < probe_params && fits; ++index) {
             const frontend::ExprId arg = call.operands[index + 1U];
             const TypeId arg_type      = inferExpr(arg);
@@ -2234,7 +2260,9 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
     }
 
     const auto *resolved_callee = findResolvedExpr(callee.id);
-    const bool is_variadic      = resolved_callee != nullptr && bindingIsVariadic(*resolved_callee);
+    const frontend::Declaration *callee_decl =
+        resolved_callee != nullptr ? declarationForResolved(*resolved_callee) : nullptr;
+    const bool is_variadic = resolved_callee != nullptr && bindingIsVariadic(*resolved_callee);
     const bool is_variadic_slice =
         resolved_callee != nullptr && bindingIsVariadicSlice(*resolved_callee);
     TypeId callee_type = inferExpr(expr.operands[0]);
@@ -2279,8 +2307,15 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
             return fn->result;
         }
     } else if (arg_count != fn->params.size()) {
-        report(expr.span, "function call arity mismatch", diagnostics::err::NoMatchingFn);
-        return fn->result;
+        if (arg_count < fn->params.size() &&
+            (callee_decl == nullptr || !missingArgsHaveDefaults(*callee_decl, arg_count, 0U))) {
+            report(expr.span, "function call arity mismatch", diagnostics::err::NoMatchingFn);
+            return fn->result;
+        }
+        if (arg_count > fn->params.size()) {
+            report(expr.span, "function call arity mismatch", diagnostics::err::NoMatchingFn);
+            return fn->result;
+        }
     }
 
     if (!expr.genericArgs.empty() || typeContainsGeneric(fn)) {
@@ -2303,6 +2338,10 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
         session::ModuleKey target_module = module;
         if (resolved_callee != nullptr && !resolved_callee->target.module.empty())
             target_module = resolved_callee->target.module;
+        const PerModuleSema *decl_sema =
+            owner != nullptr ? owner->findModuleSema(target_module) : nullptr;
+        if (decl_sema == nullptr)
+            decl_sema = this;
 
         std::vector<TypeId> explicit_types;
         explicit_types.reserve(expr.genericArgs.size());
@@ -2341,6 +2380,11 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
                 }
             } else if (index + 1U < expr.operands.size()) {
                 argument_types.push_back(inferExpr(expr.operands[static_cast<size_t>(index + 1U)]));
+            } else if (callee_decl != nullptr && index < callee_decl->parameters.size() &&
+                       callee_decl->parameters[index].defaultValue) {
+                argument_types.push_back(functionDefaultType(*callee_decl, index, *decl_sema));
+            } else {
+                argument_types.push_back(kInvalidTypeId);
             }
         }
 
@@ -2380,13 +2424,22 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
         for (size_t index = 0;
              index < checked_params && instance_fn != nullptr && index < instance_fn->params.size();
              ++index) {
-            TypeId arg_type = argument_types[index];
-            (void)checkOwnershipCoercion(expr.operands[index + 1U], instance_fn->params[index],
-                                         seen_roots, expr.span, true);
-            if (!coerceValue(expr.operands[index + 1U], instance_fn->params[index], arg_type))
-                reportCoercionFailure(expr.span, instance_fn->params[index], arg_type,
-                                      "generic function call argument type mismatch",
-                                      diagnostics::err::NoMatchingFn);
+            const TypeId arg_type = argument_types[index];
+            if (index + 1U < expr.operands.size()) {
+                (void)checkOwnershipCoercion(expr.operands[index + 1U], instance_fn->params[index],
+                                             seen_roots, expr.span, true);
+                if (!coerceValue(expr.operands[index + 1U], instance_fn->params[index], arg_type))
+                    reportCoercionFailure(expr.span, instance_fn->params[index], arg_type,
+                                          "generic function call argument type mismatch",
+                                          diagnostics::err::NoMatchingFn);
+            } else if (index < callee_decl->parameters.size() &&
+                       callee_decl->parameters[index].defaultValue) {
+                if (!coerceValue(callee_decl->parameters[index].defaultValue,
+                                 instance_fn->params[index], arg_type))
+                    reportCoercionFailure(expr.span, instance_fn->params[index], arg_type,
+                                          "generic function default argument type mismatch",
+                                          diagnostics::err::NoMatchingFn);
+            }
         }
         if (auto_collected_tail && instance_fn != nullptr) {
             (void)checkVariadicTail(expr.span, expr.operands, instance_fn, slice_index, true);
@@ -2402,13 +2455,22 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
                                                 : fn->params.size();
     std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
     for (size_t i = 0; i < checked_params; ++i) {
-        TypeId arg_type = inferExpr(expr.operands[i + 1]);
-        (void)checkOwnershipCoercion(expr.operands[i + 1], fn->params[i], seen_roots, expr.span,
-                                     true);
-        if (!coerceValue(expr.operands[i + 1], fn->params[i], arg_type))
-            reportCoercionFailure(expr.span, fn->params[i], arg_type,
-                                  "function call argument type mismatch",
-                                  diagnostics::err::NoMatchingFn);
+        if (i + 1U < expr.operands.size()) {
+            TypeId arg_type = inferExpr(expr.operands[i + 1]);
+            (void)checkOwnershipCoercion(expr.operands[i + 1], fn->params[i], seen_roots, expr.span,
+                                         true);
+            if (!coerceValue(expr.operands[i + 1], fn->params[i], arg_type))
+                reportCoercionFailure(expr.span, fn->params[i], arg_type,
+                                      "function call argument type mismatch",
+                                      diagnostics::err::NoMatchingFn);
+        } else if (callee_decl != nullptr && i < callee_decl->parameters.size() &&
+                   callee_decl->parameters[i].defaultValue) {
+            const TypeId default_type = typeOfExpr(callee_decl->parameters[i].defaultValue);
+            if (!coerceValue(callee_decl->parameters[i].defaultValue, fn->params[i], default_type))
+                reportCoercionFailure(expr.span, fn->params[i], default_type,
+                                      "function default argument type mismatch",
+                                      diagnostics::err::NoMatchingFn);
+        }
     }
     if (auto_collected_tail) {
         (void)checkVariadicTail(expr.span, expr.operands, fn, slice_index, true);
@@ -2458,7 +2520,7 @@ PerModuleSema::findMethodsForOwner(std::string_view owner_name,
     // Trait defaults are exposed on every owner that satisfies their trait.
     // They are collected after owner methods so local/impl methods dominate
     // method-name overload selection.
-    const TypeId owner_type     = type_table.lookupNamed(owner_name);
+    const TypeId owner_type     = ownerTypeFromName(owner_name);
     const auto addTraitDefaults = [&](const frontend::FrontendSnapshot &snap,
                                       session::ModuleKey snap_module) {
         for (const auto &decl : snap.declarations()) {
@@ -2718,13 +2780,21 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         is_pointer = true;
     } else if (type_table.kindOf(pointee) == TypeKind::Optional) {
         if (const auto *opt = type_table.optional(pointee)) {
-            pointee = resolve(opt->inner);
-            // C pointers are modeled as `?*T`. While the optional wrapper is
-            // still present in the expression/lvalue type, method calls pass
-            // the pointer value itself as the receiver argument.
-            if (const auto *ptr = type_table.pointer(pointee)) {
-                pointee    = resolve(ptr->pointee);
-                is_pointer = true;
+            // An exact `?T` implementation owns the aggregate; otherwise keep
+            // the existing `?Struct` -> `Struct` fallback and the `?*T` C
+            // pointer receiver behavior.
+            const TypeId optional_owner = resolve(base_type);
+            if (!findMethodsForOwner(ownerNameOf(optional_owner), callee.text).empty()) {
+                pointee = optional_owner;
+            } else {
+                pointee = resolve(opt->inner);
+                // C pointers are modeled as `?*T`. While the optional wrapper
+                // is still present in the expression/lvalue type, method calls
+                // pass the pointer value itself as the receiver argument.
+                if (const auto *ptr = type_table.pointer(pointee)) {
+                    pointee    = resolve(ptr->pointee);
+                    is_pointer = true;
+                }
             }
         }
     }
@@ -2831,10 +2901,16 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
             return type_table.slice(last) != nullptr || type_table.array(last) != nullptr;
         }();
         const bool auto_collected_tail = target_is_slice && !explicit_slice_arg;
-        if (provided_args < fixed_explicit_args ||
-            (!target_is_slice && provided_args != fixed_explicit_args) ||
-            (target_is_slice && !auto_collected_tail && !explicit_slice_arg &&
-             provided_args != fixed_explicit_args)) {
+        const bool defaults_cover =
+            provided_args < fixed_explicit_args &&
+            missingArgsHaveDefaults(*method_decl, provided_args, has_receiver ? 1U : 0U,
+                                    target_is_slice ? slice_param_index : ~static_cast<size_t>(0));
+        if (defaults_cover) {
+            // Missing trailing fixed arguments are supplied from defaults.
+        } else if (provided_args < fixed_explicit_args ||
+                   (!target_is_slice && provided_args != fixed_explicit_args) ||
+                   (target_is_slice && !auto_collected_tail && !explicit_slice_arg &&
+                    provided_args != fixed_explicit_args)) {
             report(call.span, "method call arity mismatch", diagnostics::err::NoMatchingFn);
             return error_type;
         }
@@ -2859,8 +2935,20 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         setResolvedCallTarget(callee.id, method_module, method_decl->id);
         return sub_fn->result;
     }
-    if (st == nullptr)
+    if (st == nullptr) {
+        // Primitive, optional and slice receivers are allowed on implementation
+        // methods. If no method exists, fall through to the normal field-access
+        // error path instead of inventing a field.
+        const TypeKind kind = type_table.kindOf(pointee);
+        if (kind == TypeKind::Integer || kind == TypeKind::Float || kind == TypeKind::Bool ||
+            kind == TypeKind::Char || kind == TypeKind::String || kind == TypeKind::Optional ||
+            kind == TypeKind::Slice) {
+            return resolveStructMethodCall(call, callee,
+                                           findMethodsForOwner(ownerNameOf(pointee), callee.text),
+                                           base_type, pointee, is_pointer);
+        }
         return kInvalidTypeId; // not a struct receiver: let normal call resolution run
+    }
 
     if (qualifying_trait.empty())
         return resolveStructMethodCall(call, callee,
@@ -2969,10 +3057,16 @@ TypeId PerModuleSema::inferDynMethodCall(const frontend::Expression &call,
         return type_table.slice(last) != nullptr || type_table.array(last) != nullptr;
     }();
     const bool auto_collected_tail = target_is_slice && !explicit_slice_arg;
-    if (provided_args < fixed_explicit_args ||
-        (!target_is_slice && provided_args != fixed_explicit_args) ||
-        (target_is_slice && !auto_collected_tail && !explicit_slice_arg &&
-         provided_args != fixed_explicit_args)) {
+    const bool defaults_cover =
+        provided_args < fixed_explicit_args &&
+        missingArgsHaveDefaults(*method_decl, provided_args, has_receiver ? 1U : 0U,
+                                target_is_slice ? slice_param_index : ~static_cast<size_t>(0));
+    if (defaults_cover) {
+        // Missing trailing fixed arguments are supplied from defaults.
+    } else if (provided_args < fixed_explicit_args ||
+               (!target_is_slice && provided_args != fixed_explicit_args) ||
+               (target_is_slice && !auto_collected_tail && !explicit_slice_arg &&
+                provided_args != fixed_explicit_args)) {
         report(call.span, "method call arity mismatch", diagnostics::err::NoMatchingFn);
         return error_type;
     }
@@ -3001,6 +3095,12 @@ TypeId PerModuleSema::inferDynMethodCall(const frontend::Expression &call,
 }
 
 std::string PerModuleSema::ownerNameOf(TypeId pointee) const {
+    const TypeKind kind = type_table.kindOf(pointee);
+    if (kind == TypeKind::Integer || kind == TypeKind::Float || kind == TypeKind::Bool ||
+        kind == TypeKind::Char || kind == TypeKind::String || kind == TypeKind::Optional ||
+        kind == TypeKind::Slice) {
+        return type_table.typeToString(type_table.canonical(pointee));
+    }
     const auto *st = type_table.struct_type(pointee);
     if (st == nullptr)
         return {};
@@ -3011,18 +3111,26 @@ std::string PerModuleSema::ownerNameOf(TypeId pointee) const {
     return owner_name;
 }
 
+TypeId PerModuleSema::ownerTypeFromName(std::string_view owner_name) const {
+    // Named owners have to be re-resolved after `lowerDeclarationTypes`
+    // registers the completed struct/alias/union/enum under the name. The
+    // pre-lowering placeholder stored in `implementOwnerTypes_` is only
+    // suitable as a fallback and, for composites, is always interned before
+    // the method signatures are lowered.
+    if (const TypeId named = type_table.lookupNamed(owner_name))
+        return named;
+    if (const auto found = implementOwnerTypes_.find(std::string(owner_name));
+        found != implementOwnerTypes_.end())
+        return found->second;
+    return type_table.lookupNamed(owner_name);
+}
+
 TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
                                               const frontend::Expression &callee,
                                               const std::vector<ResolvedMethod> &resolved_methods,
                                               TypeId base_type, TypeId pointee, bool is_pointer) {
     // Collect every method of this owner with the callee's name: methods take part
     // in the same overload resolution as free functions.
-    std::string owner_name;
-    if (const auto *st = type_table.struct_type(pointee)) {
-        owner_name = st->name;
-        if (const size_t angle = owner_name.find('<'); angle != std::string::npos)
-            owner_name.resize(angle);
-    }
     std::vector<const frontend::Declaration *> method_decls;
     std::vector<session::ModuleKey> method_modules;
     std::vector<std::string> method_trait_names;
@@ -3084,10 +3192,17 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
             return type_table.slice(last) != nullptr || type_table.array(last) != nullptr;
         }();
         const bool generic_auto_collect = generic_decl_is_slice && !generic_explicit_slice;
-        if (provided_args < generic_fixed_explicit ||
-            (!generic_decl_is_slice && provided_args != generic_fixed_explicit) ||
-            (generic_decl_is_slice && !generic_auto_collect && !generic_explicit_slice &&
-             provided_args != generic_fixed_explicit)) {
+        const bool defaults_cover =
+            provided_args < generic_fixed_explicit &&
+            missingArgsHaveDefaults(*method_decl, provided_args, has_receiver_entry ? 1U : 0U,
+                                    generic_decl_is_slice ? generic_slice_param_index
+                                                          : ~static_cast<size_t>(0));
+        if (defaults_cover) {
+            // Missing trailing fixed arguments are supplied from defaults.
+        } else if (provided_args < generic_fixed_explicit ||
+                   (!generic_decl_is_slice && provided_args != generic_fixed_explicit) ||
+                   (generic_decl_is_slice && !generic_auto_collect && !generic_explicit_slice &&
+                    provided_args != generic_fixed_explicit)) {
             report(call.span, "method call arity mismatch", diagnostics::err::NoMatchingFn);
             return error_type;
         }
@@ -3305,10 +3420,17 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
         return type_table.slice(last) != nullptr || type_table.array(last) != nullptr;
     }();
     const bool method_auto_collect = method_is_vslice && !method_explicit_slice;
-    if (provided_args < method_fixed_explicit ||
-        (!method_is_vslice && provided_args != method_fixed_explicit) ||
-        (method_is_vslice && !method_auto_collect && !method_explicit_slice &&
-         provided_args != method_fixed_explicit)) {
+    const bool defaults_cover =
+        provided_args < method_fixed_explicit &&
+        missingArgsHaveDefaults(*method_decl, provided_args, has_receiver ? 1U : 0U,
+                                method_is_vslice ? method_slice_param_index
+                                                 : ~static_cast<size_t>(0));
+    if (defaults_cover) {
+        // Missing trailing fixed arguments are supplied from defaults.
+    } else if (provided_args < method_fixed_explicit ||
+               (!method_is_vslice && provided_args != method_fixed_explicit) ||
+               (method_is_vslice && !method_auto_collect && !method_explicit_slice &&
+                provided_args != method_fixed_explicit)) {
         report(call.span, "method call arity mismatch", diagnostics::err::NoMatchingFn);
         currentDeclId_       = saved_decl_id;
         currentFunctionKind_ = saved_kind;
@@ -3916,15 +4038,19 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
     }
 
     const StructType *st = type_table.struct_type(pointee);
-    if (st == nullptr) {
+    if (st == nullptr && (type_table.kindOf(pointee) != TypeKind::Integer &&
+                          type_table.kindOf(pointee) != TypeKind::Float &&
+                          type_table.kindOf(pointee) != TypeKind::Bool &&
+                          type_table.kindOf(pointee) != TypeKind::Char &&
+                          type_table.kindOf(pointee) != TypeKind::String &&
+                          type_table.kindOf(pointee) != TypeKind::Optional &&
+                          type_table.kindOf(pointee) != TypeKind::Slice)) {
         active_loop_labels_.pop_back();
         report(expr.span, "iterated value is not a struct with iterator methods",
                diagnostics::err::TypeMismatch);
         return void_type;
     }
-    std::string owner_name(st->name);
-    if (const size_t angle = owner_name.find('<'); angle != std::string::npos)
-        owner_name.resize(angle);
+    const std::string owner_name = ownerNameOf(pointee);
 
     const auto resolved_methods            = findMethodsForOwner(owner_name, "next");
     const frontend::Declaration *next_decl = nullptr;
@@ -4124,11 +4250,20 @@ TypeId PerModuleSema::inferCast(frontend::ExprId id) {
         if (type_table.kindOf(to_resolved) == TypeKind::Opaque) {
             if (type_table.kindOf(from_resolved) == TypeKind::Opaque)
                 return result;
-            return type_table.internOpaque();
+            return opaque_type;
         }
         if (type_table.kindOf(from_resolved) == TypeKind::Opaque) {
             if (type_table.kindOf(to_resolved) == TypeKind::Opaque)
                 return result;
+            // `opaque as raw opaque` reinterprets the opaque payload pointer as
+            // `void*`. It is deliberate and unchecked, so it must not go down the
+            // optional-checked path.
+            if (type_table.kindOf(to_resolved) == TypeKind::Pointer &&
+                type_table.pointer(to_resolved) != nullptr &&
+                type_table.canonical(type_table.pointer(to_resolved)->pointee) ==
+                    type_table.canonical(void_type)) {
+                return result;
+            }
             return expr.is_raw ? to_resolved : type_table.internOptional(to_resolved);
         }
         if (type_table.kindOf(from_resolved) == TypeKind::Union) {
@@ -4452,6 +4587,13 @@ void PerModuleSema::reportCoercionFailure(frontend::TextSpan span, TypeId target
     }
     const TypeKind from = type_table.kindOf(resolve(source));
     const TypeKind to   = type_table.kindOf(resolve(target));
+    if (from == TypeKind::Opaque || to == TypeKind::Opaque) {
+        report(span,
+               "implicit 'opaque' conversion is not allowed; use 'as' (or 'raw as' for an "
+               "unchecked extraction)",
+               diagnostics::err::TypeMismatch);
+        return;
+    }
     if (classifyCast(from, to) != CastKind::Invalid) {
         report(span, "implicit numeric conversion is not allowed; use 'as'",
                diagnostics::err::TypeMismatch);
@@ -4521,6 +4663,11 @@ const frontend::Declaration *findDeclarationForResolved(const PerModuleSema &sem
 
 } // namespace
 
+const frontend::Declaration *
+PerModuleSema::declarationForResolved(const session::ResolvedName &resolved) const noexcept {
+    return findDeclarationForResolved(*this, resolved);
+}
+
 void PerModuleSema::inferDockCall(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     TypeId result    = error_type;
@@ -4542,7 +4689,11 @@ void PerModuleSema::inferDockCall(frontend::ExprId id) {
                     resolved != nullptr && resolved->isVariadicSlice && !fn->params.empty();
                 const size_t slice_index =
                     target_is_slice ? fn->params.size() - 1U : fn->params.size();
-                if (!target_is_slice && expr.operands.size() - 1U != fn->params.size()) {
+                const bool defaults_cover =
+                    target != nullptr && expr.operands.size() - 1U < fn->params.size() &&
+                    missingArgsHaveDefaults(*target, expr.operands.size() - 1U, 0U, slice_index);
+                if (!target_is_slice && expr.operands.size() - 1U != fn->params.size() &&
+                    !defaults_cover) {
                     report(expr.span, "dock call arity mismatch", diagnostics::err::NoMatchingFn);
                 }
                 const bool explicit_slice_arg =
@@ -4553,21 +4704,36 @@ void PerModuleSema::inferDockCall(frontend::ExprId id) {
                     target_is_slice &&
                     (expr.operands.size() - 1U > slice_index + 1U ||
                      (expr.operands.size() - 1U == slice_index + 1U && !explicit_slice_arg));
-                if (target_is_slice && expr.operands.size() - 1U < slice_index) {
+                if (target_is_slice && expr.operands.size() - 1U < slice_index &&
+                    !(target != nullptr &&
+                      missingArgsHaveDefaults(*target, expr.operands.size() - 1U, 0U,
+                                              slice_index))) {
                     report(expr.span, "dock call arity mismatch", diagnostics::err::NoMatchingFn);
                     result = fn->result;
-                } else if (target_is_slice && !auto_collected &&
+                } else if (target_is_slice && !auto_collected && !defaults_cover &&
                            expr.operands.size() - 1U != fn->params.size()) {
                     report(expr.span, "dock call arity mismatch", diagnostics::err::NoMatchingFn);
                 } else {
                     const size_t checked_params = target_is_slice ? slice_index : fn->params.size();
-                    for (size_t index = 0;
-                         index < checked_params && index + 1U < expr.operands.size(); ++index) {
-                        const TypeId arg_type = inferExpr(expr.operands[index + 1U]);
-                        if (!coerceValue(expr.operands[index + 1U], fn->params[index], arg_type)) {
-                            reportCoercionFailure(expr.span, fn->params[index], arg_type,
-                                                  "dock argument type mismatch",
-                                                  diagnostics::err::NoMatchingFn);
+                    for (size_t index = 0; index < checked_params; ++index) {
+                        if (index + 1U < expr.operands.size()) {
+                            const TypeId arg_type = inferExpr(expr.operands[index + 1U]);
+                            if (!coerceValue(expr.operands[index + 1U], fn->params[index],
+                                             arg_type)) {
+                                reportCoercionFailure(expr.span, fn->params[index], arg_type,
+                                                      "dock argument type mismatch",
+                                                      diagnostics::err::NoMatchingFn);
+                            }
+                        } else if (target != nullptr && index < target->parameters.size() &&
+                                   target->parameters[index].defaultValue) {
+                            const TypeId default_type =
+                                typeOfExpr(target->parameters[index].defaultValue);
+                            if (!coerceValue(target->parameters[index].defaultValue,
+                                             fn->params[index], default_type)) {
+                                reportCoercionFailure(expr.span, fn->params[index], default_type,
+                                                      "dock default argument type mismatch",
+                                                      diagnostics::err::NoMatchingFn);
+                            }
                         }
                     }
                     if (auto_collected)
@@ -4622,7 +4788,10 @@ void PerModuleSema::inferJump(const frontend::Statement &stmt) {
     const bool target_is_slice =
         resolved != nullptr && resolved->isVariadicSlice && !fn->params.empty();
     const size_t slice_index = target_is_slice ? fn->params.size() - 1U : fn->params.size();
-    if (!target_is_slice && stmt.arguments.size() != fn->params.size()) {
+    const bool defaults_cover =
+        stmt.arguments.size() < fn->params.size() &&
+        missingArgsHaveDefaults(*target, stmt.arguments.size(), 0U, slice_index);
+    if (!target_is_slice && stmt.arguments.size() != fn->params.size() && !defaults_cover) {
         report(stmt.span, "state transition arity mismatch", diagnostics::err::NoMatchingFn);
         return;
     }
@@ -4632,7 +4801,8 @@ void PerModuleSema::inferJump(const frontend::Statement &stmt) {
     const bool auto_collected =
         target_is_slice && (stmt.arguments.size() > slice_index + 1U ||
                             (stmt.arguments.size() == slice_index + 1U && !explicit_slice_arg));
-    if (target_is_slice && stmt.arguments.size() < slice_index) {
+    if (target_is_slice && stmt.arguments.size() < slice_index &&
+        !missingArgsHaveDefaults(*target, stmt.arguments.size(), 0U, slice_index)) {
         report(stmt.span, "state transition arity mismatch", diagnostics::err::NoMatchingFn);
         return;
     } else if (target_is_slice && !auto_collected && stmt.arguments.size() != fn->params.size()) {
@@ -4640,12 +4810,22 @@ void PerModuleSema::inferJump(const frontend::Statement &stmt) {
         return;
     }
     const size_t checked_params = target_is_slice ? slice_index : fn->params.size();
-    for (size_t index = 0; index < checked_params && index < stmt.arguments.size(); ++index) {
-        const TypeId arg_type = inferExpr(stmt.arguments[index]);
-        if (!coerceValue(stmt.arguments[index], fn->params[index], arg_type)) {
-            reportCoercionFailure(stmt.span, fn->params[index], arg_type,
-                                  "state transition argument type mismatch",
-                                  diagnostics::err::NoMatchingFn);
+    for (size_t index = 0; index < checked_params; ++index) {
+        if (index < stmt.arguments.size()) {
+            const TypeId arg_type = inferExpr(stmt.arguments[index]);
+            if (!coerceValue(stmt.arguments[index], fn->params[index], arg_type)) {
+                reportCoercionFailure(stmt.span, fn->params[index], arg_type,
+                                      "state transition argument type mismatch",
+                                      diagnostics::err::NoMatchingFn);
+            }
+        } else if (index < target->parameters.size() && target->parameters[index].defaultValue) {
+            const TypeId default_type = typeOfExpr(target->parameters[index].defaultValue);
+            if (!coerceValue(target->parameters[index].defaultValue, fn->params[index],
+                             default_type)) {
+                reportCoercionFailure(stmt.span, fn->params[index], default_type,
+                                      "state transition default argument type mismatch",
+                                      diagnostics::err::NoMatchingFn);
+            }
         }
     }
     if (auto_collected)
@@ -5757,6 +5937,58 @@ void PerModuleSema::checkStructFieldDefaults() {
     }
 }
 
+void PerModuleSema::checkFunctionDefaults() {
+    for (const auto &decl : snapshot.declarations()) {
+        if (decl.kind != frontend::DeclKind::Function)
+            continue;
+        const TypeId fn_type = typeOfDecl(decl.id);
+        const auto *fn       = type_table.function(fn_type);
+        if (fn == nullptr)
+            continue;
+        bool saw_default = false;
+        for (size_t index = 0; index < decl.parameters.size(); ++index) {
+            const auto &param = decl.parameters[index];
+            if (!param.defaultValue) {
+                if (saw_default) {
+                    report(param.span,
+                           "parameter without a default cannot follow a parameter with a default",
+                           diagnostics::err::TypeMismatch);
+                }
+                continue;
+            }
+            saw_default = true;
+            if (index >= fn->params.size())
+                continue;
+            const TypeId value_type = typeOfExpr(param.defaultValue);
+            if (value_type && !coerceValue(param.defaultValue, fn->params[index], value_type)) {
+                reportCoercionFailure(param.span, fn->params[index], value_type,
+                                      "parameter default type mismatch for '" + param.name + "'");
+            }
+        }
+    }
+}
+
+bool PerModuleSema::missingArgsHaveDefaults(const frontend::Declaration &decl, size_t explicit_args,
+                                            size_t receiver_offset,
+                                            size_t slice_index) const noexcept {
+    for (size_t index = receiver_offset + explicit_args; index < decl.parameters.size(); ++index) {
+        if (slice_index != ~static_cast<size_t>(0) && index >= slice_index)
+            break;
+        if (!decl.parameters[index].defaultValue)
+            return false;
+    }
+    return true;
+}
+
+TypeId PerModuleSema::functionDefaultType(const frontend::Declaration &decl, size_t param_index,
+                                          const PerModuleSema &decl_sema) noexcept {
+    if (param_index >= decl.parameters.size() || !decl.parameters[param_index].defaultValue)
+        return kInvalidTypeId;
+    if (decl.parameters[param_index].defaultValue.value > decl_sema.snapshot.expressions().size())
+        return kInvalidTypeId;
+    return decl_sema.typeOfExpr(decl.parameters[param_index].defaultValue);
+}
+
 bool PerModuleSema::isConstantExpression(frontend::ExprId id) const {
     if (!id || id.value > snapshot.expressions().size())
         return false;
@@ -6125,8 +6357,6 @@ bool PerModuleSema::sameType(TypeId a, TypeId b) const noexcept {
         const auto *nb = type_table.nominal(resolved_b);
         return na != nullptr && nb != nullptr && na->name == nb->name;
     }
-    if (ka == TypeKind::Opaque)
-        return true;
     return false;
 }
 

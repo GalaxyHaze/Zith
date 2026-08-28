@@ -15,6 +15,7 @@ O AST modela bindings com `BindingKind`:
 `Declaration.bindingKind` é definido para `DeclKind::Variable`. `Binding.bindingKind` é definido para `StmtKind::Binding`. O parser:
 
 - Aplica `Parameter.bindingKind` com default `Let` e lê `var p: T` ou `let p: T` antes do nome do parâmetro; `var self`/`let self` usam o mesmo campo no receiver.
+- Depois do tipo de um parâmetro, reconhece `= expr` e guarda a expressão em `Parameter.defaultValue`; o `= extern name` de um alias de função só é tratado depois do tipo de retorno.
 - Aplica o default `BindingKind::Let` e corrige com a palavra-chave real.
 - Rejeita `global` antes de baixar a declaração, com recovery para `DeclKind::Variable`.
 - Rejeita `const fn` em `functionKindPrefix`.
@@ -29,6 +30,8 @@ O AST modela bindings com `BindingKind`:
 Qualificadores `mut`, `unique`, `share` e `belong` são parseados para recovery/formatter, mas emitem `E2010 UnsupportedSyntax`.
 
 O parser cria `ExprKind::OwnershipCoerce` apenas em listas de argumentos de call (`parseCallArgument()`), usado nas chamadas `f(...)`, `f<G>(...)`, dock e jump. Só `lend` e `view` são aceites como anotação de argumento; `unique`/`share`/`belong`/`mut` nessa posição reportam `E4007 InvalidCallOwnership`. Fora de um call argument, `lend`/`view` continuam a ser tratados como keywords normais e falham com o diagnóstico normal.
+
+`parseConditionExpression()` é usado em `if`, `while`, nas três cláusulas do `for` e nos grupos parentizados `for (cond)`. A função reconhece `not expr` e constrói `ExprKind::Unary` com texto `not` antes de `parseExpression()`, e reconhece `optional expr` para construir `ExprKind::OptionalProp` sobre o operando. O token seguinte `)`/`,`/`{` interrompe o sugar, para que o parser não absorva o fecho ou separador da cláusula.
 
 ## Sema
 
@@ -124,6 +127,12 @@ expression`; valores fora do tipo subjacente são rejeitados com
 O parser não reconhece `!` como prefixo; `!` permanece apenas no caminho postfix
 ainda por implementar e nunca é convertido em unário booleano ou HIR.
 
+`checkFunctionDefaults` valida os parâmetros com `Parameter.defaultValue`: um parâmetro sem default não pode seguir um com default, e o tipo do default é verificado contra o tipo do parâmetro com `coerceValue`. A resolução de calls reutiliza `missingArgsHaveDefaults` para aceitar aridades menores em calls livres, genéricos, overloads, métodos, métodos genéricos, métodos dyn, dock e transições de state quando os parâmetros fixos em falta têm todos default.
+
+Calls com defaults são tipados com `functionDefaultType`, que consulta o snapshot e typed map do módulo declarador para expressões reutilizadas em imports/methods; em calls genéricos o default é também sujeito a `coerceValue` contra o parâmetro instanciado.
+
+O parser de `implement` usa `parseType()` para aceitar owners canónicos `i32`, `?char` e `[]char` além de nomes. `ImplementRecord` guarda `ownerType` (a `TypeExprId`) e `owner` (a string canónica). Antes de baixar assinaturas, `prepareImplementOwners` intera `?T`/`[]T` reais para que `self` implícito em métodos desses owners resolva; `checkImplementBlocks` valida requirements, defaults, duplicatas, interface-explicit, e regista conformação nominal com o `TypeId` do owner. `ownerNameOf` devolve a string canónica para Integer/Float/Bool/Char/String/Optional/Slice e `findMethodsForOwner` localiza esses métodos; receivers não-struct com um método concreto do owner seguem o caminho de method-call em vez de field access.
+
 O sema mantém `active_loop_labels_` enquanto infere `while`/`for`/`for-in`.
 Labels são aceitas nos loops e em `break`/`continue`; um label desconhecido,
 para fora, ou repetido entre loops ativos reporta `E2010`. Sem label,
@@ -141,6 +150,8 @@ para fora, ou repetido entre loops ativos reporta `E2010`. Sem label,
 Referências por nome a um const global produzem `HirGlobalConstLoad` no lowering. Consts locais permanecem no caminho local de slots/allocas, imutáveis e com inicializador constante obrigatório.
 
 `HirLowerModern::lowerExpr` descarta `OwnershipCoerce` e baixa o inner. Em calls, um argumento anotado é baixado como endereço do place: `lowerLValueAddr` para bindings/campos/índices, ou uma alloca temporária quando o operand não tem lvalue. O parâmetro `*lend T`/`*view T` já é baixado como ponteiro. Os slots de parâmetro carregam `HirOwnership::Lend`/`HirOwnership::View` via `NraFacts`, e `NraFacts::localOfArgument`/`ownershipOfArgument` descascam a anotação para continuar acumulando factas por call argument (`NraArgEscape::Borrow` por default).
+
+`HirLowerModern::lowerCall` materializa os defaults em falta como argumentos normais depois dos argumentos explícitos e antes de qualquer tail variadic/slice; o mesmo faz `HirDynCall` (com offset do receiver) e `HirStateTailCall`. Como a expressão default pertence ao snapshot do módulo declarador, `lowerVisibleDefault` troca temporariamente `current_module_`/`current_resolution_`/`current_types_` (e o contexto de instanciação genérica quando existe) para baixar a expressão no contexto certo.
 
 `checkAssignableOwnership` bloqueia escrita através de parâmetros `*view T` tanto no caminho arrow como no dot-member auto-deref, reportando `E4004`.
 
@@ -165,12 +176,23 @@ de pointer) e `x?` de `?T` para leitura do discriminante em field index 1. Não 
 `return null` do lowering de propagação, pelo que não é preciso tipo de retorno opcional no
 contexto condicional.
 
+O sugar de condição `optional expr` é baixado pelo mesmo caminho: o parser constrói
+`ExprKind::OptionalProp` e `booleanCondition`/`lowerOptionalBoolean` não distinguem
+se o `?` veio da sintaxe postfix ou da palavra-chave `optional`.
+
 ### Opaque tagged
 
 Bare `opaque` não é o antigo `raw opaque` (`void*`). No frontend usa
 `TypeExprKind::OpaqueTagged` e no tipo interno `TypeKind::Opaque`; o tipo HIR/codegen é
 `{ *void, u32 }`, sendo o primeiro campo um ponteiro para um slot local estável e o segundo
 o typeId concreto do módulo.
+
+`registerPrimitiveTypes` regista um `opaque_type` estável por `PerModuleSema`; `lowerBareTypeExpr`
+e `inferCast` devolvem esse `TypeId` em vez de internarem um opaque novo. `sameType` já não tem a
+regra antiga que tornava `TypeKind::Opaque` implicitamente igual a qualquer tipo. Conversão
+implícita `opaque -> T`/`T -> opaque` falha em `reportCoercionFailure` com
+`implicit 'opaque' conversion is not allowed; use 'as' (or 'raw as' for an unchecked extraction)`;
+os casts explícitos existentes continuam a ser os únicos caminhos aceites.
 
 Semanticamente, `T as opaque` aceita tipos endereçáveis/copyable e não exige `&x`. O lowering
 `HirMakeOpaque` spilla o valor para uma alloca local antes de construir a view, pela mesma
@@ -201,6 +223,10 @@ Codegen emite `HirMakeOpaque` como `alloca T` + `store T` + bitcast `T*` para `v
 `insertvalue { void*, i32 }`. `HirOpaqueCheck` extrai o typeId e compara com a constante.
 `HirOpaqueCast` desmarcado extrai o ponteiro e faz load do tipo pedido. O checked extraction
 foi baixado em HIR para CFG, por isso não existe branch no emissor para `HirOpaqueCast.checked`.
+`opaque as raw opaque` é uma variante unchecked que devolve o campo 0 do aggregate
+directamente como `void*`: o lowering marca `HirOpaqueCast.returns_ptr`, e o codegen faz
+bitcast do payload sem load. Isto permite comparar os ponteiros reais armazenados numa bare
+`opaque` sem confundir o aggregate tagged com um ponteiro LLVM.
 
 ## Cache e ZIRL
 

@@ -372,6 +372,9 @@ struct HirOpaqueCast {
     HirTypeId result_type = types::kInvalidType; // checked: `?to`, raw: `to`
     uint32_t type_id      = 0;
     bool checked          = false;
+    /// `as raw opaque` reinterprets the tagged payload pointer itself (field 0)
+    /// as `void*`, so codegen does not load through the payload.
+    bool returns_ptr      = false;
     HirExprKind tag       = HirExprKind::OpaqueCast;
 };
 

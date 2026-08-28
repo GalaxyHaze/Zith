@@ -1881,6 +1881,7 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             cast.result_type = compactType(ce.type_id);
             cast.type_id     = ce.ref_e;
             cast.checked     = (ce.flags & 1U) != 0;
+            cast.returns_ptr = (ce.flags & 2U) != 0;
             expr             = std::move(cast);
             break;
         }

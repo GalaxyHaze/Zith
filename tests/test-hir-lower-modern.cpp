@@ -887,6 +887,7 @@ void test_opaque_casts_lower_to_hir_nodes() {
                                      "fn checks(value: opaque): bool { value is i32 }\n"
                                      "fn extracts(value: opaque): ?i32 { value as i32 }\n"
                                      "fn raw_extracts(value: opaque): i32 { raw value as i32 }\n"
+                                     "fn raw_ptr(value: opaque): raw opaque { value as raw opaque }\n"
                                      "fn main(): i32 { 0 }\n");
 
     memory::Arena arena;
@@ -913,6 +914,25 @@ void test_opaque_casts_lower_to_hir_nodes() {
                 saw_raw = true;
         }
         CHECK(saw_raw, "raw extraction lowers to an unchecked HirOpaqueCast");
+    }
+
+    const auto *raw_ptr = findFunction(hir, session.interner(), "raw_ptr");
+    CHECK(raw_ptr != nullptr, "bare opaque to raw opaque function is present");
+    if (raw_ptr != nullptr) {
+        bool saw_ptr        = false;
+        bool correct_target = false;
+        for (size_t id = 0; id < hir.exprCount(); ++id) {
+            const auto *cast =
+                std::get_if<hir::HirOpaqueCast>(&hir.getExpr(static_cast<hir::HirExprId>(id)));
+            if (cast == nullptr || !cast->returns_ptr)
+                continue;
+            saw_ptr = true;
+            correct_target =
+                cast->to == cast->result_type && cast->result_type != cast->from &&
+                cast->from == cast->opaque_type;
+        }
+        CHECK(saw_ptr, "opaque as raw opaque lowers to a pointer-returning HirOpaqueCast");
+        CHECK(correct_target, "the raw opaque cast targets pointer-to-void, not OpaqueTagged");
     }
 }
 

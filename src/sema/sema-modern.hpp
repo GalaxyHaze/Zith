@@ -88,6 +88,7 @@ struct PerModuleSema {
     TypeId f64_type;
     TypeId null_type;
     TypeId end_type;
+    TypeId opaque_type;
 
     PerModuleSema(session::ModuleKey mod, const frontend::FrontendSnapshot &snap,
                   const session::ModuleResolution &res, TypeTable &tt, TypedMap &tm,
@@ -120,6 +121,7 @@ private:
     void inferExpressionTypesForDecls();
     void checkReturnsAndCalls();
     void checkStructFieldDefaults();
+    void checkFunctionDefaults();
     void checkZithDeclarations();
     void checkConstFieldAssignments();
     /// Zith-- requires constant expressions for `const` declarations.
@@ -165,6 +167,11 @@ private:
         std::vector<TypeId> bounds;
     };
     std::unordered_map<uint32_t, std::vector<GenericBinding>> genericParams_;
+    /// Canonical implement owner spelling -> interned owner type. Filled from
+    /// `ImplementRecord::ownerType` before method signatures are lowered so an
+    /// implicit `self` on `?char`/`[]u8` resolves even though those composite
+    /// types have no named declaration.
+    std::unordered_map<std::string, TypeId> implementOwnerTypes_;
     /// Overrides for the generic parameters of the template currently being
     /// instantiated in a type expression. `lowerTypeExpr` checks these before
     /// the declaration bindings so `Pair<i32,f64>` fields see `i32`/`f64`.
@@ -374,6 +381,10 @@ private:
     /// Canonical owner name for a lowered struct type, excluding template
     /// arguments (`Pair<i32>` → `Pair`).
     [[nodiscard]] std::string ownerNameOf(TypeId pointee) const;
+    /// Resolves a canonical implementation owner spelling (`i32`, `?char`,
+    /// `[]u8`, `Point`) back to the interned type. Returns invalid when the
+    /// spelling is not a supported implement target.
+    [[nodiscard]] TypeId ownerTypeFromName(std::string_view owner_name) const;
     /// Resolves a concrete struct receiver method call with the given candidate
     /// set. `qualifying_trait` is non-empty for `p.Trait.method()`; it filters
     /// and (for requirements) resolves impl methods without changing
@@ -396,6 +407,8 @@ private:
     [[nodiscard]] std::vector<TypeId> boundsForGenericParam(TypeId generic_type) const;
     /// Validates `implement Owner as Trait` blocks and registers conformance.
     void checkImplementBlocks();
+    /// Populates `implementOwnerTypes_` from the parsed implement records.
+    void prepareImplementOwners();
     /// Finds the first declaration of `name` with `kind` in the current module
     /// or any module reachable through the compilation session.
     [[nodiscard]] const frontend::Declaration *findDeclNamed(std::string_view name,
@@ -441,6 +454,19 @@ private:
     /// `coercesTo` plus literal adaptation, for sites that know the source expression.
     bool coerceValue(frontend::ExprId value, TypeId target, TypeId source);
 
+    /// True when every missing fixed parameter after `explicit_args` has a
+    /// declared default. `receiver_offset` is 1 for `self` methods and 0
+    /// otherwise; `slice_index` excludes a variadic `[...]T` tail when set.
+    [[nodiscard]] bool
+    missingArgsHaveDefaults(const frontend::Declaration &decl, size_t explicit_args,
+                            size_t receiver_offset,
+                            size_t slice_index = ~static_cast<size_t>(0)) const noexcept;
+    /// Default type for `param_index` of `decl`, or null when absent. Uses the
+    /// declaring module's sema for imported declarations/methods.
+    [[nodiscard]] static TypeId functionDefaultType(const frontend::Declaration &decl,
+                                                    size_t param_index,
+                                                    const PerModuleSema &decl_sema) noexcept;
+
     /// Emits the most specific diagnostic for a failed `source -> target` coercion.
     void reportCoercionFailure(frontend::TextSpan span, TypeId target, TypeId source,
                                std::string_view context,
@@ -471,6 +497,9 @@ private:
                                       size_t field_index) const noexcept;
 
     TypeId typeOfDeclInModule(session::ModuleKey module, frontend::DeclId id) const noexcept;
+    /// Declaration selected by a resolved name, including imported declarations.
+    [[nodiscard]] const frontend::Declaration *
+    declarationForResolved(const session::ResolvedName &resolved) const noexcept;
 
 public:
     /// Declaration chosen for an overloaded call, keyed by the callee expression.
@@ -479,11 +508,11 @@ public:
         session::ModuleKey module;
         frontend::DeclId decl;
     };
+    void setResolvedCallTarget(frontend::ExprId callee, session::ModuleKey module,
+                               frontend::DeclId decl);
     [[nodiscard]] const CallTarget *resolvedCallTarget(frontend::ExprId callee) const noexcept;
 
 private:
-    void setResolvedCallTarget(frontend::ExprId callee, session::ModuleKey module,
-                               frontend::DeclId decl);
     /// Generic call resolution results, shared with HIR lowering.
     comptime::GenericInstantiationPass *instantiations = nullptr;
     std::unordered_map<uint32_t, CallTarget> call_targets_;

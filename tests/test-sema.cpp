@@ -2263,6 +2263,113 @@ static void test_modern_optional_condition_boolean() {
     CHECK(propagated.ok, "return x? keeps its optional-propagation semantics");
 }
 
+static void test_modern_optional_condition_keyword() {
+    ModernSemaTest t;
+    auto accepted = t.run("fn main(): i32 {\n"
+                          "    var x: ?i32 = 7;\n"
+                          "    if (optional x) { return 1; }\n"
+                          "    while (optional x) { return 2; }\n"
+                          "    for (optional x) { return 3; }\n"
+                          "    return 0;\n"
+                          "}\n");
+    CHECK(accepted.ok, "'optional expr' is accepted as a boolean condition on optional x");
+
+    ModernSemaTest non_optional;
+    auto rejected = non_optional.run("fn main() {\n"
+                                     "    var x: i32 = 1;\n"
+                                     "    if (optional x) { }\n"
+                                     "}\n");
+    CHECK(!rejected.ok, "'optional expr' is rejected on non-optional operands");
+    CHECK(rejected.hasMessage("'?' operator requires an optional operand"),
+          "the non-optional keyword form reports the optional-operand diagnostic");
+
+    ModernSemaTest bare;
+    auto bare_accepted = bare.run("fn main(): i32 {\n"
+                                  "    var x: ?i32 = 7;\n"
+                                  "    if optional x { return 1; }\n"
+                                  "    while optional x { return 2; }\n"
+                                  "    for optional x { return 3; }\n"
+                                  "    var ok: bool = true;\n"
+                                  "    if not ok { return 4; }\n"
+                                  "    return 0;\n"
+                                  "}\n");
+    CHECK(bare_accepted.ok, "bare optional/not condition forms in if/while/for type-check cleanly");
+}
+
+static void test_modern_function_default_arguments() {
+    ModernSemaTest t;
+    auto accepted = t.run("fn add(left: i32, right: i32 = 5): i32 {\n"
+                          "    return left + right;\n"
+                          "}\n"
+                          "fn main(): i32 {\n"
+                          "    return add(7) + add(1, 2);\n"
+                          "}\n");
+    CHECK(accepted.ok, "a trailing defaulted parameter may be omitted at the call site");
+
+    ModernSemaTest missing_required;
+    auto rejected = missing_required.run("fn force(x: i32): i32 {\n"
+                                         "    return x;\n"
+                                         "}\n"
+                                         "fn main(): i32 {\n"
+                                         "    return force();\n"
+                                         "}\n");
+    CHECK(!rejected.ok, "a required parameter still reports an arity mismatch");
+    CHECK(rejected.hasMessage("arity mismatch"), "required-parameter calls report arity mismatch");
+
+    ModernSemaTest default_order;
+    auto order_rejected = default_order.run("fn bad(left: i32 = 1, right: i32): i32 {\n"
+                                            "    return left + right;\n"
+                                            "}\n");
+    CHECK(!order_rejected.ok, "a parameter without a default cannot follow a defaulted parameter");
+    CHECK(order_rejected.hasMessage("parameter without a default"),
+          "the ordering diagnostic names the offending parameter");
+}
+
+static void test_modern_implicit_opaque_coercion_rejected() {
+    ModernSemaTest t;
+    auto rejected = t.run("fn erased(value: i32): opaque { value as opaque }\n"
+                          "fn main(): i32 {\n"
+                          "    let d: opaque = erased(5);\n"
+                          "    let x: u32 = d;\n"
+                          "    return 0;\n"
+                          "}\n");
+    CHECK(!rejected.ok, "opaque does not implicitly coerce back to a concrete type");
+    CHECK(rejected.hasMessage("use 'as'"),
+          "the opaque coercion diagnostic suggests an explicit cast");
+
+    ModernSemaTest accepted_cast;
+    auto r = accepted_cast.run("fn erased(value: i32): opaque { value as opaque }\n"
+                               "fn main(): u32 {\n"
+                               "    let d: opaque = erased(5);\n"
+                               "    let x: ?u32 = d as u32;\n"
+                               "    if (x is null) { return 1; }\n"
+                               "    return 0;\n"
+                               "}\n");
+    CHECK(r.ok, "explicit 'opaque as T' remains the checked extraction path");
+}
+
+static void test_modern_opaque_as_raw_opaque_accepted() {
+    ModernSemaTest t;
+    auto accepted = t.run("fn erased(value: i32): opaque { value as opaque }\n"
+                          "fn main(): i32 {\n"
+                          "    let d: opaque = erased(5);\n"
+                          "    let p: raw opaque = d as raw opaque;\n"
+                          "    return 0;\n"
+                          "}\n");
+    CHECK(accepted.ok, "explicit 'opaque as raw opaque' is accepted");
+
+    ModernSemaTest implicit_rejected;
+    auto rejected = implicit_rejected.run("fn erased(value: i32): opaque { value as opaque }\n"
+                                          "fn main(): i32 {\n"
+                                          "    let d: opaque = erased(5);\n"
+                                          "    let x: u32 = d;\n"
+                                          "    return 0;\n"
+                                          "}\n");
+    CHECK(!rejected.ok, "implicit 'opaque -> T' is still rejected");
+    CHECK(rejected.hasMessage("use 'as'"),
+          "the opaque coercion diagnostic still recommends an explicit cast");
+}
+
 static void test_modern_array_literal() {
     ModernSemaTest t;
     auto r = t.run("fn sum(arr: [4]i32): i32 {\n"
@@ -3298,6 +3405,10 @@ static void test_sema() {
     test_modern_struct_field_visibility();
     test_modern_module_depth_field_visibility();
     test_modern_optional_condition_boolean();
+    test_modern_optional_condition_keyword();
+    test_modern_function_default_arguments();
+    test_modern_implicit_opaque_coercion_rejected();
+    test_modern_opaque_as_raw_opaque_accepted();
     test_modern_array_literal();
     test_modern_array_literal_mismatch();
     test_modern_array_literal_empty();

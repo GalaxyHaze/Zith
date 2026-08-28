@@ -9,7 +9,7 @@
 namespace zith::sema::modern {
 
 TypeTable::TypeTable(memory::Arena &arena)
-    : entries_(arena), arena_(&arena), named_registry_(), conformances_(arena) {}
+    : entries_(arena), arena_(&arena), named_registry_(), conformances_(arena, this) {}
 
 TypeTable::Entry &TypeTable::pushEntry(EntryKind kind) {
     Entry entry{};
@@ -321,7 +321,7 @@ TypeId TypeTable::internQualified(TypeId inner, types::OwnershipKind ownership, 
 // --- Queries ---
 
 TypeKind TypeTable::kindOf(TypeId id) const noexcept {
-    const auto *entry = findEntry(id);
+    const auto *entry = findEntry(canonical(id));
     return entry ? entry->reported_kind : TypeKind::Error;
 }
 
@@ -582,18 +582,26 @@ size_t TypeTable::size() const noexcept {
 }
 
 void TypeTable::ConformanceTable::registerConformance(TypeId type, TypeId trait) {
+    const std::string rendered_type =
+        table_ != nullptr ? table_->typeToString(type) : std::string{};
+    const std::string rendered_trait =
+        table_ != nullptr ? table_->typeToString(trait) : std::string{};
     for (const auto &existing : conformances_) {
-        if (existing.type == type && existing.trait == trait)
+        if (existing.type == rendered_type && existing.trait == rendered_trait)
             return;
     }
-    conformances_.push(Conformance{type, trait});
+    conformances_.push(Conformance{std::move(rendered_type), std::move(rendered_trait)});
 }
 
 bool TypeTable::ConformanceTable::satisfies(TypeId type, TypeId trait_or_interface) const {
     if (!type || !trait_or_interface)
         return false;
     for (const auto &existing : conformances_) {
-        if (existing.type == type && existing.trait == trait_or_interface)
+        const std::string rendered_type =
+            table_ != nullptr ? table_->typeToString(type) : std::string{};
+        const std::string rendered_trait =
+            table_ != nullptr ? table_->typeToString(trait_or_interface) : std::string{};
+        if (existing.type == rendered_type && existing.trait == rendered_trait)
             return true;
     }
     // Structural interface satisfaction is implemented by PerModuleSema,

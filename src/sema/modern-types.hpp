@@ -161,17 +161,19 @@ public:
     /// Nominal trait and structural interface conformance registry.
     class ConformanceTable {
     public:
-        explicit ConformanceTable(memory::Arena &arena) : conformances_(arena) {}
+        explicit ConformanceTable(memory::Arena &arena, const TypeTable *owner)
+            : conformances_(arena), table_(owner) {}
 
         void registerConformance(TypeId type, TypeId trait);
         [[nodiscard]] bool satisfies(TypeId type, TypeId trait_or_interface) const;
 
     private:
         struct Conformance {
-            TypeId type;
-            TypeId trait;
+            std::string type;
+            std::string trait;
         };
         memory::DynArray<Conformance> conformances_;
+        const TypeTable *table_ = nullptr;
     };
 
     [[nodiscard]] ConformanceTable &conformanceTable() noexcept {

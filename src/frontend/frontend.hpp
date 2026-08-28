@@ -443,6 +443,9 @@ struct Declaration {
 /// visible to semantic trait checking.
 struct ImplementRecord {
     std::string owner;
+    /// Canonical owner type expression for primitive/optional/slice owners. The
+    /// named-owner path keeps this zero because `owner` is a declaration name.
+    TypeExprId ownerType;
     std::string traitName;
     TextSpan span;
 };

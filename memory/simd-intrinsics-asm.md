@@ -9,6 +9,13 @@ tipos vetoriais depois.
 - `@sizeOf`, `@alignOf` e `@offsetOf` já funcionam como
   `ExprKind::LayoutIntrinsic`; a mesma lista inclui vários nomes de fibonacci
   que hoje não têm semântica (`fields`, `hasTrait`, `allocate`, `pack`, ...).
+- Conhecido: `@sizeOf` em condição `if` quebra codegen com `E5001 failed to
+  emit the terminator of a block in function 'main'`. O HIR fica sem instrução
+  para o `HirLayoutIntrinsic` e `lowerIf` cria um `HirBranch` sem condição. O
+  mesmo falha aparece em `tests/test-codegen.cpp` e `examples/arrays.zith` no
+  worktree atual e não está relacionado com a correção `opaque as raw opaque`.
+  Para reparar, `lowerLayoutIntrinsic`/`HirLayoutIntrinsic` têm de ser
+  materializados no HIR antes de serem usados como operando binário/condição.
 - O roadmap regista `F-10 @sizeOf/@intrinsic` e `F-17 reflection intrinsics`
   como trabalho em aberto.
 - O codegen é LLVM com targets x86-64 e WebAssembly registados.
