@@ -1,0 +1,19 @@
+// Exercises: global `const`, const struct fields, and enum casts.
+// Expected exit code: 7
+
+const GLOBAL: i32 = 3;
+
+struct Point {
+    const X_OFFSET: i32 = 2,
+    x: i32,
+}
+
+enum Flag {
+    ONE = 1,
+    TWO = ONE + 1,
+}
+
+fn main(): i32 {
+    let p: Point = Point { x: 1 };
+    return GLOBAL + p.X_OFFSET + Flag.TWO as i32;
+}

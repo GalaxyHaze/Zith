@@ -1,0 +1,13 @@
+// Exercises: `state`, `dock`, `jump`, and tail-call transitions.
+// Expected exit code: 42
+
+state CountDown(n: i32): i32 {
+    if (n > 0) {
+        jump CountDown(n - 1);
+    }
+    return 42;
+}
+
+fn main(): i32 {
+    return dock CountDown(1000);
+}

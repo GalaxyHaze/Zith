@@ -1,0 +1,8 @@
+// Exercises: a normal macro used as a value.
+// Expected exit code: 42
+
+macro answer() { 42; }
+
+fn main(): i32 {
+    return @answer();
+}

@@ -1,0 +1,22 @@
+// Exercises: inferred generic struct literals and interface bounds in a
+// generic function.
+// Expected exit code: 82
+
+interface Positioned {
+    x: i32,
+    fn getX(self): i32
+}
+
+struct Point {
+    x: i32,
+    fn getX(self): i32 { return self.x }
+}
+
+fn transform<T: Positioned>(p: T): i32 {
+    return p.x + p.getX();
+}
+
+fn main(): i32 {
+    let point = Point { x: 41 };
+    return transform(point);
+}

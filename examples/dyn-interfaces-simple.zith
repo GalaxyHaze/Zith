@@ -1,0 +1,25 @@
+// Exercises: `dyn Interface` method dispatch with structurally conforming
+// structs.
+// Expected exit code: 10
+
+interface Speak {
+    fn value(self): i32
+}
+
+struct Cat {
+    n: i32,
+    fn value(self): i32 { self.n * 2 }
+}
+
+struct Dog {
+    n: i32,
+    fn value(self): i32 { self.n * 3 }
+}
+
+fn call(a: dyn Speak): i32 {
+    return a.value();
+}
+
+fn main(): i32 {
+    return call(Cat { n: 2 }) + call(Dog { n: 2 });
+}

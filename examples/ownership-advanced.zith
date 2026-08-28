@@ -1,0 +1,20 @@
+// Exercises: qualified `lend`/`view` receivers and explicit pointer receivers.
+// Expected exit code: 16
+
+struct Sample {
+    x: i32,
+    fn bumpLend(self: lend Sample) { self->x = self->x + 1; }
+    fn get(self): i32 { return self->x; }
+    fn readView(self: view Sample): i32 { return self->x; }
+    fn bumpPtr(self: *Sample) { self->x = self->x + 5; }
+}
+
+fn main(): i32 {
+    var s: Sample = Sample { x: 10 };
+    s.bumpLend();
+    s.bumpPtr();
+    if (s.readView() != 16) {
+        return 1;
+    }
+    return s.get();
+}

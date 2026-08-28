@@ -1,0 +1,25 @@
+// Exercises: bare `opaque`, `is Tipo`, checked extraction, and raw extraction.
+// Expected exit code: 0
+
+fn main(): i32 {
+    var v: i32 = 41;
+    let h: opaque = v as opaque;
+
+    if (not (h is i32)) {
+        return 1;
+    }
+    if (h is f64) {
+        return 2;
+    }
+
+    let got: ?i32 = h as i32;
+    if (got is null) {
+        return 3;
+    }
+
+    let rawValue: i32 = raw h as i32;
+    if (rawValue != 41) {
+        return 4;
+    }
+    return 0;
+}

@@ -1,0 +1,26 @@
+// Exercises: `lend` and `view` borrow parameters with call-site annotations.
+// Expected exit code: 42
+
+struct Sample {
+    x: i32,
+}
+
+fn bump(p: lend Sample): i32 {
+    p.x = p.x + 1;
+    p.x
+}
+
+fn read(p: view Sample): i32 {
+    p.x
+}
+
+fn main(): i32 {
+    var q: Sample = Sample { x: 41 };
+    if (bump(lend q) != 42) {
+        return 1;
+    }
+    if (read(view q) != 42) {
+        return 2;
+    }
+    q.x
+}

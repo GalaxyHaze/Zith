@@ -1,0 +1,21 @@
+// Exercises: generic `fn`, generic `struct`, generic `alias`, and explicit
+// type arguments.
+// Expected exit code: 42
+
+fn identity<T>(x: T): T {
+    return x;
+}
+
+struct Pair<T, U> {
+    first: T,
+    second: U,
+}
+
+alias Answer<T> = T
+
+fn main(): i32 {
+    let a: i32 = identity<i32>(21);
+    let pair: Pair<i32, f64> = Pair<i32, f64>{ first: 20, second: 2.5 };
+    let b: Answer<i32> = pair.first + 1;
+    return a + b;
+}

@@ -1,0 +1,25 @@
+// Exercises: optional types `?T`, `null`, `is null`, and optional conditions.
+// Expected exit code: 4
+
+fn pick(flag: bool): ?i32 {
+    if (flag == false) {
+        return null;
+    }
+    return 6;
+}
+
+fn main(): i32 {
+    let some: ?i32 = pick(true);
+    if (some is null) {
+        return 1;
+    }
+    if (not (some?)) {
+        return 2;
+    }
+
+    let none: ?i32 = pick(false);
+    if (not (none is null)) {
+        return 5;
+    }
+    return 4;
+}

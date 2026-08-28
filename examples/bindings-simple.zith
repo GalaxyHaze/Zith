@@ -1,0 +1,17 @@
+// Exercises: `let`, `var`, `const`, and deferred initialization with `raw`.
+// Expected exit code: 8
+
+const SCALE: i32 = 2;
+
+fn main(): i32 {
+    var value: i32;
+    value = 4;
+
+    let fixed: i32 = 5;
+    const LOCAL: i32 = 3;
+
+    if (raw value != 4) {
+        return 1;
+    }
+    return value + fixed - LOCAL;
+}

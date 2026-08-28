@@ -1,0 +1,13 @@
+// Exercises: `when` as an expression with literal and default arms.
+// Expected exit code: 14
+
+fn classify(n: i32): i32 {
+    return when (n) {
+        (0) ~> 10,
+        (_) ~> 4,
+    };
+}
+
+fn main(): i32 {
+    return classify(0) + classify(7);
+}

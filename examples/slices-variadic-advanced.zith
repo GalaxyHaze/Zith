@@ -1,0 +1,15 @@
+// Exercises: homogeneous variadic slices `[...]T` with auto-collected tails.
+// Expected exit code: 12
+
+fn sum(rest: [...]i32): i32 {
+    var total: i32 = 0;
+    total = total + raw rest[0];
+    total = total + raw rest[1];
+    total = total + raw rest[2];
+    total = total + raw rest[3];
+    return total;
+}
+
+fn main(): i32 {
+    return sum(1, 2, 3, 6);
+}

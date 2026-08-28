@@ -1,0 +1,18 @@
+// Exercises: tagged unions, `is Type` membership tests, and checked casts.
+// Expected exit value: 0
+
+union Value { i32, bool }
+
+fn main(): i32 {
+    let number: Value = Value { 42 };
+    if (number is i32) {
+        let n: i32 = number as i32;
+        if (n == 42) {
+            let flag: Value = Value { true };
+            if (flag is bool) {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}

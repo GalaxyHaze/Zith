@@ -1,0 +1,31 @@
+// Exercises: compound bitwise operators and the `0c` octal literal prefix.
+// Expected exit code: 3
+
+fn main(): i32 {
+    var acc: i32 = 0b1111;
+    acc &= 0b0110;
+    if (acc != 6) {
+        return 1;
+    }
+    acc |= 0b1000;
+    if (acc != 14) {
+        return 2;
+    }
+    acc ^= 0b0010;
+    if (acc != 12) {
+        return 4;
+    }
+    acc <<= 1;
+    if (acc != 24) {
+        return 5;
+    }
+    acc >>= 3;
+    if (acc != 3) {
+        return 6;
+    }
+    if (0c17 != 15) {
+        return 7;
+    }
+
+    return acc;
+}

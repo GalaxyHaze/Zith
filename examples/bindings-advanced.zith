@@ -1,0 +1,22 @@
+// Exercises: immutable root write protection, `let` initialized by its first
+// assignment, and local `const`.
+// Expected exit code: 42
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main(): i32 {
+    var p: Point = Point { x: 10, y: 32 };
+
+    let q: i32;
+    q = 42;
+
+    const LOCAL: i32 = 42;
+
+    // `p` is `var`, so writing a field is legal.
+    p.x = p.x + 0;
+
+    return LOCAL;
+}

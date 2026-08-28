@@ -1,0 +1,36 @@
+// Exercises: `?` propagation, optional pointers with `?*T`, replacement with
+// `null`, and optional payload access after a non-null guard.
+// Expected exit code: 14
+
+fn halfIfEven(n: i32): ?i32 {
+    if ((n - ((n / 2) * 2)) != 0) {
+        return null;
+    }
+    return n / 2;
+}
+
+fn quarter(n: i32): ?i32 {
+    let half: i32 = halfIfEven(n)?;
+    return halfIfEven(half);
+}
+
+fn main(): i32 {
+    var value: i32 = 14;
+
+    var maybe: ?*i32 = &value;
+    if (maybe is null) {
+        return 1;
+    }
+
+    let half: ?i32 = quarter(8);
+    if (half is null) {
+        return 2;
+    }
+
+    maybe = null;
+    if (not (maybe is null)) {
+        return 3;
+    }
+
+    return 14;
+}

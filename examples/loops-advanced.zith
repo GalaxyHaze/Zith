@@ -1,0 +1,43 @@
+// Exercises: `for-in` through the `next(self)` iterator protocol and labeled
+// `break`/`continue`.
+// Expected exit code: 10
+
+struct End {}
+
+union Step { End, i32 }
+
+struct Counter {
+    current: i32,
+    limit: i32,
+    fn next(var self): Step {
+        if (self->current >= self->limit) {
+            return Step { End {} };
+        }
+        let value = Step { self->current };
+        self->current = self->current + 1;
+        return value;
+    }
+}
+
+fn main(): i32 {
+    var total: i32 = 0;
+    let counter: Counter = Counter { current: 0, limit: 5 };
+    for (n in counter) {
+        total = total + n;
+    }
+
+    var outer_hits: i32 = 0;
+    outer: for (var i: i32 = 0, i < 3, i = i + 1) {
+        for (var j: i32 = 0, j < 3, j = j + 1) {
+            if (j == 1) {
+                continue outer;
+            }
+            if (i == 2) {
+                break outer;
+            }
+        }
+        outer_hits = outer_hits + 1;
+    }
+
+    return total;
+}

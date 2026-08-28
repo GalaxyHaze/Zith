@@ -1,0 +1,24 @@
+// Exercises: `when` with ranges, boolean guards, default arms, and `when`
+// used as a statement for dispatch on a tagged union.
+// Expected exit code: 3
+
+union Payload { i32, bool }
+
+fn classify(n: i32): i32 {
+    return when (n) {
+        (0) ~> 1,
+        (1..3) ~> 2,
+        (n > 100) ~> 3,
+        (_) ~> 4,
+    };
+}
+
+fn main(): i32 {
+    let payload: Payload = Payload { true };
+
+    when (payload) {
+        (payload is bool) ~> { return classify(2); },
+        (_) ~> { return 0; },
+    }
+    return 0;
+}

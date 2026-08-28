@@ -1,0 +1,33 @@
+// Exercises: nominal `dyn Trait` dispatch, defaults, and a mix of concrete
+// shapes behind the same dynamic surface.
+// Expected exit code: 14
+
+trait Drawable {
+    fn area(self): i32 { return 0 }
+}
+
+struct Square {
+    side: i32,
+    fn area(self): i32 { self.side * self.side }
+}
+
+struct Circle {
+    radius: i32,
+    fn area(self): i32 { self.radius }
+}
+
+implement Square as Drawable {
+    fn area(self): i32 { self.side * self.side }
+}
+
+implement Circle as Drawable {
+    fn area(self): i32 { self.radius }
+}
+
+fn total(a: dyn Drawable): i32 {
+    return a.area();
+}
+
+fn main(): i32 {
+    return total(Square { side: 3 }) + total(Circle { radius: 5 });
+}

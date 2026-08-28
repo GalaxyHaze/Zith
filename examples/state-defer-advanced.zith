@@ -1,0 +1,25 @@
+// Exercises: reverse-order `defer` cleanup, defer before state jumps, and a
+// state machine with diverging state parameters.
+// Expected exit code: 42
+
+state Start(n: i32): i32 {
+    defer mark(1);
+    if (n == 0) {
+        return 42;
+    }
+    jump Done(n - 1, n);
+}
+
+state Done(n: i32, value: i32): i32 {
+    defer mark(2);
+    jump Start(n);
+}
+
+extern fn putchar(c: i32): i32
+fn mark(kind: i32) {
+    putchar(64 + kind);
+}
+
+fn main(): i32 {
+    return dock Start(2);
+}

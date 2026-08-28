@@ -1,0 +1,22 @@
+// Exercises: function values as parameters and higher-order calls.
+// Expected exit code: 31
+
+fn apply(f: fn(i32): i32, x: i32): i32 {
+    return f(x);
+}
+
+fn double(x: i32): i32 {
+    return x * 2;
+}
+
+fn addOne(x: i32): i32 {
+    return x + 1;
+}
+
+fn main(): i32 {
+    var current: fn(i32): i32 = double;
+    let a: i32 = apply(current, 10);
+    current = addOne;
+    let b: i32 = apply(current, 10);
+    return a + b;
+}

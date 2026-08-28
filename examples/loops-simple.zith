@@ -1,0 +1,28 @@
+// Exercises: the three-clause `for`, conditional `for`, bare `for`, and loop
+// control.
+// Expected exit code: 12
+
+fn main(): i32 {
+    var total: i32 = 0;
+    for (var i: i32 = 0, i < 4, i = i + 1) {
+        if (i == 2) {
+            continue;
+        }
+        total = total + i;
+    }
+
+    var countdown: i32 = 3;
+    for (countdown > 0) {
+        countdown = countdown - 1;
+    }
+
+    var doubled: i32 = 1;
+    for {
+        doubled = doubled * 2;
+        if (doubled >= 8) {
+            break;
+        }
+    }
+
+    return total + countdown + doubled;
+}

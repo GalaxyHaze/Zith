@@ -1,0 +1,17 @@
+// Exercises: struct fields, struct literals, arrays, and `@sizeOf`.
+// Expected exit code: 9
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main(): i32 {
+    var points: [2]Point = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }];
+    points[0].x = 5;
+
+    if (@sizeOf(Point) < 8) {
+        return 1;
+    }
+    return raw points[0].x + raw points[1].y;
+}

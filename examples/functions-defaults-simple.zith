@@ -1,0 +1,10 @@
+// Exercises: positional default arguments in free functions.
+// Expected exit code: 15
+
+fn add(left: i32, right: i32 = 5): i32 {
+    return left + right;
+}
+
+fn main(): i32 {
+    return add(7) + add(1, 2);
+}

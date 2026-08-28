@@ -1,0 +1,40 @@
+// Exercises: tagged-union narrowing in `if` and `when`, member extraction,
+// and restoring the wider type after a narrowing scope.
+// Expected exit code: 7
+
+union Value { i32, f64, bool }
+
+fn handle(v: Value): i32 {
+    if (v is i32) {
+        let n: i32 = v as i32;
+        if (n != 42) {
+            return 1;
+        }
+    } else {
+        return 2;
+    }
+
+    var total: i32 = 1;
+    when (v) {
+        (v is i32) ~> { total = total + 5; },
+        (_) ~> { total = 0; },
+    }
+
+    if (v is bool) {
+        return 3;
+    }
+    return total;
+}
+
+fn main(): i32 {
+    let number: Value = Value { 42 };
+    let flag: Value = Value { true };
+
+    if (handle(number) != 6) {
+        return 4;
+    }
+    if (not (flag is bool)) {
+        return 5;
+    }
+    return 7;
+}

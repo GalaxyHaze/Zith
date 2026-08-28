@@ -1,0 +1,26 @@
+// Exercises: `opaque` payload erasure for structs, check/extract round trips,
+// and raw pointer comparison after narrowing.
+// Expected exit code: 42
+
+struct Box {
+    value: i32,
+}
+
+fn main(): i32 {
+    var boxed: Box = Box { value: 42 };
+    let b: opaque = boxed as opaque;
+
+    if (not (b is Box)) {
+        return 1;
+    }
+
+    let got: ?Box = b as Box;
+    if (got is null) {
+        return 2;
+    }
+    if (b is Box) {
+        let payload: Box = b;
+        return payload.value;
+    }
+    return 3;
+}

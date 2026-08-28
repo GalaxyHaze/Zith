@@ -1,0 +1,28 @@
+// Exercises: boolean precedence, bare `not`/`optional` condition forms, and
+// compound conditions in every control-flow position.
+// Expected exit code: 10
+
+fn score(ok: bool, present: bool): i32 {
+    var total: i32 = 0;
+    for (ok and present) {
+        total = total + 3;
+        break;
+    }
+    if (ok or not present) {
+        total = total + 3;
+    }
+    for (var i: i32 = 0), (i < 2 and ok), (i = i + 1) {
+        total = total + 2;
+    }
+    return total;
+}
+
+fn main(): i32 {
+    var maybe: ?i32 = 7;
+    if optional maybe {
+        if not (maybe? == false) {
+            return score(true, true);
+        }
+    }
+    return 0;
+}

@@ -1,0 +1,11 @@
+// Exercises: `fn(...): R` values, assignment to a local, and indirect calls.
+// Expected exit code: 14
+
+fn double(x: i32): i32 {
+    return x * 2;
+}
+
+fn main(): i32 {
+    let f: fn(i32): i32 = double;
+    return f(7);
+}

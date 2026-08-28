@@ -20,8 +20,42 @@ struct Example {
 };
 
 constexpr Example kExamples[] = {
-    {"simple-feature.zith", 0, false},
-    {"advance-feature.zith", 15, false},
+    {"bindings-simple.zith", 6, false},
+    {"bindings-advanced.zith", 42, false},
+    {"bitwise-simple.zith", 7, false},
+    {"bitwise-advanced.zith", 3, false},
+    {"booleans-simple.zith", 7, false},
+    {"booleans-advanced.zith", 10, false},
+    {"const-enums-simple.zith", 7, false},
+    {"const-enums-advanced.zith", 12, false},
+    {"dyn-interfaces-simple.zith", 10, false},
+    {"dyn-interfaces-advanced.zith", 14, false},
+    {"function-values-simple.zith", 14, false},
+    {"function-values-advanced.zith", 31, false},
+    {"functions-defaults-simple.zith", 15, false},
+    {"functions-defaults-advanced.zith", 17, false},
+    {"generics-simple.zith", 42, false},
+    {"generics-advanced.zith", 82, false},
+    {"loops-simple.zith", 12, false},
+    {"loops-advanced.zith", 10, false},
+    {"macros-simple.zith", 42, false},
+    {"macros-advanced.zith", 9, false},
+    {"opaque-simple.zith", 0, false},
+    {"opaque-advanced.zith", 42, false},
+    {"optionals-simple.zith", 4, false},
+    {"optionals-advanced.zith", 14, false},
+    {"ownership-simple.zith", 42, false},
+    {"ownership-advanced.zith", 16, false},
+    {"slices-variadic-simple.zith", 6, false},
+    {"slices-variadic-advanced.zith", 12, false},
+    {"state-defer-simple.zith", 42, false},
+    {"state-defer-advanced.zith", 42, false},
+    {"structs-arrays-simple.zith", 9, false},
+    {"structs-arrays-advanced.zith", 7, false},
+    {"tagged-unions-simple.zith", 0, false},
+    {"tagged-unions-advanced.zith", 7, false},
+    {"when-simple.zith", 14, false},
+    {"when-advanced.zith", 2, false},
 };
 
 #ifdef ZITH_ENABLE_C_INTEROP
@@ -46,6 +80,10 @@ std::string stageExample(const fs::path &workdir, const char *name) {
 }
 
 int runExample(const fs::path &workdir, const char *name) {
+    std::error_code ec;
+    fs::remove_all(workdir / "cache", ec);
+    fs::remove_all(workdir / "target", ec);
+    fs::remove_all(workdir / ".zith-cache", ec);
     const std::string staged = stageExample(workdir, name);
     if (staged.empty()) {
         return -1;

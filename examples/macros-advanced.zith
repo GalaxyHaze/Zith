@@ -1,0 +1,14 @@
+// Exercises: a raw macro that splices statements, including local bindings.
+// Expected exit code: 9
+
+raw macro sum(a: identifier, b: identifier, out: identifier) {
+    out = a + b;
+}
+
+fn main(): i32 {
+    var left: i32 = 4;
+    var right: i32 = 5;
+    var result: i32 = 0;
+    @sum(left, right, result);
+    return result;
+}
