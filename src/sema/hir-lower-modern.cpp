@@ -1919,8 +1919,15 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
                                                 argument, fn->params[call_index]);
                     dyncall.args.back() = argument;
                 } else {
-                    dyncall.args.back() =
+                    argument =
                         lowerCoerceToOpaque(fn->params[call_index], expr.operands[index], argument);
+                    const auto lowered_arg_type = dyncall.arg_types.back();
+                    if (types_.kindOf(lowerType(fn->params[call_index])) ==
+                            types::TypeKind::Optional &&
+                        types_.kindOf(lowered_arg_type) != types::TypeKind::Optional)
+                        argument =
+                            lowerCoerceToOptional(lowerType(fn->params[call_index]), argument);
+                    dyncall.args.back() = argument;
                 }
             }
             if (method_decl != nullptr) {
@@ -2148,13 +2155,16 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
         const auto argument_type = typeOfExpr(expr.operands[index]);
         if (argument_type != types::kInvalidType)
             arg_types.push(argument_type);
-        const auto param_type = callee_fn != nullptr && call_index < callee_fn->params.size()
-                                    ? lowerType(callee_fn->params[call_index])
-                                    : types::kInvalidType;
+        const auto param_sema_raw = callee_fn != nullptr && call_index < callee_fn->params.size()
+                                        ? callee_fn->params[call_index]
+                                        : sema::modern::kInvalidTypeId;
+        const auto param_type     = param_sema_raw != sema::modern::kInvalidTypeId
+                                        ? lowerType(param_sema_raw)
+                                        : types::kInvalidType;
         hir::HirExprId lowered_argument =
             lowerCoerceToSliceIfArray(param_type, expr.operands[index], argument);
-        if (callee_fn != nullptr && call_index < callee_fn->params.size()) {
-            const sema::modern::TypeId param_sema = callee_fn->params[call_index];
+        if (param_sema_raw != sema::modern::kInvalidTypeId) {
+            const auto param_sema = param_sema_raw;
             if (sema_.typeTable().kindOf(param_sema) == sema::modern::TypeKind::Dyn ||
                 sema_.typeTable().kindOf(sema_.typeTable().canonical(param_sema)) ==
                     sema::modern::TypeKind::Dyn)
@@ -2163,6 +2173,10 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
             else
                 lowered_argument =
                     lowerCoerceToOpaque(param_sema, expr.operands[index], lowered_argument);
+            const auto arg_sema = semaTypeOfExpr(expr.operands[index]);
+            if (types_.kindOf(param_type) == types::TypeKind::Optional)
+                lowered_argument =
+                    lowerCoerceToOptionalDepth(param_type, param_sema, arg_sema, lowered_argument);
         }
         args.push(lowered_argument);
     }
@@ -2550,28 +2564,27 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
     if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
         emitJump(merge_block);
 
-    const bool has_else_condition    = expr.operands.size() > 3U;
-    const frontend::ExprId else_value_id =
-        has_else_condition ? expr.operands[3] : expr.operands[2];
+    const bool has_else_condition        = expr.operands.size() > 3U;
+    const frontend::ExprId else_value_id = has_else_condition ? expr.operands[3] : expr.operands[2];
     if (has_else) {
         setCurrentBlock(else_block);
         current_fn_->blocks[else_block].insts = memory::DynArray<hir::HirExprId>(arena_);
         cleanup_stack_.push_back(CleanupFrame(arena_));
         const size_t else_cleanup = cleanup_stack_.size() - 1U;
-    if (narrowed_local && !narrow_then)
-        narrowing_stack_.push_back(Narrowing{
-            narrowed_local, narrowed_type, narrowed_optional_payload, narrowed_opaque_payload});
-    if (has_else_condition) {
-        const auto else_cond = lowerExpr(expr.operands[2]);
-        if (else_cond != hir::kInvalidHirExpr) {
-            current_fn_->blocks[current_block_].insts.push(else_cond);
-            hir::HirBranch else_branch;
-            else_branch.cond       = else_cond;
-            else_branch.then_block = static_cast<hir::HirDeclId>(merge_block);
-            else_branch.else_block = static_cast<hir::HirDeclId>(merge_block);
-            setTerminator(addExpr(std::move(else_branch)));
+        if (narrowed_local && !narrow_then)
+            narrowing_stack_.push_back(Narrowing{
+                narrowed_local, narrowed_type, narrowed_optional_payload, narrowed_opaque_payload});
+        if (has_else_condition) {
+            const auto else_cond = lowerExpr(expr.operands[2]);
+            if (else_cond != hir::kInvalidHirExpr) {
+                current_fn_->blocks[current_block_].insts.push(else_cond);
+                hir::HirBranch else_branch;
+                else_branch.cond       = else_cond;
+                else_branch.then_block = static_cast<hir::HirDeclId>(merge_block);
+                else_branch.else_block = static_cast<hir::HirDeclId>(merge_block);
+                setTerminator(addExpr(std::move(else_branch)));
+            }
         }
-    }
         const auto else_value = lowerExpr(else_value_id);
         if (narrowed_local && !narrow_then)
             narrowing_stack_.pop_back();
@@ -3271,20 +3284,170 @@ hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,
 }
 
 uint32_t HirLowerModern::stableConcreteTypeId(types::TypeId type) const {
-    std::string text =
+    uint32_t hash     = 2166136261U;
+    const auto append = [&](const uint8_t *bytes, size_t count) {
+        for (size_t i = 0; i < count; ++i) {
+            hash ^= bytes[i];
+            hash *= 16777619U;
+        }
+    };
+    auto appendU64 = [&](uint64_t value) {
+        const uint8_t raw[sizeof(value)] = {
+            static_cast<uint8_t>(value),        static_cast<uint8_t>(value >> 8U),
+            static_cast<uint8_t>(value >> 16U), static_cast<uint8_t>(value >> 24U),
+            static_cast<uint8_t>(value >> 32U), static_cast<uint8_t>(value >> 40U),
+            static_cast<uint8_t>(value >> 48U), static_cast<uint8_t>(value >> 56U)};
+        append(raw, sizeof(raw));
+    };
+    const auto appendName = [&](memory::InternedId name) {
+        const auto text = interner_.lookup(name);
+        append(reinterpret_cast<const uint8_t *>(text.data()), text.size());
+    };
+
+    const auto namespace_text =
         moduleNamespace(current_module_ != nullptr ? current_module_->key : std::string_view{},
                         snapshot_.cacheKey());
-    text += ":";
-    text += std::to_string(type);
+    append(reinterpret_cast<const uint8_t *>(namespace_text.data()), namespace_text.size());
+    appendU64(static_cast<uint64_t>(static_cast<TypeKind>(types_.kindOf(type))));
 
-    uint32_t hash = 2166136261U;
-    for (const char raw : text) {
-        const auto byte = static_cast<unsigned char>(raw);
-        hash ^= byte;
-        hash *= 16777619U;
-    }
-    // Keep the zero tag unused so a missing/error type never looks like a valid
-    // concrete tag in codegen.
+    auto appendType = [&](const auto &self, types::TypeId current) -> void {
+        const auto &data = types_.lookup(current);
+        std::visit(common::overloaded{
+                       [&](const types::TypeError &) { appendU64(1); },
+                       [&](const types::TypeNever &) { appendU64(2); },
+                       [&](const types::TypeVoid &) { appendU64(3); },
+                       [&](const types::TypeBool &) { appendU64(4); },
+                       [&](const types::TypeChar &) { appendU64(5); },
+                       [&](const types::TypeInt &t) {
+                           appendU64(6);
+                           appendU64(static_cast<uint64_t>(t.width));
+                       },
+                       [&](const types::TypeFloat &t) {
+                           appendU64(7);
+                           appendU64(static_cast<uint64_t>(t.width));
+                       },
+                       [&](const types::TypePtr &t) {
+                           appendU64(8);
+                           appendU64(static_cast<uint64_t>(t.is_mut));
+                           appendU64(static_cast<uint64_t>(t.ownership));
+                           self(self, t.pointee);
+                       },
+                       [&](const types::TypeArray &t) {
+                           appendU64(9);
+                           appendU64(t.count);
+                           self(self, t.elem);
+                       },
+                       [&](const types::TypeStruct &) {
+                           appendU64(10);
+                           const auto &def = types_.getStructDef(current);
+                           appendName(def.name);
+                           for (const auto &field : def.fields) {
+                               appendName(field.name);
+                               self(self, field.type);
+                           }
+                       },
+                       [&](const types::TypeFn &t) {
+                           appendU64(11);
+                           appendU64(t.param_count);
+                           self(self, t.ret);
+                           for (size_t i = 0; i < t.param_count; ++i)
+                               self(self, t.params[i]);
+                       },
+                       [&](const types::TypeTypeVar &t) {
+                           appendU64(12);
+                           appendU64(t.id);
+                       },
+                       [&](const types::TypeOptional &t) {
+                           appendU64(13);
+                           self(self, t.inner);
+                       },
+                       [&](const types::TypeFailable &t) {
+                           appendU64(14);
+                           self(self, t.inner);
+                       },
+                       [&](const types::TypeAlias &t) {
+                           appendU64(15);
+                           self(self, t.target);
+                       },
+                       [&](const types::TypeNominal &t) {
+                           appendU64(16);
+                           appendName(t.name);
+                           self(self, t.target);
+                       },
+                       [&](const types::TypeTrait &t) {
+                           appendU64(17);
+                           appendName(t.name);
+                       },
+                       [&](const types::TypeDyn &t) {
+                           appendU64(18);
+                           appendU64(t.method_count);
+                           self(self, t.target);
+                       },
+                       [&](const types::TypeOpaque &) { appendU64(19); },
+                       [&](const types::TypeOpaqueTagged &) { appendU64(20); },
+                       [&](const types::TypeUnknown &) { appendU64(21); },
+                       [&](const types::TypeQualified &t) {
+                           appendU64(22);
+                           appendU64(static_cast<uint64_t>(t.ownership));
+                           appendU64(static_cast<uint64_t>(t.isMut));
+                           self(self, t.inner);
+                       },
+                       [&](const types::TypeSlice &t) {
+                           appendU64(23);
+                           self(self, t.elem);
+                       },
+                       [&](const types::TypeEnum &) {
+                           appendU64(24);
+                           const auto &def = types_.getEnumDef(current);
+                           appendName(def.name);
+                           self(self, def.underlying);
+                           for (const auto &variant : def.variants) {
+                               appendName(variant.name);
+                               appendU64(static_cast<uint64_t>(variant.discriminant));
+                           }
+                       },
+                       [&](const types::TypeUnion &) {
+                           appendU64(25);
+                           const auto &def = types_.getUnionDef(current);
+                           appendU64(static_cast<uint64_t>(def.is_tagged));
+                           appendName(def.name);
+                           for (const auto &member : def.members)
+                               self(self, member);
+                       },
+                       [&](const types::TypePack &t) {
+                           appendU64(26);
+                           appendU64(t.count);
+                           for (size_t i = 0; i < t.count; ++i)
+                               self(self, t.members[i]);
+                       },
+                       [&](const types::TypeSum &t) {
+                           appendU64(27);
+                           appendU64(t.count);
+                           for (size_t i = 0; i < t.count; ++i)
+                               self(self, t.members[i]);
+                       },
+                       [&](const types::TypeGenericParam &t) {
+                           appendU64(28);
+                           appendU64(t.decl_id);
+                           appendU64(t.param_index);
+                       },
+                       [&](const types::TypeIncomplete &t) {
+                           appendU64(29);
+                           appendU64(t.arg_count);
+                           self(self, t.base);
+                           for (size_t i = 0; i < t.arg_count; ++i)
+                               self(self, t.args[i]);
+                       },
+                   },
+                   data);
+    };
+    appendType(appendType, type);
+
+    const auto domain =
+        moduleNamespace(current_module_ != nullptr ? current_module_->key : std::string_view{},
+                        snapshot_.cacheKey());
+    append(reinterpret_cast<const uint8_t *>(domain.data()), domain.size());
+
     return hash == 0U ? 1U : hash;
 }
 
@@ -4277,6 +4440,58 @@ hir::HirExprId HirLowerModern::lowerCoerceToOptional(types::TypeId target, hir::
     return addExpr(std::move(some));
 }
 
+hir::HirExprId HirLowerModern::lowerCoerceToOptionalDepth(types::TypeId target,
+                                                          sema::modern::TypeId target_sema,
+                                                          sema::modern::TypeId source_sema,
+                                                          hir::HirExprId value) {
+    if (value == hir::kInvalidHirExpr)
+        return hir::kInvalidHirExpr;
+    if (target == types::kInvalidType || target == types::kErrorType ||
+        target_sema == sema::modern::kInvalidTypeId || source_sema == sema::modern::kInvalidTypeId)
+        return value;
+
+    // Apply the missing optional layers one at a time. Each layer is a `Some`
+    // around the previous value, so codegen sees the exact LLVM aggregate or
+    // pointer representation of each nested optional type.
+    auto current      = value;
+    auto current_sema = source_sema;
+    const auto *module_sema =
+        current_module_ != nullptr ? sema_.findModuleSema(current_module_->key) : nullptr;
+    while (sema_.typeTable().kindOf(sema_.typeTable().stripQualifiers(target_sema)) ==
+               sema::modern::TypeKind::Optional &&
+           module_sema != nullptr && !module_sema->sameType(target_sema, current_sema) &&
+           module_sema->coercesTo(target_sema, current_sema)) {
+        const auto *target_opt =
+            sema_.typeTable().optional(sema_.typeTable().stripQualifiers(target_sema));
+        if (target_opt == nullptr)
+            return value;
+
+        const bool source_is_optional =
+            sema_.typeTable().kindOf(sema_.typeTable().stripQualifiers(current_sema)) ==
+            sema::modern::TypeKind::Optional;
+        // The first wrap from a bare `T` creates the nearest optional layer.
+        // Once the value is already optional, the remaining wraps apply the
+        // full outer optional type.
+        const auto layer_sema =
+            (source_is_optional ||
+             sema_.typeTable().kindOf(target_opt->inner) != sema::modern::TypeKind::Optional)
+                ? target_sema
+                : target_opt->inner;
+        const auto layer_hir = lowerType(layer_sema);
+        if (layer_hir == types::kErrorType || layer_hir == types::kInvalidType)
+            return value;
+
+        hir::HirMakeSome some;
+        some.type    = layer_hir;
+        some.value   = current;
+        current      = addExpr(std::move(some));
+        current_sema = layer_sema;
+        if (source_is_optional)
+            target_sema = target_opt->inner;
+    }
+    return current;
+}
+
 bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_value) {
     if (!id || current_module_ == nullptr ||
         id.value > current_module_->frontend->statements().size())
@@ -4325,12 +4540,18 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
             current_fn_->blocks[current_block_].insts.push(alloca);
         if (statement.binding.initializer) {
             auto init = lowerExpr(statement.binding.initializer);
-            // Coerce T → ?T if the annotation is optional but init is not
+            // Sema now accepts `T -> ?T`, `?T -> ??T`, and deeper optional
+            // coercions. The HIR target is canonical by construction only when
+            // the coerced source has the same flattened payload layout, so we
+            // wrap according to the sema source type instead of forcing a
+            // `?T` value into a `??T` slot.
             if (init != hir::kInvalidHirExpr && types_.kindOf(type) == types::TypeKind::Optional) {
-                const auto init_type = typeOfExpr(statement.binding.initializer);
-                if (types_.kindOf(init_type) != types::TypeKind::Optional) {
-                    init = lowerCoerceToOptional(type, init);
-                }
+                const auto binding_sema_type = semaTypeOfLocal(statement.binding.id);
+                const auto init_sema_type    = semaTypeOfExpr(statement.binding.initializer);
+                if (binding_sema_type != sema::modern::kInvalidTypeId &&
+                    init_sema_type != sema::modern::kInvalidTypeId)
+                    init =
+                        lowerCoerceToOptionalDepth(type, binding_sema_type, init_sema_type, init);
             }
             init = lowerCoerceToSliceIfArray(type, statement.binding.initializer, init);
             const sema::modern::TypeId binding_sema = semaTypeOfLocal(statement.binding.id);

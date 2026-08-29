@@ -232,6 +232,21 @@ void addInstantiations(Artifact &art) {
 static void test_type_section_round_trip() {
     Artifact original = makeMinimalArtifact();
 
+    original.strings.push_back("x");
+    original.strings.push_back("y");
+    CompactType named_pack;
+    named_pack.kind      = CompactTypeKind::Pack;
+    named_pack.args      = {0};
+    named_pack.arg_names = {2, 3};
+    named_pack.ref1      = 1;
+    original.types.push_back(named_pack);
+
+    CompactType positional_pack;
+    positional_pack.kind = CompactTypeKind::Pack;
+    positional_pack.args = {0};
+    positional_pack.ref1 = 1;
+    original.types.push_back(positional_pack);
+
     ByteWriter w;
     bool encoded = encodeTypes(original, w);
     CHECK(encoded, "encodeTypes succeeds");
@@ -248,6 +263,19 @@ static void test_type_section_round_trip() {
         CHECK_EQ(decoded.types[2].args.size(), 1u, "decodeTypes preserves fn parameter count");
         CHECK(decoded.types[3].kind == CompactTypeKind::Slice,
               "decodeTypes preserves slice type kind");
+    }
+    CHECK_EQ(decoded.types.size(), original.types.size(), "decodeTypes preserves pack count");
+    if (decoded.types.size() >= 6u) {
+        CHECK(decoded.types[4].kind == CompactTypeKind::Pack,
+              "decodeTypes preserves named pack kind");
+        CHECK_EQ(decoded.types[4].arg_names.size(), 2u,
+                 "decodeTypes preserves named pack member metadata");
+        CHECK_EQ(decoded.types[4].arg_names[0], 2u,
+                 "decodeTypes preserves first pack member name id");
+        CHECK(decoded.types[5].kind == CompactTypeKind::Pack,
+              "decodeTypes preserves positional pack kind");
+        CHECK(decoded.types[5].arg_names.empty(),
+              "positional pack keeps empty name metadata after decode");
     }
 }
 

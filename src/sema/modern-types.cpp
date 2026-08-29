@@ -734,6 +734,10 @@ TypeId TypeTable::lowerTypeExprBare(const frontend::FrontendSnapshot &snapshot,
         return internPointer(lookupNamed("void"));
     case frontend::TypeExprKind::OpaqueTagged:
         return internOpaque();
+    case frontend::TypeExprKind::Parenthesized:
+        if (type.arguments.empty())
+            return kInvalidTypeId;
+        return lowerTypeExpr(snapshot, type.arguments[0]);
     case frontend::TypeExprKind::Pack: {
         auto &members = makeTypeStorage();
         auto &names   = makeStringStorage();

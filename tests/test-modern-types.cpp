@@ -152,6 +152,26 @@ static void test_composite_variants() {
     CHECK_EQ(table.pack(pack)->members.size(), 2u, "pack has two members");
     CHECK_EQ(table.pack(pack)->names.size(), 2u, "pack has two names");
 
+    memory::DynArray<sema::modern::TypeId> renamed_members(arena);
+    renamed_members.push(i32);
+    renamed_members.push(f64);
+    memory::DynArray<std::string_view> renamed_names(arena);
+    renamed_names.push("left");
+    renamed_names.push("right");
+    auto renamed = table.internPack(renamed_members, renamed_names);
+    CHECK_EQ(table.pack(renamed)->members.size(), table.pack(pack)->members.size(),
+             "renamed pack is structurally the same member count");
+    CHECK_EQ(table.pack(renamed)->members[0], table.pack(pack)->members[0],
+             "renamed pack keeps the first structural member");
+    CHECK_EQ(table.pack(renamed)->members[1], table.pack(pack)->members[1],
+             "renamed pack keeps the second structural member");
+    CHECK(table.pack(renamed)->names[0] != table.pack(pack)->names[0] &&
+              table.pack(renamed)->names[1] != table.pack(pack)->names[1],
+          "renamed pack retains its own field metadata");
+    CHECK_EQ(table.pack(renamed)->names.size(), 2u, "renamed pack retains field metadata");
+    CHECK_EQ(table.pack(renamed)->names[0], std::string_view("left"),
+             "renamed pack retains its own field names");
+
     auto var = table.internTypeVar();
     CHECK_EQ(table.kindOf(var), sema::modern::TypeKind::TypeVar, "type variable detected");
     CHECK(table.type_var(var) != nullptr, "type variable data is retrievable");

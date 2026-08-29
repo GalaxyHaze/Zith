@@ -804,6 +804,24 @@ static void test_artifact_builder() {
     types.addUnionMember(private_union, i32);
     types.addUnionMember(private_union, f64);
 
+    memory::DynArray<types::TypeId> pack_members(arena);
+    pack_members.push(i32);
+    pack_members.push(f64);
+    memory::DynArray<memory::InternedId> pack_names(arena);
+    pack_names.push(interner.intern("x"));
+    pack_names.push(interner.intern("y"));
+    const auto named_pack = types.internPack(pack_members, pack_names);
+    const auto structural_pack =
+        types.internPack(std::span<const types::TypeId>{pack_members.data(), pack_members.size()},
+                         std::span<const std::string_view>{});
+    CHECK_EQ(named_pack, structural_pack,
+             "HIR TypeIntern ignores pack names for structural identity");
+    CHECK_EQ(types.memberIndex(named_pack, "x"), 0,
+             "named pack still exposes field metadata after structural interning");
+    hir::HirMakeNone pack_ref;
+    pack_ref.type = named_pack;
+    (void)hir.addExpr(pack_ref);
+
     session::ContentFingerprint fp;
     fp.primary = 0xCAFEBABEu;
     session::CacheKey key;
@@ -868,6 +886,7 @@ static void test_artifact_builder() {
     CHECK_EQ(art.union_defs[0].is_raw, true, "builder serializes raw union flag");
     CHECK_EQ(art.union_defs[0].member_type_ids.size(), 2u,
              "builder serializes every union member type");
+
     const auto state_function =
         std::find_if(art.functions.begin(), art.functions.end(),
                      [](const CompactFunction &function) { return function.is_state; });
@@ -990,8 +1009,7 @@ static void test_artifact_builder() {
     }
     const auto raw_ptr_cast_compact =
         std::find_if(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &expr) {
-            return expr.kind == cache::CompactExprKind::OpaqueCast &&
-                   (expr.flags & 2U) != 0;
+            return expr.kind == cache::CompactExprKind::OpaqueCast && (expr.flags & 2U) != 0;
         });
     CHECK(raw_ptr_cast_compact != art.exprs.end(),
           "builder serializes a pointer-returning OpaqueCast");
@@ -1034,6 +1052,18 @@ static void test_artifact_builder() {
     CHECK(round.has_value(), "builder artifact round-trips through zirl");
     if (!round)
         return;
+    const auto decoded_pack =
+        std::find_if(round->types.begin(), round->types.end(), [](const cache::CompactType &type) {
+            return type.kind == cache::CompactTypeKind::Pack;
+        });
+    CHECK(decoded_pack != round->types.end(),
+          "artifact round-trip preserves pack type section entries");
+    if (decoded_pack != round->types.end()) {
+        CHECK_EQ(decoded_pack->arg_names.size(), 2u,
+                 "artifact round-trip preserves pack member name metadata");
+        CHECK_EQ(decoded_pack->args.size(), 2u,
+                 "artifact round-trip preserves pack member type references");
+    }
     CHECK_EQ(round->functions.size(), art.functions.size(), "round-trip preserves function count");
     CHECK_EQ(round->exprs.size(), art.exprs.size(), "round-trip preserves expression pool size");
     CHECK_EQ(round->attrs_slots.size(), art.attrs_slots.size(), "round-trip preserves slot attrs");
@@ -1146,8 +1176,7 @@ static void test_artifact_builder() {
     }
     const auto round_raw_ptr_cast =
         std::find_if(round->exprs.begin(), round->exprs.end(), [](const cache::CompactExpr &expr) {
-            return expr.kind == cache::CompactExprKind::OpaqueCast &&
-                   (expr.flags & 2U) != 0;
+            return expr.kind == cache::CompactExprKind::OpaqueCast && (expr.flags & 2U) != 0;
         });
     CHECK(round_raw_ptr_cast != round->exprs.end(),
           "round-trip preserves a pointer-returning OpaqueCast");

@@ -63,6 +63,12 @@ std::string renderTypeExpr(const zith::frontend::TypeExpression &te,
         return "?" + (te.arguments.empty()
                           ? "?"
                           : renderTypeExpr(all_types[te.arguments[0].value - 1U], all_types));
+    case zith::frontend::TypeExprKind::Parenthesized:
+        return "(" +
+               (te.arguments.empty()
+                    ? "?"
+                    : renderTypeExpr(all_types[te.arguments[0].value - 1U], all_types)) +
+               ")";
     case zith::frontend::TypeExprKind::Array: {
         std::string inner = te.arguments.empty()
                                 ? "?"

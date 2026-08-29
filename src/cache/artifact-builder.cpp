@@ -498,8 +498,7 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                            out.ref_d   = internType(cast.opaque_type);
                            out.type_id = internType(cast.result_type);
                            out.ref_e   = cast.type_id;
-                           out.flags   = (cast.checked ? 1U : 0U) |
-                                         (cast.returns_ptr ? 2U : 0U);
+                           out.flags   = (cast.checked ? 1U : 0U) | (cast.returns_ptr ? 2U : 0U);
                        },
                        [&](const hir::HirOpaqueCheck &check) {
                            out.kind    = CompactExprKind::OpaqueCheck;

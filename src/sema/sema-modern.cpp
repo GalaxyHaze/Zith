@@ -1185,6 +1185,8 @@ TypeId PerModuleSema::lowerBareTypeExpr(const frontend::TypeExpression &type) {
         return type_table.internPointer(void_type);
     case frontend::TypeExprKind::OpaqueTagged:
         return opaque_type;
+    case frontend::TypeExprKind::Parenthesized:
+        return type.arguments.empty() ? error_type : lowerTypeExpr(type.arguments[0]);
     case frontend::TypeExprKind::Pack: {
         if (type.member_names.size() != type.arguments.size()) {
             report(type.span, "pack type members must be named", diagnostics::err::TypeMismatch);
@@ -4022,15 +4024,14 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
     TypeId else_cond_type = void_type;
     TypeId else_type      = void_type;
     if (expr.operands.size() >= 3U)
-        else_type = expr.operands.size() > 3U ? inferExpr(expr.operands[3])
-                                              : inferExpr(expr.operands[2]);
+        else_type =
+            expr.operands.size() > 3U ? inferExpr(expr.operands[3]) : inferExpr(expr.operands[2]);
     if (expr.operands.size() > 3U) {
         optionalPropInCondition_ = true;
         else_cond_type           = inferExpr(expr.operands[2]);
         optionalPropInCondition_ = false;
         if (!sameType(else_cond_type, bool_type))
-            report(expr.span, "if condition must be boolean",
-                   diagnostics::err::TypeMismatch);
+            report(expr.span, "if condition must be boolean", diagnostics::err::TypeMismatch);
     }
     if (narrowed_local && narrowed_type) {
         setLocalType(narrowed_local, original_local_type);
@@ -6313,7 +6314,11 @@ bool PerModuleSema::coercesTo(TypeId target, TypeId source) const noexcept {
             if (resolve(source) == null_type) {
                 result = true;
             } else if (const auto *opt = type_table.optional(resolved_target)) {
-                result = sameType(opt->inner, source);
+                // `??T` accepts `?T` and `?T` accepts `T`: optional coercion is
+                // recursive, so each missing layer is implicitly wrapped.
+                result = sameType(opt->inner, source) ||
+                         (type_table.kindOf(resolve(source)) == TypeKind::Optional &&
+                          coercesTo(opt->inner, source));
             }
         } else {
             result = allowsUncheckedNullablePointer(target, source);

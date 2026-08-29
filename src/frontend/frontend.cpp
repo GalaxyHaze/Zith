@@ -190,15 +190,15 @@ void lex(FrontendSnapshot &snapshot) {
             // when-case range pattern relies on it lexing per character.
             static constexpr std::string_view kThreeChar[] = {"<<=", ">>="};
             static constexpr std::string_view kTwoChar[]   = {
-                "==", "!=", "<=", ">=", "->", "<<", ">>", "+=", "-=", "*=",
-                "/=", "%=", "&=", "|=", "^=", "&.", "|.", "^.", "&&", "||"};
+                "==", "!=", "<=", ">=", "->", "<<", ">>", "+=", "-=", "*=", "/=",
+                "%=", "&=", "|=", "^=", "&.", "|.", "^.", "&&", "||", "??"};
             bool munched = false;
             if (start + 3U <= source.size()) {
                 const std::string_view triple = source.substr(start, 3);
                 for (const auto candidate : kThreeChar) {
                     if (triple == candidate) {
-                        position = start + 3U;
                         munched  = true;
+                        position = start + 3U;
                         break;
                     }
                 }
@@ -207,6 +207,13 @@ void lex(FrontendSnapshot &snapshot) {
                 const std::string_view pair = source.substr(start, 2);
                 for (const auto candidate : kTwoChar) {
                     if (pair == candidate) {
+                        if (candidate == "??") {
+                            // Type prefixes can be repeated (`??T`, `???T`),
+                            // so each '?' must remain a separate operator.
+                            position = start + 1U;
+                            munched  = true;
+                            break;
+                        }
                         position = start + 2U;
                         break;
                     }
@@ -786,7 +793,20 @@ private:
         }
         // `raw opaque` is a single type, not a qualifier plus a name. `raw` followed by
         // anything else in type position falls through to the diagnostics below.
-        if (isKeywordToken("raw") && index_ + 1U < token_count_ && text(index_ + 1U) == "opaque") {
+        if (punctuation(index_, '(')) {
+            // Parenthesized type expressions let nested composites be written
+            // unambiguously, for example `?(?T)`.
+            ++index_;
+            type.kind = TypeExprKind::Parenthesized;
+            type.arguments.push_back(parseType());
+            if (punctuation(index_, ')'))
+                ++index_;
+            else
+                snapshot_.diagnostics_.push_back({range(start, index_),
+                                                  "expected ')' after parenthesized type", false,
+                                                  diagnostics::err::ExpectedExpr});
+        } else if (isKeywordToken("raw") && index_ + 1U < token_count_ &&
+                   text(index_ + 1U) == "opaque") {
             index_ += 2U;
             type.kind = TypeExprKind::Opaque;
         } else if (isKeywordToken("opaque")) {
@@ -2905,9 +2925,8 @@ private:
                 statement.expression = parseExpression();
                 if (index_ < token_count_ && !punctuation(index_, ';'))
                     snapshot_.diagnostics_.push_back(
-                        {tokenSpan(index_),
-                         "a return expression must be terminated with ';'", false,
-                         diagnostics::err::ExpectedSemicolon});
+                        {tokenSpan(index_), "a return expression must be terminated with ';'",
+                         false, diagnostics::err::ExpectedSemicolon});
             }
         } else if (word == "break") {
             statement.kind = StmtKind::Break;
@@ -4178,6 +4197,8 @@ std::string canonicalTypeString(const FrontendSnapshot &snapshot, const TypeExpr
         return "*" + nested(0);
     case TypeExprKind::Optional:
         return "?" + nested(0);
+    case TypeExprKind::Parenthesized:
+        return "(" + nested(0) + ")";
     case TypeExprKind::Slice:
         return (type.isVariadicSlice ? "[...]" : "[]") + nested(0);
     case TypeExprKind::Opaque:

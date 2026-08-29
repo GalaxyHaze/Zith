@@ -791,6 +791,33 @@ void test_struct_literal_lowers_to_hir() {
     }
 }
 
+void test_anonymous_pack_literal_lowers_to_hir() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn main() {\n"
+                                     "    let op = |5, 5, 5|;\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "anonymous pack literal lowering succeeds");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main function is present");
+    if (main != nullptr) {
+        bool found_pack = false;
+        for (auto id : reachableExprIds(*main)) {
+            if (std::get_if<hir::HirStructLiteral>(&hir.getExpr(id)) != nullptr) {
+                found_pack = true;
+                break;
+            }
+        }
+        CHECK(found_pack, "anonymous pack lowers to an aggregate literal node");
+    }
+}
+
 void test_dot_field_read_lowers_to_hir_field() {
     Workspace workspace;
     workspace.writeFile("main.zith", "struct Foo { x: i32, y: i32 }\n"
@@ -2156,6 +2183,7 @@ static void test_hir_lower_modern() {
     test_state_without_return_type_lowers_to_hir();
     test_variadic_slice_lowers_to_hir();
     test_variadic_slice_state_lowers_to_hir();
+    test_anonymous_pack_literal_lowers_to_hir();
 }
 
 TEST_MAIN(hir_lower_modern)

@@ -95,8 +95,6 @@ bool typeDataEqual(const TypeData &a, const TypeData &b) {
                 for (size_t i = 0; i < pa.count; i++) {
                     if (pa.members[i] != pb.members[i])
                         return false;
-                    if (pa.names[i] != pb.names[i])
-                        return false;
                 }
                 return true;
             },
@@ -198,10 +196,7 @@ size_t TypeIntern::computeHash(const TypeData &data) {
                   [&](const TypePack &p) {
                       h = hashCombine(h, p.count);
                       for (size_t i = 0; i < p.count; i++) {
-                          h         = hashCombine(h, p.members[i]);
-                          auto name = interner_.lookup(p.names[i]);
-                          for (auto c : name)
-                              h = hashCombine(h, static_cast<size_t>(c));
+                          h = hashCombine(h, p.members[i]);
                       }
                   },
                   [&](const TypeSum &s) {
@@ -353,7 +348,12 @@ TypeId TypeIntern::internUnion(TypeId def_id) {
 
 TypeId TypeIntern::internPack(memory::DynArray<TypeId> &members,
                               memory::DynArray<memory::InternedId> &names) {
-    return intern(TypePack{members.data(), names.data(), members.size()});
+    const size_t count = members.size();
+    auto *normalized   = static_cast<memory::InternedId *>(
+        arena_.alloc(count * sizeof(memory::InternedId), alignof(memory::InternedId)));
+    for (size_t i = 0; i < count; ++i)
+        normalized[i] = i < names.size() ? names[i] : interner_.intern(std::string_view{});
+    return intern(TypePack{members.data(), normalized, count});
 }
 
 TypeId TypeIntern::internPack(std::span<const TypeId> members,
@@ -365,7 +365,7 @@ TypeId TypeIntern::internPack(std::span<const TypeId> members,
     auto *n = static_cast<memory::InternedId *>(
         arena_.alloc(count * sizeof(memory::InternedId), alignof(memory::InternedId)));
     for (size_t i = 0; i < count; i++)
-        n[i] = interner_.intern(names[i]);
+        n[i] = i < names.size() ? interner_.intern(names[i]) : interner_.intern(std::string_view{});
 
     return intern(TypePack{m, n, count});
 }

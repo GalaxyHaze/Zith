@@ -1989,6 +1989,25 @@ static void test_function_default_arguments_runtime() {
     CHECK_EQ(r.exitCode, 15, "omitting a defaulted argument materializes its default value");
 }
 
+static void test_nested_optional_argument_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn identity(value: ??i32): i32 {\n"
+                         "    return 0;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    let inner: ?i32 = 5;\n"
+                         "    let outer: ??i32 = inner;\n"
+                         "    if identity(inner) != 0 { return 1; }\n"
+                         "    if identity(outer) != 0 { return 2; }\n"
+                         "    return 0;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "nested optional arguments use the modern codegen pipeline");
+    CHECK(r.ok, "`?T` and `??T` argument coercions compile, link and run");
+    CHECK_EQ(r.exitCode, 0, "nested optional call arguments preserve their layout");
+}
+
 static void test_primitive_optional_slice_implement_runtime() {
     ModernFileCodegenTest t;
     t.write("main.zith", "trait Foo {\n"
@@ -2614,6 +2633,8 @@ static void test_codegen() {
     test_bare_condition_forms_runtime();
     printf("Running test_function_default_arguments_runtime\n");
     test_function_default_arguments_runtime();
+    printf("Running test_nested_optional_argument_runtime\n");
+    test_nested_optional_argument_runtime();
     printf("Running test_primitive_optional_slice_implement_runtime\n");
     test_primitive_optional_slice_implement_runtime();
     printf("Running test_extern_variadic_call_runs\n");

@@ -1,9 +1,10 @@
 import "stdio.h"
 
 fn main(){
-    let a: ?i32 = null
-    let x: ??i32 = a;
-    if (a){
-        printf("is fully null\n");
+    let op = |5u32,5u32,5u32| as opaque;
+    if (op is |x:u32,y:u32,z:u32|){
+        printf("Op.x is: %d\n", op.x);
+        printf("Op.y is: %d\n", op.y);
+        printf("Op.z is: %d\n", op.z);
     }
 }

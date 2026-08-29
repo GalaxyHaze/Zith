@@ -2355,6 +2355,18 @@ static void test_modern_optional_condition_boolean() {
     CHECK(propagated.ok, "return x? keeps its optional-propagation semantics");
 }
 
+static void test_modern_nested_optional_coercion() {
+    ModernSemaTest t;
+    auto accepted = t.run("fn main(): i32 {\n"
+                          "    let x: ?i32 = 5;\n"
+                          "    let y: ??i32 = x;\n"
+                          "    let z: ?(?i32) = y;\n"
+                          "    let w: ???i32 = z;\n"
+                          "    return 0;\n"
+                          "}\n");
+    CHECK(accepted.ok, "each missing optional layer coerces into the annotated type");
+}
+
 static void test_modern_optional_condition_keyword() {
     ModernSemaTest t;
     auto accepted = t.run("fn main(): i32 {\n"
@@ -3514,6 +3526,7 @@ static void test_sema() {
     test_modern_struct_field_visibility();
     test_modern_module_depth_field_visibility();
     test_modern_optional_condition_boolean();
+    test_modern_nested_optional_coercion();
     test_modern_optional_condition_keyword();
     test_modern_function_default_arguments();
     test_modern_implicit_opaque_coercion_rejected();

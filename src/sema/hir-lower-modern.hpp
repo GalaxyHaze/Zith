@@ -225,6 +225,12 @@ private:
     /// Emits `HirMakeSlice` with statically-known `[0, N]` bounds.
     hir::HirExprId lowerCoerceToSliceIfArray(types::TypeId target, frontend::ExprId expression,
                                              hir::HirExprId value);
+    /// Applies only the missing outer optional layers when `source_sema` is
+    /// one or more layers shallower than `target_sema`.
+    hir::HirExprId lowerCoerceToOptionalDepth(types::TypeId target,
+                                              sema::modern::TypeId target_sema,
+                                              sema::modern::TypeId source_sema,
+                                              hir::HirExprId value);
     /// Materializes the auto-collected `[...]T` tail as a temporary array and
     /// returns a slice over the whole array. The caller stores the returned
     /// slice as the final argument; bounds are the statically-known `[0, N]`.

@@ -210,7 +210,8 @@ enum class TypeExprKind : uint8_t {
     Opaque,
     OpaqueTagged,
     Pack,
-    Dyn
+    Dyn,
+    Parenthesized
 };
 
 /// Memory-model qualifier written as a prefix on a type (`lend T`, `view T`, ...).

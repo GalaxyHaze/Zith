@@ -354,6 +354,12 @@ void FmtVisitor::emitType(const frontend::TypeExprId id) {
         if (!type->arguments.empty())
             emitType(type->arguments.front());
         break;
+    case frontend::TypeExprKind::Parenthesized:
+        emit("(");
+        if (!type->arguments.empty())
+            emitType(type->arguments.front());
+        emit(")");
+        break;
     case frontend::TypeExprKind::Opaque:
         emit("raw opaque");
         break;
