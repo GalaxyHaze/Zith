@@ -127,17 +127,20 @@ static void test_implement_trait_name_checks() {
 }
 
 static void test_implement_primitive_optional_slice() {
-    auto snapshot = frontend::parse("trait Foo {}\n"
-                                    "implement i32 as Foo { fn value(self): i32 { return 1; } }\n"
-                                    "implement ?char as Foo { fn get(self): i32 { return 2; } }\n"
-                                    "implement []char as Foo { fn len(self): i32 { return 3; } }\n");
+    auto snapshot =
+        frontend::parse("trait Foo {}\n"
+                        "implement i32 as Foo { fn value(self): i32 { return 1; } }\n"
+                        "implement ?char as Foo { fn get(self): i32 { return 2; } }\n"
+                        "implement []char as Foo { fn len(self): i32 { return 3; } }\n"
+                        "implement *char as Foo { fn first(self): char { return self[0]; } }\n");
 
     CHECK(snapshot.diagnostics().empty(),
-          "primitive, optional and slice implement owners parse without diagnostics");
+          "primitive, optional, slice and *char implement owners parse without diagnostics");
 
     bool saw_i32       = false;
     bool saw_optional  = false;
     bool saw_slice     = false;
+    bool saw_pointer   = false;
     bool saw_ownerType = false;
     for (const auto &record : snapshot.implementRecords()) {
         if (record.owner == "i32")
@@ -146,17 +149,21 @@ static void test_implement_primitive_optional_slice() {
             saw_optional = true;
         if (record.owner == "[]char")
             saw_slice = true;
+        if (record.owner == "*char")
+            saw_pointer = true;
         if (record.ownerType)
             saw_ownerType = true;
     }
     CHECK(saw_i32, "implement i32 keeps the canonical owner name");
     CHECK(saw_optional, "implement ?char keeps the canonical owner name");
     CHECK(saw_slice, "implement []char keeps the canonical owner name");
+    CHECK(saw_pointer, "implement *char keeps the canonical owner name");
     CHECK(saw_ownerType, "composite implement owners carry a type expression");
 
     bool saw_owner_i32      = false;
     bool saw_owner_optional = false;
     bool saw_owner_slice    = false;
+    bool saw_owner_pointer  = false;
     for (const auto &decl : snapshot.declarations()) {
         if (decl.kind == frontend::DeclKind::Function && decl.ownerName == "i32" &&
             decl.name == "value")
@@ -167,10 +174,22 @@ static void test_implement_primitive_optional_slice() {
         if (decl.kind == frontend::DeclKind::Function && decl.ownerName == "[]char" &&
             decl.name == "len")
             saw_owner_slice = true;
+        if (decl.kind == frontend::DeclKind::Function && decl.ownerName == "*char" &&
+            decl.name == "first")
+            saw_owner_pointer = true;
     }
     CHECK(saw_owner_i32, "methods inside implement i32 inherit the canonical owner");
     CHECK(saw_owner_optional, "methods inside implement ?char inherit the canonical owner");
     CHECK(saw_owner_slice, "methods inside implement []char inherit the canonical owner");
+    CHECK(saw_owner_pointer, "methods inside implement *char inherit the canonical owner");
+
+    auto rejected =
+        frontend::parse("implement *i32 as Foo { fn get(self): i32 { return 1; } }\n"
+                        "implement [3]char as Foo { fn get(self): i32 { return 2; } }\n");
+    CHECK(!hasErrorCode(snapshot, static_cast<uint32_t>(diagnostics::err::UnsupportedSyntax)),
+          "the accepted owner set above has no unsupported-pointer diagnostic");
+    CHECK(hasErrorCode(rejected, static_cast<uint32_t>(diagnostics::err::UnsupportedSyntax)),
+          "*i32 and [3]char implement owners still report UnsupportedSyntax");
 }
 
 static void test_trait_parser() {

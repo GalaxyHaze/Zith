@@ -221,10 +221,12 @@ private:
     hir::HirExprId lowerOptionalProp(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerIndex(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerSliceRange(const frontend::Expression &expr, types::TypeId type);
-    /// Converts an array expression to a slice by borrowing the whole array.
-    /// Emits `HirMakeSlice` with statically-known `[0, N]` bounds.
-    hir::HirExprId lowerCoerceToSliceIfArray(types::TypeId target, frontend::ExprId expression,
-                                             hir::HirExprId value);
+    /// Applies the representation-level coercions recorded by sema: arrays to
+    /// slices, string literals retyped as `[]char`, and `[]char -> *char`.
+    /// The slice forms emit `HirMakeSlice`; the pointer form projects the data
+    /// pointer from the slice via `HirLayoutIntrinsic::PtrOf`.
+    hir::HirExprId lowerCoerceToTarget(types::TypeId target, frontend::ExprId expression,
+                                       hir::HirExprId value);
     /// Applies only the missing outer optional layers when `source_sema` is
     /// one or more layers shallower than `target_sema`.
     hir::HirExprId lowerCoerceToOptionalDepth(types::TypeId target,

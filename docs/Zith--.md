@@ -63,7 +63,8 @@ O `=` interno à lista de parâmetros pertence ao default do parâmetro. Um alia
 
 Methods continuam com `self` implícito. `self.field` é a forma canónica e auto-derefs o receiver; `self->field` continua aceite como legacy. Um `self` simples é read-only: `self.x = 1` é rejeitado. `var self` permite mutação in-place dos campos do receiver, como `self.x += 1`.
 
-O owner de um bloco `implement` pode ser um primitivo, `?T` ou `[]T`, além de um tipo nomeado:
+O owner de um bloco `implement` pode ser um primitivo, `?T`, `[]T` ou `*char`, além de um
+tipo nomeado:
 
 ```zith
 trait Value {
@@ -94,9 +95,41 @@ fn main(): i32 {
 }
 ```
 
-Estes owners participam na conformação nominal: requirements e defaults são verificados, duplicatas continuam a falhar, e tipos concretos satisfazem bounds genéricos `T: Trait`. Pointer (`*T`) e fixed-array (`[N]T`) continuam fora desta iteração.
+Estes owners participam na conformação nominal: requirements e defaults são verificados,
+duplicatas continuam a falhar, e tipos concretos satisfazem bounds genéricos `T: Trait`.
+Pointer genérico (`*T`) e fixed-array (`[N]T`) continuam fora desta iteração, com exceção do
+owner canónico `*char`. Num `implement *char`, o `self` simples é o próprio valor `*char`
+(não `**char`); `self[0]` lê o primeiro carácter e `.method()`/`->method()` passam o valor do
+pointer. `?*char` não participa em coerções de slice nem em owners de implement.
 
 Quando um método com `self` simples ou `var self` é chamado, o sema invalida logicamente a ligação do receiver no chamador: leituras subsequentes reportam `E4001 UseAfterMove`, e escrita através do receiver inválido também. Atribuir diretamente ao nome da variável revive a ligação. `view`/`lend`, receivers explícitos por pointer e chamadas de funções livres ainda não marcam o valor no chamador nesta fase.
+
+Os métodos de `implement *char` são a exceção: o receiver é um valor pointer e a chamada
+passa esse valor, por isso `p.method()` e `p->method()` não movem o binding local.
+
+## Pointer Object e `&`
+
+Nesta iteração, `*T` é um pointer object não-nullable e `?*T` é o mesmo object nullable.
+`p.x`, `p->x` e `*p` continuam a ser accessos válidos sobre pointers. `&x` é um move lógico
+do binding: depois do `&x`, o sema mantém uma versão local nova do mesmo binding para o
+pointer resultante, mas o nome `x` fica morto até uma atribuição directa o reviver.
+Leituras depois de `&x` reportam `E4001 UseAfterMove`; `raw` continua a ser o escape
+explicito para leituras unchecked.
+
+```zith
+fn main(): i32 {
+    var x: i32 = 10;
+    let p: *i32 = &x;   // move lógico: x fica morto
+    x = 12;             // revive a versão lógica de x
+    return *p;          // o pointer continua a apontar para storage local
+}
+```
+
+Pointers derivados de `&x` ou `@ptrOf(local)` não podem escapar para escopos mais longos nem
+ser guardados como dados persistentes. Devolver esses pointers, guardá-los em structs/arrays,
+globals ou aggregados `defer` reporta `E4008 PointerEscopesScope`. Uma chamada por valor com um
+argumento pointer é um borrow temporário e fica permitida; `raw` sobre index/deref mantém o
+comportamento sem ownership object.
 
 Um call de método pode ser qualificado com um trait ou interface satisfeita pelo tipo do receiver: `p.Trait.method()` ou `p.Interface.method()`. A qualificação resolve apenas o método visível naquele trait/interface, evitando a ambiguidade `E2008` quando dois traits conformes expõem o mesmo nome:
 
@@ -184,6 +217,31 @@ Variadic slices funcionam em funções livres, métodos com `self`, métodos de 
 Trait`/`dyn Interface` e funções genéricas. Num parâmetro genérico, `[...]T` infere `T`
 a partir do primeiro elemento do tail, ou do tipo do slice/array explícito.
 Overloads com arity fixa continuam a preferir a assinatura exata sobre o variadic slice.
+
+## Inferência genérica com `?T`
+
+Um parâmetro que declara um optional com um tipo genérico participa nas coerções opcionais
+normais durante a inferência. O compilador tenta primeiro o matching estrutural exacto; se o
+parâmetro é `?T` e o argumento é um valor não-optional, a inferência trata o argumento como
+se já estivesse envolvido no optional e liga `T` ao tipo do argumento. A mesma regra aplica-se
+a camadas mais fundas, desde que o inner seja generic:
+
+```zith
+fn wrap<T>(x: ?T): ?T { return x; }
+fn nested<T>(x: ??T): ?T { return x?; }
+
+fn main(): i32 {
+    let a: ?i32 = wrap(3);       // T = i32
+    let b: ?f64 = wrap<f64>(2.5); // tipo explícito
+    let c: ?i32 = nested(5);      // T = i32
+    let maybe: ?i32 = 7;
+    let d: ?i32 = nested(maybe);  // T = i32, coerção adicional envolvida
+    return 0;
+}
+```
+
+A inferência só usa esta coerção para opcionais; outras conversões implícitas não propagam
+ligacões genéricas nesta iteração.
 
 Um accesso como `a.x` quando `a: dyn Area` e `Area` declara `x` é rejeitado com `E3001`
 (field access on non-struct type). Use `is`/cast para um tipo concreto quando precisar do
@@ -319,6 +377,32 @@ initialized`.
 ## Tipos
 
 Os tipos atuais são mantidos: primitivos, `struct`, `union`, `enum`, `string`, genéricos, function types e as formas compostas existentes. `ptr`, `array`, `slice` e `optional` são modificadores/compostos já existentes, não uma lista excludente de tipos.
+
+### Intrinsics de slices, arrays e strings
+
+`@lengthOf(x)` e `@ptrOf(x)` aceitam slices `[]T`, arrays `[N]T` e string literals.
+`@lengthOf` devolve `u64`; `@ptrOf` devolve `*T` (ou `*char` para strings e slices `[]char`).
+Num array local, `@ptrOf` aponta para o slot local e fica sujeito às restrições de escape do
+pointer object; em slices devolve o ponteiro ao storage subjacente, sem `raw`.
+
+```zith
+fn main(): i32 {
+    var values: [3]i32 = [10, 20, 30];
+    let slice: []i32 = raw values[0..3];
+    if (@lengthOf(slice) != 3) { return 1; }
+    if (raw @ptrOf(slice)[1] != 20) { return 2; }
+    if (@lengthOf("zith") != 4) { return 3; }
+    return 0;
+}
+```
+
+String literals têm tipo de origem `*char` e adaptam-se implicitamente a `[]char` quando o
+destino é esse slice; não há um builtin `string` novo. Só literals têm esse comprimento em
+compile-time: um valor `*char` não-literal não converte implicitamente para `[]char` sem um
+comprimento visível. A conversão inversa de `[]char` para `*char` fica disponível e equivale
+a `@ptrOf(slice)`, sujeita às regras de escape de `E4008 PointerEscapesScope`. Devolver
+`@ptrOf(local)` ou guardá-lo onde a lifetime possa exceder o storage local reporta também
+`E4008 PointerEscapesScope`.
 
 ### Visibilidade de campos
 

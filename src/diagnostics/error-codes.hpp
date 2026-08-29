@@ -80,6 +80,7 @@ inline constexpr ErrCode const DoubleBorrow              = 4003;
 inline constexpr ErrCode const WriteThroughView          = 4004;
 inline constexpr ErrCode const OwnershipCoercionRequired = 4005;
 inline constexpr ErrCode const InvalidCallOwnership      = 4007;
+inline constexpr ErrCode const PointerEscapesScope       = 4008;
 
 // MIR / Lowering (5001-5999)
 inline constexpr ErrCode const InvalidIR   = 5001;

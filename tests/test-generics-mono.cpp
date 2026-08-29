@@ -148,6 +148,49 @@ void test_generic_cannot_infer_error() {
           "the missing inference reports E3011");
 }
 
+void test_generic_optional_coercion_inference() {
+    MonoTest t;
+    auto r = t.run("fn wrap<T>(x: ?T): ?T { return x; }\n"
+                   "fn nested<T>(x: ??T): ?T { return x?; }\n"
+                   "fn pair<T, U>(a: ?T, b: U): U { return b; }\n"
+                   "fn main(): i32 {\n"
+                   "    let w: ?i32 = wrap(3);\n"
+                   "    let wf: ?f64 = wrap<f64>(2.5);\n"
+                   "    let ni: ?i32 = nested(5);\n"
+                   "    let nm: ?i32 = nested(w);\n"
+                   "    let both: bool = pair(1, true);\n"
+                   "    if (w is null and wf is null and ni is null and nm is null) { return 1; }\n"
+                   "    if not both { return 2; }\n"
+                   "    return 3;\n"
+                   "}\n");
+    CHECK(r.ok, "generic inference accepts optional coercions at nested depth");
+    CHECK(!r.hasErrorCode(diagnostics::err::GenericCannotInfer),
+          "optional-coerced generic arguments infer without E3011");
+}
+
+void test_generic_optional_coercion_conflict_and_unexposed() {
+    MonoTest t;
+    auto conflict = t.run("fn same<T>(a: ?T, b: ?T): T { return a?; }\n"
+                          "fn main(): i32 {\n"
+                          "    same(1, \"x\");\n"
+                          "    return 0;\n"
+                          "}\n");
+    CHECK(!conflict.ok, "conflicting optional-coerced generic arguments are rejected");
+    CHECK(conflict.hasErrorCode(diagnostics::err::GenericCannotInfer) ||
+              conflict.hasErrorCode(diagnostics::err::TypeMismatch),
+          "the conflicting optional-coerced call reports E3011 or E3001");
+
+    MonoTest needs;
+    auto needs_result = needs.run("fn needs<T>(x: i32): T { return x; }\n"
+                                  "fn main(): i32 {\n"
+                                  "    needs(1);\n"
+                                  "    return 0;\n"
+                                  "}\n");
+    CHECK(!needs_result.ok, "a parameter with no exposed generic still reports E3011");
+    CHECK(needs_result.hasErrorCode(diagnostics::err::GenericCannotInfer),
+          "the unexposed generic reports E3011");
+}
+
 void test_generic_explosion_limit() {
     MonoTest t;
     const std::string recursive = "struct Box<T> { value: T }\n"
@@ -177,6 +220,8 @@ int main() {
     test_generic_struct_literal_inference_lowers();
     test_generic_arity_error();
     test_generic_cannot_infer_error();
+    test_generic_optional_coercion_inference();
+    test_generic_optional_coercion_conflict_and_unexposed();
     test_generic_explosion_limit();
     std::printf("\nResults: %d passed, %d failed\n", g_test_passed, g_test_failed);
     return g_test_failed > 0 ? 1 : 0;

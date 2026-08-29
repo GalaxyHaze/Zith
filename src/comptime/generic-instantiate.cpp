@@ -240,6 +240,152 @@ GenericInstantiationPass::resolveTypes(const size_t degree, const uint32_t decl_
         const sema::modern::TypeKind p_kind = type_table_.kindOf(param);
         const sema::modern::TypeKind a_kind = type_table_.kindOf(arg);
         if (p_kind != a_kind) {
+            if (strict && p_kind == sema::modern::TypeKind::Optional) {
+                const auto *coercive_opt = type_table_.optional(param);
+                if (coercive_opt != nullptr) {
+                    // `i32` is a normal argument for `?T`, `?T` is a normal
+                    // argument for `??T`, and `?i32` is a normal argument for
+                    // `??T`. Wrap the argument in the declared optional layers
+                    // before binding `T`, so generic inference matches the
+                    // coercion the call site will lower. Only optional
+                    // coercion is eligible; other coercions stay exact.
+                    std::vector<sema::modern::TypeId> probe(degree, sema::modern::TypeId{});
+                    for (size_t i = 0; i < degree; ++i)
+                        probe[i] = resolved[i];
+                    bool probe_failed      = false;
+                    const auto probe_unify = [&](auto &&probe_self,
+                                                 sema::modern::TypeId probe_param,
+                                                 sema::modern::TypeId probe_arg) -> void {
+                        if (probe_failed || !probe_param || !probe_arg)
+                            return;
+                        probe_param = type_table_.stripQualifiers(probe_param);
+                        probe_arg   = type_table_.stripQualifiers(probe_arg);
+
+                        uint32_t probe_origin_decl = 0;
+                        uint32_t probe_origin_idx  = 0;
+                        type_table_.genericParamOrigin(probe_param, &probe_origin_decl,
+                                                       &probe_origin_idx);
+                        if (probe_origin_decl != 0 && probe_origin_idx < degree) {
+                            const size_t target =
+                                inferredIndex(probe_origin_decl, probe_origin_idx);
+                            if (target == ~size_t{0} || target >= degree) {
+                                probe_failed = true;
+                                return;
+                            }
+                            if (probe[target] && probe[target] != probe_arg &&
+                                type_table_.stripQualifiers(probe[target]) !=
+                                    type_table_.stripQualifiers(probe_arg)) {
+                                probe_failed = true;
+                                return;
+                            }
+                            probe[target] = probe_arg;
+                            return;
+                        }
+                        if (probe_param == probe_arg)
+                            return;
+                        if (const auto *probe_alias = type_table_.alias(probe_param)) {
+                            probe_self(probe_self, probe_alias->target, probe_arg);
+                            return;
+                        }
+                        const sema::modern::TypeKind probe_p_kind = type_table_.kindOf(probe_param);
+                        const sema::modern::TypeKind probe_a_kind = type_table_.kindOf(probe_arg);
+                        if (probe_p_kind != probe_a_kind) {
+                            probe_failed = true;
+                            return;
+                        }
+                        switch (probe_p_kind) {
+                        case sema::modern::TypeKind::Pointer:
+                            if (const auto *pp = type_table_.pointer(probe_param);
+                                pp != nullptr && type_table_.pointer(probe_arg) != nullptr)
+                                probe_self(probe_self, pp->pointee,
+                                           type_table_.pointer(probe_arg)->pointee);
+                            else
+                                probe_failed = true;
+                            break;
+                        case sema::modern::TypeKind::Optional:
+                            if (const auto *ppo = type_table_.optional(probe_param);
+                                ppo != nullptr && type_table_.optional(probe_arg) != nullptr)
+                                probe_self(probe_self, ppo->inner,
+                                           type_table_.optional(probe_arg)->inner);
+                            else
+                                probe_failed = true;
+                            break;
+                        case sema::modern::TypeKind::Array:
+                            if (const auto *pa = type_table_.array(probe_param);
+                                pa != nullptr && type_table_.array(probe_arg) != nullptr &&
+                                pa->size == type_table_.array(probe_arg)->size)
+                                probe_self(probe_self, pa->element,
+                                           type_table_.array(probe_arg)->element);
+                            else
+                                probe_failed = true;
+                            break;
+                        case sema::modern::TypeKind::Slice:
+                            if (const auto *ps = type_table_.slice(probe_param);
+                                ps != nullptr && type_table_.slice(probe_arg) != nullptr)
+                                probe_self(probe_self, ps->element,
+                                           type_table_.slice(probe_arg)->element);
+                            else
+                                probe_failed = true;
+                            break;
+                        case sema::modern::TypeKind::Failable:
+                            if (const auto *pf = type_table_.failable(probe_param);
+                                pf != nullptr && type_table_.failable(probe_arg) != nullptr)
+                                probe_self(probe_self, pf->inner,
+                                           type_table_.failable(probe_arg)->inner);
+                            else
+                                probe_failed = true;
+                            break;
+                        case sema::modern::TypeKind::Struct: {
+                            const auto *ps  = type_table_.struct_type(probe_param);
+                            const auto *as_ = type_table_.struct_type(probe_arg);
+                            if (ps != nullptr && as_ != nullptr &&
+                                baseTypeName(ps->name) == baseTypeName(as_->name) &&
+                                ps->fields.size() == as_->fields.size()) {
+                                for (size_t i = 0; i < ps->fields.size(); ++i)
+                                    probe_self(probe_self, ps->fields[i], as_->fields[i]);
+                            } else {
+                                probe_failed = true;
+                            }
+                            break;
+                        }
+                        case sema::modern::TypeKind::Union: {
+                            const auto *pu = type_table_.union_type(probe_param);
+                            const auto *au = type_table_.union_type(probe_arg);
+                            if (pu != nullptr && au != nullptr &&
+                                baseTypeName(pu->name) == baseTypeName(au->name) &&
+                                pu->members.size() == au->members.size()) {
+                                for (size_t i = 0; i < pu->members.size(); ++i)
+                                    probe_self(probe_self, pu->members[i], au->members[i]);
+                            } else {
+                                probe_failed = true;
+                            }
+                            break;
+                        }
+                        default:
+                            probe_failed = true;
+                            break;
+                        }
+                    };
+
+                    sema::modern::TypeId peeled_param = coercive_opt->inner;
+                    while (type_table_.kindOf(type_table_.stripQualifiers(peeled_param)) ==
+                           sema::modern::TypeKind::Optional) {
+                        const auto *peel =
+                            type_table_.optional(type_table_.stripQualifiers(peeled_param));
+                        if (peel == nullptr)
+                            break;
+                        peeled_param = peel->inner;
+                    }
+                    probe_unify(probe_unify, peeled_param, arg);
+                    if (!probe_failed) {
+                        for (size_t i = 0; i < degree; ++i)
+                            resolved[i] = probe[i];
+                        return;
+                    }
+                }
+                failed = true;
+                return;
+            }
             if (strict)
                 failed = true;
             return;

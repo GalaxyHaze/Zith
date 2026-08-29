@@ -811,8 +811,7 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
             if (current_fn_return_sema_type_ != sema::modern::kInvalidTypeId)
                 ret.value =
                     lowerCoerceToOpaque(current_fn_return_sema_type_, info.decl->body, ret.value);
-            ret.value =
-                lowerCoerceToSliceIfArray(current_fn_->return_type, info.decl->body, ret.value);
+            ret.value = lowerCoerceToTarget(current_fn_->return_type, info.decl->body, ret.value);
         }
         current_fn_->blocks[current_block_].terminator = addExpr(std::move(ret));
     }
@@ -1908,23 +1907,26 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
                 auto argument = lowerExpr(expr.operands[index]);
                 if (argument == hir::kInvalidHirExpr)
                     return hir::kInvalidHirExpr;
-                dyncall.args.push(argument);
-                dyncall.arg_types.push(typeOfExpr(expr.operands[index]));
+                argument = lowerCoerceToTarget(lowerType(fn->params[call_index]),
+                                               expr.operands[index], argument);
                 const sema::modern::TypeId param_sema =
                     sema_.typeTable().kindOf(fn->params[call_index]) == sema::modern::TypeKind::Dyn
                         ? fn->params[call_index]
                         : sema_.typeTable().canonical(fn->params[call_index]);
                 if (sema_.typeTable().kindOf(param_sema) == sema::modern::TypeKind::Dyn) {
+                    dyncall.args.push(argument);
+                    dyncall.arg_types.push(lowerType(fn->params[call_index]));
                     argument = lowerCoerceToDyn(fn->params[call_index], expr.operands[index],
                                                 argument, fn->params[call_index]);
                     dyncall.args.back() = argument;
                 } else {
+                    dyncall.args.push(argument);
+                    dyncall.arg_types.push(lowerType(fn->params[call_index]));
                     argument =
                         lowerCoerceToOpaque(fn->params[call_index], expr.operands[index], argument);
-                    const auto lowered_arg_type = dyncall.arg_types.back();
                     if (types_.kindOf(lowerType(fn->params[call_index])) ==
                             types::TypeKind::Optional &&
-                        types_.kindOf(lowered_arg_type) != types::TypeKind::Optional)
+                        types_.kindOf(lowerType(param_sema)) != types::TypeKind::Optional)
                         argument =
                             lowerCoerceToOptional(lowerType(fn->params[call_index]), argument);
                     dyncall.args.back() = argument;
@@ -2162,7 +2164,7 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
                                         ? lowerType(param_sema_raw)
                                         : types::kInvalidType;
         hir::HirExprId lowered_argument =
-            lowerCoerceToSliceIfArray(param_type, expr.operands[index], argument);
+            lowerCoerceToTarget(param_type, expr.operands[index], argument);
         if (param_sema_raw != sema::modern::kInvalidTypeId) {
             const auto param_sema = param_sema_raw;
             if (sema_.typeTable().kindOf(param_sema) == sema::modern::TypeKind::Dyn ||
@@ -2987,7 +2989,7 @@ hir::HirExprId HirLowerModern::lowerAssign(const frontend::Expression &expr,
             if (value == hir::kInvalidHirExpr)
                 return hir::kInvalidHirExpr;
             const auto value_slice =
-                lowerCoerceToSliceIfArray(typeOfLocal(resolved->local), expr.operands[1], value);
+                lowerCoerceToTarget(typeOfLocal(resolved->local), expr.operands[1], value);
             return emitSlotStore(localSlot(resolved->local), value_slice);
         }
     }
@@ -3002,7 +3004,7 @@ hir::HirExprId HirLowerModern::lowerAssign(const frontend::Expression &expr,
         const auto value = lowerExpr(expr.operands[1]);
         if (target == hir::kInvalidHirExpr || value == hir::kInvalidHirExpr)
             return hir::kInvalidHirExpr;
-        const auto value_slice = lowerCoerceToSliceIfArray(target_type, expr.operands[1], value);
+        const auto value_slice = lowerCoerceToTarget(target_type, expr.operands[1], value);
         hir::HirAssign assign;
         assign.target = target;
         assign.value  = value_slice;
@@ -3014,7 +3016,7 @@ hir::HirExprId HirLowerModern::lowerAssign(const frontend::Expression &expr,
     if (target == hir::kInvalidHirExpr || value == hir::kInvalidHirExpr)
         return hir::kInvalidHirExpr;
     const auto value_slice =
-        lowerCoerceToSliceIfArray(typeOfExpr(expr.operands[0]), expr.operands[1], value);
+        lowerCoerceToTarget(typeOfExpr(expr.operands[0]), expr.operands[1], value);
 
     hir::HirAssign assign;
     assign.target = target;
@@ -3537,6 +3539,31 @@ hir::HirExprId HirLowerModern::lowerIsType(const frontend::Expression &expr) {
 
 hir::HirExprId HirLowerModern::lowerLayoutIntrinsic(const frontend::Expression &expr) {
     hir::HirLayoutIntrinsic intrinsic;
+    if (expr.text == "lengthOf" || expr.text == "ptrOf") {
+        if (expr.operands.empty())
+            return hir::kInvalidHirExpr;
+        if (expr.text == "lengthOf") {
+            // Decode escapes once so @lengthOf on a string literal returns the
+            // in-memory character count rather than source bytes plus quotes.
+            std::string decoded;
+            std::string_view text(
+                expr.operands[0].value <= current_module_->frontend->expressions().size()
+                    ? current_module_->frontend->expressions()[expr.operands[0].value - 1U].text
+                    : std::string_view{});
+            if (!text.empty() && text.front() == '"' && text.back() == '"')
+                (void)decodeEscapes(std::string_view(text.data() + 1U, text.size() - 2U), decoded);
+            intrinsic.string_length = decoded.empty() ? 0 : decoded.size();
+        }
+        intrinsic.which        = expr.text == "lengthOf" ? hir::HirLayoutIntrinsic::Which::LengthOf
+                                                         : hir::HirLayoutIntrinsic::Which::PtrOf;
+        intrinsic.operand      = lowerExpr(expr.operands[0]);
+        intrinsic.operand_type = typeOfExpr(expr.operands[0]);
+        intrinsic.type         = typeOfExpr(expr.id);
+        if (intrinsic.operand == hir::kInvalidHirExpr || intrinsic.type == types::kErrorType ||
+            intrinsic.type == types::kInvalidType)
+            return hir::kInvalidHirExpr;
+        return addExpr(std::move(intrinsic));
+    }
     if (expr.text == "sizeOf")
         intrinsic.which = hir::HirLayoutIntrinsic::Which::SizeOf;
     else if (expr.text == "alignOf")
@@ -3704,14 +3731,65 @@ hir::HirExprId HirLowerModern::lowerIndex(const frontend::Expression &expr,
     return emitSlotLoad(result_slot, type);
 }
 
-hir::HirExprId HirLowerModern::lowerCoerceToSliceIfArray(types::TypeId target,
-                                                         frontend::ExprId expression,
-                                                         hir::HirExprId value) {
+hir::HirExprId HirLowerModern::lowerCoerceToTarget(types::TypeId target,
+                                                   frontend::ExprId expression,
+                                                   hir::HirExprId value) {
     if (value == hir::kInvalidHirExpr)
         return hir::kInvalidHirExpr;
     const auto source_type = typeOfExpr(expression);
+    // Sema retypes a string literal accepted for a `[]char` target, so the
+    // expression's source type is no longer `*char` here. Detect the literal
+    // directly and reconstruct its pointer payload plus decoded bounds.
+    if (types_.kindOf(target) == types::TypeKind::Slice && expression &&
+        expression.value <= current_module_->frontend->expressions().size()) {
+        const auto &literal = current_module_->frontend->expressions()[expression.value - 1U];
+        if (literal.kind == frontend::ExprKind::Literal && literal.text.size() >= 2U &&
+            literal.text.front() == '"' && literal.text.back() == '"') {
+            const auto lowered_slice = std::get_if<types::TypeSlice>(&types_.lookup(target));
+            if (lowered_slice != nullptr &&
+                types_.kindOf(lowered_slice->elem) == types::TypeKind::Char) {
+                const sema::modern::TypeId char_sema = sema_.typeTable().lookupNamed("char");
+                const types::TypeId pointer_hir =
+                    char_sema ? types_.internPtr(lowerType(char_sema)) : types::kErrorType;
+                std::string decoded;
+                if (pointer_hir != types::kErrorType &&
+                    decodeEscapes(
+                        std::string_view(literal.text.data() + 1U, literal.text.size() - 2U),
+                        decoded)) {
+                    hir::HirLiteral pointer_literal;
+                    pointer_literal.type     = pointer_hir;
+                    pointer_literal.str_val  = interner_.intern(std::string_view(decoded));
+                    const auto pointer_value = addExpr(std::move(pointer_literal));
+                    hir::HirMakeSlice slice;
+                    slice.object      = pointer_value;
+                    slice.type        = target;
+                    slice.object_type = pointer_hir;
+                    slice.bound_type  = types_.internInt(types::IntWidth::I64);
+                    slice.is_pointer  = true;
+                    hir::HirLiteral lo;
+                    lo.type = slice.bound_type;
+                    lo.i    = 0;
+                    hir::HirLiteral hi;
+                    hi.type  = slice.bound_type;
+                    hi.i     = static_cast<int64_t>(decoded.size());
+                    slice.lo = addExpr(std::move(lo));
+                    slice.hi = addExpr(std::move(hi));
+                    return addExpr(std::move(slice));
+                }
+            }
+        }
+    }
     if (types_.kindOf(source_type) != types::TypeKind::Array ||
         types_.kindOf(target) != types::TypeKind::Slice) {
+        if (types_.kindOf(source_type) == types::TypeKind::Slice &&
+            types_.kindOf(target) == types::TypeKind::Ptr) {
+            hir::HirLayoutIntrinsic intrinsic;
+            intrinsic.which        = hir::HirLayoutIntrinsic::Which::PtrOf;
+            intrinsic.type         = target;
+            intrinsic.operand      = value;
+            intrinsic.operand_type = source_type;
+            return addExpr(std::move(intrinsic));
+        }
         return value;
     }
 
@@ -4358,7 +4436,7 @@ hir::HirExprId HirLowerModern::lowerStructLiteral(const frontend::Expression &ex
                 types_.kindOf(value_type) != types::TypeKind::Optional) {
                 value = lowerCoerceToOptional(field_type, value);
             }
-            value = lowerCoerceToSliceIfArray(field_type, expr.operands[i], value);
+            value = lowerCoerceToTarget(field_type, expr.operands[i], value);
         }
         if (slot_index < ordered.size())
             ordered[slot_index] = value;
@@ -4380,7 +4458,7 @@ hir::HirExprId HirLowerModern::lowerStructLiteral(const frontend::Expression &ex
                 types_.kindOf(field_type) == types::TypeKind::Optional &&
                         types_.kindOf(typeOfExpr(default_id)) != types::TypeKind::Optional
                     ? lowerCoerceToOptional(field_type, default_value)
-                    : lowerCoerceToSliceIfArray(field_type, default_id, default_value);
+                    : lowerCoerceToTarget(field_type, default_id, default_value);
         }
     }
     // Keep every slot (missing ones are zero at codegen); the array is index-aligned.
@@ -4405,11 +4483,15 @@ hir::HirExprId HirLowerModern::lowerPackLiteral(const frontend::Expression &expr
 hir::HirExprId HirLowerModern::lowerArrayLiteral(const frontend::Expression &expr,
                                                  const types::TypeId type) {
     hir::HirArrayLiteral lit(arena_);
-    lit.type = type;
-    for (const auto operand : expr.operands) {
-        const auto value = lowerExpr(operand);
+    lit.type                 = type;
+    const auto *target_array = std::get_if<types::TypeArray>(&types_.lookup(type));
+    for (size_t index = 0; index < expr.operands.size(); ++index) {
+        const frontend::ExprId operand = expr.operands[index];
+        auto value                     = lowerExpr(operand);
         if (value == hir::kInvalidHirExpr)
             return hir::kInvalidHirExpr;
+        if (target_array != nullptr)
+            value = lowerCoerceToTarget(target_array->elem, operand, value);
         lit.elements.push(value);
     }
     return addExpr(std::move(lit));
@@ -4553,7 +4635,7 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                     init =
                         lowerCoerceToOptionalDepth(type, binding_sema_type, init_sema_type, init);
             }
-            init = lowerCoerceToSliceIfArray(type, statement.binding.initializer, init);
+            init = lowerCoerceToTarget(type, statement.binding.initializer, init);
             const sema::modern::TypeId binding_sema = semaTypeOfLocal(statement.binding.id);
             if (binding_sema != sema::modern::kInvalidTypeId &&
                 sema_.typeTable().kindOf(binding_sema) == sema::modern::TypeKind::Dyn)
@@ -4600,8 +4682,7 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                     value = lowerCoerceToOptional(current_fn_->return_type, value);
                 }
             }
-            value =
-                lowerCoerceToSliceIfArray(current_fn_->return_type, statement.expression, value);
+            value = lowerCoerceToTarget(current_fn_->return_type, statement.expression, value);
             if (current_fn_return_sema_type_ != sema::modern::kInvalidTypeId)
                 value = lowerCoerceToDyn(current_fn_return_sema_type_, statement.expression, value,
                                          current_fn_return_sema_type_);
@@ -4767,8 +4848,8 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
             }
             if (argument == hir::kInvalidHirExpr)
                 return false;
-            argument = lowerCoerceToSliceIfArray(lowerType(target_fn->params[lowered_fixed]),
-                                                 statement.arguments[lowered_fixed], argument);
+            argument = lowerCoerceToTarget(lowerType(target_fn->params[lowered_fixed]),
+                                           statement.arguments[lowered_fixed], argument);
             argument = lowerCoerceToOpaque(target_fn->params[lowered_fixed],
                                            statement.arguments[lowered_fixed], argument);
             tail.call.argument_types.push(lowerType(target_fn->params[lowered_fixed]));
@@ -4829,8 +4910,7 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                 auto argument = lowerExpr(statement.arguments.back());
                 if (argument == hir::kInvalidHirExpr)
                     return false;
-                argument =
-                    lowerCoerceToSliceIfArray(slice_type, statement.arguments.back(), argument);
+                argument = lowerCoerceToTarget(slice_type, statement.arguments.back(), argument);
                 argument = lowerCoerceToOpaque(target_fn->params[slice_index],
                                                statement.arguments.back(), argument);
                 tail.call.argument_types.push(lowerType(target_fn->params[slice_index]));

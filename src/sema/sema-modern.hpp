@@ -136,10 +136,19 @@ private:
     /// Local ids whose uninitialized `let` was typed by its first assignment.
     std::vector<uint32_t> typeInferredByAssignment_;
     TypeId currentReturnType_ = kInvalidTypeId;
-    /// Logical move state for parameter/local bindings while inferring a body.
-    /// A move invalidates only the binding for later reads; the ABI and storage
-    /// remain the same until real move tracking lands.
+    /// Logical move/address state for parameter/local bindings while inferring
+    /// a body. A move (address-of, receiver borrow, or ptrOf of a local)
+    /// invalidates reads and field writes, while a direct assignment to the
+    /// binding revives it. No real SSA versions or phi nodes are created; this
+    /// is a per-body dead-state only.
     std::unordered_set<uint32_t> movedLocals_;
+    /// Pointer-valued expressions that are tied to a local binding. A pointer
+    /// produced by address-of or ptrOf may not escape this function body
+    /// through returns, persistent aggregates, globals, or deferred storage.
+    std::unordered_set<uint32_t> escapingPointerExprs_;
+    /// Local bindings initialized directly from an escaping pointer. These are
+    /// tracked so returning or storing an alias reports the same E4008.
+    std::unordered_set<uint32_t> escapingPointerLocals_;
     /// Bindings declared without an initializer in the current body. The set
     /// is cleared after the first direct assignment, and reads through `raw`
     /// are the explicit escape hatch.
@@ -307,6 +316,17 @@ private:
     /// Reports `E4001 UseAfterMove` when the root of `target` is an already
     /// invalidated local. Assigning to the dead local itself revives it.
     void checkMovedRoot(const frontend::Expression &target);
+    /// True when `id` is, or flows from, a pointer tied to local storage.
+    [[nodiscard]] bool pointerAliasEscapesScope(frontend::ExprId id) const;
+    /// True when a binding type directly stores a pointer, including optional
+    /// pointers such as `?*T`. Optional pointers are nullable aliases and do
+    /// not themselves mean the escape is meant to become persistent storage.
+    [[nodiscard]] bool isPointerStorageType(TypeId id) const;
+    /// True when `id` is nested under a unary `raw` expression. Raw reads are
+    /// the explicit unchecked read that may bypass logical move dead-state.
+    [[nodiscard]] bool containedInRawRead(frontend::ExprId id) const;
+    /// Root name of a postfix chain (`raw box.origin.x` returns `box`).
+    [[nodiscard]] frontend::ExprId rawRootName(const frontend::Expression &expr) const noexcept;
     /// Reports `WriteThroughView` when the assignment target is rooted at a `view` binding.
     void checkAssignableOwnership(frontend::ExprId target, frontend::TextSpan span);
     /// Reports `UnsupportedSyntax` when an assignment target rooted at a `let`/`const`
@@ -463,6 +483,13 @@ private:
     /// Adapts a numeric literal operand to `target` when possible. This is the only implicit
     /// numeric conversion the language keeps; conversions between variables need `as`.
     bool adaptNumericLiteral(frontend::ExprId value, TypeId target);
+    /// Marks a value that escapes through an implicit `[]char -> *char`
+    /// coercion. `raw` is transparent here, so raw slice-to-pointer conversion
+    /// still participates in the same escape checking.
+    void markSlicePtrCoercionEscaping(frontend::ExprId value);
+    /// True for the one representation-level pointer coercion kept in Zith--:
+    /// `[]char` viewed as `*char`.
+    [[nodiscard]] bool isCharSliceToPointer(TypeId source, TypeId target) const noexcept;
     /// `coercesTo` plus literal adaptation, for sites that know the source expression.
     bool coerceValue(frontend::ExprId value, TypeId target, TypeId source);
 

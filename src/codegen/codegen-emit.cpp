@@ -370,6 +370,40 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 return result;
             },
             [&](const hir::HirLayoutIntrinsic &i) -> llvm::Value * {
+                if (i.which == hir::HirLayoutIntrinsic::Which::LengthOf ||
+                    i.which == hir::HirLayoutIntrinsic::Which::PtrOf) {
+                    const bool is_pointer_result = i.which == hir::HirLayoutIntrinsic::Which::PtrOf;
+                    auto *operand_value          = emitExpr(i.operand, mod);
+                    if (operand_value == nullptr)
+                        return nullptr;
+                    if (i.operand_type != types::kInvalidType &&
+                        types_.kindOf(i.operand_type) == types::TypeKind::Slice) {
+                        return is_pointer_result ? builder_.CreateExtractValue(operand_value, {0U})
+                                                 : builder_.CreateExtractValue(operand_value, {1U});
+                    }
+                    if (i.operand_type != types::kInvalidType &&
+                        types_.kindOf(i.operand_type) == types::TypeKind::Array) {
+                        const auto *array_type =
+                            std::get_if<types::TypeArray>(&types_.lookup(i.operand_type));
+                        if (is_pointer_result) {
+                            auto *addr = emitAddrOf(i.operand, mod);
+                            if (addr == nullptr)
+                                return nullptr;
+                            return addr;
+                        }
+                        const auto length =
+                            array_type != nullptr ? static_cast<uint64_t>(array_type->count) : 0U;
+                        return llvm::ConstantInt::get(llvm::Type::getInt64Ty(builder_.getContext()),
+                                                      length);
+                    }
+                    // Literal strings are typed `*char` in this iteration; the
+                    // pointer intrinsic is identity and length is not known
+                    // without a string representation.
+                    if (is_pointer_result)
+                        return operand_value;
+                    return llvm::ConstantInt::get(llvm::Type::getInt64Ty(builder_.getContext()),
+                                                  i.string_length);
+                }
                 uint64_t value = 0;
                 if (i.which == hir::HirLayoutIntrinsic::Which::OffsetOf) {
                     value = typeGen_.fieldOffset(i.type, i.field_index);

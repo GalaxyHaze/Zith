@@ -326,6 +326,147 @@ void nonNullNarrowingSurvivesAsSlotFact() {
     CHECK(r.ok, "non-null narrowing source type-checks");
 }
 
+void addressOfMovesAndAssignRevives() {
+    auto accepted = check("fn main(): i32 {\n"
+                          "    var x: i32 = 1;\n"
+                          "    let p: *i32 = &x;\n"
+                          "    x = 2;\n"
+                          "    return *p;\n"
+                          "}\n");
+    CHECK(accepted.ok, "defeating an address-of move with a direct assignment is accepted");
+
+    auto use_after = check("fn main(): i32 {\n"
+                           "    var x: i32 = 1;\n"
+                           "    let p: *i32 = &x;\n"
+                           "    return x + *p;\n"
+                           "}\n");
+    CHECK(!use_after.ok, "reading a local after &x is rejected");
+    CHECK(use_after.hasErrorCode(diagnostics::err::UseAfterMove),
+          "reading after &x reports E4001 UseAfterMove");
+
+    auto write_through = check("fn main(): i32 {\n"
+                               "    var x: i32 = 1;\n"
+                               "    let p: *i32 = &x;\n"
+                               "    *p = 3;\n"
+                               "    return 0;\n"
+                               "}\n");
+    CHECK(write_through.ok, "writing through an address-of pointer is accepted");
+
+    auto nullable_rebind = check("fn main(): i32 {\n"
+                                 "    var value: i32 = 14;\n"
+                                 "    var maybe: ?*i32 = &value;\n"
+                                 "    maybe = null;\n"
+                                 "    if not (maybe is null) { return 3; }\n"
+                                 "    return 14;\n"
+                                 "}\n");
+    CHECK(nullable_rebind.ok, "nulling an optional pointer local replaces its alias");
+}
+
+void addressOfEscapeIsRejected() {
+    auto ret = check("fn main(): *i32 {\n"
+                     "    var x: i32 = 1;\n"
+                     "    return &x;\n"
+                     "}\n");
+    CHECK(!ret.ok, "returning a pointer derived from &x is rejected");
+    CHECK(ret.hasErrorCode(diagnostics::err::PointerEscapesScope),
+          "returning &x reports E4008 PointerEscapesScope");
+
+    auto field = check("struct P { p: *i32 }\n"
+                       "fn main(): i32 {\n"
+                       "    var x: i32 = 1;\n"
+                       "    let s: P = P { p: &x };\n"
+                       "    return 0;\n"
+                       "}\n");
+    CHECK(!field.ok, "storing &x in a struct field is rejected");
+    CHECK(field.hasErrorCode(diagnostics::err::PointerEscapesScope), "struct &x reports E4008");
+
+    auto array = check("fn main(): i32 {\n"
+                       "    var x: i32 = 1;\n"
+                       "    let a: [1]*i32 = [&x];\n"
+                       "    return 0;\n"
+                       "}\n");
+    CHECK(!array.ok, "storing &x in an array element is rejected");
+    CHECK(array.hasErrorCode(diagnostics::err::PointerEscapesScope), "array &x reports E4008");
+
+    auto deferred = check("struct P { p: *i32 }\n"
+                          "fn consume(p: *i32): i32 { return *p; }\n"
+                          "fn main(): i32 {\n"
+                          "    var x: i32 = 1;\n"
+                          "    defer P { p: &x };\n"
+                          "    return 0;\n"
+                          "}\n");
+    CHECK(!deferred.ok, "capturing &x in a deferred aggregate is rejected");
+    CHECK(deferred.hasErrorCode(diagnostics::err::PointerEscapesScope), "defer &x reports E4008");
+}
+
+void valueIntrinsicSema() {
+    auto lengths = check("fn main(): i32 {\n"
+                         "    var a: [3]i32 = [1, 2, 3];\n"
+                         "    let l1: u64 = @lengthOf(\"abc\");\n"
+                         "    let l2: u64 = @lengthOf(a);\n"
+                         "    let p: *i32 = @ptrOf(a);\n"
+                         "    *p = 0;\n"
+                         "    return 0;\n"
+                         "}\n");
+    CHECK(lengths.ok, "@lengthOf accepts string literals and arrays; @ptrOf accepts arrays");
+
+    auto ptrs = check("extern fn accept_i32(p: *i32): i32\n"
+                      "fn main(): i32 {\n"
+                      "    var a: [3]i32 = [1, 2, 3];\n"
+                      "    let p: *i32 = @ptrOf(a);\n"
+                      "    return accept_i32(p);\n"
+                      "}\n");
+    CHECK(ptrs.ok, "@ptrOf on an array local produces *i32");
+
+    auto ptr_escapes = check("fn main(): *i32 {\n"
+                             "    var a: [3]i32 = [1, 2, 3];\n"
+                             "    return @ptrOf(a);\n"
+                             "}\n");
+    CHECK(!ptr_escapes.ok, "returning @ptrOf(array local) is rejected");
+    CHECK(ptr_escapes.hasErrorCode(diagnostics::err::PointerEscapesScope),
+          "@ptrOf escape reports E4008");
+}
+
+void sliceToPointerEscapeIsRejected() {
+    auto ret = check("fn main(): *char {\n"
+                     "    let s: []char = \"abc\";\n"
+                     "    return s;\n"
+                     "}\n");
+    CHECK(!ret.ok, "returning a []char-derived *char is rejected");
+    CHECK(ret.hasErrorCode(diagnostics::err::PointerEscapesScope),
+          "[]char to *char return reports E4008");
+
+    auto field = check("struct P { p: *char }\n"
+                       "fn main(): i32 {\n"
+                       "    let s: []char = \"abc\";\n"
+                       "    let p: P = P { p: s };\n"
+                       "    return 0;\n"
+                       "}\n");
+    CHECK(!field.ok, "storing a []char-derived *char in a struct field is rejected");
+    CHECK(field.hasErrorCode(diagnostics::err::PointerEscapesScope),
+          "struct []char to *char reports E4008");
+
+    auto array = check("fn main(): i32 {\n"
+                       "    let s: []char = \"abc\";\n"
+                       "    let a: [2]*char = [s, s];\n"
+                       "    return 0;\n"
+                       "}\n");
+    CHECK(!array.ok, "storing a []char-derived *char in an array element is rejected");
+    CHECK(array.hasErrorCode(diagnostics::err::PointerEscapesScope),
+          "array []char to *char reports E4008");
+
+    auto deferred = check("struct P { p: *char }\n"
+                          "fn consume(p: *char): i32 { return raw p[0]; }\n"
+                          "fn main(): i32 {\n"
+                          "    let s: []char = \"abc\";\n"
+                          "    defer P { p: s };\n"
+                          "    return 0;\n"
+                          "}\n");
+    CHECK(!deferred.ok, "capturing a []char-derived *char in a deferred aggregate is rejected");
+    CHECK(deferred.hasErrorCode(diagnostics::err::PointerEscapesScope),
+          "defer []char to *char reports E4008");
+}
+
 } // namespace
 
 void test_memory_qualifiers() {
@@ -342,6 +483,10 @@ void test_memory_qualifiers() {
     callSiteAcceptedAnnotationsAndTemporaries();
     invalidCallOwnershipAnnotationsAreRejected();
     nonNullNarrowingSurvivesAsSlotFact();
+    addressOfMovesAndAssignRevives();
+    addressOfEscapeIsRejected();
+    sliceToPointerEscapeIsRejected();
+    valueIntrinsicSema();
 }
 
 TEST_MAIN(memory_qualifiers)

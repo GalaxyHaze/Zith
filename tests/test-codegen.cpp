@@ -568,6 +568,25 @@ static void test_sizeof_intrinsic_runtime() {
     CHECK_EQ(r.exitCode, 1, "@sizeOf folds to the target-ABI size in bytes");
 }
 
+static void test_slice_string_intrinsics_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+                         "fn main(): i32 {\n"
+                         "    var values: [3]i32 = [10, 20, 30];\n"
+                         "    let slice: []i32 = raw values[0..3];\n"
+                         "    if (@lengthOf(slice) != 3) { return 1; }\n"
+                         "    if (raw @ptrOf(slice)[1] != 20) { return 2; }\n"
+                         "    if (@lengthOf(\"zith\") != 4) { return 3; }\n"
+                         "    printf(\"%s\\n\", @ptrOf(\"zith\"));\n"
+                         "    return 0;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "@lengthOf/@ptrOf slices and strings compile, link, and execute");
+    CHECK_EQ(r.exitCode, 0, "@lengthOf and @ptrOf return expected slice/string values");
+    CHECK(r.output.find("zith") != std::string::npos, "the string pointer intrinsic feeds printf");
+}
+
 static void test_when_expression_runtime() {
     CodegenTest t;
     auto r = t.run("codegen-when.zith",
@@ -1332,8 +1351,9 @@ static void test_defer_in_state_before_jump() {
 }
 
 static void test_linked_list_acceptance_program() {
-    // Mirrors examples/linked-list.zith: nullable pointers, `is null`, conditional `for`,
-    // two-character comparison operators, and explicit numeric `as` conversions.
+    // Exercises nullable pointer threading and local pointer aliases. Local
+    // struct storage may contain pointers as long as nothing escapes; the
+    // ownership iteration does not yet support persistent linked structures.
     ModernFileCodegenTest t;
     t.write("main.zith", "struct Node {\n"
                          "    value: i32,\n"
@@ -1349,9 +1369,9 @@ static void test_linked_list_acceptance_program() {
                          "    return total;\n"
                          "}\n"
                          "fn main(): i32 {\n"
-                         "    var tail: Node = Node { value: 3, next: null };\n"
-                         "    var head: Node = Node { value: 4, next: &tail };\n"
-                         "    let total: i32 = sum(&head);\n"
+                         "    var first: Node = Node { value: 4, next: null };\n"
+                         "    var second: Node = Node { value: 3, next: null };\n"
+                         "    let total: i32 = sum(&first) + sum(&second);\n"
                          "    if (total != 7) {\n"
                          "        return 1;\n"
                          "    }\n"
@@ -2008,6 +2028,25 @@ static void test_nested_optional_argument_runtime() {
     CHECK_EQ(r.exitCode, 0, "nested optional call arguments preserve their layout");
 }
 
+static void test_generic_optional_coercion_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "struct Wrapper { value: i32 }\n"
+                         "implement Wrapper {\n"
+                         "    fn get(self): i32 { self.value }\n"
+                         "}\n"
+                         "fn wrap<T>(x: ?T): ?T { return x; }\n"
+                         "fn main(): i32 {\n"
+                         "    let value: ?Wrapper = wrap(Wrapper { value: 21 });\n"
+                         "    if (value is null) { return 1; }\n"
+                         "    return value.get();\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "generic optional inference uses the modern codegen pipeline");
+    CHECK(r.ok, "generic optional call argument compiles, links and runs");
+    CHECK_EQ(r.exitCode, 21, "the inferred optional argument is materialized as Some");
+}
+
 static void test_primitive_optional_slice_implement_runtime() {
     ModernFileCodegenTest t;
     t.write("main.zith", "trait Foo {\n"
@@ -2026,17 +2065,30 @@ static void test_primitive_optional_slice_implement_runtime() {
                          "implement []char as S {\n"
                          "    fn len(self): i32 { return 3; }\n"
                          "}\n"
+                         "trait P {\n"
+                         "    fn first(self): char;\n"
+                         "}\n"
+                         "implement *char as P {\n"
+                         "    fn first(self): char { return raw self[0]; }\n"
+                         "}\n"
+                         "fn count(s: []char): i32 { return @lengthOf(s) as i32; }\n"
                          "fn main(): i32 {\n"
                          "    let a: i32 = 1;\n"
                          "    let o: ?char = 'x';\n"
                          "    var arr: [3]char = ['a', 'b', 'c'];\n"
                          "    let s: []char = raw arr[0..3];\n"
+                         "    let p: *char = \"zith\";\n"
+                         "    let literal: []char = \"abc\";\n"
+                         "    if (p.first() != 'z') { return 2; }\n"
+                         "    if (p->first() != 'z') { return 3; }\n"
+                         "    if (count(\"abc\") != 3) { return 4; }\n"
+                         "    if (count(literal) != 3) { return 5; }\n"
                          "    return a.value() + o.get() + s.len();\n"
                          "}\n");
 
     auto r = t.run();
-    CHECK(r.usedModern, "primitive/optional/slice implementations use the modern pipeline");
-    CHECK(r.ok, "method calls on i32, ?char and []char compile, link and run");
+    CHECK(r.usedModern, "primitive/optional/slice/pointer implementations use the modern pipeline");
+    CHECK(r.ok, "method calls on i32, ?char, []char and *char compile, link and run");
     CHECK_EQ(r.exitCode, 11, "a.value() + o.get() + s.len() returns 7 + 1 + 3");
 }
 
@@ -2101,8 +2153,7 @@ static void test_external_symbol_alias_runtime() {
     t.write("main.zith", "fn c_increment(p: *i32): i32 = extern zith_test_external_increment;\n"
                          "fn main(): i32 {\n"
                          "    var value: i32 = 41;\n"
-                         "    c_increment(&value);\n"
-                         "    return value;\n"
+                         "    return c_increment(&value);\n"
                          "}\n");
 
     auto r = t.run();
@@ -2540,6 +2591,8 @@ static void test_codegen() {
     printf("Running test_offsetof_and_alignof_runtime\n");
     test_offsetof_and_alignof_runtime();
     test_sizeof_intrinsic_runtime();
+    printf("Running test_slice_string_intrinsics_runtime\n");
+    test_slice_string_intrinsics_runtime();
     test_when_expression_runtime();
     test_tagged_union_pointer_is_type_runtime();
     test_qualified_receiver_mutation_runtime();
@@ -2635,6 +2688,8 @@ static void test_codegen() {
     test_function_default_arguments_runtime();
     printf("Running test_nested_optional_argument_runtime\n");
     test_nested_optional_argument_runtime();
+    printf("Running test_generic_optional_coercion_runtime\n");
+    test_generic_optional_coercion_runtime();
     printf("Running test_primitive_optional_slice_implement_runtime\n");
     test_primitive_optional_slice_implement_runtime();
     printf("Running test_extern_variadic_call_runs\n");

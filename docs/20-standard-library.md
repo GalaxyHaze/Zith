@@ -4,6 +4,11 @@
 > shipped modules. `puts` and `println` work. All other standard library content is **spec-only**.
 > See [impl-status.md](impl-status.md).
 
+`std`/`soon` remain documentation-only in this iteration; no existing module is being rewritten.
+The documented convention uses resource types with `init`/`destroy`, read-only methods with
+`view`, and mutating methods with `lend`. `defer` runs `destroy(self: lend Self)` on resource
+cleanup; `drop` remains outside the `Zith--` subset.
+
 ### 20.1 Three-Part Structure
 
 | Namespace | Stability | Use when |

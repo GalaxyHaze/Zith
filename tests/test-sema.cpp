@@ -1647,12 +1647,13 @@ static void test_modern_pointer_coerces_to_c_void_pointer() {
     t.write("fixture.h", "void *fx_alloc(unsigned long size);\nvoid fx_free(void *ptr);\n");
     auto r = t.run("import \"fixture.h\"\n"
                    "fn main(): i32 {\n"
-                   "    var local: i32 = 7;\n"
-                   "    let borrowed: *i32 = &local;\n"
+                   "    var first: i32 = 7;\n"
+                   "    let borrowed: *i32 = &first;\n"
                    "    fx_free(borrowed);\n"
+                   "    var second: i32 = 9;\n"
+                   "    fx_free(&second);\n"
                    "    let owned: ?*i32 = fx_alloc(64) as ?*i32;\n"
                    "    fx_free(owned);\n"
-                   "    fx_free(&local);\n"
                    "    return 0;\n"
                    "}\n");
     CHECK(r.ok, "'*T' and '?*T' both pass to a C 'void*' parameter without a cast");
@@ -2812,6 +2813,33 @@ static void test_modern_array_to_slice_element_mismatch() {
           "array-to-slice element mismatch rejects the call");
 }
 
+static void test_modern_char_slice_pointer_coercions() {
+    ModernSemaTest t;
+    auto literal_slice = t.run("fn echo(s: []char): u64 { @lengthOf(s) }\n"
+                               "fn main(): i32 {\n"
+                               "    let s: []char = \"abc\";\n"
+                               "    let p: *char = s;\n"
+                               "    if (@lengthOf(s) != 3) { return 1; }\n"
+                               "    if (echo(\"abc\") != 3) { return 2; }\n"
+                               "    if (raw @ptrOf(p)[0] != 'a') { return 3; }\n"
+                               "    return 0;\n"
+                               "}\n");
+    CHECK(literal_slice.ok, "string literals adapt to []char and []char coerces to *char");
+
+    auto non_literal = t.run("fn view(s: []char): *char {\n"
+                             "    let p: *char = \"abc\";\n"
+                             "    s\n"
+                             "}\n"
+                             "fn main(): i32 { 0 }\n");
+    CHECK(!non_literal.ok, "a non-literal *char does not implicitly become []char");
+
+    auto raw_non_literal = t.run("fn f(p: *char): []char {\n"
+                                 "    raw p\n"
+                                 "}\n"
+                                 "fn main(): i32 { 0 }\n");
+    CHECK(!raw_non_literal.ok, "raw does not bypass the literal-only *char to []char rule");
+}
+
 static void test_modern_slice_range_sema() {
     ModernSemaTest t;
     auto ok = t.run("fn main(): i32 {\n"
@@ -3553,6 +3581,7 @@ static void test_sema() {
     test_modern_function_value_type_mismatch();
     test_modern_array_to_slice_coercion();
     test_modern_array_to_slice_element_mismatch();
+    test_modern_char_slice_pointer_coercions();
     test_modern_slice_range_sema();
     test_modern_raw_slice_and_index_sema();
     test_modern_variadic_slice_sema();

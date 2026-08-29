@@ -1,10 +1,6 @@
 import "stdio.h"
 
 fn main(){
-    let op = |5u32,5u32,5u32| as opaque;
-    if (op is |x:u32,y:u32,z:u32|){
-        printf("Op.x is: %d\n", op.x);
-        printf("Op.y is: %d\n", op.y);
-        printf("Op.z is: %d\n", op.z);
-    }
+   let slice: []char = "literal";
+   printf("let's try '%s' & it len is: %d\n", slice, @lengthOf(slice));
 }

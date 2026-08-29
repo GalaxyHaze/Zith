@@ -288,13 +288,17 @@ struct HirUnionCheck {
     HirExprKind tag       = HirExprKind::UnionCheck;
 };
 
-/// The offsetOf / alignOf / sizeOf layout intrinsics; resolved to a constant at codegen.
+/// Layout and value intrinsics. Layout intrinsics are resolved to a constant
+/// at codegen; value intrinsics project from their slice/array operand.
 struct HirLayoutIntrinsic {
-    enum class Which : uint8_t { OffsetOf, AlignOf, SizeOf };
+    enum class Which : uint8_t { OffsetOf, AlignOf, SizeOf, LengthOf, PtrOf };
     Which which;
-    HirTypeId type       = types::kInvalidType;
-    uint32_t field_index = ~0U; // OffsetOf only
-    HirExprKind tag      = HirExprKind::LayoutIntrinsic;
+    HirTypeId type         = types::kInvalidType;
+    uint32_t field_index   = ~0U;                  // OffsetOf only
+    HirExprId operand      = hir::kInvalidHirExpr; // LengthOf / PtrOf only
+    HirTypeId operand_type = types::kInvalidType;  // LengthOf / PtrOf only
+    uint64_t string_length = 0;                    // LengthOf on a literal string
+    HirExprKind tag        = HirExprKind::LayoutIntrinsic;
 };
 
 /// A terminating transfer to another state in the same machine. The call is

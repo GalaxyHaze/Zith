@@ -216,6 +216,10 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
         return ErrorInfo{code, 'E', "ownership", "Invalid call ownership annotation",
                          "Only `lend` and `view` are allowed here, and ownership annotations "
                          "only appear on call arguments"};
+    case err::PointerEscapesScope:
+        return ErrorInfo{code, 'E', "ownership", "Pointer escapes scope",
+                         "Keep `&x` and `@ptrOf` results inside the storage scope, or use `raw` "
+                         "for an unchecked pointer that does not carry this lifetime"};
 
     // MIR
     case err::InvalidIR:

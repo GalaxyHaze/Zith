@@ -1826,10 +1826,13 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
         }
         case cache::CompactExprKind::LayoutIntrinsic: {
             hir::HirLayoutIntrinsic li;
-            li.which       = static_cast<hir::HirLayoutIntrinsic::Which>(ce.ref_e);
-            li.type        = compactType(ce.type_id);
-            li.field_index = ce.ref_f;
-            expr           = li;
+            li.which         = static_cast<hir::HirLayoutIntrinsic::Which>(ce.ref_e);
+            li.type          = compactType(ce.type_id);
+            li.field_index   = ce.ref_f;
+            li.operand       = ce.ref_a;
+            li.operand_type  = compactType(ce.ref_b);
+            li.string_length = static_cast<uint64_t>(ce.int_val);
+            expr             = li;
             break;
         }
         case cache::CompactExprKind::Cleanup: {

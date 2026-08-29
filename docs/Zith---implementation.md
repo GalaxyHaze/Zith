@@ -109,8 +109,37 @@ participam na inferência de argumentos genéricos a partir de literais.
 método com `self` implícito ou `var self`, `inferMethodCall` marca a raiz do receiver como movida;
 leituras posteriores do nome reportam `E4001 UseAfterMove` e escritas através de campos/índices
 do local movido também. Atribuir diretamente ao nome do local (o próprio root) revive a ligação.
+Para owners de implement `*char`, o receiver é passado como valor pointer e a invalidação
+pós-call é suprimida: `p.method()` e `p->method()` podem ambos usar `p` sem E4001.
 A exclusividade de `lend`/`view` está implementada no call site; o dead-state lógico de receivers
 e o comportamento pós-chamada de funções livres continuam como antes.
+
+O mesmo dead-state cobre o address-of `&x`: `inferUnary` regista o operand como movido
+logicamente e a assinatura do pointer resultante fica num alias local por binding. Não há pass
+SSA nem phi nodes; um contador/versão por nome dentro do corpo da função é consultado em
+`inferName`/`inferAssign`/`checkMovedRoot`. Atribuir directamente ao nome revive a versão nova;
+escritas através do pointer não revivem o binding original. `raw` sobre index/deref continua a
+ser o escape unchecked e não cria aliasing object. `pointerAliasEscapesScope` rastreia aliases
+locais de pointer object, e usos que saiam do scope (return, struct/array/global/defer,
+aggregados persistentes) reportam `E4008 PointerEscapesScope`. Calls por valor de argumento
+pointer são tratados como borrows temporários; pointers devolvidos por calls não são marcados
+como aliases de storage local.
+
+`@lengthOf`/`@ptrOf` são intrinsics de valor no mesmo `ExprKind::LayoutIntrinsic`. Sema tipa
+`@lengthOf` como `u64` para slices, arrays e strings; `@ptrOf` devolve `*T`/`*char` e marca a
+expressão como escaping quando aponta a storage local. `HirLowerModern::lowerLayoutIntrinsic`
+materializa `HirLayoutIntrinsic::Which::LengthOf`/`PtrOf`, guarda o operand/type e, para string
+literal, decodifica uma vez os escapes para calcular o comprimento em memória. Codegen projecta
+o length/data de slices, usa `emitAddrOf` para arrays, e trata string literals como pointer
+identity com length constante. Cache serializa operand/type e o comprimento na instrução compacta.
+
+String literals têm tipo de origem `*char`. `PerModuleSema::coerceValue` aceita esse literal
+directamente num destino `[]char`, atualizando o tipo da expressão para o slice; `coercesTo`
+permite a conversão inversa apenas para `[]char -> *char`. `HirLowerModern::lowerCoerceToTarget`
+detecciona o literal mesmo depois do retype do sema, cria o pointer literal decodificado e um
+`HirMakeSlice` com `is_pointer=true`, `lo=0` e `hi=@lengthOf` do mesmo decode. Um `*char`
+que não é literal não converte para `[]char`; a conversão implícita de `[]char` para `*char`
+equivale a `@ptrOf` e é marcada como escaping por `E4008` quando escapa ao storage local.
 
 `inferMethodCall` reconhece `p.Trait.method()` (AST `Call(Field(Field(p, Trait), method))`)
 antes da lookup normal. Quando o receiver é um struct que satisfaz a trait/interface nomeada,
@@ -159,7 +188,18 @@ de `let x; x = e;` continua a permitir a primeira escrita para inferir o tipo.
 
 Calls com defaults são tipados com `functionDefaultType`, que consulta o snapshot e typed map do módulo declarador para expressões reutilizadas em imports/methods; em calls genéricos o default é também sujeito a `coerceValue` contra o parâmetro instanciado.
 
-O parser de `implement` usa `parseType()` para aceitar owners canónicos `i32`, `?char` e `[]char` além de nomes. `ImplementRecord` guarda `ownerType` (a `TypeExprId`) e `owner` (a string canónica). Antes de baixar assinaturas, `prepareImplementOwners` intera `?T`/`[]T` reais para que `self` implícito em métodos desses owners resolva; `checkImplementBlocks` valida requirements, defaults, duplicatas, interface-explicit, e regista conformação nominal com o `TypeId` do owner. `ownerNameOf` devolve a string canónica para Integer/Float/Bool/Char/String/Optional/Slice e `findMethodsForOwner` localiza esses métodos; receivers não-struct com um método concreto do owner seguem o caminho de method-call em vez de field access.
+O parser de `implement` usa `parseType()` para aceitar owners canónicos `i32`, `?char`,
+`[]char` e `*char` além de nomes; `lowerImplementBlock` reporta `UnsupportedSyntax` para
+qualquer outro pointer (`*i32`) e para arrays fixos (`[N]T`). `ImplementRecord` guarda
+`ownerType` (a `TypeExprId`) e `owner` (a string canónica). Antes de baixar assinaturas,
+`prepareImplementOwners` intera `?T`/`[]T` reais para que `self` implícito em métodos desses
+owners resolva; `checkImplementBlocks` valida requirements, defaults, duplicatas,
+interface-explicit, e regista conformação nominal com o `TypeId` do owner. `ownerNameOf`
+devolve a string canónica para Integer/Float/Bool/Char/String/Optional/Slice/Pointer e
+`findMethodsForOwner` localiza esses métodos; receivers não-struct com um método concreto do
+owner seguem o caminho de method-call em vez de field access. Num owner `*char`, `self`
+implícito baixa para o próprio `*char`, não para `**char`; `substituteSelf` conserva esse
+comportamento nas assinaturas de requirements para que `fn first(self): char` corresponda.
 
 O sema mantém `active_loop_labels_` enquanto infere `while`/`for`/`for-in`.
 Labels são aceitas nos loops e em `break`/`continue`; um label desconhecido,
@@ -284,6 +324,15 @@ em métodos e chamadas dyn precisa deste separador porque `call.operands` não i
 mas o `FunctionType` inclui o receiver. Calls genéricos e métodos genéricos sintetizam
 `[]T` a partir do primeiro elemento do tail para `resolveArgs`, depois validam o tail com
 o tipo instanciado.
+
+Nos calls genéricos, a inferência de `resolveTypes` tenta o matching estrutural exacto em
+primeiro lugar. Quando o parâmetro declarado é `?T` (ou `??T`) e o argumento não tem o mesmo
+outer shape, `GenericInstantiationPass` faz uma probe só para opcionais: retira as camadas
+opcionais do parâmetro, unifica o `T` resultante contra o argumento real e comita as ligações
+se não houver conflito. Isto permite `fn wrap<T>(x: ?T): ?T` aceitar `wrap(3)` e `fn
+nested<T>(x: ??T): ?T` aceitar `nested(5)` ou `nested(maybe)` com `maybe: ?i32`. A probe é
+restrita a coerções opcionais; outras coerções implícitas (arrays para slices, pointers para
+`void`, `dyn`/`opaque`) continuam exactas nesta iteração.
 
 No HIR, `HirLowerModern::lowerCall` detecta o variadic slice no callee e baixa o tail para
 `HirArrayLiteral` + `HirMakeSlice` num slot temporário; um único argumento slice/array final

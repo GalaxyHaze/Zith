@@ -1001,10 +1001,10 @@ private:
     // Intrinsics from docs/Zith-spec.md section A.2: resolved by the compiler,
     // never treated as user macros.
     static constexpr const char *kIntrinsicNames[] = {
-        "offsetOf",  "alignOf",  "sizeOf", "fields",      "hasTrait",    "struct",
-        "component", "union",    "enum",   "nullable",    "primitive",   "allocate",
-        "pack",      "toStruct", "toPack", "appendField", "removeField", "appendMethod",
-        "file",      "line",     "fnName", "location",    "ok",          "err",
+        "offsetOf", "alignOf",     "sizeOf",      "fields",       "hasTrait", "struct", "component",
+        "union",    "enum",        "nullable",    "primitive",    "allocate", "pack",   "toStruct",
+        "toPack",   "appendField", "removeField", "appendMethod", "file",     "line",   "fnName",
+        "location", "ok",          "err",         "lengthOf",     "ptrOf",
     };
 
     static bool isIntrinsicName(std::string_view name) {
@@ -1194,9 +1194,18 @@ private:
                 if (isIntrinsicName(name)) {
                     expr.kind = ExprKind::LayoutIntrinsic;
                     expr.text = name;
-                    // Only offsetOf/alignOf/sizeOf parse a type+field argument.
-                    if ((name == "offsetOf" || name == "alignOf" || name == "sizeOf") &&
-                        punctuation(index_, '(')) {
+                    // @lengthOf/@ptrOf take a value operand; layout intrinsics
+                    // take a type and optionally a field name.
+                    if ((name == "lengthOf" || name == "ptrOf") && punctuation(index_, '(')) {
+                        ++index_;
+                        expr.operands.push_back(parseExpression());
+                        if (punctuation(index_, ')'))
+                            ++index_;
+                        else
+                            snapshot_.diagnostics_.push_back(
+                                {range(start, index_), "expected ')' after intrinsic arguments"});
+                    } else if ((name == "offsetOf" || name == "alignOf" || name == "sizeOf") &&
+                               punctuation(index_, '(')) {
                         ++index_;
                         expr.cast_type = parseType();
                         if (punctuation(index_, ',')) {
@@ -3318,12 +3327,16 @@ private:
         const auto &owner_expr = snapshot_.typeExpressions()[owner_type.value - 1U];
         if (const size_t angle = owner_name.find('<'); angle != std::string::npos)
             owner_name.resize(angle);
-        if (owner_expr.kind == frontend::TypeExprKind::Pointer ||
+        const bool pointer_char_owner =
+            owner_expr.kind == frontend::TypeExprKind::Pointer &&
+            owner_expr.arguments.size() == 1U &&
+            canonicalTypeString(snapshot_, owner_expr.arguments[0]) == "char";
+        if ((owner_expr.kind == frontend::TypeExprKind::Pointer && !pointer_char_owner) ||
             owner_expr.kind == frontend::TypeExprKind::Array) {
             snapshot_.diagnostics_.push_back(
                 {owner_expr.span,
                  "implement targets are primitives, optionals, slices and named types "
-                 "in this iteration; pointer and fixed-array owners are not supported",
+                 "in this iteration; only the '*char' pointer owner is supported currently",
                  false, diagnostics::err::UnsupportedSyntax});
         }
 

@@ -441,6 +441,9 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                            out.type_id = internType(li.type);
                            out.ref_e   = static_cast<uint32_t>(li.which);
                            out.ref_f   = li.field_index;
+                           out.ref_a   = li.operand;
+                           out.ref_b   = internType(li.operand_type);
+                           out.int_val = static_cast<int64_t>(li.string_length);
                        },
                        [&](const hir::HirStateTailCall &tail) {
                            out.kind  = CompactExprKind::StateTailCall;

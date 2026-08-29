@@ -312,13 +312,36 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                        buffer += std::to_string(c.to);
                                    },
                                    [&](const HirLayoutIntrinsic &i) {
-                                       buffer += i.which == HirLayoutIntrinsic::Which::OffsetOf
-                                                     ? "offset_of"
-                                                 : i.which == HirLayoutIntrinsic::Which::AlignOf
-                                                     ? "align_of"
-                                                     : "size_of";
-                                       buffer += " %t";
-                                       buffer += std::to_string(i.type);
+                                       switch (i.which) {
+                                       case HirLayoutIntrinsic::Which::LengthOf:
+                                           buffer += "length_of %e";
+                                           buffer += std::to_string(i.operand);
+                                           if (i.string_length != 0U) {
+                                               buffer += " = ";
+                                               buffer += std::to_string(i.string_length);
+                                           }
+                                           buffer += " : %t";
+                                           buffer += std::to_string(i.type);
+                                           break;
+                                       case HirLayoutIntrinsic::Which::PtrOf:
+                                           buffer += "ptr_of %e";
+                                           buffer += std::to_string(i.operand);
+                                           buffer += " : %t";
+                                           buffer += std::to_string(i.type);
+                                           break;
+                                       case HirLayoutIntrinsic::Which::OffsetOf:
+                                           buffer += "offset_of %t";
+                                           buffer += std::to_string(i.type);
+                                           break;
+                                       case HirLayoutIntrinsic::Which::AlignOf:
+                                           buffer += "align_of %t";
+                                           buffer += std::to_string(i.type);
+                                           break;
+                                       case HirLayoutIntrinsic::Which::SizeOf:
+                                           buffer += "size_of %t";
+                                           buffer += std::to_string(i.type);
+                                           break;
+                                       }
                                    },
                                    [&](const HirStateTailCall &tail) {
                                        if (tail.call.resolved_fn != symbols::kInvalidSym)

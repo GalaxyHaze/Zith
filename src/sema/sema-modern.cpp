@@ -383,8 +383,13 @@ void PerModuleSema::lowerDeclarationTypes() {
                 // method gets the owner pointer type implicitly.
                 if (is_method && i == 0 && param.name == "self" && owner_type) {
                     if (!decl.parameters.front().type) {
-                        // `self` (without a type) is shorthand for `*Owner`.
-                        ptype = type_table.internPointer(owner_type);
+                        // `self` (without a type) is shorthand for `*Owner`,
+                        // except a pointer owner such as `*char` is already a
+                        // pointer and therefore receives itself by value.
+                        ptype = type_table.kindOf(type_table.stripQualifiers(owner_type)) ==
+                                        TypeKind::Pointer
+                                    ? owner_type
+                                    : type_table.internPointer(owner_type);
                     } else {
                         ptype = methodSelfParamType(param);
                     }
@@ -769,6 +774,8 @@ void PerModuleSema::inferExpressionTypesForDecls() {
                                    ? snapshot.expressions()[decl.body.value - 1U].scope
                                    : frontend::ScopeId{};
         movedLocals_.clear();
+        escapingPointerExprs_.clear();
+        escapingPointerLocals_.clear();
         uninitializedLocals_.clear();
         preinitializedLocals_.clear();
         inStateBody_ = decl.kind == frontend::DeclKind::Function &&
@@ -881,7 +888,8 @@ void PerModuleSema::checkReturnsAndCalls() {
                 const bool implicit_ret_ok =
                     decl.body && type_table.kindOf(resolve(ret_type)) == TypeKind::Opaque
                         ? coerceValue(decl.body, ret_type, body_type)
-                        : coercesTo(ret_type, body_type);
+                        : (decl.body ? coerceValue(decl.body, ret_type, body_type)
+                                     : coercesTo(ret_type, body_type));
                 if (!implicit_ret_ok) {
                     reportCoercionFailure(snapshot.expressions()[decl.body.value - 1U].span,
                                           ret_type, body_type,
@@ -1064,6 +1072,14 @@ TypeId PerModuleSema::substituteSelf(TypeId type, TypeId self, TypeId trait) con
         return type_table.internNominal(nominal->name,
                                         substituteSelf(nominal->target, self, trait));
     const TypeId resolved = type_table.stripQualifiers(type);
+    // An implement over `*char` owns the pointer value itself. A trait
+    // requirement's implicit `self` lowers to `*Trait`, so substituting
+    // `*char` as `Self` must yield `*char`, not `**char`.
+    if (self && type_table.kindOf(resolve(self)) == TypeKind::Pointer) {
+        if (const auto *ptr = type_table.pointer(resolved);
+            ptr != nullptr && resolve(ptr->pointee) == resolve(trait))
+            return self;
+    }
     if (const auto *ptr = type_table.pointer(resolved))
         return type_table.internPointer(substituteSelf(ptr->pointee, self, trait));
     if (const auto *opt = type_table.optional(resolved))
@@ -1683,7 +1699,7 @@ TypeId PerModuleSema::inferExpr(frontend::ExprId id) {
     if (expr.kind == frontend::ExprKind::Name) {
         if (const auto *resolved = findResolvedExpr(id);
             resolved != nullptr && resolved->local &&
-            movedLocals_.contains(resolved->local.value)) {
+            movedLocals_.contains(resolved->local.value) && !containedInRawRead(id)) {
             report(expr.span,
                    "cannot use '" + expr.text + "' after it was moved by a previous call",
                    diagnostics::err::UseAfterMove);
@@ -1955,7 +1971,17 @@ TypeId PerModuleSema::inferUnary(frontend::ExprId id) {
             result = operand;
         }
     } else if (expr.text == "&") {
-        // Address-of: produce pointer to operand type
+        // Address-of moves the binding logically and produces a pointer object.
+        // The pointer is tied to the storage scope and cannot escape it.
+        if (!expr.operands.empty()) {
+            const auto &operand_expr = snapshot.expressions()[expr.operands[0].value - 1U];
+            if (const auto *resolved = findResolvedExpr(expr.operands[0]);
+                resolved != nullptr && resolved->local) {
+                movedLocals_.insert(resolved->local.value);
+            }
+            if (operand_expr.kind == frontend::ExprKind::Name)
+                escapingPointerExprs_.insert(id.value);
+        }
         result = type_table.internPointer(operand);
     } else if (expr.text == "*") {
         // Dereference: operand must be a pointer
@@ -2096,8 +2122,12 @@ bool PerModuleSema::literalAdaptsTo(frontend::ExprId value, TypeId target) const
     const TypeKind target_kind = type_table.kindOf(resolve(target));
     const bool integer_literal = looksInteger(expr.text);
     const bool float_literal   = looksFloat(expr.text);
+    const auto *target_slice   = type_table.slice(resolve(target));
+    const bool char_slice_target =
+        target_slice != nullptr &&
+        sameType(type_table.stripQualifiers(target_slice->element), char_type);
     if (!integer_literal && !float_literal)
-        return false;
+        return char_slice_target && looksString(expr.text);
     // Probing is deliberately stricter than `adaptNumericLiteral`: an integer
     // literal only fits an integer parameter and a float literal only a float
     // one.  Otherwise `add(1, 2)` would match both the i32 and the f64 overload
@@ -2107,6 +2137,30 @@ bool PerModuleSema::literalAdaptsTo(frontend::ExprId value, TypeId target) const
     if (target_kind == TypeKind::Float)
         return float_literal;
     return false;
+}
+
+void PerModuleSema::markSlicePtrCoercionEscaping(frontend::ExprId value) {
+    if (!value || value.value > snapshot.expressions().size())
+        return;
+    const auto &expr = snapshot.expressions()[value.value - 1U];
+    if (expr.kind == frontend::ExprKind::Unary && expr.text == "raw" && !expr.operands.empty()) {
+        markSlicePtrCoercionEscaping(expr.operands[0]);
+        return;
+    }
+    escapingPointerExprs_.insert(value.value);
+}
+
+bool PerModuleSema::isCharSliceToPointer(TypeId source, TypeId target) const noexcept {
+    const TypeId source_resolved = type_table.stripQualifiers(source);
+    const TypeId target_resolved = type_table.stripQualifiers(target);
+    if (type_table.kindOf(source_resolved) != TypeKind::Slice ||
+        type_table.kindOf(target_resolved) != TypeKind::Pointer)
+        return false;
+    const auto *slice = type_table.slice(source_resolved);
+    const auto *ptr   = type_table.pointer(target_resolved);
+    return slice != nullptr && ptr != nullptr &&
+           sameType(type_table.stripQualifiers(slice->element), char_type) &&
+           sameType(type_table.stripQualifiers(ptr->pointee), char_type);
 }
 
 const PerModuleSema::OverloadCandidate *
@@ -2821,9 +2875,15 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
     TypeId pointee  = resolve(base_type);
     bool is_pointer = false;
     if (type_table.kindOf(pointee) == TypeKind::Pointer) {
-        if (const auto *ptr = type_table.pointer(pointee))
-            pointee = resolve(ptr->pointee);
-        is_pointer = true;
+        if (!findMethodsForOwner(ownerNameOf(pointee), callee.text).empty()) {
+            // `implement *char` owns the pointer type itself, so a `*char`
+            // receiver is passed by value rather than being unwrapped to its
+            // pointee.
+            is_pointer = true;
+        } else if (const auto *ptr = type_table.pointer(pointee)) {
+            pointee    = resolve(ptr->pointee);
+            is_pointer = true;
+        }
     } else if (type_table.kindOf(pointee) == TypeKind::Optional) {
         if (const auto *opt = type_table.optional(pointee)) {
             // An exact `?T` implementation owns the aggregate; otherwise keep
@@ -2988,7 +3048,7 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         const TypeKind kind = type_table.kindOf(pointee);
         if (kind == TypeKind::Integer || kind == TypeKind::Float || kind == TypeKind::Bool ||
             kind == TypeKind::Char || kind == TypeKind::String || kind == TypeKind::Optional ||
-            kind == TypeKind::Slice) {
+            kind == TypeKind::Slice || kind == TypeKind::Pointer) {
             return resolveStructMethodCall(call, callee,
                                            findMethodsForOwner(ownerNameOf(pointee), callee.text),
                                            base_type, pointee, is_pointer);
@@ -3144,7 +3204,7 @@ std::string PerModuleSema::ownerNameOf(TypeId pointee) const {
     const TypeKind kind = type_table.kindOf(pointee);
     if (kind == TypeKind::Integer || kind == TypeKind::Float || kind == TypeKind::Bool ||
         kind == TypeKind::Char || kind == TypeKind::String || kind == TypeKind::Optional ||
-        kind == TypeKind::Slice) {
+        kind == TypeKind::Slice || kind == TypeKind::Pointer) {
         return type_table.typeToString(type_table.canonical(pointee));
     }
     const auto *st = type_table.struct_type(pointee);
@@ -3535,7 +3595,11 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
     const bool implicit_self = has_receiver && !fn_params.front().type;
     const bool var_self =
         has_receiver && fn_params.front().bindingKind == frontend::BindingKind::Var;
-    if (implicit_self || var_self)
+    // A `*char` implementation owns the pointer value itself and passes it by
+    // value, so calling a method on the receiver does not invalidate the local
+    // pointer for subsequent `.method()` / `->method()` calls.
+    const bool pointer_owner = is_pointer && type_table.kindOf(pointee) == TypeKind::Pointer;
+    if ((implicit_self || var_self) && !pointer_owner)
         invalidateReceiverRoot(callee.operands[0]);
     return result;
 }
@@ -3550,10 +3614,65 @@ void PerModuleSema::invalidateReceiverRoot(frontend::ExprId base) {
 }
 
 bool PerModuleSema::typeContainsGeneric(const FunctionType *fn) const noexcept {
-    for (const auto param : fn->params)
-        if (type_table.kindOf(param) == TypeKind::GenericParam)
+    const auto contains = [&](auto &&self, TypeId type, unsigned depth = 0U) -> bool {
+        if (!type || depth >= 16U)
+            return false;
+        type = type_table.stripQualifiers(type);
+        if (type_table.kindOf(type) == TypeKind::GenericParam)
             return true;
-    return type_table.kindOf(fn->result) == TypeKind::GenericParam;
+        if (const auto *alias = type_table.alias(type))
+            return self(self, alias->target, depth + 1U);
+        if (const auto *nominal = type_table.nominal(type))
+            return self(self, nominal->target, depth + 1U);
+        if (const auto *opt = type_table.optional(type))
+            return self(self, opt->inner, depth + 1U);
+        if (const auto *ptr = type_table.pointer(type))
+            return self(self, ptr->pointee, depth + 1U);
+        if (const auto *slice = type_table.slice(type))
+            return self(self, slice->element, depth + 1U);
+        if (const auto *array = type_table.array(type))
+            return self(self, array->element, depth + 1U);
+        if (const auto *nested = type_table.function(type)) {
+            for (const auto param : nested->params)
+                if (self(self, param, depth + 1U))
+                    return true;
+            return self(self, nested->result, depth + 1U);
+        }
+        if (const auto *failable = type_table.failable(type))
+            return self(self, failable->inner, depth + 1U);
+        if (const auto *dyn = type_table.dyn_type(type))
+            return self(self, dyn->target, depth + 1U);
+        if (const auto *st = type_table.struct_type(type)) {
+            for (const auto field : st->fields)
+                if (self(self, field, depth + 1U))
+                    return true;
+            return false;
+        }
+        if (const auto *ut = type_table.union_type(type)) {
+            for (const auto member : ut->members)
+                if (self(self, member, depth + 1U))
+                    return true;
+            return false;
+        }
+        if (const auto *sum = type_table.sum(type)) {
+            for (const auto member : sum->members)
+                if (self(self, member, depth + 1U))
+                    return true;
+            return false;
+        }
+        if (const auto *pack = type_table.pack(type)) {
+            for (const auto member : pack->members)
+                if (self(self, member, depth + 1U))
+                    return true;
+            return false;
+        }
+        return false;
+    };
+
+    for (const auto param : fn->params)
+        if (contains(contains, param))
+            return true;
+    return contains(contains, fn->result);
 }
 
 bool PerModuleSema::bindingIsVariadic(const session::ResolvedName &binding) noexcept {
@@ -3669,6 +3788,20 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
                     uninitializedLocals_.erase(stmt.binding.id.value);
                 else
                     uninitializedLocals_.insert(stmt.binding.id.value);
+                if (stmt.binding.initializer &&
+                    pointerAliasEscapesScope(stmt.binding.initializer)) {
+                    const TypeId local_type =
+                        stmt.binding.type ? lowerTypeExpr(stmt.binding.type) : invalid_type;
+                    const TypeId binding_type =
+                        local_type ? local_type : typeOfLocal(stmt.binding.id);
+                    const TypeId stripped = type_table.stripQualifiers(binding_type);
+                    if (!isPointerStorageType(stripped)) {
+                        report(stmt.span,
+                               "pointer to local storage cannot escape the current scope",
+                               diagnostics::err::PointerEscapesScope);
+                    }
+                    escapingPointerLocals_.insert(stmt.binding.id.value);
+                }
                 last = void_type;
             } else if (stmt.kind == frontend::StmtKind::Return) {
                 checkReturnStatement(stmt);
@@ -3744,6 +3877,17 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
                 uninitializedLocals_.erase(stmt.binding.id.value);
             else
                 uninitializedLocals_.insert(stmt.binding.id.value);
+            if (stmt.binding.initializer && pointerAliasEscapesScope(stmt.binding.initializer)) {
+                const TypeId local_type =
+                    stmt.binding.type ? lowerTypeExpr(stmt.binding.type) : invalid_type;
+                const TypeId binding_type = local_type ? local_type : typeOfLocal(stmt.binding.id);
+                const TypeId stripped     = type_table.stripQualifiers(binding_type);
+                if (!isPointerStorageType(stripped)) {
+                    report(stmt.span, "pointer to local storage cannot escape the current scope",
+                           diagnostics::err::PointerEscapesScope);
+                }
+                escapingPointerLocals_.insert(stmt.binding.id.value);
+            }
             last = void_type;
         } else if (stmt.kind == frontend::StmtKind::Return) {
             checkReturnStatement(stmt);
@@ -3849,6 +3993,10 @@ void PerModuleSema::checkDeferCaptures(const frontend::Statement &stmt,
                                        const frontend::Expression &block) {
     if (!stmt.expression)
         return;
+    if (pointerAliasEscapesScope(stmt.expression)) {
+        report(stmt.span, "pointer to local storage cannot escape the current scope",
+               diagnostics::err::PointerEscapesScope);
+    }
 
     struct DirectBinding {
         size_t index  = 0;
@@ -4564,7 +4712,49 @@ TypeId PerModuleSema::inferWhen(frontend::ExprId id) {
 }
 
 TypeId PerModuleSema::inferLayoutIntrinsic(frontend::ExprId id) {
-    const auto &expr    = snapshot.expressions()[id.value - 1U];
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.text == "lengthOf" || expr.text == "ptrOf") {
+        if (expr.operands.empty()) {
+            report(expr.span, "'@" + expr.text + "' requires a value argument",
+                   diagnostics::err::TypeMismatch);
+            return error_type;
+        }
+        const TypeId operand     = inferExpr(expr.operands[0]);
+        const TypeId resolved    = resolve(operand);
+        const auto *slice        = type_table.slice(resolved);
+        const auto *array        = type_table.array(resolved);
+        const auto &operand_expr = snapshot.expressions()[expr.operands[0].value - 1U];
+        const bool is_string_literal =
+            operand_expr.kind == frontend::ExprKind::Literal && looksString(operand_expr.text);
+        const TypeId string_literal_ty =
+            is_string_literal ? type_table.internPointer(char_type) : kInvalidTypeId;
+        bool accepts_value =
+            slice != nullptr || array != nullptr || (is_string_literal && string_literal_ty);
+        if (!accepts_value && type_table.kindOf(resolved) == TypeKind::Pointer) {
+            // `@ptrOf` on a pointer is identity-like; it keeps accepting the
+            // pointer objects already exposed by C interop.
+            accepts_value = expr.text == "ptrOf";
+        }
+        if (!accepts_value) {
+            report(expr.span, "'@" + expr.text + "' requires a slice, array, or string literal",
+                   diagnostics::err::TypeMismatch);
+            return error_type;
+        }
+        if (expr.text == "ptrOf") {
+            const bool tied_to_local = operand_expr.kind != frontend::ExprKind::Literal ||
+                                       (slice != nullptr || array != nullptr);
+            if (tied_to_local)
+                escapingPointerExprs_.insert(id.value);
+            if (is_string_literal)
+                return type_table.internPointer(char_type);
+            if (slice != nullptr)
+                return type_table.internPointer(slice->element);
+            if (array != nullptr)
+                return type_table.internPointer(array->element);
+            return resolved;
+        }
+        return type_table.lookupNamed("u64");
+    }
     const TypeId target = lowerTypeExpr(expr.cast_type);
     if (!target)
         return error_type;
@@ -4657,6 +4847,33 @@ bool PerModuleSema::coerceValue(frontend::ExprId value, TypeId target, TypeId so
         if (const auto *pointer = type_table.pointer(cursor); pointer != nullptr)
             target = type_table.stripQualifiers(pointer->pointee);
     }
+    // An annotated array literal may coerce per element. The array itself is
+    // retyped to the annotation only when every operand accepts the target
+    // element type, so `[2]*char = [s, s]` records each `[]char -> *char`
+    // escape and HIR lowers each element to a pointer.
+    if (value && value.value <= snapshot.expressions().size() && source &&
+        !sameType(target, source)) {
+        const auto &literal_expr = snapshot.expressions()[value.value - 1U];
+        const auto *target_array = type_table.array(resolve(target));
+        const auto *source_array = type_table.array(resolve(source));
+        if (literal_expr.kind == frontend::ExprKind::ArrayLiteral && target_array != nullptr &&
+            source_array != nullptr && source_array->size == target_array->size &&
+            target_array->size == literal_expr.operands.size()) {
+            bool all_elements = true;
+            for (const frontend::ExprId element : literal_expr.operands) {
+                const TypeId element_type = typeOfExpr(element);
+                if (!element_type || element_type == error_type ||
+                    !coerceValue(element, target_array->element, element_type)) {
+                    all_elements = false;
+                    break;
+                }
+            }
+            if (all_elements) {
+                setExprType(value, target);
+                return true;
+            }
+        }
+    }
     if (coercesTo(target, source)) {
         // Record the optional target on a `null` literal so lowering can emit None directly.
         if (resolve(source) == null_type &&
@@ -4670,6 +4887,10 @@ bool PerModuleSema::coerceValue(frontend::ExprId value, TypeId target, TypeId so
             // the declared member names for later field access.
             setExprType(value, target);
         }
+        // `[]char -> *char` has the same lifetime implications as
+        // `@ptrOf(slice)`: the pointer aliases the slice's backing storage.
+        if (value && source && isCharSliceToPointer(source, target))
+            markSlicePtrCoercionEscaping(value);
         return true;
     }
     // `lend q` / `view q` has the inner expression's type for overload/target
@@ -4681,6 +4902,24 @@ bool PerModuleSema::coerceValue(frontend::ExprId value, TypeId target, TypeId so
         if (arg.kind == frontend::ExprKind::OwnershipCoerce && !arg.operands.empty() &&
             isBorrowParamType(target) && isBorrowParamType(source))
             return true;
+    }
+    // A string literal has a compile-time decoding length, so it can be
+    // adapted to a `[]char` target without a runtime length. Sema types the
+    // literal as the slice so lowering can emit `HirMakeSlice` around the
+    // underlying `*char` payload.
+    if (value && value.value <= snapshot.expressions().size()) {
+        const auto &expr          = snapshot.expressions()[value.value - 1U];
+        const auto *target_slice  = type_table.slice(type_table.stripQualifiers(target));
+        const TypeId source_canon = type_table.stripQualifiers(source);
+        if (expr.kind == frontend::ExprKind::Literal && looksString(expr.text) &&
+            type_table.kindOf(source_canon) == TypeKind::Pointer && target_slice != nullptr &&
+            sameType(type_table.stripQualifiers(target_slice->element), char_type)) {
+            const auto *ptr = type_table.pointer(source_canon);
+            if (ptr != nullptr && sameType(type_table.stripQualifiers(ptr->pointee), char_type)) {
+                setExprType(value, target);
+                return true;
+            }
+        }
     }
     return adaptNumericLiteral(value, target);
 }
@@ -4950,11 +5189,22 @@ void PerModuleSema::checkReturnStatement(const frontend::Statement &stmt) {
         return;
     }
     const TypeId value = inferExpr(stmt.expression);
+    if (pointerAliasEscapesScope(stmt.expression)) {
+        report(stmt.span, "pointer to local storage cannot escape the current scope",
+               diagnostics::err::PointerEscapesScope);
+    }
     if (!currentReturnType_ || !value || value == error_type)
         return;
     if (!coerceValue(stmt.expression, currentReturnType_, value)) {
         reportCoercionFailure(stmt.span, currentReturnType_, value,
                               "return type does not match declared return type");
+        return;
+    }
+    // A slice converted to `*char` is an explicit escape and must be checked
+    // after the coercion has recorded the aliased expression.
+    if (pointerAliasEscapesScope(stmt.expression)) {
+        report(stmt.span, "pointer to local storage cannot escape the current scope",
+               diagnostics::err::PointerEscapesScope);
     }
 }
 
@@ -4965,6 +5215,9 @@ TypeId PerModuleSema::inferReturn(frontend::ExprId id) {
         !coerceValue(expr.operands[0], currentReturnType_, value)) {
         reportCoercionFailure(expr.span, currentReturnType_, value,
                               "return type does not match declared return type");
+    } else if (!expr.operands.empty() && pointerAliasEscapesScope(expr.operands[0])) {
+        report(expr.span, "pointer to local storage cannot escape the current scope",
+               diagnostics::err::PointerEscapesScope);
     }
     return type_table.internName("never", TypeKind::Never);
 }
@@ -5182,11 +5435,37 @@ TypeId PerModuleSema::inferAssign(frontend::ExprId id) {
     if (expr.operands[0] && !typeOfExpr(expr.operands[0])) {
         (void)inferExpr(expr.operands[0]);
     }
-    TypeId right_type = inferExpr(expr.operands[1]);
+    TypeId right_type                = inferExpr(expr.operands[1]);
+    const bool rhs_is_escaping_alias = pointerAliasEscapesScope(expr.operands[1]);
+    const bool direct_pointer_rebind =
+        expr.operands[0] && expr.operands[0].value <= snapshot.expressions().size() &&
+        snapshot.expressions()[expr.operands[0].value - 1U].kind == frontend::ExprKind::Name &&
+        isPointerStorageType(left_type);
+    if (direct_pointer_rebind && left_resolved != nullptr && left_resolved->local)
+        escapingPointerLocals_.erase(left_resolved->local.value);
+    // A successful `[]char -> *char` coercion makes the assignment an explicit
+    // pointer store. Re-check escapes after the coercion so a slice stored
+    // through `p: *char = s` reports E4008 even though the source expression
+    // itself is not an address-of/ptrOf.
+    const bool rhs_can_coerce = coerceValue(expr.operands[1], left_type, right_type);
+    const bool rhs_escapes_after_coercion =
+        rhs_can_coerce && pointerAliasEscapesScope(expr.operands[1]);
+    if ((rhs_is_escaping_alias || rhs_escapes_after_coercion) && !direct_pointer_rebind) {
+        report(expr.span, "pointer to local storage cannot escape the current scope",
+               diagnostics::err::PointerEscapesScope);
+    } else if (pointerAliasEscapesScope(expr.operands[0])) {
+        report(expr.span, "pointer to local storage cannot escape the current scope",
+               diagnostics::err::PointerEscapesScope);
+    }
     checkAssignableOwnership(expr.operands[0], expr.span);
     checkImmutableRootFieldWrite(expr.operands[0], expr.span);
     TypeId result = left_type;
-    if (!coerceValue(expr.operands[1], left_type, right_type)) {
+    if (rhs_escapes_after_coercion) {
+        // Coercion already ran; keep the reported alias error and still return
+        // the declared type so lowering can continue only when the rest of the
+        // module has no errors.
+        result = left_type;
+    } else if (!coerceValue(expr.operands[1], left_type, right_type)) {
         reportCoercionFailure(expr.span, left_type, right_type,
                               "assignment between incompatible types");
         result = error_type;
@@ -5210,9 +5489,102 @@ void PerModuleSema::checkMovedRoot(const frontend::Expression &target) {
         return;
     }
     const auto &root_expr = snapshot.expressions()[root.value - 1U];
+    if (resolved->local) {
+        const TypeId local_type = typeOfLocal(resolved->local);
+        const TypeId stripped   = type_table.stripQualifiers(local_type);
+        if (type_table.kindOf(resolve(stripped)) == TypeKind::Pointer) {
+            // An address-of pointer can be written through without reviving the
+            // original binding. A store into the pointer is not a rebind of the
+            // move-with-address local itself.
+            return;
+        }
+    }
     report(target.span,
            "cannot assign through '" + root_expr.text + "' after it was moved by a previous call",
            diagnostics::err::UseAfterMove);
+}
+
+bool PerModuleSema::pointerAliasEscapesScope(frontend::ExprId id) const {
+    if (!id || id.value > snapshot.expressions().size())
+        return false;
+    if (escapingPointerExprs_.contains(id.value))
+        return true;
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.kind == frontend::ExprKind::Name) {
+        const auto *resolved = findResolvedExpr(id);
+        if (resolved != nullptr && resolved->local &&
+            escapingPointerLocals_.contains(resolved->local.value))
+            return true;
+    }
+    if (expr.kind == frontend::ExprKind::Call || expr.kind == frontend::ExprKind::MacroCall ||
+        expr.kind == frontend::ExprKind::DockCall) {
+        // A by-value argument is a temporary borrow. The call result is owned
+        // by the callee (or a C interop pointer), not by caller storage.
+        return false;
+    }
+    if (expr.text == "&" ||
+        (expr.kind == frontend::ExprKind::LayoutIntrinsic && expr.text == "ptrOf"))
+        return true;
+    if (expr.kind == frontend::ExprKind::Unary && expr.text == "*")
+        return false;
+    for (const auto operand : expr.operands) {
+        if (pointerAliasEscapesScope(operand))
+            return true;
+    }
+    // A local initialized from an escaping pointer remains an alias.
+    for (const auto &statement : snapshot.statements()) {
+        if (statement.kind != frontend::StmtKind::Binding)
+            continue;
+        if (statement.binding.id.value == 0U)
+            continue;
+        if (statement.binding.initializer == id &&
+            escapingPointerLocals_.contains(statement.binding.id.value))
+            return true;
+    }
+    return false;
+}
+
+bool PerModuleSema::isPointerStorageType(TypeId id) const {
+    if (!id)
+        return false;
+    TypeId resolved = type_table.stripQualifiers(id);
+    if (type_table.kindOf(resolved) == TypeKind::Pointer)
+        return true;
+    const auto *opt = type_table.optional(resolved);
+    return opt != nullptr &&
+           type_table.kindOf(type_table.stripQualifiers(opt->inner)) == TypeKind::Pointer;
+}
+
+bool PerModuleSema::containedInRawRead(frontend::ExprId id) const {
+    if (!id)
+        return false;
+    for (const auto &expr : snapshot.expressions()) {
+        if (expr.kind != frontend::ExprKind::Name || !expr.isRawName)
+            continue;
+        if (rawRootName(expr) == id)
+            return true;
+    }
+    // `raw a[i]` and `raw a[lo..hi]` mark the container expression instead of
+    // the underlying name, so re-check those unchecked reads too.
+    for (const auto &expr : snapshot.expressions()) {
+        if (!expr.is_raw)
+            continue;
+        if (expr.kind != frontend::ExprKind::Index && expr.kind != frontend::ExprKind::SliceRange &&
+            expr.kind != frontend::ExprKind::Cast)
+            continue;
+        if (expr.operands.empty())
+            continue;
+        if (assignmentRoot(expr.operands[0]) == id)
+            return true;
+    }
+    return false;
+}
+
+frontend::ExprId PerModuleSema::rawRootName(const frontend::Expression &expr) const noexcept {
+    const frontend::ExprId root = assignmentRoot(expr.id);
+    if (root)
+        return root;
+    return expr.id;
 }
 
 TypeId PerModuleSema::inferOptionalProp(frontend::ExprId id) {
@@ -5813,6 +6185,11 @@ TypeId PerModuleSema::resolveGenericStructLiteral(frontend::TextSpan span,
                     (named ? expr.field_names[provided_operands[i]]
                            : std::string(template_decl.parameters[field_index].name)) +
                     "'");
+            return error_type;
+        }
+        if (pointerAliasEscapesScope(expr.operands[provided_operands[i]])) {
+            report(expr.span, "pointer to local storage cannot escape the current scope",
+                   diagnostics::err::PointerEscapesScope);
         }
     }
 
@@ -5933,6 +6310,11 @@ TypeId PerModuleSema::inferStructLiteral(frontend::ExprId id) {
             reportCoercionFailure(expr.span, decl_type, value_type,
                                   "struct literal field type mismatch for '" +
                                       (named ? expr.field_names[i] : fieldName(decl_idx)) + "'");
+            return error_type;
+        }
+        if (pointerAliasEscapesScope(expr.operands[i])) {
+            report(expr.span, "pointer to local storage cannot escape the current scope",
+                   diagnostics::err::PointerEscapesScope);
         }
     }
     for (size_t i = 0; i < field_count; ++i) {
@@ -6003,9 +6385,26 @@ TypeId PerModuleSema::inferArrayLiteral(frontend::ExprId id) {
         if (!sameType(elem, t)) {
             if (adaptNumericLiteral(operand, elem))
                 continue;
+            // The annotated array literal can still carry a coercion such as
+            // `[2]*char = [s, s]`, where each slice element becomes a pointer.
+            // Only use the first element's type when it is already the pointer
+            // storage expected by the surrounding binding; otherwise the array
+            // literal remains heterogeneous and this path reports as before.
+            if (type_table.kindOf(resolve(elem)) == TypeKind::Pointer &&
+                coerceValue(operand, elem, t))
+                continue;
             report(expr.span, "array literal element types do not match",
                    diagnostics::err::TypeMismatch);
             return error_type;
+        }
+    }
+    // Escape checking runs on the coerced expression, so `[s, s]` stored as an
+    // array of `*char` reports E4008 even though the literal's inferred element
+    // type was `[]char`.
+    for (const auto operand : expr.operands) {
+        if (pointerAliasEscapesScope(operand)) {
+            report(expr.span, "pointer to local storage cannot escape the current scope",
+                   diagnostics::err::PointerEscapesScope);
         }
     }
     if (elem == error_type)
@@ -6314,11 +6713,12 @@ bool PerModuleSema::coercesTo(TypeId target, TypeId source) const noexcept {
             if (resolve(source) == null_type) {
                 result = true;
             } else if (const auto *opt = type_table.optional(resolved_target)) {
-                // `??T` accepts `?T` and `?T` accepts `T`: optional coercion is
-                // recursive, so each missing layer is implicitly wrapped.
-                result = sameType(opt->inner, source) ||
-                         (type_table.kindOf(resolve(source)) == TypeKind::Optional &&
-                          coercesTo(opt->inner, source));
+                // `??T` accepts `?T`, and `?T` accepts `T`: optional target
+                // types add missing layers at any depth, so a bare `T` can be
+                // wrapped by successively smaller targets. The reverse case
+                // (discarding an outer optional) still requires an explicit
+                // unwrap and is not accepted here.
+                result = sameType(opt->inner, source) || coercesTo(opt->inner, source);
             }
         } else {
             result = allowsUncheckedNullablePointer(target, source);
@@ -6334,6 +6734,16 @@ bool PerModuleSema::coercesTo(TypeId target, TypeId source) const noexcept {
             const auto *array = type_table.array(resolved_source);
             result =
                 slice != nullptr && array != nullptr && sameType(slice->element, array->element);
+        }
+        // A `[]char` slice may be viewed as its storage pointer. The applied
+        // coercion records the escape in `coerceValue`; this type-level probe
+        // intentionally stays generic for overload scoring.
+        if (!result && type_table.kindOf(resolved_target) == TypeKind::Pointer) {
+            const auto *ptr   = type_table.pointer(resolved_target);
+            const auto *slice = type_table.slice(resolved_source);
+            result            = ptr != nullptr && slice != nullptr &&
+                     sameType(type_table.stripQualifiers(ptr->pointee), char_type) &&
+                     sameType(type_table.stripQualifiers(slice->element), char_type);
         }
         // A positional pack literal coerces to a named pack when member types
         // and arity match. Sema keeps the literal's empty name list so the

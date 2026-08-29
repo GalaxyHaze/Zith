@@ -7,7 +7,9 @@
 > Residual NRA facts are accumulated and attached before HIR, and LLVM emits `readonly` for views
 > plus `nocapture` for borrows. The full alive/dead/lent state machine and the complete four-rule
 > proof of [§7.4](#74-the-four-nra-rules) are still **spec-only** (F-14). Pointer types (`*T`),
-> `*p` dereference, and `&x` address-of are **working**.
+> `*p` dereference, and `&x` address-of are **working**. `&x` is a logical move in Zith--:
+> the pointed binding is dead until directly reassigned, and pointers derived from `&x` or
+> `@ptrOf(local)` are pointer objects that must not escape to longer-lived storage.
 > See [impl-status.md](impl-status.md).
 
 ### 7.1 What NRA Tracks
@@ -54,6 +56,19 @@ a = Point { x: 3.0, y: 4.0 };      // OK: reassignment creates a new node for a
 ```
 
 In effect, if `a` is never reassigned, it is as though `a` never existed and `b` has held `Point { x: 1.0, y: 2.0 }` all along.
+
+### 7.2.1 Pointer Objects in Zith--
+
+In the `Zith--` subset, `*T` is a non-nullable pointer object and `?*T` is the same object
+nullable. `p.x`, `p->x` and `*p` remain valid accesses. `&x` performs a logical move of the
+binding: reads of `x` after it report `E4001 UseAfterMove`, while a direct assignment to `x`
+revives a new local version. There is no SSA/phi infrastructure; the version is a per-binding
+counter used by sema.
+
+Pointers derived from `&x` or `@ptrOf(local)` are escaping values in this iteration. Returning
+one, storing it in a struct/array/global/deferred aggregate, or otherwise letting it outlive
+the storage scope reports `E4008 PointerEscapesScope`. `raw` index/deref remains the unchecked
+escape and does not create pointer-object aliasing.
 
 ### 7.3 Memory Modifiers
 

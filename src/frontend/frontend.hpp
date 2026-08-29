@@ -169,7 +169,8 @@ enum class ExprKind : uint8_t {
     Range,
     /// `_` as a struct-literal field value: `Pair{left: _, right: 2}`.
     Placeholder,
-    /// The offsetOf / alignOf layout intrinsics.
+    /// Layout and value intrinsics. Layout intrinsics parse a type argument;
+    /// lengthOf/ptrOf parse a normal expression.
     LayoutIntrinsic,
     /// `lend x` / `view x` written in a call argument list. The ownership
     /// annotation is validated by sema and does not change the inner value's
