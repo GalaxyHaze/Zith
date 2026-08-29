@@ -2,35 +2,25 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-
-    <title>Zith Programming Language</title>
-
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <meta name="theme-color" content="#222222">
-
+    <title>Zith Programming Language &mdash; Systems Programming, Reimagined</title>
+    <meta name="theme-color" content="#0e0e11">
     <meta name="robots" content="index, follow">
-
     <link rel="canonical" href="https://zith-lang.org/">
 
     <link rel="icon" type="image/png" href="./media/Logos/logo.png">
     <link rel="apple-touch-icon" sizes="180x180" href="./media/Logos/logo.png">
-    
-    <meta name="keywords" content="Zith, systems programming, statically-typed, memory safety, compile-time ownership, zero-cost abstractions, rust, c++, programming language, open source">
 
+    <meta name="description" content="Zith is a statically typed, compiled systems programming language with compile-time memory safety through Node Resource Analysis &mdash; no garbage collector, no borrow checker overhead.">
+    <meta name="keywords" content="Zith, systems programming, statically typed, memory safety, NRA, Node Resource Analysis, compile-time ownership, zero-cost abstractions, zithc compiler">
     <meta name="author" content="GalaxyHaze">
-
-    <link rel="stylesheet" href="./css/index.css">
-
-    <meta name="description" content="Zith is a statically typed, compiled systems language that checks memory safety at compile time through Node Resource Analysis.">
 
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://zith-lang.org/">
-    <meta property="og:title" content="Zith Programming Language">
-    <meta property="og:description" content="Zith is a statically typed, compiled systems language with compile-time memory safety through Node Resource Analysis.">
+    <meta property="og:title" content="Zith Programming Language &mdash; Systems Programming, Reimagined">
+    <meta property="og:description" content="Statically typed systems language with compile-time memory safety via Node Resource Analysis &mdash; zero runtime overhead, no GC, no borrow checker.">
     <meta property="og:site_name" content="Zith Programming Language">
     <meta property="og:locale" content="en_US">
-
     <meta property="og:image" content="https://zith-lang.org/media/Logos/social-share.png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
@@ -39,9 +29,11 @@
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:domain" content="zith-lang.org">
     <meta name="twitter:url" content="https://zith-lang.org/">
-    <meta name="twitter:title" content="Zith Programming Language">
-    <meta name="twitter:description" content="Zith is a statically typed, compiled systems language with compile-time memory safety through Node Resource Analysis.">
+    <meta name="twitter:title" content="Zith Programming Language &mdash; Systems Programming, Reimagined">
+    <meta name="twitter:description" content="Statically typed systems language with compile-time memory safety via Node Resource Analysis &mdash; zero runtime overhead.">
     <meta name="twitter:image" content="https://zith-lang.org/media/Logos/social-share.png">
+
+    <link rel="stylesheet" href="./css/index.css">
 
     <script type="application/ld+json">
     {
@@ -49,11 +41,11 @@
       "@type": "WebSite",
       "name": "Zith",
       "url": "https://zith-lang.org/",
-      "description": "Official website for Zith, a statically typed, compiled systems programming language checked with Node Resource Analysis.",
+      "description": "Official portal for Zith, a statically typed systems programming language with compile-time memory safety via Node Resource Analysis.",
       "about": {
         "@type": "SoftwareSourceCode",
         "name": "Zith Language",
-        "description": "Zith is a statically typed, compiled systems programming language with compile-time memory safety through Node Resource Analysis.",
+        "description": "Zith proves memory safety at compile time via Node Resource Analysis. Zero runtime overhead, no garbage collector, no borrow checker.",
         "url": "https://zith-lang.org/html/home.html",
         "programmingLanguage": "Zith",
         "applicationCategory": "DeveloperApplication"
@@ -62,31 +54,263 @@
         "@type": "Person",
         "name": "GalaxyHaze",
         "url": "https://github.com/GalaxyHaze"
-      },
-      "potentialAction": {
-        "@type": "ReadAction",
-        "target": "https://zith-lang.org/html/home.html"
       }
     }
     </script>
-
 </head>
 <body>
 
-    <div class="center">
-        <div class="logo">
-            <img src="./media/Logos/logo.svg" alt="Zith Programming Language logo">
-            <h1>.Zith</h1>
-        </div>
-        <a href="./html/home.html" id="enter-link">[Enter]</a>
-    </div>
+    <!-- Header Navigation -->
+    <header class="site-header">
+        <div class="nav-container">
+            <a href="./" class="brand">
+                <img src="./media/Logos/logo.svg" alt="Zith Logo">
+                <span>.Zith</span>
+            </a>
 
-    <footer>
-        <p>Website developed by <a href="https://github.com/MieldewMeat" target="_blank">MieldewMeat</a></p>
-        <p>Owner <a href="https://github.com/GalaxyHaze" target="_blank">GalaxyHaze</a></p>
+            <nav>
+                <ul class="nav-links" id="navLinks">
+                    <li><a href="./html/documentation/D-home.html">Docs</a></li>
+                    <li><a href="./playground/">Playground</a></li>
+                    <li><a href="./helios/">Helios IDE</a></li>
+                    <li><a href="./about/">Blog</a></li>
+                    <li><a href="./changelog.html">Changelog</a></li>
+                    <li><a href="./html/home.html" title="Open Retro OS Desktop Mode">Desktop OS</a></li>
+                    <li><a href="https://github.com/GalaxyHaze/Zith" target="_blank" rel="noopener noreferrer">GitHub</a></li>
+                    <li><a href="https://discord.gg/a7h4cpWHg4" target="_blank" rel="noopener noreferrer">Discord</a></li>
+                </ul>
+            </nav>
+
+            <div class="nav-actions">
+                <button class="btn-icon" id="openSettingsBtn" aria-label="Open Settings">
+                    <span>⚙</span> Settings
+                </button>
+                <button class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="Toggle Navigation Menu">
+                    ☰
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero-section">
+        <div class="hero-badge">
+            <span>◆</span> Zith Compiler v0.6.0 Released
+        </div>
+        <h1 class="hero-title">
+            Systems Programming,<br><span>Reimagined.</span>
+        </h1>
+        <p class="hero-subtitle">
+            A statically typed, compiled systems language with compile-time memory safety powered by <strong>Node Resource Analysis (NRA)</strong> &mdash; zero runtime overhead, no garbage collector, and no borrow checker complexity.
+        </p>
+        <div class="hero-cta">
+            <a href="#install" class="btn btn-primary">Install Zith</a>
+            <a href="./playground/" class="btn btn-secondary">Try in Playground</a>
+            <a href="./html/documentation/D-home.html" class="btn btn-tertiary">Read Documentation</a>
+            <a href="./html/home.html" class="btn btn-outline">Desktop OS Mode</a>
+        </div>
+    </section>
+
+    <!-- Code Spotlight Section -->
+    <section class="spotlight-section">
+        <div class="section-header">
+            <h2>Code Spotlight</h2>
+            <p>Discover Zith's expressive syntax, static ownership model, and direct C interop.</p>
+        </div>
+
+        <div class="spotlight-grid">
+            <div class="spotlight-tabs" id="codeTabs">
+                <button class="tab-btn active" data-tab="hello">Hello World</button>
+                <button class="tab-btn" data-tab="nra">Memory &amp; NRA</button>
+                <button class="tab-btn" data-tab="c_interop">C Interop</button>
+                <button class="tab-btn" data-tab="pattern">Pattern Matching</button>
+            </div>
+
+            <div class="code-viewer">
+                <div class="code-window-bar">
+                    <div class="window-dots">
+                        <span class="dot red"></span>
+                        <span class="dot amber"></span>
+                        <span class="dot green"></span>
+                    </div>
+                    <span class="window-filename" id="codeFilename">main.zt</span>
+                    <button class="copy-btn" id="copyCodeBtn">Copy Code</button>
+                </div>
+                <div class="code-block-container">
+                    <pre><code id="codeDisplay"></code></pre>
+                </div>
+                <div class="code-explanation" id="codeExplanation">
+                    <!-- Updated via JS -->
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Key Features Section -->
+    <section class="features-section">
+        <div class="section-header">
+            <h2>Why Zith?</h2>
+            <p>Engineered for high performance, deterministic lifetimes, and clean systems architecture.</p>
+        </div>
+
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🛡</div>
+                <h3>Compile-Time Memory Safety</h3>
+                <p>Node Resource Analysis (NRA) proves pointer lifetimes and resource ownership statically during compilation. Catch use-after-free, double-free, and dangling references before code ever runs.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">⚡</div>
+                <h3>Zero Overhead Performance</h3>
+                <p>Direct memory layout, value semantics, and raw pointers when needed. Compiles down to optimized native assembly via an LLVM compiler pipeline with zero runtime GC pauses.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🛠</div>
+                <h3>Complete Integrated Ecosystem</h3>
+                <p>Built alongside language server protocol tools (<code>zith-lsp</code>), browser-based IDE (<code>Helios</code>), interactive playground, and cross-platform installation scripts.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Quick Install Section -->
+    <section class="install-section" id="install">
+        <div class="section-header">
+            <h2>Quick Installation</h2>
+            <p>Get <code>zithc</code> installed on macOS, Linux, or Windows in seconds.</p>
+        </div>
+
+        <div class="install-box">
+            <div class="install-tabs" id="installTabs">
+                <button class="install-tab active" data-pm="brew">Homebrew (macOS / Linux)</button>
+                <button class="install-tab" data-pm="scoop">Scoop (Windows)</button>
+                <button class="install-tab" data-pm="curl">curl script (Linux / macOS)</button>
+                <button class="install-tab" data-pm="ps1">PowerShell (Windows)</button>
+            </div>
+            <div class="install-content">
+                <code class="install-cmd" id="installCmd">brew tap galaxyhaze/zithc && brew install zithc</code>
+                <button class="copy-btn" id="copyInstallBtn">Copy</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- News & Dev Log Section -->
+    <section class="news-section">
+        <div class="section-header">
+            <h2>Latest Updates &amp; Dev Log</h2>
+            <p>Recent progress from the Zith development diary and release changelog.</p>
+        </div>
+
+        <div class="news-grid" id="newsGrid">
+            <!-- Populated dynamically via JS -->
+            <div class="news-card">
+                <span class="news-date">6 August 2026</span>
+                <h3><a href="./about/">Operators, and Where Ownership Belongs</a></h3>
+                <p>Exploring operator semantics, copy vs move semantics, and owner boundaries in the Zith type checker.</p>
+            </div>
+            <div class="news-card">
+                <span class="news-date">4 August 2026</span>
+                <h3><a href="./about/">Macros Land in the Zith Pipeline</a></h3>
+                <p>Implementing compile-time macro expansion and C ABI interop improvements in zithc.</p>
+            </div>
+            <div class="news-card">
+                <span class="news-date">29 July 2026</span>
+                <h3><a href="./about/">Structs and the Modern Pipeline</a></h3>
+                <p>Refactoring memory allocation, field alignments, and Node Resource Analysis graph propagation.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Site Footer -->
+    <footer class="site-footer">
+        <div class="footer-container">
+            <div class="footer-brand">
+                <a href="./" class="brand">
+                    <img src="./media/Logos/logo.svg" alt="Zith Logo">
+                    <span>.Zith</span>
+                </a>
+                <p>A statically-typed systems language with compile-time memory safety via Node Resource Analysis.</p>
+            </div>
+
+            <div class="footer-col">
+                <h4>Resources</h4>
+                <ul>
+                    <li><a href="./html/documentation/D-home.html">Documentation</a></li>
+                    <li><a href="./playground/">Playground</a></li>
+                    <li><a href="./helios/">Helios IDE</a></li>
+                    <li><a href="./changelog.html">Changelog</a></li>
+                </ul>
+            </div>
+
+            <div class="footer-col">
+                <h4>Ecosystem</h4>
+                <ul>
+                    <li><a href="./about/">Development Diary</a></li>
+                    <li><a href="./html/home.html">Desktop OS Mode</a></li>
+                    <li><a href="https://github.com/GalaxyHaze/Zith/releases" target="_blank" rel="noopener noreferrer">Releases</a></li>
+                </ul>
+            </div>
+
+            <div class="footer-col">
+                <h4>Community</h4>
+                <ul>
+                    <li><a href="https://github.com/GalaxyHaze/Zith" target="_blank" rel="noopener noreferrer">GitHub Source</a></li>
+                    <li><a href="https://discord.gg/a7h4cpWHg4" target="_blank" rel="noopener noreferrer">Discord Server</a></li>
+                    <li><a href="mailto:aboveHaze@gmail.com">Contact Developer</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="footer-bottom">
+            <p>&copy; 2026 GalaxyHaze &amp; Zith Contributors. Open source systems programming.</p>
+            <button class="btn-icon" id="footerSettingsBtn">⚙ CRT Effects</button>
+        </div>
     </footer>
 
+    <!-- CRT Settings Modal -->
+    <div class="modal hidden" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 id="modalTitle">⚙ CRT Visual Effects</h3>
+                <button class="copy-btn" id="closeSettingsBtn">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-group" data-group="scanlines">
+                    <h4>Scanlines</h4>
+                    <div class="settings-options">
+                        <button data-setting="scanlines" data-level="0">Off</button>
+                        <button data-setting="scanlines" data-level="1">Low</button>
+                        <button data-setting="scanlines" data-level="2">High</button>
+                    </div>
+                </div>
+
+                <div class="settings-group" data-group="glow">
+                    <h4>Phosphor Glow</h4>
+                    <div class="settings-options">
+                        <button data-setting="glow" data-level="0">Off</button>
+                        <button data-setting="glow" data-level="1">Low</button>
+                        <button data-setting="glow" data-level="2">High</button>
+                    </div>
+                </div>
+
+                <div class="settings-group" data-group="noise">
+                    <h4>Noise &amp; Vignette</h4>
+                    <div class="settings-options">
+                        <button data-setting="noise" data-level="0">Off</button>
+                        <button data-setting="noise" data-level="1">Low</button>
+                        <button data-setting="noise" data-level="2">High</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CRT Screen Overlay -->
+    <div class="crt-overlay"></div>
+
+    <!-- Scripts -->
+    <script src="./js/settings.js"></script>
     <script src="./js/index.js"></script>
-        
 </body>
 </html>
