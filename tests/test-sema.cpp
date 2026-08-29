@@ -1042,6 +1042,39 @@ static void test_modern_while_condition() {
     CHECK(!r.ok, "Modern sema rejects a while condition that is not boolean");
 }
 
+static void test_modern_else_condition() {
+    ModernSemaTest t;
+    auto r = t.run("fn pick(a: bool, b: bool): i32 {\n"
+                   "    if (a) {\n"
+                   "        1\n"
+                   "    } else (b) {\n"
+                   "        2\n"
+                   "    } else {\n"
+                   "        3\n"
+                   "    }\n"
+                   "}\n");
+    CHECK(r.ok, "modern sema accepts an else condition and a final else");
+    CHECK_EQ(r.warningCount, 0u, "the new else condition spelling is not deprecated");
+    CHECK(!r.hasWarningCode(diagnostics::err::DeprecatedSyntax),
+          "the new else condition does not emit W1008");
+
+    ModernSemaTest legacy;
+    auto legacy_result = legacy.run("fn pick(a: bool, b: bool): i32 {\n"
+                                    "    if (a) {\n"
+                                    "        1\n"
+                                    "    } else if (b) {\n"
+                                    "        2\n"
+                                    "    } else {\n"
+                                    "        3\n"
+                                    "    }\n"
+                                    "}\n");
+    CHECK(legacy_result.ok, "'else if' continues to type-check");
+    CHECK_EQ(legacy_result.warningCount, 1u,
+             "'else if' type-checking surfaces the deprecation warning");
+    CHECK(legacy_result.hasWarningCode(diagnostics::err::DeprecatedSyntax),
+          "'else if' reports W1008 in the session");
+}
+
 static void test_modern_struct_decl() {
     ModernSemaTest t;
     auto r = t.run("struct Point { x: i32, y: i32 }\n"
@@ -1192,6 +1225,65 @@ static void test_modern_assign_retype() {
     CHECK(!r.ok, "Modern sema rejects assignment with incompatible type");
     CHECK(r.hasMessage("expected 'i32'"), "the assignment diagnostic shows the target type");
     CHECK(r.hasMessage("has type 'bool'"), "the assignment diagnostic shows the source type");
+}
+
+static void test_modern_boolean_operators() {
+    ModernSemaTest t;
+    auto logical = t.run("fn main(): bool {\n"
+                         "    var a: bool = true;\n"
+                         "    var b: bool = false;\n"
+                         "    return a and (not b) or b xor true;\n"
+                         "}\n");
+    CHECK(logical.ok, "and/or/xor and unary not type-check as booleans");
+
+    auto int_xor = t.run("fn main(): i32 {\n"
+                         "    var a: i32 = 5;\n"
+                         "    return a xor 3;\n"
+                         "}\n");
+    CHECK(int_xor.ok, "integer xor returns the integer operand type");
+
+    auto bad_and = t.run("fn main(): bool {\n"
+                         "    var a: i32 = 1;\n"
+                         "    var b: bool = true;\n"
+                         "    return a and b;\n"
+                         "}\n");
+    CHECK(!bad_and.ok, "and with an integer operand is rejected");
+    CHECK(bad_and.hasMessage("expects boolean operands"),
+          "the and diagnostic names its requirement");
+}
+
+static void test_modern_uninitialized_binding_explicit_raw() {
+    ModernSemaTest t;
+    auto rejected = t.run("fn main(): i32 {\n"
+                          "    var n: i32;\n"
+                          "    return n;\n"
+                          "}\n");
+    CHECK(!rejected.ok, "reading a scalar without an initializer is rejected");
+    CHECK(rejected.hasMessage("used before it is initialized"),
+          "the uninitialized-read diagnostic is specific");
+
+    auto assigned = t.run("fn main(): i32 {\n"
+                          "    var n: i32;\n"
+                          "    n = 9;\n"
+                          "    return n;\n"
+                          "}\n");
+    CHECK(assigned.ok, "a write before the read initializes the binding");
+
+    auto raw_escape = t.run("fn main(): i32 {\n"
+                            "    var n: i32;\n"
+                            "    return raw n;\n"
+                            "}\n");
+    CHECK(raw_escape.ok, "'raw x' is the explicit unchecked read escape");
+}
+
+static void test_modern_for_var_var_rejected() {
+    ModernSemaTest t;
+    auto r = t.run("fn main() {\n"
+                   "    for (var one: i32, var two: i32) { }\n"
+                   "}\n");
+    CHECK(!r.ok, "multiple var declarations in one for header are rejected");
+    CHECK(r.hasMessage("for expects (init), (cond), (step) or a single loop variable"),
+          "the for-header diagnostic is explicit and prevents only a body cascade");
 }
 
 static void test_modern_two_modules_at_once() {
@@ -1501,7 +1593,7 @@ static void test_modern_bare_opaque_casts_and_checks() {
     ModernSemaTest module_local;
     module_local.write("dep.zith", "pub fn erases(v: i32): opaque { v as opaque }\n");
     auto imported = module_local.run("from dep\n"
-                                     "fn main(): i32 { erases(1) return 0 }\n",
+                                     "fn main(): i32 { erases(1); return 0; }\n",
                                      session::Stage::HirLowered);
     CHECK(!imported.ok, "using bare 'opaque' in an imported module is rejected");
     CHECK(imported.hasMessage("module-local"),
@@ -1673,7 +1765,7 @@ static void test_modern_optional_method_narrowing_after_not_is_null() {
     auto r = t.run("from lib\n"
                    "fn main(): i32 {\n"
                    "    var b: ?Box = null;\n"
-                   "    if (not (b is null)) { return b.get(); }\n"
+                   "    if not (b is null) { return b.get(); }\n"
                    "    return 1;\n"
                    "}\n");
     CHECK(r.ok, "'not (x is null)' narrows the optional payload in the then branch");
@@ -1717,7 +1809,7 @@ static void test_modern_optional_pointer_method_after_not_is_null() {
                    "}\n"
                    "fn main(): i32 {\n"
                    "    var window: ?*Window = null;\n"
-                   "    if (not (window is null)) { window.destroy(); return 0; }\n"
+                   "    if not (window is null) { window.destroy(); return 0; }\n"
                    "    return 1;\n"
                    "}\n");
     CHECK(r.ok, "optional pointer receiver methods work after 'not (is null)' narrowing");
@@ -1790,7 +1882,7 @@ static void test_modern_for_flat_and_parenthesized_forms() {
     ModernSemaTest flat;
     auto a = flat.run("fn main(): i32 {\n"
                       "    var total: i32 = 0;\n"
-                      "    for (var i: i32 = 0, i < 5, i = i + 1) {\n"
+                      "    for (var i: i32 = 0), (i < 5), (i = i + 1) {\n"
                       "        total = total + i;\n"
                       "    }\n"
                       "    return total;\n"
@@ -1843,7 +1935,7 @@ static void test_modern_for_three_clause() {
     ModernSemaTest ok;
     auto r = ok.run("fn sum_to(n: i32): i32 {\n"
                     "    var total: i32 = 0;\n"
-                    "    for (var i: i32 = 0, i < n, i = i + 1) {\n"
+                    "    for (var i: i32 = 0), (i < n), (i = i + 1) {\n"
                     "        total = total + i;\n"
                     "    }\n"
                     "    return total;\n"
@@ -1876,7 +1968,7 @@ static void test_modern_for_three_clause() {
     ModernSemaTest bad_cond;
     auto b = bad_cond.run("fn main(): i32 {\n"
                           "    var i: i32 = 0;\n"
-                          "    for (var j: i32 = 0, 42, j = j + 1) {\n"
+                          "    for (var j: i32 = 0), (42), (j = j + 1) {\n"
                           "        i = i + 1;\n"
                           "    }\n"
                           "    return i;\n"
@@ -2258,7 +2350,7 @@ static void test_modern_optional_condition_boolean() {
           "value-position 'x?' keeps the propagation validation");
 
     ModernSemaTest propagation;
-    auto propagated = propagation.run("fn f(x: ?i32): ?i32 { return x? }\n"
+    auto propagated = propagation.run("fn f(x: ?i32): ?i32 { return x?; }\n"
                                       "fn main(): i32 { 0 }\n");
     CHECK(propagated.ok, "return x? keeps its optional-propagation semantics");
 }
@@ -2346,6 +2438,19 @@ static void test_modern_implicit_opaque_coercion_rejected() {
                                "    return 0;\n"
                                "}\n");
     CHECK(r.ok, "explicit 'opaque as T' remains the checked extraction path");
+}
+
+static void test_modern_implicit_concrete_to_opaque_accepted() {
+    ModernSemaTest t;
+    auto r = t.run("fn consume(v: opaque): i32 { 0 }\n"
+                   "fn returns(): opaque { 42 }\n"
+                   "fn explicit_return(): opaque { return 42; }\n"
+                   "fn main(): i32 {\n"
+                   "    let opaque_value: opaque = 42;\n"
+                   "    consume(opaque_value);\n"
+                   "    return 0;\n"
+                   "}\n");
+    CHECK(r.ok, "concrete values coerce implicitly to bare 'opaque'");
 }
 
 static void test_modern_opaque_as_raw_opaque_accepted() {
@@ -2589,9 +2694,9 @@ static void test_interface_method_bound_signature_and_arity() {
                     "}\n"
                     "struct Point {\n"
                     "    x: i32,\n"
-                    "    fn move(self, by: i32): i32 { return self.x + by }\n"
+                    "    fn move(self, by: i32): i32 { return self.x + by; }\n"
                     "}\n"
-                    "fn transform<T: Positioned>(p: T): i32 { return p.move(5) }\n"
+                    "fn transform<T: Positioned>(p: T): i32 { return p.move(5); }\n"
                     "fn main(): i32 {\n"
                     "    let p = Point { x: 6 };\n"
                     "    return transform<Point>(p);\n"
@@ -2604,9 +2709,9 @@ static void test_interface_method_bound_signature_and_arity() {
                                  "}\n"
                                  "struct Point {\n"
                                  "    x: i32,\n"
-                                 "    fn getX(self): i32 { return self.x }\n"
+                                 "    fn getX(self): i32 { return self.x; }\n"
                                  "}\n"
-                                 "fn transform<T: Positioned>(p: T): i32 { return p.getX(1) }\n"
+                                 "fn transform<T: Positioned>(p: T): i32 { return p.getX(1); }\n"
                                  "fn main(): i32 {\n"
                                  "    let p = Point { x: 1 };\n"
                                  "    return transform<Point>(p);\n"
@@ -2621,9 +2726,9 @@ static void test_interface_method_bound_signature_and_arity() {
                              "}\n"
                              "struct Point {\n"
                              "    x: i32,\n"
-                             "    fn getX(self, unused: i32): i32 { return self.x }\n"
+                             "    fn getX(self, unused: i32): i32 { return self.x; }\n"
                              "}\n"
-                             "fn transform<T: Positioned>(p: T): i32 { return p.getX() }\n"
+                             "fn transform<T: Positioned>(p: T): i32 { return p.getX(); }\n"
                              "fn main(): i32 {\n"
                              "    let p = Point { x: 1 };\n"
                              "    return transform<Point>(p);\n"
@@ -3336,6 +3441,7 @@ static void test_sema() {
     test_modern_call_arg_type();
     test_modern_if_condition();
     test_modern_while_condition();
+    test_modern_else_condition();
     test_modern_struct_decl();
     test_modern_struct_literal_missing_field_fails();
     test_modern_struct_literal_omitted_default_allowed();
@@ -3350,6 +3456,9 @@ static void test_sema() {
     test_modern_unary_not_on_bool();
     test_modern_unary_invalid_type();
     test_modern_assign_retype();
+    test_modern_boolean_operators();
+    test_modern_uninitialized_binding_explicit_raw();
+    test_modern_for_var_var_rejected();
     test_modern_two_modules_at_once();
     test_modern_let_binding_without_annotation();
     test_modern_pointer_type_param();
@@ -3408,6 +3517,7 @@ static void test_sema() {
     test_modern_optional_condition_keyword();
     test_modern_function_default_arguments();
     test_modern_implicit_opaque_coercion_rejected();
+    test_modern_implicit_concrete_to_opaque_accepted();
     test_modern_opaque_as_raw_opaque_accepted();
     test_modern_array_literal();
     test_modern_array_literal_mismatch();

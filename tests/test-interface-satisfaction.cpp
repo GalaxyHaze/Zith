@@ -91,7 +91,7 @@ void test_interface_bound_accepts_conforming_struct() {
     SessionRunner t;
     auto r = t.run("interface Positioned { [x, y]: f32 }\n"
                    "struct Point { x: f32, y: f32 }\n"
-                   "fn moveTo<T: Positioned>(p: T): f32 { return 0.0 }\n"
+                   "fn moveTo<T: Positioned>(p: T): f32 { return 0.0; }\n"
                    "fn main(): i32 {\n"
                    "    let p = Point{ x: 1.0, y: 2.0 };\n"
                    "    moveTo<Point>(p);\n"
@@ -104,7 +104,7 @@ void test_missing_field() {
     SessionRunner t;
     auto r = t.run("interface Positioned { [x, y]: f32 }\n"
                    "struct A { x: f32 }\n"
-                   "fn moveTo<T: Positioned>(p: T): f32 { return 0.0 }\n"
+                   "fn moveTo<T: Positioned>(p: T): f32 { return 0.0; }\n"
                    "fn main(): i32 {\n"
                    "    moveTo<A>(A{ x: 1.0 });\n"
                    "    return 1;\n"
@@ -119,7 +119,7 @@ void test_explicit_impl_rejected() {
     auto r = t.run("interface Positioned { [x, y]: f32 }\n"
                    "struct Point { x: f32, y: f32 }\n"
                    "implement Point as Positioned {}\n"
-                   "fn main(): i32 { return 1 }\n");
+                   "fn main(): i32 { return 1; }\n");
     CHECK(!r.ok, "explicit interface implementation fails");
     CHECK(r.hasErrorCode(diagnostics::err::InterfaceMethodNotAllowed),
           "explicit interface implementation reports E2025");
@@ -133,9 +133,9 @@ void test_method_satisfaction() {
                    "}\n"
                    "struct Point {\n"
                    "    x: f32,\n"
-                   "    fn getX(self): f32 { return self.x }\n"
+                   "    fn getX(self): f32 { return self.x; }\n"
                    "}\n"
-                   "fn distance<T: Positioned>(p: T): f32 { return p.x + p.getX() }\n"
+                   "fn distance<T: Positioned>(p: T): f32 { return p.x + p.getX(); }\n"
                    "fn main(): i32 {\n"
                    "    let p = Point{ x: 2.0 };\n"
                    "    distance<Point>(p);\n"
@@ -151,7 +151,7 @@ void test_missing_method() {
                    "    fn getX(self): f32\n"
                    "}\n"
                    "struct Point { x: f32 }\n"
-                   "fn distance<T: Positioned>(p: T): f32 { return 0.0 }\n"
+                   "fn distance<T: Positioned>(p: T): f32 { return 0.0; }\n"
                    "fn main(): i32 {\n"
                    "    distance<Point>(Point{ x: 1.0 });\n"
                    "    return 1;\n"
@@ -168,9 +168,9 @@ void test_method_signature_mismatch() {
                    "}\n"
                    "struct Point {\n"
                    "    x: f32,\n"
-                   "    fn getX(self): i32 { return 1 }\n"
+                   "    fn getX(self): i32 { return 1; }\n"
                    "}\n"
-                   "fn distance<T: Positioned>(p: T): f32 { return 0.0 }\n"
+                   "fn distance<T: Positioned>(p: T): f32 { return 0.0; }\n"
                    "fn main(): i32 {\n"
                    "    distance<Point>(Point{ x: 1.0 });\n"
                    "    return 1;\n"
@@ -190,7 +190,7 @@ void test_qualified_interface_method_selection() {
                    "}\n"
                    "struct Counter {\n"
                    "    value: i32,\n"
-                   "    fn add(self, other: i32): i32 { return self.value + other }\n"
+                   "    fn add(self, other: i32): i32 { return self.value + other; }\n"
                    "}\n"
                    "fn main(): i32 {\n"
                    "    let c = Counter{ value: 3 };\n"

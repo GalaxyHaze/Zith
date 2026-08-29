@@ -378,7 +378,11 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 } else {
                     value = typeGen_.sizeOf(i.type);
                 }
-                return llvm::ConstantInt::get(llvm::Type::getInt32Ty(builder_.getContext()), value);
+                if (i.which != hir::HirLayoutIntrinsic::Which::SizeOf) {
+                    return llvm::ConstantInt::get(llvm::Type::getInt32Ty(builder_.getContext()),
+                                                  value);
+                }
+                return llvm::ConstantInt::get(llvm::Type::getInt64Ty(builder_.getContext()), value);
             },
         });
     if (emitted != nullptr)
@@ -545,16 +549,22 @@ llvm::Value *CodeGenEmit::emitLiteral(const hir::HirLiteral &lit) {
                                               static_cast<uint64_t>(lit.i), true);
             },
             [&](const types::TypePtr &) -> llvm::Value * {
-                auto str_data = interner_.lookup(lit.str_val);
-                auto *str     = llvm::ConstantDataArray::getString(
-                    builder_.getContext(), llvm::StringRef(str_data.data(), str_data.size()), true);
-                auto *module = builder_.GetInsertBlock()->getParent()->getParent();
-                auto *global = new llvm::GlobalVariable(
-                    *module, str->getType(), true, llvm::GlobalValue::PrivateLinkage, str, ".str");
+                auto str_data         = interner_.lookup(lit.str_val);
+                auto *module          = builder_.GetInsertBlock()->getParent()->getParent();
+                const std::string key = std::string(".str\0", 4U) + std::string(str_data);
+                auto *global          = module->getNamedGlobal(key);
+                if (global == nullptr) {
+                    auto *str_array = llvm::ConstantDataArray::getString(
+                        builder_.getContext(), llvm::StringRef(str_data.data(), str_data.size()),
+                        true);
+                    global =
+                        new llvm::GlobalVariable(*module, str_array->getType(), true,
+                                                 llvm::GlobalValue::PrivateLinkage, str_array, key);
+                }
                 auto *zero =
                     llvm::ConstantInt::get(llvm::Type::getInt32Ty(builder_.getContext()), 0);
                 llvm::Value *indices[] = {zero, zero};
-                return llvm::ConstantExpr::getInBoundsGetElementPtr(str->getType(), global,
+                return llvm::ConstantExpr::getInBoundsGetElementPtr(global->getValueType(), global,
                                                                     indices);
             },
             [](const auto &) -> llvm::Value * { return nullptr; },

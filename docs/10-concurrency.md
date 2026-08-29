@@ -31,7 +31,22 @@ let response = runtime.blockOn(task);
 
 API names above are illustrative. The compiler does not reserve them.
 
-### 10.3 What the Compiler Proves
+### 10.3 Thread Fork/Merge
+
+The explicit thread protocol is `fork`/`merge`, backed by the `Branch`
+capability. There are no coroutines, `await`, or implicit schedulers:
+
+```zith
+let handle = fork Worker(share state);
+let result = merge handle;
+```
+
+`fork` hands a shared value to a thread and returns a `ForkHandle<T>`; `merge`
+blocks, consumes the handle, and restores ownership of the recollected value.
+NRA tracks the fork as an ownership transition and rejects unbalanced forks.
+See [the branch protocol plan](https://github.com/GalaxyHaze/Zith/blob/main/docs/plans/branch-protocol.md).
+
+### 10.4 What the Compiler Proves
 
 Concurrency-related safety is enforced through the same pre-HIR ownership proof used everywhere
 else:

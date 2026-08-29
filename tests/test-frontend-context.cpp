@@ -227,7 +227,7 @@ void test_default_import_with_colliding_public_symbol() {
                                    "    pub fn make(): string { string { data: 1 } }\n"
                                    "}\n");
     workspace.write("main.zith", "import string\n"
-                                 "fn main() { return string.make().data }\n");
+                                 "fn main() { return string.make().data; }\n");
 
     FrontendContext context(workspace.config(1));
     auto result = context.analyzeFile(workspace.path("main.zith"));
@@ -296,7 +296,7 @@ const ModuleResolution *rootResolution(const CompilationSnapshot &snapshot,
 void test_parameter_names_are_scoped_per_function() {
     Workspace workspace;
     workspace.write("main.zith",
-                    "fn f(x: i32): i32 { return x }\nfn g(x: i32): i32 { return x }\n");
+                    "fn f(x: i32): i32 { return x; }\nfn g(x: i32): i32 { return x; }\n");
 
     FrontendContext context(workspace.config(1));
     auto result = context.analyzeFile(workspace.path("main.zith"));
@@ -326,8 +326,8 @@ void test_parameter_names_are_scoped_per_function() {
 
 void test_local_bindings_are_scoped() {
     Workspace workspace;
-    workspace.write("main.zith", "fn f(): i32 { let v = 1\nreturn v }\n"
-                                 "fn g(): i32 { let v = 2\nreturn v }\n");
+    workspace.write("main.zith", "fn f(): i32 { let v = 1\nreturn v; }\n"
+                                 "fn g(): i32 { let v = 2\nreturn v; }\n");
 
     FrontendContext context(workspace.config(1));
     auto result = context.analyzeFile(workspace.path("main.zith"));
@@ -338,7 +338,7 @@ void test_local_bindings_are_scoped() {
              "the same local name in two functions is not a duplicate declaration");
 
     Workspace duplicate;
-    duplicate.write("main.zith", "fn f(): i32 { let v = 1\nlet v = 2\nreturn v }\n");
+    duplicate.write("main.zith", "fn f(): i32 { let v = 1\nlet v = 2\nreturn v; }\n");
     FrontendContext duplicate_context(duplicate.config(1));
     auto duplicate_result = duplicate_context.analyzeFile(duplicate.path("main.zith"));
     CHECK(duplicate_result.isOk(), "analysis still produces a snapshot for duplicate locals");
@@ -350,7 +350,7 @@ void test_local_bindings_are_scoped() {
 
 void test_nested_block_shadowing_is_allowed() {
     Workspace workspace;
-    workspace.write("main.zith", "fn f(): i32 { let v = 1\n{ let v = 2\n}\nreturn v }\n");
+    workspace.write("main.zith", "fn f(): i32 { let v = 1\n{ let v = 2\n}\nreturn v; }\n");
 
     FrontendContext context(workspace.config(1));
     auto result = context.analyzeFile(workspace.path("main.zith"));
@@ -363,7 +363,7 @@ void test_nested_block_shadowing_is_allowed() {
 
 void test_parameter_shadowing_in_body_is_a_duplicate() {
     Workspace workspace;
-    workspace.write("main.zith", "fn f(x: i32): i32 { let x = 2\nreturn x }\n");
+    workspace.write("main.zith", "fn f(x: i32): i32 { let x = 2\nreturn x; }\n");
 
     FrontendContext context(workspace.config(1));
     auto result = context.analyzeFile(workspace.path("main.zith"));

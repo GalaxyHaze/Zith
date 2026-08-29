@@ -221,6 +221,93 @@ static void test_while_is_deprecated() {
     CHECK(found_while, "'while' still lowers to a loop expression");
 }
 
+static bool hasErrorCode(const frontend::FrontendSnapshot &snapshot, uint32_t code) {
+    for (const auto &diagnostic : snapshot.diagnostics())
+        if (!diagnostic.isWarning && diagnostic.code == code)
+            return true;
+    return false;
+}
+
+static void test_return_expression_requires_semicolon() {
+    auto with_value = frontend::parse("fn f(): i32 {\n"
+                                      "    return 5;\n"
+                                      "}\n");
+    CHECK(with_value.diagnostics().empty(), "'return expr;' parses without diagnostics");
+
+    auto bare = frontend::parse("fn f() {\n"
+                                "    return;\n"
+                                "}\n");
+    CHECK(bare.diagnostics().empty(), "'return;' parses without diagnostics");
+
+    auto missing = frontend::parse("fn f(): i32 {\n"
+                                   "    return 5\n"
+                                   "}\n");
+    CHECK(hasErrorCode(missing, diagnostics::err::ExpectedSemicolon),
+          "'return expr' reports E1002 ExpectedSemicolon");
+    CHECK_EQ(missing.diagnostics().size(), 1u,
+             "'return expr' before '}' produces exactly one diagnostic");
+}
+
+static void test_else_condition_forms() {
+    auto new_form = frontend::parse("fn run(n: i32): i32 {\n"
+                                    "    if (n < 0) {\n"
+                                    "        return 0;\n"
+                                    "    } else (n < 10) {\n"
+                                    "        return 1;\n"
+                                    "    }\n"
+                                    "    return 2;\n"
+                                    "}\n");
+    CHECK(new_form.diagnostics().empty(), "'else (cond) { }' parses without diagnostics");
+    const frontend::Expression *if_node = nullptr;
+    for (const auto &expression : new_form.expressions()) {
+        if (expression.kind == frontend::ExprKind::If)
+            if_node = &expression;
+    }
+    CHECK(if_node != nullptr, "if/else-expression graph is present");
+    if (if_node != nullptr)
+        CHECK_EQ(if_node->operands.size(), 4u,
+                 "else condition uses the same 4-operand if layout as else if");
+
+    auto old_form = frontend::parse("fn run(n: i32): i32 {\n"
+                                    "    if (n < 0) {\n"
+                                    "        return 0;\n"
+                                    "    } else if (n < 10) {\n"
+                                    "        return 1;\n"
+                                    "    }\n"
+                                    "    return 2;\n"
+                                    "}\n");
+    CHECK_EQ(old_form.diagnostics().size(), 1u, "'else if' produces exactly one diagnostic");
+    CHECK(old_form.diagnostics()[0].isWarning, "the 'else if' diagnostic is a warning");
+    CHECK_EQ(old_form.diagnostics()[0].code, diagnostics::err::DeprecatedSyntax,
+             "the 'else if' warning uses W1008");
+    CHECK(old_form.diagnostics()[0].message.find("'else (cond) { }'") != std::string::npos,
+          "the 'else if' warning suggests the replacement spelling");
+
+    bool old_if_found = false;
+    for (const auto &expression : old_form.expressions()) {
+        if (expression.kind == frontend::ExprKind::If &&
+            (expression.operands.size() == 3u || expression.operands.size() == 4u))
+            old_if_found = true;
+    }
+    CHECK(old_if_found, "deprecated 'else if' still lowers to an if graph");
+
+    auto missing_paren = frontend::parse("fn run(n: i32): i32 {\n"
+                                         "    if (n < 0) {\n"
+                                         "        return 0;\n"
+                                         "    } else n < 10 {\n"
+                                         "    }\n"
+                                         "    return 2;\n"
+                                         "}\n");
+    bool saw_recovery  = false;
+    for (const auto &diagnostic : missing_paren.diagnostics()) {
+        if (diagnostic.isWarning)
+            continue;
+        if (diagnostic.message.find("expected else body") != std::string::npos)
+            saw_recovery = true;
+    }
+    CHECK(saw_recovery, "malformed 'else (cond)' still reports the existing body recovery");
+}
+
 static std::string_view tokenText(const frontend::FrontendSnapshot &snapshot,
                                   const frontend::Token &token) {
     return std::string_view(snapshot.source())
@@ -460,6 +547,23 @@ static void test_default_parameters_and_condition_syntax() {
     }
     CHECK(only_bare_while_warnings,
           "bare 'not'/'optional' condition forms in if/while/for parse cleanly");
+}
+
+static void test_for_var_var_reports_specific_diagnostic() {
+    auto snapshot     = frontend::parse("fn main() {\n"
+                                            "    for (var one: i32, var two: i32) { }\n"
+                                            "}\n");
+    bool has_specific = false;
+    int body_errors   = 0;
+    for (const auto &diag : snapshot.diagnostics()) {
+        if (diag.message.find("for expects (init), (cond), (step) or a single loop variable") !=
+            std::string::npos)
+            has_specific = true;
+        if (diag.message == "expected for body")
+            ++body_errors;
+    }
+    CHECK(has_specific, "the invalid two-var for header has a specific diagnostic");
+    CHECK(body_errors == 0, "consuming the header prevents cascading 'expected for body' errors");
 }
 
 static void test_structured_imports() {
@@ -756,13 +860,6 @@ static void test_error_diagnostic_span_preserved() {
             found_ok = true;
     }
     CHECK(found_ok, "valid declaration after delimiter error is preserved");
-}
-
-static bool hasErrorCode(const frontend::FrontendSnapshot &snapshot, uint32_t code) {
-    for (const auto &diagnostic : snapshot.diagnostics())
-        if (!diagnostic.isWarning && diagnostic.code == code)
-            return true;
-    return false;
 }
 
 static void test_unexpected_top_level_token_is_diagnosed() {
@@ -1156,6 +1253,7 @@ static void test_frontend() {
     test_state_and_dock_jump_syntax();
     test_old_state_machine_syntax_is_rejected();
     test_while_is_deprecated();
+    test_return_expression_requires_semicolon();
     test_multi_char_operators_are_single_tokens();
     test_binary_comparison_expression();
     test_cast_expression();
@@ -1164,6 +1262,8 @@ static void test_frontend() {
     test_for_loop_forms();
     test_loop_labels_and_not_negation();
     test_default_parameters_and_condition_syntax();
+    test_else_condition_forms();
+    test_for_var_var_reports_specific_diagnostic();
     test_structured_imports();
     test_c_header_import_syntax();
     test_variable_declarations();

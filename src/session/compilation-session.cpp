@@ -535,6 +535,7 @@ bool CompilationSession::lexStage() {
                         ansicolor("\033[31m"), ansicolor("\033[0m"), module->key.c_str());
             return false;
         }
+        mSnapshotDiagnosticFiles[module->fileId] = materialized.value();
     }
     const auto root_key = SourceCatalog::canonicalPath(mFilePath);
     const auto *root    = mSnapshot->findModule(root_key);
@@ -693,8 +694,13 @@ void CompilationSession::forwardSnapshotDiagnostics() {
         return;
     mSnapshotDiagsForwarded = true;
     for (const auto &diagnostic : mSnapshot->diagnostics()) {
+        memory::FileId report_file = diagnostic.file;
+        if (const auto mapped = mSnapshotDiagnosticFiles.find(diagnostic.file);
+            mapped != mSnapshotDiagnosticFiles.end()) {
+            report_file = mapped->second;
+        }
         mDiags.report(diagnostic.severity, diagnostic.code, diagnostic.message,
-                      memory::Span{diagnostic.file, diagnostic.start, diagnostic.end});
+                      memory::Span{report_file, diagnostic.start, diagnostic.end});
     }
     mDiags.emit();
 }

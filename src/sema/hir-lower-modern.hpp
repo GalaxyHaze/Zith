@@ -66,6 +66,9 @@ private:
         /// narrowed payload. `true` only while lowering the branch where the
         /// null check proved the payload is present.
         bool optionalPayload = false;
+        /// `true` when narrowing an `opaque` local after `is T`; the slot
+        /// still stores `OpaqueTagged`, while `type` is the payload type.
+        bool opaquePayload = false;
     };
 
     memory::Arena &arena_;
@@ -198,6 +201,13 @@ private:
     hir::HirExprId lowerVisibleDefault(const session::ModuleArtifact &module,
                                        const comptime::InstantiationInstance *instance,
                                        frontend::ExprId default_id);
+    /// Lowers a default using the declaring module's typed map, then applies
+    /// the coercions recorded by sema for `target_sema` before restoring the
+    /// caller's lowering context.
+    hir::HirExprId lowerDefaultWithTarget(const session::ModuleArtifact &module,
+                                          const comptime::InstantiationInstance *instance,
+                                          frontend::ExprId default_id,
+                                          sema::modern::TypeId target_sema);
     hir::HirExprId lowerBlock(const frontend::Expression &expr);
     hir::HirExprId lowerIf(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerWhen(const frontend::Expression &expr, types::TypeId type);
@@ -225,6 +235,11 @@ private:
     /// pairing has not been emitted before.
     hir::HirExprId lowerCoerceToDyn(sema::modern::TypeId target, frontend::ExprId expression,
                                     hir::HirExprId value, sema::modern::TypeId target_sema);
+    /// Converts a concrete value to bare `opaque` after sema recorded the
+    /// original concrete source type. Emits `HirMakeOpaque`; returns `value`
+    /// unchanged when this coercion was not registered for `expression`.
+    hir::HirExprId lowerCoerceToOpaque(sema::modern::TypeId target, frontend::ExprId expression,
+                                       hir::HirExprId value);
     hir::HirExprId lowerField(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerArrow(const frontend::Expression &expr, types::TypeId type);
     /// When `operand` is a Name that resolves to an enum declaration and `variant` is a

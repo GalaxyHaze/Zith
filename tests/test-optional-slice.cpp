@@ -76,53 +76,53 @@ void expectRejected(std::string_view source, std::string_view expected, const ch
 }
 
 void test_optional_returns_and_bindings() {
-    expectAccepted("fn f(): ?i32 { return 42 }\n", "a plain value coerces to an optional return");
-    expectAccepted("fn f(): ?i32 { return null }\n", "null is a valid optional return");
-    expectAccepted("fn f(): i32 { let x: ?i32 = 42\n    return 1 }\n",
+    expectAccepted("fn f(): ?i32 { return 42; }\n", "a plain value coerces to an optional return");
+    expectAccepted("fn f(): ?i32 { return null; }\n", "null is a valid optional return");
+    expectAccepted("fn f(): i32 { let x: ?i32 = 42\n    return 1; }\n",
                    "a plain value coerces to an optional binding");
-    expectAccepted("fn f(): i32 { let x: ?i32 = null\n    return 1 }\n",
+    expectAccepted("fn f(): i32 { let x: ?i32 = null\n    return 1; }\n",
                    "null initializes an optional binding");
-    expectAccepted("fn f(): ?*i32 { return null }\n", "null is a valid optional pointer return");
+    expectAccepted("fn f(): ?*i32 { return null; }\n", "null is a valid optional pointer return");
 }
 
 void test_null_requires_an_annotation() {
-    expectRejected("fn f(): i32 { let x = null\n    return 1 }\n",
+    expectRejected("fn f(): i32 { let x = null\n    return 1; }\n",
                    "null requires an optional type annotation",
                    "an unannotated null binding is rejected");
-    expectRejected("fn f(): i32 { let x: i32 = null\n    return 1 }\n",
+    expectRejected("fn f(): i32 { let x: i32 = null\n    return 1; }\n",
                    "cannot assign 'null' to a non-optional pointer; use '?*T'",
                    "null cannot initialize a non-optional binding");
 }
 
 void test_optional_propagation_operator() {
-    expectAccepted("fn f(x: ?i32): ?i32 { return x? }\n",
+    expectAccepted("fn f(x: ?i32): ?i32 { return x?; }\n",
                    "'?' unwraps an optional inside an optional-returning function");
-    expectRejected("fn f(x: ?i32): i32 { return x? }\n",
+    expectRejected("fn f(x: ?i32): i32 { return x?; }\n",
                    "'?' operator used in a function that does not return an optional",
                    "'?' is rejected in a function that does not return an optional");
-    expectRejected("fn f(x: bool): ?i32 { return x? }\n",
+    expectRejected("fn f(x: bool): ?i32 { return x?; }\n",
                    "'?' operator requires an optional operand",
                    "'?' is rejected on a bool operand");
-    expectRejected("fn f(x: i32): ?i32 { return x? }\n",
+    expectRejected("fn f(x: i32): ?i32 { return x?; }\n",
                    "'?' operator requires an optional operand",
                    "'?' is rejected on an integer operand");
 }
 
 void test_optional_across_calls() {
-    expectAccepted("fn g(x: ?i32): ?i32 { return x? }\n"
-                   "fn main(): ?i32 { return g(3) }\n",
+    expectAccepted("fn g(x: ?i32): ?i32 { return x?; }\n"
+                   "fn main(): ?i32 { return g(3); }\n",
                    "an integer argument coerces to an optional parameter");
 }
 
 void test_slice_and_array_indexing() {
-    expectAccepted("fn f(s: []i32): i32 { return raw s[0] }\n", "a slice can be indexed");
-    expectAccepted("fn f(a: [4]i32): i32 { return raw a[2] }\n",
+    expectAccepted("fn f(s: []i32): i32 { return raw s[0]; }\n", "a slice can be indexed");
+    expectAccepted("fn f(a: [4]i32): i32 { return raw a[2]; }\n",
                    "a fixed-size array can be indexed");
-    expectAccepted("fn f(s: []i32): i32 { let t: []i32 = s\n    return raw t[1] }\n",
+    expectAccepted("fn f(s: []i32): i32 { let t: []i32 = s\n    return raw t[1]; }\n",
                    "a slice can be bound to a slice-typed local");
-    expectRejected("fn f(s: []i32): i32 { return s[true] }\n", "array index must be an integer",
+    expectRejected("fn f(s: []i32): i32 { return s[true]; }\n", "array index must be an integer",
                    "a boolean index is rejected");
-    expectRejected("fn f(x: i32): i32 { return x[0] }\n", "type is not indexable",
+    expectRejected("fn f(x: i32): i32 { return x[0]; }\n", "type is not indexable",
                    "indexing a non-indexable type is rejected");
 }
 

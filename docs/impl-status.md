@@ -108,7 +108,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 
 | Feature | Status | Notes |
 |---|---|---|
-| `if` / `else` / `else if` | **Working** | Conditions accept `bool` and, in condition position, `x?` on `?T` as a non-null test |
+| `if` / `else` / `else (cond)` / `else if` | **Working** | Conditions accept `bool` and, in condition position, `x?` on `?T` as a non-null test. `else (cond)` is the preferred chained spelling; `else if` is deprecated with `W1008` but still lowers |
 | `while` | **Deprecated** | Still lowers correctly, emits `W1008` suggesting `for (cond) { }`, and accepts `x?` as a non-null condition |
 | `break`, `continue` | **Working** | Unlabeled forms target the innermost active loop. Labels accept `outer: for`, `break outer;`, and `continue outer;`; unknown or duplicate active labels are rejected |
 | `return` (void and typed) | **Working** | |
@@ -129,7 +129,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `context` declarations | **Parse skipped** | Body skipped |
 | `use` statements | **Parse skipped** | Body skipped |
 | `macro` / `raw macro` declarations and `@name(...)` calls | **Working** | Normal macros rename template-local bindings hygienically and resolve other template names through the call-site scope (globals/imports visible when not shadowed). `raw macro` splices literally into the call-site scope and names resolve there before module/global fallback. Templates are not analysed as code; resolution is keyed by node id |
-| `tag macro` calls | **Working** | `<Section ...> ... </Section>`; named attributes via `attributes.name`; statement-position only |
+| `tag macro` calls | **Parse reported / rejected** | `<Section ...> ... </Section>` and named attributes parse, but the declaration is rejected in the Zith-- pipeline with `E2010`; use normal or `raw macro` |
 | word call expressions | **Parse error** | No parser support |
 | word sequence expressions | **Parse error** | No parser support |
 
@@ -196,7 +196,7 @@ Codes are grouped by pipeline stage. `E0000` remains the generic user-reported d
 | Range | Stage | Codes |
 |---|---|---|
 | 0001-0005 | Lexical | `E0001` UnknownToken, `E0002` UnclosedString, `E0003` InvalidEscape, `E0004` InvalidIntLiteral, `E0005` UnclosedComment |
-| 1001-1008 | Parse | `E1001` ExpectedExpr, `E1002` ExpectedSemicolon, `E1003` UnclosedParen, `E1004` ExpectedIdent, `E1005` InvalidImportDepth, `E1006` ImportError, `E1007` TopLevelLetNotAllowed, `W1008` DeprecatedSyntax (`while` -> `for (cond)`) |
+| 1001-1008 | Parse | `E1001` ExpectedExpr, `E1002` ExpectedSemicolon, `E1003` UnclosedParen, `E1004` ExpectedIdent, `E1005` InvalidImportDepth, `E1006` ImportError, `E1007` TopLevelLetNotAllowed, `W1008` DeprecatedSyntax (`while` -> `for (cond)`; `else if` -> `else (cond)`) |
 | 2001-2010 | Semantic | `E2001` UndefinedIdent, `E2002` DuplicateDecl, `E2003` WrongArity, `E2004` UnusedDecl, `E2005` NotNamespace, `E2006` NoMember, `E2007` NoMatchingFn, `E2008` AmbiguousCall, `E2009` NotImplemented, `E2010` UnsupportedSyntax |
 | 2021-2025 | Frontend/interface | Trait requirement/signature checks (`E2021`/`E2022`), `E2023` NotATrait, `E2024` InterfaceNotSatisfied, `E2025` explicit `implement` for an interface, `E2027` DuplicateImplementation |
 | 3001-3009 | Types | `E3001` TypeMismatch, `E3002` CannotInfer, `E3003` InvalidCast, `E3004` CyclicType, `E3005` NullDerefUnproven, `E3006` CoercionFailure, `E3007` WidthMismatch, `E3008` OptionalViolation, `E3009` ConstraintNotSatisfied |

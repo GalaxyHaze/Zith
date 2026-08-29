@@ -808,6 +808,9 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
             if (current_fn_return_sema_type_ != sema::modern::kInvalidTypeId)
                 ret.value = lowerCoerceToDyn(current_fn_return_sema_type_, info.decl->body,
                                              ret.value, current_fn_return_sema_type_);
+            if (current_fn_return_sema_type_ != sema::modern::kInvalidTypeId)
+                ret.value =
+                    lowerCoerceToOpaque(current_fn_return_sema_type_, info.decl->body, ret.value);
             ret.value =
                 lowerCoerceToSliceIfArray(current_fn_->return_type, info.decl->body, ret.value);
         }
@@ -1199,6 +1202,37 @@ hir::HirExprId HirLowerModern::lowerVisibleDefault(const session::ModuleArtifact
     return value;
 }
 
+hir::HirExprId HirLowerModern::lowerDefaultWithTarget(
+    const session::ModuleArtifact &module, const comptime::InstantiationInstance *instance,
+    frontend::ExprId default_id, sema::modern::TypeId target_sema) {
+    const session::ModuleResolution *decl_resolution = snapshot_.findResolution(module.key);
+    const TypedMap *decl_types                       = sema_.findTypedMap(module.key);
+    if (!default_id || module.frontend == nullptr ||
+        default_id.value > module.frontend->expressions().size() || decl_resolution == nullptr ||
+        decl_types == nullptr)
+        return hir::kInvalidHirExpr;
+
+    const session::ModuleArtifact *saved_module           = current_module_;
+    const session::ModuleResolution *saved_resolution     = current_resolution_;
+    const TypedMap *saved_types                           = current_types_;
+    const comptime::GenericInstantiationPass *saved_inst  = current_instantiation_;
+    const comptime::InstantiationInstance *saved_instance = current_instance_;
+    current_module_                                       = &module;
+    current_resolution_                                   = decl_resolution;
+    current_types_                                        = decl_types;
+    current_instantiation_ = instance != nullptr ? sema_.instantiations() : nullptr;
+    current_instance_      = instance;
+    const auto value       = current_types_ != nullptr
+                                 ? lowerCoerceToOpaque(target_sema, default_id, lowerExpr(default_id))
+                                 : hir::kInvalidHirExpr;
+    current_module_        = saved_module;
+    current_resolution_    = saved_resolution;
+    current_types_         = saved_types;
+    current_instantiation_ = saved_inst;
+    current_instance_      = saved_instance;
+    return value;
+}
+
 const session::ResolvedName *HirLowerModern::findResolvedExpr(frontend::ExprId id) const noexcept {
     if (current_module_ == nullptr || current_resolution_ == nullptr || !id ||
         id.value > current_module_->frontend->expressions().size()) {
@@ -1275,8 +1309,25 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
     switch (expr.kind) {
     case frontend::ExprKind::OwnershipCoerce:
         return expr.operands.empty() ? hir::kInvalidHirExpr : lowerExpr(expr.operands[0]);
-    case frontend::ExprKind::Literal:
-        return lowerLiteral(expr, type);
+    case frontend::ExprKind::Literal: {
+        // Implicit `T -> opaque` coercions record the concrete source type but
+        // sema also types the whole value expression as `opaque`. The HIR
+        // literal must keep the concrete type so it can be spilled into the
+        // erased payload before wrapping.
+        types::TypeId literal_type = type;
+        if (current_types_ != nullptr) {
+            if (const auto *source = current_types_->opaqueSourceTypes.get(id.value)) {
+                const sema::modern::TypeId source_sema =
+                    current_instantiation_ != nullptr && current_instance_ != nullptr
+                        ? current_instantiation_->substituteType(*source, current_instance_->args)
+                        : *source;
+                const types::TypeId lowered = lowerType(source_sema);
+                if (lowered != types::kErrorType && lowered != types::kInvalidType)
+                    literal_type = lowered;
+            }
+        }
+        return lowerLiteral(expr, literal_type);
+    }
     case frontend::ExprKind::Name:
         return lowerName(expr);
     case frontend::ExprKind::Unary:
@@ -1433,6 +1484,17 @@ hir::HirExprId HirLowerModern::lowerName(const frontend::Expression &expr) {
                         return addExpr(hir::HirField{addExpr(hir::HirSlotAddr{slot, local_ty}), 0U,
                                                      it->type, local_ty});
                     }
+                    if (it->opaquePayload) {
+                        hir::HirOpaqueCast cast;
+                        cast.value       = emitSlotLoad(slot, local_ty);
+                        cast.from        = local_ty;
+                        cast.to          = it->type;
+                        cast.opaque_type = local_ty;
+                        cast.result_type = it->type;
+                        cast.type_id     = stableConcreteTypeId(it->type);
+                        cast.checked     = false;
+                        return addExpr(std::move(cast));
+                    }
                     const auto narrowed = emitSlotLoad(slot, it->type);
                     if (types_.kindOf(local_ty) == types::TypeKind::Union &&
                         types_.kindOf(it->type) != types::TypeKind::Union) {
@@ -1550,6 +1612,25 @@ hir::HirExprId HirLowerModern::lowerLValueAddr(frontend::ExprId id) {
                     return addExpr(hir::HirUnary{hir::HirUnaryOp::Ref, payload_field,
                                                  types_.internPtr(it->type)});
                 }
+                if (it->local == resolved->local && it->opaquePayload) {
+                    // A narrowed opaque value is still stored as `{ *void,
+                    // typeId }`. Spill the unchecked payload extraction into a
+                    // temporary so its address has the narrowed concrete type.
+                    const auto temp_slot = next_slot_++;
+                    current_fn_->blocks[current_block_].insts.push(
+                        emitSlotAlloca(temp_slot, it->type));
+                    hir::HirOpaqueCast cast;
+                    cast.value       = emitSlotLoad(slot, local_ty);
+                    cast.from        = local_ty;
+                    cast.to          = it->type;
+                    cast.opaque_type = local_ty;
+                    cast.result_type = it->type;
+                    cast.type_id     = stableConcreteTypeId(it->type);
+                    cast.checked     = false;
+                    current_fn_->blocks[current_block_].insts.push(
+                        emitSlotStore(temp_slot, addExpr(std::move(cast))));
+                    return addExpr(hir::HirSlotAddr{temp_slot, it->type});
+                }
             }
             return addExpr(hir::HirSlotAddr{slot, local_ty});
         }
@@ -1578,6 +1659,8 @@ hir::HirExprId HirLowerModern::lowerUnary(const frontend::Expression &expr,
                                           const types::TypeId type) {
     if (expr.operands.empty())
         return hir::kInvalidHirExpr;
+    if (expr.text == "raw")
+        return lowerExpr(expr.operands[0]);
     const auto operand = lowerExpr(expr.operands[0]);
     if (operand == hir::kInvalidHirExpr)
         return hir::kInvalidHirExpr;
@@ -1827,11 +1910,17 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
                     return hir::kInvalidHirExpr;
                 dyncall.args.push(argument);
                 dyncall.arg_types.push(typeOfExpr(expr.operands[index]));
-                if (sema_.typeTable().kindOf(fn->params[call_index]) ==
-                    sema::modern::TypeKind::Dyn) {
+                const sema::modern::TypeId param_sema =
+                    sema_.typeTable().kindOf(fn->params[call_index]) == sema::modern::TypeKind::Dyn
+                        ? fn->params[call_index]
+                        : sema_.typeTable().canonical(fn->params[call_index]);
+                if (sema_.typeTable().kindOf(param_sema) == sema::modern::TypeKind::Dyn) {
                     argument = lowerCoerceToDyn(fn->params[call_index], expr.operands[index],
                                                 argument, fn->params[call_index]);
                     dyncall.args.back() = argument;
+                } else {
+                    dyncall.args.back() =
+                        lowerCoerceToOpaque(fn->params[call_index], expr.operands[index], argument);
                 }
             }
             if (method_decl != nullptr) {
@@ -1850,10 +1939,12 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
                      index < method_decl->parameters.size() && index < dyn_slice_param; ++index) {
                     if (!method_decl->parameters[index].defaultValue)
                         continue;
-                    auto value = lowerVisibleDefault(*dyn_decl_module, dyn_decl_instance,
-                                                     method_decl->parameters[index].defaultValue);
+                    auto value = lowerDefaultWithTarget(*dyn_decl_module, dyn_decl_instance,
+                                                        method_decl->parameters[index].defaultValue,
+                                                        fn->params[index]);
                     if (value == hir::kInvalidHirExpr)
                         return hir::kInvalidHirExpr;
+                    value = lowerCoerceToOpaque(fn->params[index], {}, value);
                     dyncall.args.push(lowerCoerceToDyn(fn->params[index],
                                                        method_decl->parameters[index].defaultValue,
                                                        value, fn->params[index]));
@@ -1864,6 +1955,7 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
                 auto slice = lowerVariadicSliceTail(fn->params[dyn_slice_param], {});
                 if (slice == hir::kInvalidHirExpr)
                     return hir::kInvalidHirExpr;
+                slice = lowerCoerceToOpaque(fn->params[dyn_slice_param], {}, slice);
                 dyncall.args.push(slice);
                 dyncall.arg_types.push(lowerType(fn->params[dyn_slice_param]));
             }
@@ -2027,6 +2119,8 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
                 sema_.typeTable().kindOf(sema_.typeTable().canonical(slice_sema)) ==
                     sema::modern::TypeKind::Dyn)
                 slice = lowerCoerceToDyn(slice_sema, expr.operands[index], slice, slice_sema);
+            else
+                slice = lowerCoerceToOpaque(slice_sema, expr.operands[index], slice);
             args.push(slice);
             arg_types.push(lowerType(slice_sema));
             tail_lowered = true;
@@ -2066,6 +2160,9 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
                     sema::modern::TypeKind::Dyn)
                 lowered_argument = lowerCoerceToDyn(param_sema, expr.operands[index],
                                                     lowered_argument, param_sema);
+            else
+                lowered_argument =
+                    lowerCoerceToOpaque(param_sema, expr.operands[index], lowered_argument);
         }
         args.push(lowered_argument);
     }
@@ -2098,8 +2195,9 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
              index < param_decl->parameters.size() && index < max_fixed; ++index) {
             if (!param_decl->parameters[index].defaultValue)
                 continue;
-            auto value = lowerVisibleDefault(*decl_module, decl_inst,
-                                             param_decl->parameters[index].defaultValue);
+            auto value = lowerDefaultWithTarget(*decl_module, decl_inst,
+                                                param_decl->parameters[index].defaultValue,
+                                                callee_fn->params[index]);
             if (value == hir::kInvalidHirExpr)
                 return hir::kInvalidHirExpr;
             args.push(value);
@@ -2390,6 +2488,7 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
     types::TypeId narrowed_type      = types::kInvalidType;
     bool narrow_then                 = false;
     bool narrowed_optional_payload   = false;
+    bool narrowed_opaque_payload     = false;
     const auto &condition = current_module_->frontend->expressions()[expr.operands[0].value - 1U];
     const auto makeOptionalNarrowing = [&](frontend::ExprId operand) {
         const auto *resolved = findResolvedExpr(operand);
@@ -2407,6 +2506,20 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
     };
     if (condition.kind == frontend::ExprKind::IsNull && !condition.operands.empty()) {
         makeOptionalNarrowing(condition.operands[0]);
+    } else if (condition.kind == frontend::ExprKind::IsType && !condition.operands.empty() &&
+               condition.cast_type) {
+        const auto *resolved = findResolvedExpr(condition.operands[0]);
+        if (resolved != nullptr && resolved->local) {
+            const sema::modern::TypeId local_sema = semaTypeOfLocal(resolved->local);
+            if (sema_.typeTable().kindOf(sema_.typeTable().stripQualifiers(local_sema)) ==
+                TypeKind::Opaque) {
+                narrowed_local          = resolved->local;
+                narrowed_type           = lowerType(sema_.typeTable().lowerTypeExpr(
+                    *current_module_->frontend, condition.cast_type));
+                narrow_then             = true;
+                narrowed_opaque_payload = true;
+            }
+        }
     } else if (condition.kind == frontend::ExprKind::Unary && condition.text == "not" &&
                !condition.operands.empty()) {
         const auto &inner =
@@ -2422,8 +2535,8 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
     cleanup_stack_.push_back(CleanupFrame(arena_));
     const size_t then_cleanup = cleanup_stack_.size() - 1U;
     if (narrowed_local && narrow_then) {
-        narrowing_stack_.push_back(
-            Narrowing{narrowed_local, narrowed_type, narrowed_optional_payload});
+        narrowing_stack_.push_back(Narrowing{narrowed_local, narrowed_type,
+                                             narrowed_optional_payload, narrowed_opaque_payload});
     }
     const auto then_value = lowerExpr(expr.operands[1]);
     if (narrowed_local && narrow_then)
@@ -2437,15 +2550,29 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
     if (current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr)
         emitJump(merge_block);
 
+    const bool has_else_condition    = expr.operands.size() > 3U;
+    const frontend::ExprId else_value_id =
+        has_else_condition ? expr.operands[3] : expr.operands[2];
     if (has_else) {
         setCurrentBlock(else_block);
         current_fn_->blocks[else_block].insts = memory::DynArray<hir::HirExprId>(arena_);
         cleanup_stack_.push_back(CleanupFrame(arena_));
         const size_t else_cleanup = cleanup_stack_.size() - 1U;
-        if (narrowed_local && !narrow_then)
-            narrowing_stack_.push_back(
-                Narrowing{narrowed_local, narrowed_type, narrowed_optional_payload});
-        const auto else_value = lowerExpr(expr.operands[2]);
+    if (narrowed_local && !narrow_then)
+        narrowing_stack_.push_back(Narrowing{
+            narrowed_local, narrowed_type, narrowed_optional_payload, narrowed_opaque_payload});
+    if (has_else_condition) {
+        const auto else_cond = lowerExpr(expr.operands[2]);
+        if (else_cond != hir::kInvalidHirExpr) {
+            current_fn_->blocks[current_block_].insts.push(else_cond);
+            hir::HirBranch else_branch;
+            else_branch.cond       = else_cond;
+            else_branch.then_block = static_cast<hir::HirDeclId>(merge_block);
+            else_branch.else_block = static_cast<hir::HirDeclId>(merge_block);
+            setTerminator(addExpr(std::move(else_branch)));
+        }
+    }
+        const auto else_value = lowerExpr(else_value_id);
         if (narrowed_local && !narrow_then)
             narrowing_stack_.pop_back();
         emitCleanupFrom(else_cleanup);
@@ -2517,6 +2644,7 @@ hir::HirExprId HirLowerModern::lowerWhen(const frontend::Expression &expr,
         // An `(f is Member)` case narrows reads of `f` to the member type.
         frontend::LocalId narrowed_local = {};
         types::TypeId narrowed_type      = types::kInvalidType;
+        bool narrowed_opaque_payload     = false;
         if (i < expr.conditions.size() && expr.conditions[i]) {
             const auto &condition =
                 current_module_->frontend->expressions()[expr.conditions[i].value - 1U];
@@ -2527,12 +2655,16 @@ hir::HirExprId HirLowerModern::lowerWhen(const frontend::Expression &expr,
                     narrowed_local = resolved->local;
                     narrowed_type  = lowerType(sema_.typeTable().lowerTypeExpr(
                         *current_module_->frontend, condition.cast_type));
+                    const sema::modern::TypeId local_sema = semaTypeOfLocal(resolved->local);
+                    narrowed_opaque_payload =
+                        sema_.typeTable().kindOf(sema_.typeTable().stripQualifiers(local_sema)) ==
+                        TypeKind::Opaque;
                 }
             }
         }
         if (narrowed_local) {
-            narrowing_stack_.push_back(
-                Narrowing{narrowed_local, narrowed_type, /*optionalPayload=*/false});
+            narrowing_stack_.push_back(Narrowing{
+                narrowed_local, narrowed_type, /*optionalPayload=*/false, narrowed_opaque_payload});
         }
         const auto body_value = lowerExpr(expr.operands[body_index]);
         if (narrowed_local) {
@@ -3693,6 +3825,33 @@ hir::HirExprId HirLowerModern::lowerCoerceToDyn(sema::modern::TypeId target,
     return addExpr(std::move(make));
 }
 
+hir::HirExprId HirLowerModern::lowerCoerceToOpaque(sema::modern::TypeId target,
+                                                   frontend::ExprId expression,
+                                                   hir::HirExprId value) {
+    const types::TypeId target_hir = lowerType(target);
+    if (value == hir::kInvalidHirExpr || !expression || current_module_ == nullptr ||
+        current_types_ == nullptr || types_.kindOf(target_hir) != types::TypeKind::OpaqueTagged)
+        return value;
+
+    const auto *source_id = current_types_->opaqueSourceTypes.get(expression.value);
+    if (source_id == nullptr)
+        return value;
+    const sema::modern::TypeId source_sema =
+        current_instantiation_ != nullptr && current_instance_ != nullptr
+            ? current_instantiation_->substituteType(*source_id, current_instance_->args)
+            : *source_id;
+    const types::TypeId source_type = lowerType(source_sema);
+    if (source_type == types::kErrorType || source_type == types::kInvalidType)
+        return value;
+
+    hir::HirMakeOpaque make;
+    make.value       = value;
+    make.source_type = source_type;
+    make.opaque_type = target_hir;
+    make.type_id     = stableConcreteTypeId(source_type);
+    return addExpr(std::move(make));
+}
+
 hir::HirExprId HirLowerModern::lowerSliceRange(const frontend::Expression &expr,
                                                const types::TypeId type) {
     if (expr.operands.size() < 3U)
@@ -4179,6 +4338,8 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                 sema_.typeTable().kindOf(binding_sema) == sema::modern::TypeKind::Dyn)
                 init = lowerCoerceToDyn(binding_sema, statement.binding.initializer, init,
                                         binding_sema);
+            else if (binding_sema != sema::modern::kInvalidTypeId)
+                init = lowerCoerceToOpaque(binding_sema, statement.binding.initializer, init);
             if (init != hir::kInvalidHirExpr) {
                 const auto store = emitSlotStore(slot, init);
                 if (defer_body_sink_ != nullptr)
@@ -4223,6 +4384,9 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
             if (current_fn_return_sema_type_ != sema::modern::kInvalidTypeId)
                 value = lowerCoerceToDyn(current_fn_return_sema_type_, statement.expression, value,
                                          current_fn_return_sema_type_);
+            if (current_fn_return_sema_type_ != sema::modern::kInvalidTypeId)
+                value =
+                    lowerCoerceToOpaque(current_fn_return_sema_type_, statement.expression, value);
             ret.value = value;
         }
         if (!statement.expression && current_main_void_) {
@@ -4384,6 +4548,8 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                 return false;
             argument = lowerCoerceToSliceIfArray(lowerType(target_fn->params[lowered_fixed]),
                                                  statement.arguments[lowered_fixed], argument);
+            argument = lowerCoerceToOpaque(target_fn->params[lowered_fixed],
+                                           statement.arguments[lowered_fixed], argument);
             tail.call.argument_types.push(lowerType(target_fn->params[lowered_fixed]));
             tail.call.args.push(argument);
         }
@@ -4409,8 +4575,9 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                  index < target->parameters.size() && index < slice_index; ++index) {
                 if (!target->parameters[index].defaultValue)
                     continue;
-                auto value = lowerVisibleDefault(*current_module_, target_instance,
-                                                 target->parameters[index].defaultValue);
+                auto value = lowerDefaultWithTarget(*current_module_, target_instance,
+                                                    target->parameters[index].defaultValue,
+                                                    target_fn->params[index]);
                 if (value == hir::kInvalidHirExpr)
                     return false;
                 tail.call.args.push(value);
@@ -4443,6 +4610,8 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                     return false;
                 argument =
                     lowerCoerceToSliceIfArray(slice_type, statement.arguments.back(), argument);
+                argument = lowerCoerceToOpaque(target_fn->params[slice_index],
+                                               statement.arguments.back(), argument);
                 tail.call.argument_types.push(lowerType(target_fn->params[slice_index]));
                 tail.call.args.push(argument);
             }

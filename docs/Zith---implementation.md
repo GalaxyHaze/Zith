@@ -33,6 +33,23 @@ O parser cria `ExprKind::OwnershipCoerce` apenas em listas de argumentos de call
 
 `parseConditionExpression()` é usado em `if`, `while`, nas três cláusulas do `for` e nos grupos parentizados `for (cond)`. A função reconhece `not expr` e constrói `ExprKind::Unary` com texto `not` antes de `parseExpression()`, e reconhece `optional expr` para construir `ExprKind::OptionalProp` sobre o operando. O token seguinte `)`/`,`/`{` interrompe o sugar, para que o parser não absorva o fecho ou separador da cláusula.
 
+`parseStatements()` mantém `return;` e `return` antes de `}` como formas sem
+valor. Quando `return` tem uma expressão, o parser exige `;` depois de
+`parseExpression()` e reporta `E1002 ExpectedSemicolon` sem consumir mais
+tokens.
+
+`parseIf()` aceita um `else` simples, `else if (cond) { body }` e a forma
+preferida `else (cond) { body }`. Ambos os caminhos encadeados usam o mesmo
+`ExprKind::If` com operandos `[cond, then, else-cond-or-inner-if, else-body]`;
+só `else if` emite `W1008 DeprecatedSyntax`. A distinção de spelling no
+formatter é feita pelo token inicial do operando `else` no AST.
+
+`parseExpression()` reconhece os operadores keyword `and`, `or` e `xor` no laço
+binário com precedências 3, 2 e 4, em paralelo com `FmtVisitor::binaryPrecedence`.
+`parseConditionExpression()` delega os operandos para esse laço, por isso
+`if (a and not b)` e `if (a or b)` consomem apenas a condição e voltam ao
+`)/,/{` esperado pelo chamador.
+
 ## Sema
 
 `checkZithDeclarations` roda dentro de `checkExpressions` e verifica:
@@ -126,6 +143,17 @@ expression`; valores fora do tipo subjacente são rejeitados com
 `inferUnary` aceita `not` como o único unário booleano; `not` exige operando `bool`.
 O parser não reconhece `!` como prefixo; `!` permanece apenas no caminho postfix
 ainda por implementar e nunca é convertido em unário booleano ou HIR.
+
+`inferBinary` trata `and`/`or` como booleanos e `xor` como booleano ou inteiro do
+mesmo tipo. O lowering reutiliza `HirBinaryOp::And/Or/Xor` já suportado pelo
+codegen. A fuga `raw x` é marcada em `Expression::isRawName`, ignora a
+verificação de binding não inicializado, e baixa diretamente para a leitura do
+binding com o mesmo tipo.
+
+`PerModuleSema` mantém `uninitializedLocals_` por corpo de função: bindings sem
+inicializador entram no conjunto durante `inferBlock`, a primeira escrita direta
+remove o local, e `inferExpr` rejeita leituras normais desse conjunto. A regra
+de `let x; x = e;` continua a permitir a primeira escrita para inferir o tipo.
 
 `checkFunctionDefaults` valida os parâmetros com `Parameter.defaultValue`: um parâmetro sem default não pode seguir um com default, e o tipo do default é verificado contra o tipo do parâmetro com `coerceValue`. A resolução de calls reutiliza `missingArgsHaveDefaults` para aceitar aridades menores em calls livres, genéricos, overloads, métodos, métodos genéricos, métodos dyn, dock e transições de state quando os parâmetros fixos em falta têm todos default.
 

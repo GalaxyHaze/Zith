@@ -1694,6 +1694,12 @@ private:
     [[nodiscard]] static int precedence(const std::string_view op) {
         if (isAssignmentOp(op))
             return 1;
+        if (op == "or")
+            return 2;
+        if (op == "and")
+            return 3;
+        if (op == "xor")
+            return 4;
         if (op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=")
             return 5;
         if (op == "|.")
@@ -1800,6 +1806,11 @@ private:
                             raw_root.kind == ExprKind::SliceRange) {
                             raw_root.is_raw = true;
                             left            = operand;
+                        } else if (raw_root.kind == ExprKind::Name) {
+                            // `raw x` is the explicit unchecked read escape
+                            // for a binding initialized later in the block.
+                            raw_root.isRawName = true;
+                            left               = operand;
                         } else {
                             snapshot_.diagnostics_.push_back(
                                 {range(start, index_),
@@ -1860,7 +1871,10 @@ private:
                 left         = addExpression(std::move(is_expr));
                 continue;
             }
-            if (snapshot_.tokens_[index_].kind != TokenKind::Operator)
+            const bool is_keyword_operator =
+                snapshot_.tokens_[index_].kind == TokenKind::Keyword &&
+                (text(index_) == "and" || text(index_) == "or" || text(index_) == "xor");
+            if (snapshot_.tokens_[index_].kind != TokenKind::Operator && !is_keyword_operator)
                 break;
             const auto op = text(index_);
             // `&&` / `||` are lexed only to be rejected here: Zith spells them `and` / `or`.
@@ -1983,6 +1997,50 @@ private:
                 {range(index_ - 5, index_), "expected ')' after target arguments"});
     }
 
+    /// Parses the tail after an `else` keyword has been consumed. Returns either
+    /// a block, a legacy `else if` expression, or a new-style `else (cond)` node
+    /// whose first token is `else`, so the formatter can keep original spelling.
+    [[nodiscard]] ExprId parseElseTail(const uint32_t start) {
+        if (punctuation(index_, '{'))
+            return parseBlock();
+        if (index_ < token_count_ && text(index_) == "if") {
+            snapshot_.diagnostics_.push_back(
+                {tokenSpan(index_ - 1U), "'else if (cond)' is deprecated; use 'else (cond) { }'",
+                 true, diagnostics::err::DeprecatedSyntax});
+            return parseIf();
+        }
+
+        Expression tail;
+        tail.kind  = ExprKind::If;
+        tail.scope = current_scope_;
+        tail.span  = range(start, index_);
+        if (punctuation(index_, '(')) {
+            ++index_;
+            tail.operands.push_back(parseConditionExpression());
+            if (punctuation(index_, ')'))
+                ++index_;
+            else if (!punctuation(index_, '{'))
+                snapshot_.diagnostics_.push_back(
+                    {range(start, index_), "expected ')' after condition"});
+            if (punctuation(index_, '{'))
+                tail.operands.push_back(parseBlock());
+            else
+                snapshot_.diagnostics_.push_back({range(start, index_), "expected else body"});
+            if (index_ < token_count_ && text(index_) == "else") {
+                ++index_;
+                tail.span           = range(start, index_);
+                const ExprId nested = parseElseTail(index_ - 1U);
+                tail.span           = range(start, index_);
+                tail.operands.push_back(nested);
+            }
+            tail.span = range(start, index_);
+            return addExpression(std::move(tail));
+        }
+
+        snapshot_.diagnostics_.push_back({range(start, index_), "expected else body"});
+        return addExpression(std::move(tail));
+    }
+
     [[nodiscard]] ExprId parseIf() {
         const uint32_t start = index_++;
         if (punctuation(index_, '('))
@@ -2006,9 +2064,40 @@ private:
             ++index_;
             if (punctuation(index_, '{'))
                 expression.operands.push_back(parseBlock());
-            else if (index_ < token_count_ && text(index_) == "if")
+            else if (index_ < token_count_ && text(index_) == "if") {
+                snapshot_.diagnostics_.push_back(
+                    {tokenSpan(index_ - 1U),
+                     "'else if (cond)' is deprecated; use 'else (cond) { }'", true,
+                     diagnostics::err::DeprecatedSyntax});
                 expression.operands.push_back(parseIf());
-            else
+            } else if (punctuation(index_, '(')) {
+                const uint32_t else_start = index_ - 1U;
+                ++index_; // consume '('
+                const ExprId else_condition = parseConditionExpression();
+                if (punctuation(index_, ')'))
+                    ++index_;
+                else if (!punctuation(index_, '{'))
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_), "expected ')' after condition"});
+                const ExprId else_body = punctuation(index_, '{') ? parseBlock() : ExprId{};
+                if (!else_body)
+                    snapshot_.diagnostics_.push_back({range(start, index_), "expected else body"});
+                if (index_ < token_count_ && text(index_) == "else") {
+                    ++index_;
+                    const ExprId tail = parseElseTail(index_ - 1U);
+                    Expression chained;
+                    chained.kind     = ExprKind::If;
+                    chained.scope    = current_scope_;
+                    chained.operands = {else_condition, else_body};
+                    if (tail)
+                        chained.operands.push_back(tail);
+                    chained.span = range(else_start, index_ + 1U);
+                    expression.operands.push_back(addExpression(std::move(chained)));
+                } else {
+                    expression.operands.push_back(else_condition);
+                    expression.operands.push_back(else_body);
+                }
+            } else
                 snapshot_.diagnostics_.push_back({range(start, index_), "expected else body"});
         }
         expression.span = range(start, index_);
@@ -2180,6 +2269,29 @@ private:
                     stmt.binding.initializer = parseExpression();
                 }
                 stmt.span = range(clause_start, index_);
+                const bool second_var_decl =
+                    punctuation(index_, ',') && index_ + 1U < token_count_ &&
+                    snapshot_.tokens_[index_ + 1U].kind == TokenKind::Keyword &&
+                    (text(index_ + 1U) == "var" || text(index_ + 1U) == "let");
+                if (second_var_decl) {
+                    const std::string_view header = text(index_ + 1U) == "var" ? "var" : "let";
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_),
+                         "for expects (init), (cond), (step) or a single loop variable; '" +
+                             std::string(header) +
+                             "' declarations cannot be comma-separated in a for header",
+                         false, diagnostics::err::UnsupportedSyntax});
+                    while (index_ < token_count_ && !punctuation(index_, ')'))
+                        ++index_;
+                    if (punctuation(index_, ')'))
+                        ++index_;
+                    if (!punctuation(index_, '{'))
+                        snapshot_.diagnostics_.push_back(
+                            {range(start, index_), "expected for body"});
+                    expression.kind = ExprKind::Error;
+                    expression.span = range(start, index_);
+                    return addExpression(std::move(expression));
+                }
                 init_stmt = addStatement(std::move(stmt));
             } else if (!punctuation(index_, ',') && !punctuation(index_, ')')) {
                 init_expr = parseConditionExpression();
@@ -2460,6 +2572,7 @@ private:
             Expression prop;
             prop.kind                = ExprKind::OptionalProp;
             prop.scope               = current_scope_;
+            prop.isOptionalKeyword   = true;
             const bool saved         = suppress_struct_literal_;
             suppress_struct_literal_ = true;
             const ExprId operand     = parseExpression();
@@ -2788,8 +2901,14 @@ private:
         } else if (word == "return") {
             statement.kind = StmtKind::Return;
             ++index_;
-            if (index_ < token_count_ && !punctuation(index_, ';') && !punctuation(index_, '}'))
+            if (index_ < token_count_ && !punctuation(index_, ';') && !punctuation(index_, '}')) {
                 statement.expression = parseExpression();
+                if (index_ < token_count_ && !punctuation(index_, ';'))
+                    snapshot_.diagnostics_.push_back(
+                        {tokenSpan(index_),
+                         "a return expression must be terminated with ';'", false,
+                         diagnostics::err::ExpectedSemicolon});
+            }
         } else if (word == "break") {
             statement.kind = StmtKind::Break;
             ++index_;

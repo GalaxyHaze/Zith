@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=ByteAsk Usage Monitor
+Comment=Notifies when ByteAsk usage reaches configured thresholds
+Exec=/home/diogo/.local/bin/byteask-usage-monitor start
+Terminal=false
+X-GNOME-Autostart-enabled=true

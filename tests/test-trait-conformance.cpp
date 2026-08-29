@@ -78,11 +78,11 @@ struct SessionRunner {
 void test_requirement_default_and_override() {
     SessionRunner t("conformance");
     auto r = t.run("trait Printable {\n"
-                   "    fn print(self): i32 { return 7 }\n"
+                   "    fn print(self): i32 { return 7; }\n"
                    "}\n"
                    "struct Point { x: i32 }\n"
                    "implement Point as Printable {\n"
-                   "    fn print(self): i32 { return self->x }\n"
+                   "    fn print(self): i32 { return self->x; }\n"
                    "}\n"
                    "fn main(): i32 {\n"
                    "    let p = Point{ x: 3 };\n"
@@ -96,7 +96,7 @@ void test_requirement_default_and_override() {
 void test_default_method_available() {
     SessionRunner t("conformance");
     auto r = t.run("trait Named {\n"
-                   "    fn name(self): i32 { return 42 }\n"
+                   "    fn name(self): i32 { return 42; }\n"
                    "}\n"
                    "struct Point { x: i32 }\n"
                    "implement Point as Named {}\n"
@@ -110,11 +110,11 @@ void test_default_method_available() {
 void test_self_substitution() {
     SessionRunner t("conformance");
     auto r = t.run("trait IntoValue {\n"
-                   "    fn value(self): i32 { return 0 }\n"
+                   "    fn value(self): i32 { return 0; }\n"
                    "}\n"
                    "struct Point { x: i32 }\n"
                    "implement Point as IntoValue {}\n"
-                   "fn consume(v: IntoValue): i32 { return 1 }\n"
+                   "fn consume(v: IntoValue): i32 { return 1; }\n"
                    "fn main(): i32 {\n"
                    "    let p = Point{ x: 5 };\n"
                    "    return p.value();\n"
@@ -128,7 +128,7 @@ void test_duplicate_implementation() {
                    "struct Point { x: i32 }\n"
                    "implement Point as Named {}\n"
                    "implement Point as Named {}\n"
-                   "fn main(): i32 { return 1 }\n");
+                   "fn main(): i32 { return 1; }\n");
     CHECK(!r.ok, "duplicate implementation fails");
     CHECK(r.hasErrorCode(diagnostics::err::DuplicateImplementation),
           "duplicate implementation reports E2027");
@@ -141,7 +141,7 @@ void test_missing_requirement() {
                    "}\n"
                    "struct Point { x: i32 }\n"
                    "implement Point as Named {}\n"
-                   "fn main(): i32 { return 1 }\n");
+                   "fn main(): i32 { return 1; }\n");
     CHECK(!r.ok, "missing requirement fails");
     CHECK(r.hasErrorCode(diagnostics::err::TraitRequirementMissing),
           "missing requirement reports E2021");
@@ -154,9 +154,9 @@ void test_signature_mismatch() {
                    "}\n"
                    "struct Point { x: i32 }\n"
                    "implement Point as Named {\n"
-                   "    fn name(self): f64 { return 1.0 }\n"
+                   "    fn name(self): f64 { return 1.0; }\n"
                    "}\n"
-                   "fn main(): i32 { return 1 }\n");
+                   "fn main(): i32 { return 1; }\n");
     CHECK(!r.ok, "signature mismatch fails");
     CHECK(r.hasErrorCode(diagnostics::err::TraitMethodSignatureMismatch),
           "signature mismatch reports E2022");
@@ -167,7 +167,7 @@ void test_explicit_interface_impl_rejected() {
     auto r = t.run("interface Positioned { [x, y]: f32 }\n"
                    "struct Point { x: f32, y: f32 }\n"
                    "implement Point as Positioned {}\n"
-                   "fn main(): i32 { return 1 }\n");
+                   "fn main(): i32 { return 1; }\n");
     CHECK(!r.ok, "explicit interface implementation fails");
     CHECK(r.hasErrorCode(diagnostics::err::InterfaceMethodNotAllowed),
           "explicit interface implementation reports E2025");
@@ -176,10 +176,10 @@ void test_explicit_interface_impl_rejected() {
 void test_higiene() {
     SessionRunner t("conformance");
     auto r = t.run("trait A {\n"
-                   "    fn pick(self): i32 { return 1 }\n"
+                   "    fn pick(self): i32 { return 1; }\n"
                    "}\n"
                    "trait B {\n"
-                   "    fn pick(self): i32 { return 2 }\n"
+                   "    fn pick(self): i32 { return 2; }\n"
                    "}\n"
                    "struct Point { x: i32 }\n"
                    "implement Point as A {}\n"
@@ -200,7 +200,7 @@ void test_struct_and_interface_method_coexist() {
                    "}\n"
                    "struct Counter {\n"
                    "    value: i32,\n"
-                   "    fn add(self, other: i32): i32 { return self.value + other }\n"
+                   "    fn add(self, other: i32): i32 { return self.value + other; }\n"
                    "}\n"
                    "fn main(): i32 {\n"
                    "    let c = Counter{ value: 1 };\n"
@@ -214,10 +214,10 @@ void test_struct_and_interface_method_coexist() {
 void test_qualified_trait_method_selection() {
     SessionRunner t("conformance");
     auto r = t.run("trait A {\n"
-                   "    fn pick(self): i32 { return 1 }\n"
+                   "    fn pick(self): i32 { return 1; }\n"
                    "}\n"
                    "trait B {\n"
-                   "    fn pick(self): i32 { return 2 }\n"
+                   "    fn pick(self): i32 { return 2; }\n"
                    "}\n"
                    "struct Point { x: i32 }\n"
                    "implement Point as A {}\n"
@@ -234,7 +234,7 @@ void test_qualified_trait_method_selection() {
 void test_qualified_trait_missing_member() {
     SessionRunner t("conformance");
     auto r = t.run("trait A {\n"
-                   "    fn pick(self): i32 { return 1 }\n"
+                   "    fn pick(self): i32 { return 1; }\n"
                    "}\n"
                    "struct Point { x: i32 }\n"
                    "implement Point as A {}\n"
@@ -253,17 +253,17 @@ void test_primitive_optional_slice_conformance() {
                    "   fn value(self): i32\n"
                    "}\n"
                    "implement i32 as Value {\n"
-                   "   fn value(self): i32 { return 7 }\n"
+                   "   fn value(self): i32 { return 7; }\n"
                    "}\n"
                    "trait OptionalValue {\n"
-                   "   fn gets(self): i32 { return 11 }\n"
+                   "   fn gets(self): i32 { return 11; }\n"
                    "}\n"
                    "implement ?char as OptionalValue {}\n"
                    "trait SliceValue {\n"
                    "   fn len(self): i32\n"
                    "}\n"
                    "implement []u8 as SliceValue {\n"
-                   "   fn len(self): i32 { return 5 }\n"
+                   "   fn len(self): i32 { return 5; }\n"
                    "}\n"
                    "fn main(): i32 {\n"
                    "   let a: i32 = 1;\n"
@@ -284,7 +284,7 @@ void test_primitive_optional_slice_duplicates_and_bounds() {
     auto duplicate = t.run("trait Value {}\n"
                            "implement i32 as Value {}\n"
                            "implement i32 as Value {}\n"
-                           "fn main(): i32 { return 1 }\n");
+                           "fn main(): i32 { return 1; }\n");
     CHECK(!duplicate.ok, "a duplicate primitive implementation fails");
     CHECK(duplicate.hasErrorCode(diagnostics::err::DuplicateImplementation),
           "duplicate primitive implementation reports E2027");
@@ -293,10 +293,10 @@ void test_primitive_optional_slice_duplicates_and_bounds() {
     auto bounds = bound_t.run("trait Show {\n"
                               "   fn show(self): i32\n"
                               "}\n"
-                              "implement i32 as Show { fn show(self): i32 { return 3 } }\n"
-                              "implement ?char as Show { fn show(self): i32 { return 4 } }\n"
-                              "implement []u8 as Show { fn show(self): i32 { return 5 } }\n"
-                              "fn pick<T: Show>(x: T): i32 { return x.show() }\n"
+                              "implement i32 as Show { fn show(self): i32 { return 3; } }\n"
+                              "implement ?char as Show { fn show(self): i32 { return 4; } }\n"
+                              "implement []u8 as Show { fn show(self): i32 { return 5; } }\n"
+                              "fn pick<T: Show>(x: T): i32 { return x.show(); }\n"
                               "fn main(): i32 {\n"
                               "   let a: i32 = 1;\n"
                               "   let o: ?char = 'x';\n"
@@ -313,7 +313,7 @@ void test_primitive_slice_missing_requirement() {
                    "   fn len(self): i32\n"
                    "}\n"
                    "implement []char as SliceValue {}\n"
-                   "fn main(): i32 { return 1 }\n");
+                   "fn main(): i32 { return 1; }\n");
     CHECK(!r.ok, "a missing slice requirement fails");
     CHECK(r.hasErrorCode(diagnostics::err::TraitRequirementMissing),
           "missing slice requirement reports E2021");

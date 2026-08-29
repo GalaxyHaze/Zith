@@ -40,6 +40,7 @@ private:
     [[nodiscard]] std::size_t prefixStartTokenIndex(std::size_t first_token) const noexcept;
     [[nodiscard]] std::size_t findTokenIndex(frontend::TextSpan span,
                                              std::string_view text) const noexcept;
+    [[nodiscard]] std::size_t firstElseTokenIndex(frontend::TextSpan opening_span) const noexcept;
     [[nodiscard]] bool containsComment(frontend::TextSpan span) const noexcept;
     [[nodiscard]] bool hasHorizontalGap(std::size_t left_token,
                                         std::size_t right_token) const noexcept;

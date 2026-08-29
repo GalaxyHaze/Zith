@@ -112,6 +112,24 @@ std::size_t FmtVisitor::prefixStartTokenIndex(const std::size_t first_token) con
     return current;
 }
 
+std::size_t FmtVisitor::firstElseTokenIndex(const frontend::TextSpan opening_span) const noexcept {
+    std::size_t index = firstTokenIndex(opening_span);
+    if (index >= snapshot_.tokens().size())
+        return snapshot_.tokens().size();
+    if (tokenText(index) == "if" && index > 0U)
+        --index;
+    if (tokenText(index) == "else")
+        return index;
+    while (index > 0U) {
+        --index;
+        if (tokenText(index) == "else")
+            return index;
+        if (index == 0U || snapshot_.tokens()[index].span.end > opening_span.start)
+            break;
+    }
+    return snapshot_.tokens().size();
+}
+
 std::size_t FmtVisitor::findTokenIndex(const frontend::TextSpan span,
                                        const std::string_view text) const noexcept {
     const auto &tokens = snapshot_.tokens();
@@ -753,6 +771,8 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
     case frontend::ExprKind::Unary:
         if (expr->text == "not") {
             emit("not ");
+        } else if (expr->text == "raw") {
+            emit("raw ");
         } else {
             emit(expr->text);
         }
@@ -830,13 +850,36 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
             emitOriginal(expr->span);
             break;
         }
+        {
+            const auto fmt_first_token = firstTokenIndex(expr->span);
+            const bool is_chained_tail =
+                fmt_first_token < snapshot_.tokens().size() && tokenText(fmt_first_token) == "else";
+            if (is_chained_tail) {
+                emit("(");
+                visitExpr(expr->operands[0]);
+                emit(") ");
+                visitExpr(expr->operands[1]);
+                if (expr->operands.size() > 2U) {
+                    emit(" else ");
+                    visitExpr(expr->operands[2]);
+                }
+                break;
+            }
+        }
         emit("if (");
         visitExpr(expr->operands[0]);
         emit(") ");
         visitExpr(expr->operands[1]);
         if (expr->operands.size() > 2U) {
             emit(" else ");
-            visitExpr(expr->operands[2]);
+            if (expr->operands.size() > 3U) {
+                emit("(");
+                visitExpr(expr->operands[2]);
+                emit(") ");
+                visitExpr(expr->operands[3]);
+            } else {
+                visitExpr(expr->operands[2]);
+            }
         }
         break;
     case frontend::ExprKind::While:
@@ -900,6 +943,12 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
         }
         break;
     case frontend::ExprKind::OptionalProp:
+        if (expr->isOptionalKeyword) {
+            emit("optional ");
+            if (!expr->operands.empty())
+                visitExpr(expr->operands.front(), current_prec);
+            break;
+        }
         if (!expr->operands.empty())
             visitExpr(expr->operands.front(), current_prec);
         emit("?");

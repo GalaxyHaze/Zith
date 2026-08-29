@@ -405,6 +405,37 @@ void test_if_else_lowers_to_branch_and_merge() {
     }
 }
 
+void test_else_condition_lowers_to_branch_and_merge() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn pick(a: bool, b: bool): i32 {\n"
+                                     "    if (a) {\n"
+                                     "        1\n"
+                                     "    } else (b) {\n"
+                                     "        2\n"
+                                     "    } else {\n"
+                                     "        3\n"
+                                     "    }\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "modern lowering succeeds for else condition");
+
+    const auto &hir  = session.hirModule();
+    const auto *pick = findFunction(hir, session.interner(), "pick");
+    CHECK(pick != nullptr, "else-condition function is present in HIR");
+    if (pick != nullptr) {
+        CHECK(pick->blocks.size() >= 4u,
+              "else condition creates entry, then, else, and merge blocks");
+        CHECK(countTerminatorKind(hir, *pick, hir::HirExprKind::Branch) >= 1u,
+              "else condition emits at least the initial branch terminator");
+        CHECK(countTerminatorKind(hir, *pick, hir::HirExprKind::Jump) >= 2u,
+              "then/else blocks jump to merge");
+    }
+}
+
 void test_while_continue_lowers_loop_cfg() {
     Workspace workspace;
     workspace.writeFile("main.zith", "fn main(): i32 {\n"
@@ -532,8 +563,8 @@ bool loadsOnlyOwnSlots(const hir::HirModule &hir, const hir::HirFunction &fn) {
 
 void test_same_named_parameters_use_distinct_slots() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn f(x: i32): i32 { return x }\n"
-                                     "fn g(x: i32): i32 { return x }\n");
+    workspace.writeFile("main.zith", "fn f(x: i32): i32 { return x; }\n"
+                                     "fn g(x: i32): i32 { return x; }\n");
 
     memory::Arena arena;
     Options options(arena);
@@ -883,12 +914,13 @@ void test_numeric_cast_lowers_to_hir_cast() {
 
 void test_opaque_casts_lower_to_hir_nodes() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn erased(value: i32): opaque { value as opaque }\n"
-                                     "fn checks(value: opaque): bool { value is i32 }\n"
-                                     "fn extracts(value: opaque): ?i32 { value as i32 }\n"
-                                     "fn raw_extracts(value: opaque): i32 { raw value as i32 }\n"
-                                     "fn raw_ptr(value: opaque): raw opaque { value as raw opaque }\n"
-                                     "fn main(): i32 { 0 }\n");
+    workspace.writeFile("main.zith",
+                        "fn erased(value: i32): opaque { value as opaque }\n"
+                        "fn checks(value: opaque): bool { value is i32 }\n"
+                        "fn extracts(value: opaque): ?i32 { value as i32 }\n"
+                        "fn raw_extracts(value: opaque): i32 { raw value as i32 }\n"
+                        "fn raw_ptr(value: opaque): raw opaque { value as raw opaque }\n"
+                        "fn main(): i32 { 0 }\n");
 
     memory::Arena arena;
     Options options(arena);
@@ -926,14 +958,46 @@ void test_opaque_casts_lower_to_hir_nodes() {
                 std::get_if<hir::HirOpaqueCast>(&hir.getExpr(static_cast<hir::HirExprId>(id)));
             if (cast == nullptr || !cast->returns_ptr)
                 continue;
-            saw_ptr = true;
-            correct_target =
-                cast->to == cast->result_type && cast->result_type != cast->from &&
-                cast->from == cast->opaque_type;
+            saw_ptr        = true;
+            correct_target = cast->to == cast->result_type && cast->result_type != cast->from &&
+                             cast->from == cast->opaque_type;
         }
         CHECK(saw_ptr, "opaque as raw opaque lowers to a pointer-returning HirOpaqueCast");
         CHECK(correct_target, "the raw opaque cast targets pointer-to-void, not OpaqueTagged");
     }
+}
+
+void test_implicit_opaque_coercion_and_narrow_lowering() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "fn consume(v: opaque): bool {\n"
+                                     "    if (v is u32) { let x: u32 = v; return x == 42u32; }\n"
+                                     "    return false;\n"
+                                     "}\n"
+                                     "fn make(): opaque { 42u32 }\n"
+                                     "fn main(): bool { let o: opaque = 1u32; consume(o) }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "implicit concrete-to-opaque lowering succeeds");
+
+    const auto &hir = session.hirModule();
+    CHECK(countExprKind(hir, hir::HirExprKind::MakeOpaque) >= 2u,
+          "implicit binding and return coercions emit HirMakeOpaque");
+
+    bool saw_narrowed_cast = false;
+    for (size_t id = 0; id < hir.exprCount(); ++id) {
+        const auto &expr = hir.getExpr(static_cast<hir::HirExprId>(id));
+        if (const auto *cast = std::get_if<hir::HirOpaqueCast>(&expr)) {
+            if (!cast->checked && cast->from == cast->opaque_type && cast->from != cast->to &&
+                cast->to == cast->result_type)
+                saw_narrowed_cast = true;
+        }
+    }
+    CHECK(saw_narrowed_cast,
+          "reading an opaque local inside 'is T' lowers to an unchecked HirOpaqueCast");
 }
 
 void test_is_null_on_pointer_optional_uses_niche() {
@@ -1356,7 +1420,7 @@ void test_local_states_qualify_and_lower_without_collisions() {
 
 void test_generic_function_lowers_to_concrete_instances() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn identity<T>(x: T): T { return x }\n"
+    workspace.writeFile("main.zith", "fn identity<T>(x: T): T { return x; }\n"
                                      "fn main(): i32 {\n"
                                      "    identity<i32>(7);\n"
                                      "    return identity(9);\n"
@@ -1419,8 +1483,8 @@ void test_generic_bound_and_value_param_lower_to_hir() {
                                      "struct Temple { x: i32 }\n"
                                      "struct Point { x: i32 }\n"
                                      "implement Temple as Foo {}\n"
-                                     "fn foolish<T: Foo>(a: T): i32 { return 1 }\n"
-                                     "fn interLab<T: Transform>(a: T): i32 { return a.x }\n"
+                                     "fn foolish<T: Foo>(a: T): i32 { return 1; }\n"
+                                     "fn interLab<T: Transform>(a: T): i32 { return a.x; }\n"
                                      "fn main(): i32 {\n"
                                      "    let p = Point { x: 7 };\n"
                                      "    return foolish<Temple>(Temple { x: 1 }) + interLab(p);\n"
@@ -1451,9 +1515,9 @@ void test_interface_method_bound_lower_to_hir() {
                                      "}\n"
                                      "struct Point {\n"
                                      "    x: i32,\n"
-                                     "    fn getX(self): i32 { return self.x }\n"
+                                     "    fn getX(self): i32 { return self.x; }\n"
                                      "}\n"
-                                     "fn transform<T: Positioned>(p: T): i32 { return p.getX() }\n"
+                                     "fn transform<T: Positioned>(p: T): i32 { return p.getX(); }\n"
                                      "fn main(): i32 {\n"
                                      "    let p = Point { x: 7 };\n"
                                      "    return transform<Point>(p);\n"
@@ -2041,9 +2105,11 @@ static void test_hir_lower_modern() {
     test_ownership_hir_carries_residual_slot_attrs();
     test_free_borrow_parameter_lowers_to_pointer_and_call_addr();
     test_opaque_casts_lower_to_hir_nodes();
+    test_implicit_opaque_coercion_and_narrow_lowering();
     test_extern_variadic_lower_to_hir();
     test_bindings_lower_to_slots();
     test_if_else_lowers_to_branch_and_merge();
+    test_else_condition_lowers_to_branch_and_merge();
     test_while_continue_lowers_loop_cfg();
     test_while_break_lowers_loop_exit();
     test_labeled_nested_loop_lowers();

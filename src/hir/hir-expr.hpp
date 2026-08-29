@@ -374,8 +374,8 @@ struct HirOpaqueCast {
     bool checked          = false;
     /// `as raw opaque` reinterprets the tagged payload pointer itself (field 0)
     /// as `void*`, so codegen does not load through the payload.
-    bool returns_ptr      = false;
-    HirExprKind tag       = HirExprKind::OpaqueCast;
+    bool returns_ptr = false;
+    HirExprKind tag  = HirExprKind::OpaqueCast;
 };
 
 /// Tag check for `opaque is T`: compares the stored type id with the requested

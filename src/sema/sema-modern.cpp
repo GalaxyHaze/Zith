@@ -769,6 +769,8 @@ void PerModuleSema::inferExpressionTypesForDecls() {
                                    ? snapshot.expressions()[decl.body.value - 1U].scope
                                    : frontend::ScopeId{};
         movedLocals_.clear();
+        uninitializedLocals_.clear();
+        preinitializedLocals_.clear();
         inStateBody_ = decl.kind == frontend::DeclKind::Function &&
                        decl.functionKind == frontend::FunctionKind::State;
         currentStateMachineId_ =
@@ -875,11 +877,16 @@ void PerModuleSema::checkReturnsAndCalls() {
                 }
                 return false;
             }();
-            if (!sameType(body_type, void_type) && ret_type != void_type &&
-                !coercesTo(ret_type, body_type)) {
-                reportCoercionFailure(snapshot.expressions()[decl.body.value - 1U].span, ret_type,
-                                      body_type,
-                                      "function body type does not match declared return type");
+            if (!sameType(body_type, void_type) && ret_type != void_type) {
+                const bool implicit_ret_ok =
+                    decl.body && type_table.kindOf(resolve(ret_type)) == TypeKind::Opaque
+                        ? coerceValue(decl.body, ret_type, body_type)
+                        : coercesTo(ret_type, body_type);
+                if (!implicit_ret_ok) {
+                    reportCoercionFailure(snapshot.expressions()[decl.body.value - 1U].span,
+                                          ret_type, body_type,
+                                          "function body type does not match declared return type");
+                }
             } else if (sameType(body_type, void_type) && !bodyHasReturn && ret_type != void_type &&
                        ret_type != error_type && !bodyEndsWithStateTransfer) {
                 reportCoercionFailure(
@@ -1679,6 +1686,14 @@ TypeId PerModuleSema::inferExpr(frontend::ExprId id) {
                    "cannot use '" + expr.text + "' after it was moved by a previous call",
                    diagnostics::err::UseAfterMove);
         }
+        if (const auto *resolved = findResolvedExpr(id);
+            resolved != nullptr && resolved->local &&
+            uninitializedLocals_.contains(resolved->local.value) && !expr.isRawName) {
+            report(expr.span,
+                   "binding '" + expr.text +
+                       "' is used before it is initialized; assign a value first or use 'raw'",
+                   diagnostics::err::UnsupportedSyntax);
+        }
     }
     TypeId result;
     switch (expr.kind) {
@@ -1876,6 +1891,9 @@ TypeId PerModuleSema::inferName(frontend::ExprId id, std::string_view text) {
     const auto *resolved = findResolvedExpr(id);
     if (resolved) {
         if (const TypeId resolved_type = typeOfResolvedName(id)) {
+            if (const TypeId recorded = typeOfExpr(id); recorded) {
+                return recorded;
+            }
             if (resolve(resolved_type) == invalid_type) {
                 const auto &resolved_expr = snapshot.expressions()[id.value - 1U];
                 report(resolved_expr.span,
@@ -1910,6 +1928,10 @@ TypeId PerModuleSema::inferUnary(frontend::ExprId id) {
         return error_type;
     TypeId result;
     TypeId operand = inferExpr(expr.operands[0]);
+    if (expr.text == "raw") {
+        // `raw x` is an explicit unchecked read; it preserves the inner type.
+        return operand;
+    }
     if (expr.text == "not") {
         if (!sameType(operand, bool_type))
             report(expr.span, "unary 'not' expects a boolean operand",
@@ -1985,6 +2007,28 @@ TypeId PerModuleSema::inferBinary(frontend::ExprId id) {
             result = error_type;
         } else {
             result = left;
+        }
+    } else if (expr.text == "and" || expr.text == "or" || expr.text == "xor") {
+        if (!sameType(left, bool_type) || !sameType(right, bool_type)) {
+            if (expr.text == "and" || expr.text == "or") {
+                report(expr.span, "operator '" + expr.text + "' expects boolean operands",
+                       diagnostics::err::TypeMismatch);
+                result = error_type;
+            } else {
+                const bool left_int  = type_table.integer(resolve(left)) != nullptr;
+                const bool right_int = type_table.integer(resolve(right)) != nullptr;
+                if ((left_int && right_int && sameType(left, right)) ||
+                    (sameType(left, bool_type) && sameType(right, bool_type))) {
+                    result = left;
+                } else {
+                    report(expr.span,
+                           "operator 'xor' expects boolean operands or integers of the same type",
+                           diagnostics::err::TypeMismatch);
+                    result = error_type;
+                }
+            }
+        } else {
+            result = bool_type;
         }
     } else if (sema::isArithmeticOp(expr.text)) {
         if (!sameType(left, right))
@@ -3618,6 +3662,11 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
                     setLocalType(stmt.binding.id, ann_type ? ann_type : init_type);
                 else if (!existing_type)
                     setLocalType(stmt.binding.id, invalid_type);
+                if (stmt.binding.initializer ||
+                    preinitializedLocals_.contains(stmt.binding.id.value))
+                    uninitializedLocals_.erase(stmt.binding.id.value);
+                else
+                    uninitializedLocals_.insert(stmt.binding.id.value);
                 last = void_type;
             } else if (stmt.kind == frontend::StmtKind::Return) {
                 checkReturnStatement(stmt);
@@ -3689,6 +3738,10 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
                 setLocalType(stmt.binding.id, ann_type ? ann_type : init_type);
             else if (!existing_type)
                 setLocalType(stmt.binding.id, invalid_type);
+            if (stmt.binding.initializer || preinitializedLocals_.contains(stmt.binding.id.value))
+                uninitializedLocals_.erase(stmt.binding.id.value);
+            else
+                uninitializedLocals_.insert(stmt.binding.id.value);
             last = void_type;
         } else if (stmt.kind == frontend::StmtKind::Return) {
             checkReturnStatement(stmt);
@@ -3891,9 +3944,10 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
         report(expr.span, "if condition must be boolean", diagnostics::err::TypeMismatch);
     const auto &condition = snapshot.expressions()[expr.operands[0].value - 1U];
     frontend::LocalId narrowed_local;
-    TypeId original_local_type = kInvalidTypeId;
-    TypeId narrowed_type       = kInvalidTypeId;
-    bool narrow_then           = false;
+    TypeId original_local_type   = kInvalidTypeId;
+    TypeId narrowed_type         = kInvalidTypeId;
+    bool narrow_then             = false;
+    bool narrowed_opaque_payload = false;
     if (condition.kind == frontend::ExprKind::IsType && !condition.operands.empty() &&
         condition.cast_type) {
         const auto *resolved = findResolvedExpr(condition.operands[0]);
@@ -3901,8 +3955,15 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
             narrowed_local      = resolved->local;
             original_local_type = typeOfLocal(narrowed_local);
             narrowed_type       = lowerTypeExpr(condition.cast_type);
-            if (narrowed_type) {
-                narrow_then = true;
+            const TypeKind local_kind =
+                type_table.kindOf(resolve(type_table.stripQualifiers(original_local_type)));
+            // `is T` on a tagged union or bare opaque narrows the checked
+            // payload. For opaque, reads in the then branch are safe because
+            // the HIR emits an unchecked payload extraction after the tag test.
+            if (narrowed_type &&
+                (local_kind == TypeKind::Opaque || local_kind == TypeKind::Union)) {
+                narrow_then             = true;
+                narrowed_opaque_payload = local_kind == TypeKind::Opaque;
             }
         }
     } else if (condition.kind == frontend::ExprKind::IsNull && !condition.operands.empty()) {
@@ -3933,20 +3994,52 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
         }
     }
 
-    if (narrowed_local && narrowed_type && narrow_then)
+    if (narrowed_local && narrowed_type && narrow_then) {
         setLocalType(narrowed_local, narrowed_type);
+        if (narrowed_opaque_payload) {
+            // Standalone Name expressions are inferred later by the sweep
+            // without the `if` flow context. Pre-type them so `let x: T =
+            // opaque` and body reads see the payload type during the first
+            // inference and remain correct afterwards.
+            const auto &then_expr = snapshot.expressions()[expr.operands[1].value - 1U];
+            for (const auto &body_name : snapshot.expressions()) {
+                if (body_name.kind != frontend::ExprKind::Name)
+                    continue;
+                if (body_name.span.start < then_expr.span.start ||
+                    body_name.span.end > then_expr.span.end)
+                    continue;
+                const auto *name_resolved = findResolvedExpr(body_name.id);
+                if (name_resolved != nullptr && name_resolved->local == narrowed_local)
+                    typed_map.exprTypes.insert(body_name.id.value, narrowed_type);
+            }
+        }
+    }
     TypeId then_type = inferExpr(expr.operands[1]);
     if (narrowed_local && narrowed_type)
         setLocalType(narrowed_local, original_local_type);
     if (narrowed_local && narrowed_type && !narrow_then)
         setLocalType(narrowed_local, narrowed_type);
-    TypeId else_type = expr.operands.size() >= 3 ? inferExpr(expr.operands[2]) : void_type;
+    TypeId else_cond_type = void_type;
+    TypeId else_type      = void_type;
+    if (expr.operands.size() >= 3U)
+        else_type = expr.operands.size() > 3U ? inferExpr(expr.operands[3])
+                                              : inferExpr(expr.operands[2]);
+    if (expr.operands.size() > 3U) {
+        optionalPropInCondition_ = true;
+        else_cond_type           = inferExpr(expr.operands[2]);
+        optionalPropInCondition_ = false;
+        if (!sameType(else_cond_type, bool_type))
+            report(expr.span, "if condition must be boolean",
+                   diagnostics::err::TypeMismatch);
+    }
     if (narrowed_local && narrowed_type) {
         setLocalType(narrowed_local, original_local_type);
     }
     // An `if` without `else` is a statement even when its body has a value; only
     // an `if/else` expression can produce a value for the surrounding expression.
-    if (expr.operands.size() < 3U || !expr.operands[2])
+    const frontend::ExprId else_value =
+        expr.operands.size() > 3U ? expr.operands[3] : expr.operands[2];
+    if (expr.operands.size() < 3U || !else_value)
         return void_type;
     if (sameType(then_type, else_type))
         return then_type;
@@ -4144,6 +4237,7 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
         } else {
             setLocalType(expr.forInBinding, ann ? ann : actual);
         }
+        preinitializedLocals_.insert(expr.forInBinding.value);
     }
     (void)inferExpr(expr.operands[1]);
     active_loop_labels_.pop_back();
@@ -4441,7 +4535,10 @@ TypeId PerModuleSema::inferWhen(frontend::ExprId id) {
                 narrowed_local      = resolved->local;
                 original_local_type = typeOfLocal(narrowed_local);
                 narrowed_type       = lowerTypeExpr(cond_node.cast_type);
-                if (narrowed_type)
+                const TypeKind local_kind =
+                    type_table.kindOf(resolve(type_table.stripQualifiers(original_local_type)));
+                if (narrowed_type &&
+                    (local_kind == TypeKind::Opaque || local_kind == TypeKind::Union))
                     setLocalType(narrowed_local, narrowed_type);
             }
         }
@@ -4534,6 +4631,15 @@ bool PerModuleSema::adaptNumericLiteral(frontend::ExprId value, TypeId target) {
 }
 
 bool PerModuleSema::coerceValue(frontend::ExprId value, TypeId target, TypeId source) {
+    // Any concrete value can be erased into bare `opaque`. The original source
+    // type is recorded because HIR/codegen must know which concrete tag and
+    // payload layout the opaque value stores.
+    if (value && source && type_table.kindOf(resolve(target)) == TypeKind::Opaque &&
+        type_table.kindOf(resolve(source)) != TypeKind::Opaque) {
+        setExprType(value, target);
+        typed_map.opaqueSourceTypes.insert(value.value, source);
+        return true;
+    }
     // A borrowed parameter's ABI is a pointer, but the call-site argument is
     // the borrowed value. `lend q` / `view q` check the value against the
     // pointee after the ownership-annotation check has run.
@@ -5008,6 +5114,12 @@ TypeId PerModuleSema::inferAssign(frontend::ExprId id) {
     if (expr.operands.size() < 2)
         return error_type;
     checkMovedRoot(expr);
+    // Mark a direct bind as initialized before re-inferring the left name on
+    // the standalone sweep; the later read (in the same expression statement)
+    // is then allowed without an extra flow pass.
+    if (const auto *lhs_resolved = findResolvedExpr(expr.operands[0]);
+        lhs_resolved != nullptr && lhs_resolved->local)
+        uninitializedLocals_.erase(lhs_resolved->local.value);
     TypeId left_type = kInvalidTypeId;
     prepareLValueIndexTypes(expr.operands[0]);
     const auto *left_resolved = findResolvedExpr(expr.operands[0]);

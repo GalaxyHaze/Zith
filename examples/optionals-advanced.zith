@@ -3,7 +3,7 @@
 // Expected exit code: 14
 
 fn halfIfEven(n: i32): ?i32 {
-    if ((n - ((n / 2) * 2)) != 0) {
+    if (n - ((n / 2) * 2) != 0) {
         return null;
     }
     return n / 2;
@@ -28,7 +28,7 @@ fn main(): i32 {
     }
 
     maybe = null;
-    if (not (maybe is null)) {
+    if not (maybe is null) {
         return 3;
     }
 

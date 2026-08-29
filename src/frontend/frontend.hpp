@@ -297,6 +297,13 @@ struct Expression {
     /// True when `raw a[i]` or `raw a[lo..hi]` was written. Raw slice/index
     /// operations skip static and runtime bounds handling.
     bool is_raw = false;
+    /// True when conditional sugar was written as `optional x` instead of the
+    /// postfix `x?`. The formatter preserves the original spelling.
+    bool isOptionalKeyword = false;
+    /// True when a Name expression was written as `raw x`. Sema uses this to
+    /// allow an explicit unchecked read of a binding that has not yet been
+    /// initialized.
+    bool isRawName = false;
     /// True when `expansion` is the result of a `raw` macro (the expansion
     /// statements splice directly without a wrapping Block scope).
     bool expansionIsRaw = false;

@@ -391,6 +391,78 @@ static void test_formatter_bitwise_operator_round_trip() {
     CHECK_EQ(formatter.result(), source, "bitwise operators and '~' round-trip through fmt");
 }
 
+static void test_formatter_logical_operator_round_trip() {
+    const std::string source = "fn main(): bool {\n"
+                               "    var a: bool = true;\n"
+                               "    var b: bool = false;\n"
+                               "    var c: bool = false;\n"
+                               "    if (a and b or c) { return true; }\n"
+                               "    if (not (a and b)) { return true; }\n"
+                               "    return false;\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    CHECK(snapshot.diagnostics().empty(), "logical operator source parses cleanly");
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+    CHECK(!formatter.result().empty(), "logical boolean operators are retained by fmt");
+    CHECK(formatter.result().find("a and b or c") != std::string::npos,
+          "logical boolean operators round-trip through fmt");
+    CHECK(formatter.result().find("not (a and b)") != std::string::npos,
+          "unary not round-trips through fmt");
+}
+
+static void test_formatter_condition_keywords_round_trip() {
+    const std::string source = "fn main(): bool {\n"
+                               "    var x: ?i32 = 7;\n"
+                               "    if (optional x) { return true; }\n"
+                               "    if (not x is null) { return true; }\n"
+                               "    return false;\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    CHECK(snapshot.diagnostics().empty(), "condition keyword source parses cleanly");
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+    CHECK(formatter.result().find("optional x") != std::string::npos,
+          "condition keyword sugar round-trips through fmt");
+}
+
+static void test_formatter_else_condition_spelling_round_trip() {
+    const std::string source = "fn pick(a: bool, b: bool): i32 {\n"
+                               "    if (a) {\n"
+                               "        return 1;\n"
+                               "    } else (b) {\n"
+                               "        return 2;\n"
+                               "    } else if (not a) {\n"
+                               "        return 3;\n"
+                               "    } else {\n"
+                               "        return 4;\n"
+                               "    }\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+
+    const std::string &output = formatter.result();
+    CHECK(output.find("} else (b) {") != std::string::npos,
+          "else condition spelling survives formatting");
+    CHECK(output.find("} else if (not a) {") != std::string::npos,
+          "legacy else if spelling survives formatting");
+
+    auto reparsed             = frontend::parse(output);
+    std::size_t warning_count = 0;
+    for (const auto &diagnostic : reparsed.diagnostics()) {
+        if (diagnostic.isWarning && diagnostic.code == diagnostics::err::DeprecatedSyntax)
+            ++warning_count;
+    }
+    std::size_t source_warning_count = 0;
+    for (const auto &diagnostic : snapshot.diagnostics()) {
+        if (diagnostic.isWarning && diagnostic.code == diagnostics::err::DeprecatedSyntax)
+            ++source_warning_count;
+    }
+    CHECK_EQ(warning_count, source_warning_count,
+             "formatted output preserves only the original deprecation warning");
+}
+
 static void test_formatter_raw_opaque_round_trip() {
     const std::string source = "fn thru(p: raw opaque): raw opaque {\n"
                                "    return p;\n"
@@ -462,6 +534,9 @@ static void test_formatter() {
     test_formatter_state_machine_round_trip();
     test_formatter_compound_assign_round_trip();
     test_formatter_bitwise_operator_round_trip();
+    test_formatter_logical_operator_round_trip();
+    test_formatter_condition_keywords_round_trip();
+    test_formatter_else_condition_spelling_round_trip();
     test_formatter_raw_opaque_round_trip();
     test_formatter_bare_opaque_round_trip();
     test_compilation_session_fmt_uses_frontend_snapshot();

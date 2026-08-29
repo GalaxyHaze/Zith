@@ -4,7 +4,7 @@
 fn main(): i32 {
     var sum: i32 = 0;
 
-    if ((2 < 3) and true) {
+    if (2 < 3 and true) {
         sum = sum + 1;
     }
     if ((false or false) xor true) {

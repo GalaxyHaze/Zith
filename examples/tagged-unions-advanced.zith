@@ -33,7 +33,7 @@ fn main(): i32 {
     if (handle(number) != 6) {
         return 4;
     }
-    if (not (flag is bool)) {
+    if not (flag is bool) {
         return 5;
     }
     return 7;

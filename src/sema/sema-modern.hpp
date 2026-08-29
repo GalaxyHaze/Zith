@@ -58,10 +58,14 @@ struct TypedMap {
     /// intermediate `p.Trait` expression. HIR lowering uses this base instead
     /// of lowering the marker as a field access.
     memory::FlatMap<uint32_t, uint32_t> traitQualifiedReceiverBase;
+    /// Concrete type erased by an implicit `T -> opaque` coercion, keyed by
+    /// the value expression id. HIR lowering uses this to materialise the
+    /// `{ *void, typeId }` payload from the concrete value.
+    memory::FlatMap<uint32_t, TypeId> opaqueSourceTypes;
 
     explicit TypedMap(memory::Arena &)
         : exprTypes(), declTypes(), localTypes(), forInNext(), forInElementIndex(), forInEndIndex(),
-          forInUnionType(), traitQualifiedReceiverBase() {}
+          forInUnionType(), traitQualifiedReceiverBase(), opaqueSourceTypes() {}
 };
 
 class SemaPipeline;
@@ -136,6 +140,14 @@ private:
     /// A move invalidates only the binding for later reads; the ABI and storage
     /// remain the same until real move tracking lands.
     std::unordered_set<uint32_t> movedLocals_;
+    /// Bindings declared without an initializer in the current body. The set
+    /// is cleared after the first direct assignment, and reads through `raw`
+    /// are the explicit escape hatch.
+    std::unordered_set<uint32_t> uninitializedLocals_;
+    /// Locals that are logically initialized before their body statement runs.
+    /// The for-in element binding is created without an initializer and typed
+    /// by `inferForIn` before the loop body is visited.
+    std::unordered_set<uint32_t> preinitializedLocals_;
 
     /// True when the callee's signature mentions a generic parameter.
     [[nodiscard]] bool typeContainsGeneric(const FunctionType *fn) const noexcept;

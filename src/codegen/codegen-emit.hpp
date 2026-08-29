@@ -9,6 +9,7 @@
 #include "types/type-intern.hpp"
 
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 

@@ -76,7 +76,7 @@ struct MonoTest {
 
 void test_generic_function_inference_and_collapse() {
     MonoTest t;
-    auto r = t.run("fn id<T>(x: T): T { return x }\n"
+    auto r = t.run("fn id<T>(x: T): T { return x; }\n"
                    "fn main(): i32 {\n"
                    "    let a: i32 = id<i32>(3);\n"
                    "    let b: i32 = id(4);\n"
@@ -90,7 +90,7 @@ void test_generic_function_inference_and_collapse() {
 
 void test_generic_multi_param_function() {
     MonoTest t;
-    auto r = t.run("fn pair<T, U>(a: T, b: U): U { return b }\n"
+    auto r = t.run("fn pair<T, U>(a: T, b: U): U { return b; }\n"
                    "fn main(): i32 {\n"
                    "    let c: f64 = pair<i32, f64>(7, 2.5);\n"
                    "    return 1;\n"
@@ -104,7 +104,7 @@ void test_generic_struct_alias_method_and_implement() {
                    "alias Box<T> = T\n"
                    "struct Node<T> { value: T }\n"
                    "implement Node<T> {\n"
-                   "    fn get(self): T { return self->value }\n"
+                   "    fn get(self): T { return self->value; }\n"
                    "}\n"
                    "fn main(): i32 {\n"
                    "    let s: Pair<i32, f64> = Pair<i32, f64>{ first: 1, second: 2.5 };\n"
@@ -127,7 +127,7 @@ void test_generic_struct_literal_inference_lowers() {
 
 void test_generic_arity_error() {
     MonoTest t;
-    auto r = t.run("fn id<T>(x: T): T { return x }\n"
+    auto r = t.run("fn id<T>(x: T): T { return x; }\n"
                    "fn main(): i32 {\n"
                    "    id<i32, i64>(1);\n"
                    "    return 0;\n"
@@ -138,7 +138,7 @@ void test_generic_arity_error() {
 
 void test_generic_cannot_infer_error() {
     MonoTest t;
-    auto r = t.run("fn needs<T>(x: i32): T { return x }\n"
+    auto r = t.run("fn needs<T>(x: i32): T { return x; }\n"
                    "fn main(): i32 {\n"
                    "    needs(1);\n"
                    "    return 0;\n"
@@ -151,7 +151,7 @@ void test_generic_cannot_infer_error() {
 void test_generic_explosion_limit() {
     MonoTest t;
     const std::string recursive = "struct Box<T> { value: T }\n"
-                                  "fn nest<T>(x: T): Box<T> { return Box<T>{ value: x } }\n"
+                                  "fn nest<T>(x: T): Box<T> { return Box<T>{ value: x }; }\n"
                                   "fn main(): i32 {\n"
                                   "    var x: i32 = 0;\n";
     std::string body            = "    x = nest(x).value;\n";

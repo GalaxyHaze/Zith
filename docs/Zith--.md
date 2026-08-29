@@ -27,7 +27,7 @@ A palavra-chave de um binding é preservada pelo frontend e tem estas semântica
 | `var` | Local | Sim | Sim | Obrigatório para tipo não-trivial | Local |
 | `const` | Global ou local | Não | Não | Sempre obrigatório | Estático quando global |
 
-````zith
+```zith
 fn main(): i32 {
     let a: i32 = 1;
     var b: i32 = 2;
@@ -35,7 +35,7 @@ fn main(): i32 {
     b = 3;
     return a + b + LOCAL;
 }
-````
+```
 
 Expressões constantes para `const` são literais numéricos, `bool`, `char` e `null`, agregados desses literais, struct literals com campos `const`, e referências a `const` já declarados. Chamadas de função não contam como expressões constantes.
 
@@ -49,7 +49,7 @@ Parâmetros de função são imutáveis por defeito, tal como `let`: `p.x = 1` n
 
 Parâmetros de função podem declarar um default por posição com `= expr` depois do tipo. O default é usado quando o call site omite esse argumento e os argumentos seguintes (dentro do limite de parâmetros fixos) também têm default. Um parâmetro sem default não pode seguir um parâmetro com default, e o tipo da expressão default é verificado contra o tipo do parâmetro. A sintaxe é por posição nesta iteração; não há named arguments nem disambiguation de overloads por defaults.
 
-````zith
+```zith
 fn add(left: i32, right: i32 = 5): i32 {
     return left + right;
 }
@@ -57,7 +57,7 @@ fn add(left: i32, right: i32 = 5): i32 {
 fn main(): i32 {
     return add(7) + add(1, 2); // 12 + 3
 }
-````
+```
 
 O `=` interno à lista de parâmetros pertence ao default do parâmetro. Um alias `fn f(...): T = extern name` continua a ser parseado depois do retorno e não colide com a sintaxe de defaults.
 
@@ -65,7 +65,7 @@ Methods continuam com `self` implícito. `self.field` é a forma canónica e aut
 
 O owner de um bloco `implement` pode ser um primitivo, `?T` ou `[]T`, além de um tipo nomeado:
 
-````zith
+```zith
 trait Value {
     fn value(self): i32;
 }
@@ -92,7 +92,7 @@ fn main(): i32 {
     let s: []char = raw arr[0..3];
     return a.value() + o.get() + s.len();  // 7 + 1 + 3
 }
-````
+```
 
 Estes owners participam na conformação nominal: requirements e defaults são verificados, duplicatas continuam a falhar, e tipos concretos satisfazem bounds genéricos `T: Trait`. Pointer (`*T`) e fixed-array (`[N]T`) continuam fora desta iteração.
 
@@ -100,9 +100,9 @@ Quando um método com `self` simples ou `var self` é chamado, o sema invalida l
 
 Um call de método pode ser qualificado com um trait ou interface satisfeita pelo tipo do receiver: `p.Trait.method()` ou `p.Interface.method()`. A qualificação resolve apenas o método visível naquele trait/interface, evitando a ambiguidade `E2008` quando dois traits conformes expõem o mesmo nome:
 
-````zith
-trait A { fn pick(self): i32 { return 1 } }
-trait B { fn pick(self): i32 { return 2 } }
+```zith
+trait A { fn pick(self): i32 { return 1; } }
+trait B { fn pick(self): i32 { return 2; } }
 struct P { x: i32 }
 implement P as A {}
 implement P as B {}
@@ -111,7 +111,7 @@ fn main(): i32 {
     let p = P{ x: 0 };
     return p.A.pick() + p.B.pick();
 }
-````
+```
 
 Sem a qualificação, `p.pick()` continua ambíguo quando o nome não é resolvido por um método concreto do owner. É esta a forma suportada; `Trait.method(p)` ainda não é aceite.
 
@@ -121,7 +121,7 @@ da vtable apontam para as implementações concretas (ou defaults do trait, quan
 Campos de interface são usados para conformance e continuam acessíveis em tipos concretos ou
 em bounds genéricos, mas nunca através de um valor `dyn`:
 
-````zith
+```zith
 interface Area {
     fn area(self): i32
 }
@@ -141,7 +141,7 @@ fn total(a: dyn Area): i32 { a.area() }
 fn main(): i32 {
     return total(Square { side: 3 }) + total(Circle { radius: 5 });
 }
-````
+```
 
 ## Variadic Slices
 
@@ -149,7 +149,7 @@ O último parâmetro de uma função ou método pode ser um variadic slice `[...
 `Zith--`, a chamada recolhe todos os argumentos finais homogéneos a partir desse ponto
 para um slice temporário; não há varargs de C com tail heterogéneo:
 
-````zith
+```zith
 fn sum(rest: [...]i32): i32 {
     var total: i32 = 0;
     total = total + raw rest[0];
@@ -161,7 +161,7 @@ fn sum(rest: [...]i32): i32 {
 fn main(): i32 {
     return sum(1, 2, 3); // 6
 }
-````
+```
 
 O `[...]T` só é permitido na última posição. Os argumentos antes dele são parâmetros
 fixos normais; uma chamada com menos argumentos do que esses parâmetros reporta erro.
@@ -169,7 +169,7 @@ Uma chamada pode também passar como último argumento um `[]T` ou `[N]T` já ex
 nesse caso o valor não é recolhido elemento a elemento e o array coerce para o slice
 parâmetro. O tail vazio é aceite.
 
-````zith
+```zith
 fn sum(rest: [...]i32): i32 { 0 }
 
 fn main(): i32 {
@@ -178,7 +178,7 @@ fn main(): i32 {
     sum(values);                    // slice explícito
     sum(1, 2, 3);                   // auto-collect homogéneo
 }
-````
+```
 
 Variadic slices funcionam em funções livres, métodos com `self`, métodos de `dyn
 Trait`/`dyn Interface` e funções genéricas. Num parâmetro genérico, `[...]T` infere `T`
@@ -195,13 +195,13 @@ Funções livres e argumentos de métodos podem declarar parâmetros `lend`/`vie
 
 O único global real/executável é declarado com:
 
-````zith
+```zith
 const GLOBAL: i32 = 3;
 
 fn main(): i32 {
     return GLOBAL;
 }
-````
+```
 
 O HIR emite um nó de global const e o codegen produz um `llvm::GlobalVariable` com linkage `internal`, tipo const e armazenamentos escritos desativados. Referências por nome produzem um load desse global.
 
@@ -209,7 +209,7 @@ O HIR emite um nó de global const e o codegen produz um `llvm::GlobalVariable` 
 
 Campos `const` usam `const name: T = value`, exigem inicializador e só podem aparecer em structs dentro do Zith--:
 
-````zith
+```zith
 struct Point {
     const X_OFFSET: i32 = 2,
     x: i32,
@@ -220,7 +220,7 @@ fn main(): i32 {
     var p: Point = Point { x: 1, y: 2 };
     return p.X_OFFSET;
 }
-````
+```
 
 Campos regulares continuam permitidos, com ou sem default. Atribuição a um campo `const` é rejeitada.
 
@@ -230,7 +230,7 @@ A mesma regra aplica-se a campos `const` dentro de union e a valores de union ar
 
 Discriminantes não precisam ser literais. Uma variante pode usar uma expressão constante inteira avaliada no módulo:
 
-````zith
+```zith
 const BASE: i32 = 8;
 
 enum Flag {
@@ -241,7 +241,7 @@ enum Flag {
     PREV = SHIFT + 1,
     FROM_GLOBAL = BASE,
 }
-````
+```
 
 São aceites literais inteiros (incluindo `0x`, `0b` e `0c`), `-`/`~` unários, aritmética, operadores bitwise `&.`/`|.`/`^.`, shifts `<<`/`>>`, comparações que resultem em inteiro, variantes anteriores do mesmo enum e `const` globais/locais de tipo inteiro já declarados. Chamadas, casts, literais float/string/bool, `null`, opaques e outros agregados não são aceites. O resultado é avaliado como `int64_t` e, após a avaliação, verificado contra o tipo subjacente do enum; overflow e valores negativos em `uN` são rejeitados.
 
@@ -257,19 +257,36 @@ booleanos. A negação é `not`; `not (cond)` é a forma idiomática, embora
 `not cond` continue a ser aceite. O `!` fica reservado a uma futura forma
 postfix e não é um operador unário prefixo nesta iteração.
 
-Em posição de condição, `not expr` sem parêntesis extra é aceite em `if`, `while`, nas três cláusulas do `for (init), (cond), (step)` e em `for (cond)`. O parser fecha a cláusula depois do operando, por isso também não deixa o parêntesis de fecho pendurado: `for (var i = 0), (not done), (i += 1) { ... }` e `for (var i = 0), (not (done)), ...` são equivalentes.
+`return;` termina uma função `void`. Quando `return` transporta uma expressão
+o ponto e vírgula é obrigatório: `return expr;`. O parser emite `E1002`
+ExpectedSemicolon quando a expressão não é terminada por `;`.
+
+`if` aceita um `else` opcional. A condição encadeada escreve-se na forma
+preferida `else (cond) { ... }`; a forma legada `else if (cond) { ... }`
+continua aceite, mas emite `W1008` DeprecatedSyntax com a sugestão de
+substituição.
+
+Os operadores booleanos `or`, `and` e `xor` têm precedência fixa, respetivamente
+mais baixa que a comparação: `a or b and c` parsa como `a or (b and c)`, e
+`a and b or c` como `(a and b) or c`. `and`/`or` exigem operandos `bool`;
+`xor` aceita `bool` ou dois inteiros do mesmo tipo.
+
+Em posição de condição, `not expr` sem parêntesis extra é aceite em `if`, `while`, nas três cláusulas do `for (init), (cond), (step)` e em `for (cond)`. A forma canónica dos exemplos e testes é `if not (cond)`; `not cond` e `not (cond)` continuam aceites por compatibilidade. O parser fecha a cláusula depois do operando, por isso também não deixa o parêntesis de fecho pendurado: `for (var i = 0), (not done), (i += 1) { ... }` e `for (var i = 0), (not (done)), ...` são equivalentes.
 
 Uma condição opcional também pode ser escrita como `optional expr`, açúcar curto para o teste booleano `expr?`: é verdadeira quando o optional tem payload e falsa quando é `null`. Serve apenas para condição (`if`, `while`, `for` e cláusulas de `for`); fora desse contexto, `optional` continua a ser o modificador de tipo. O operando tem de ser `?T` e o teste não faz narrowing do payload.
 
-````zith
+```zith
 fn main(x: ?i32): i32 {
     if optional x { return 1; }   // payload presente
     return 0;                     // x é null
 }
-````
+```
 
 Os loops aceitam labels na forma `outer: for ...` e `outer: while ...` para
 permitir sair ou continuar a partir de loops aninhados:
+
+Os exemplos de `for` com três cláusulas escrevem-se sempre na forma
+`for (init), (cond), (step)`.
 
 ```zith
 fn scan(xs: []i32): i32 {
@@ -310,14 +327,14 @@ campo para outros módulos; `mod name: T = default` e `mod(N) name: T = default`
 visibilidade de módulo existente, com o mesmo significado de `mod`/`mod(N)`/`mod(..)` usado em
 declarações:
 
-````zith
+```zith
 struct Box {
     data: i32,          // privado: só visível no ficheiro/module que declara o struct
     pub open: i32,      // público: visível e construtível de outros módulos
     mod sibling: i32,   // visível no ficheiro do struct e no mesmo caminho de módulo
     mod(2) deep: i32,   // visível até duas subdirectorias abaixo do módulo dono
 }
-````
+```
 
 Fields privados ou `mod` continuam a ser acessíveis dentro do ficheiro que declara o struct,
 incluindo métodos desse tipo e funções livres nesse ficheiro. Em struct literals, qualquer field
@@ -330,7 +347,13 @@ vivem no mesmo ficheiro.
 
 Para `let`/`var`, um tipo é não-trivial quando não é primitivo escalar (`iN`/`uN`/`fN`, `bool`, `char`, `void`). Tipos não-triviais sem inicializador são rejeitados:
 
-````zith
+Um binding local sem inicializador pode ser escrito antes da primeira escrita;
+nesta iteração, qualquer leitura normal antes dessa primeira escrita é rejeitada
+com `binding '<name>' is used before it is initialized`. A leitura fuga explícita
+é `raw <name>`: preserva o tipo do binding e assume responsabilidade pelo valor
+lido, sem alterar layout não inicializado.
+
+```zith
 // Rejeitados:
 let p: *i32;
 var s: []i32;
@@ -340,7 +363,7 @@ var st: Point;
 // Aceites em locais:
 var n: i32;
 let ready: bool;
-````
+```
 
 ## Ownership
 
@@ -362,7 +385,7 @@ e module-local (atravessar imports/cache de bare `opaque` reporta `E2010`).
 
 No call site de funções livres, métodos com argumentos por ponteiro e overloads, um binding `default` que alimenta um parâmetro `lend`/`view` exige a anotação `lend x` ou `view x`:
 
-````zith
+```zith
 fn bump(p: lend P): i32 { p.x = p.x + 1; p.x }
 fn read(p: view P): i32 { p.x }
 
@@ -372,7 +395,7 @@ fn main(): i32 {
     read(view q);   // OK: leitura read-only
     q.x
 }
-````
+```
 
 Literais, temporários e resultados de chamada não exigem anotação; um binding já qualificado `lend`/`view` também pode ser passado sem nova anotação. A anotação errada em relação ao parâmetro (`lend` para `view` ou `view` para `lend`) e a ausência da anotação num binding `default` reportam `E4005 OwnershipCoercionRequired`. `unique`, `share`, `belong` e `mut` em posição de argumento de call são rejeitados com `E4007 InvalidCallOwnership`.
 
@@ -393,16 +416,16 @@ depois de um teste `value is *char`.
 
 Macros normais e `raw macro` continuam ativas. Tag macros são rejeitadas com diagnóstico claro:
 
-````zith
+```zith
 // Aceite
 macro add(a, b) { a + b }
 
 // Aceite
 raw macro dbg(x) { @println(x) }
 
-// Rejeitado
+// Rejeitado no Zith--
 tag macro Box(content) { <content/> }
-````
+```
 
 ## Restrições Removidas
 

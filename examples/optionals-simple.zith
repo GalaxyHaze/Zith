@@ -13,12 +13,12 @@ fn main(): i32 {
     if (some is null) {
         return 1;
     }
-    if (not (some?)) {
+    if not (some?) {
         return 2;
     }
 
     let none: ?i32 = pick(false);
-    if (not (none is null)) {
+    if not (none is null) {
         return 5;
     }
     return 4;

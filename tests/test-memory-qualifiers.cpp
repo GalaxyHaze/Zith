@@ -318,7 +318,7 @@ void invalidCallOwnershipAnnotationsAreRejected() {
 void nonNullNarrowingSurvivesAsSlotFact() {
     auto r = check("fn main(): i32 {\n"
                    "    var p: ?*i32 = null;\n"
-                   "    if (not (p is null)) {\n"
+                   "    if not (p is null) {\n"
                    "        return 7;\n"
                    "    }\n"
                    "    return 0;\n"

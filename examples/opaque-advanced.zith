@@ -10,7 +10,7 @@ fn main(): i32 {
     var boxed: Box = Box { value: 42 };
     let b: opaque = boxed as opaque;
 
-    if (not (b is Box)) {
+    if not (b is Box) {
         return 1;
     }
 

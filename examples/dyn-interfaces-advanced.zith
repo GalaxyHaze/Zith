@@ -3,7 +3,7 @@
 // Expected exit code: 14
 
 trait Drawable {
-    fn area(self): i32 { return 0 }
+    fn area(self): i32 { return 0; }
 }
 
 struct Square {

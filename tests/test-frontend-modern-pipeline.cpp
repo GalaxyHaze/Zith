@@ -644,7 +644,7 @@ void test_modern_optional_method_not_is_null_narrowing_hir() {
     workspace.write("main.zith", "from lib\n"
                                  "fn main(): i32 {\n"
                                  "    var b: ?Box = null;\n"
-                                 "    if (not (b is null)) { return b.get(); }\n"
+                                 "    if not (b is null) { return b.get(); }\n"
                                  "    return 1;\n"
                                  "}\n");
 

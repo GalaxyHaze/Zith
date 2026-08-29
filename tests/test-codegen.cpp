@@ -301,6 +301,35 @@ static void test_compound_assign_runtime() {
     CHECK_EQ(r.exitCode, 8, "Compound assignment and '|.' produce the expected exit status");
 }
 
+static void test_logical_operator_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn main(): i32 {\n"
+                         "    var a: bool = true;\n"
+                         "    var b: bool = false;\n"
+                         "    if not (a and b) { } else { return 1; }\n"
+                         "    if ((a and not b) or b) { } else { return 2; }\n"
+                         "    var flags: i32 = 6;\n"
+                         "    if ((flags xor 3) != 5) { return 3; }\n"
+                         "    return 0;\n"
+                         "}\n");
+    auto r = t.run();
+    CHECK(r.ok, "boolean and/or/not compile, link and run");
+    CHECK_EQ(r.exitCode, 0, "logical operators evaluate to the expected values");
+}
+
+static void test_optional_condition_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn main(): i32 {\n"
+                         "    var p: ?i32 = 7;\n"
+                         "    if (optional p) { } else { return 1; }\n"
+                         "    if (p?) { return 0; }\n"
+                         "    return 2;\n"
+                         "}\n");
+    auto r = t.run();
+    CHECK(r.ok, "optional keyword and postfix '?' conditions still compile and run");
+    CHECK_EQ(r.exitCode, 0, "optional conditions keep their boolean result");
+}
+
 static void test_raw_opaque_round_trip_runtime() {
     CodegenTest t;
     auto r = t.run("codegen-raw-opaque.zith", "fn thru(p: raw opaque): *i32 {\n"
@@ -326,7 +355,7 @@ static void test_bare_opaque_runtime() {
                          "fn main(): i32 {\n"
                          "    var v: i32 = 41;\n"
                          "    let h: opaque = v as opaque;\n"
-                         "    if (not (h is i32)) { return 1; }\n"
+                         "    if not (h is i32) { return 1; }\n"
                          "    if (h is f64) { return 2; }\n"
                          "    let got: ?i32 = h as i32;\n"
                          "    if (got is null) { return 3; }\n"
@@ -418,8 +447,49 @@ static void test_bare_opaque_raw_pointer_literal_after_narrow_runtime() {
     auto r = t.run();
     CHECK(r.usedModern, "opaque string payload narrowing uses the modern codegen pipeline");
     CHECK(r.ok, "opaque + raw opaque pointer comparison after 'is *char' compiles and runs");
-    CHECK_EQ(r.exitCode, 9,
-             "the payload pointer compares as a pointer without an LLVM type mismatch");
+    CHECK_EQ(r.exitCode, 7,
+             "identical string literals share a payload pointer after opaque erasure");
+}
+
+static void test_implicit_opaque_coercion_and_narrow_runtime() {
+    printf("Running test_implicit_opaque_coercion_and_narrow_runtime\n");
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn consumeInt(v: opaque): i32 {\n"
+                         "    if (v is u32) { let x: u32 = v; if (x == 5u32) { return 0; } }\n"
+                         "    return 1;\n"
+                         "}\n"
+                         "fn consumeStr(v: opaque): i32 {\n"
+                         "    if (v is *char) { let p: *char = v; if ((v as raw opaque) == (\"ok\" "
+                         "as raw opaque)) { return 0; } }\n"
+                         "    return 1;\n"
+                         "}\n"
+                         "struct Box { value: i32 }\n"
+                         "fn consumeBox(v: opaque): i32 {\n"
+                         "    if (v is Box) { let b: Box = v; if (b.value == 42) { return 0; } }\n"
+                         "    return 1;\n"
+                         "}\n"
+                         "fn make(): opaque { 9u32 }\n"
+                         "fn echo(v: opaque): opaque { v }\n"
+                         "fn main(): i32 {\n"
+                         "    let d = 5u32 as opaque;\n"
+                         "    if (consumeInt(d) != 0) { return 1; }\n"
+                         "    let s = \"ok\" as opaque;\n"
+                         "    if (consumeStr(s) != 0) { return 2; }\n"
+                         "    var box = Box { value: 42 };\n"
+                         "    let b = box as opaque;\n"
+                         "    if (consumeBox(b) != 0) { return 3; }\n"
+                         "    let made = make();\n"
+                         "    if (made is u32) { } else { return 5; }\n"
+                         "    let o: opaque = 5u32;\n"
+                         "    if (echo(o) is u32) { return 0; }\n"
+                         "    return 4;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "implicit opaque coercions use the modern codegen pipeline");
+    CHECK(r.ok, "opaque narrowing and implicit concrete-to-opaque coercions run");
+    printf("EXIT CODE: %d\n", r.exitCode);
+    CHECK_EQ(r.exitCode, 0, "narrowed payloads and implicit coercions preserve values");
 }
 
 static void test_struct_fields_and_parameter() {
@@ -605,14 +675,14 @@ static void test_for_three_clause_runtime() {
     CodegenTest t;
     auto r = t.run("codegen-for3.zith", "fn sum_to(n: i32): i32 {\n"
                                         "    var total: i32 = 0;\n"
-                                        "    for (var i: i32 = 0, i < n, i = i + 1) {\n"
+                                        "    for (var i: i32 = 0), (i < n), (i = i + 1) {\n"
                                         "        total = total + i;\n"
                                         "    }\n"
                                         "    return total;\n"
                                         "}\n"
                                         "fn count_down(n: i32): i32 {\n"
                                         "    var hits: i32 = 0;\n"
-                                        "    for (var i: i32 = n, i > 0, i = i - 1) {\n"
+                                        "    for (var i: i32 = n), (i > 0), (i = i - 1) {\n"
                                         "        if (i == 3) {\n"
                                         "            continue;\n"
                                         "        }\n"
@@ -866,8 +936,8 @@ static void test_generic_bound_by_value_parameter_runs_without_borrow_attrs() {
                          "struct Temple { x: i32 }\n"
                          "struct Point { x: i32 }\n"
                          "implement Temple as Foo {}\n"
-                         "fn foolish<T: Foo>(a: T): i32 { return 1 }\n"
-                         "fn interLab<T: Transform>(a: T): i32 { return a.x }\n"
+                         "fn foolish<T: Foo>(a: T): i32 { return 1; }\n"
+                         "fn interLab<T: Transform>(a: T): i32 { return a.x; }\n"
                          "fn main(): i32 {\n"
                          "    let p = Point { x: 7 };\n"
                          "    return foolish<Temple>(Temple { x: 1 }) + interLab(p);\n"
@@ -894,9 +964,9 @@ static void test_interface_method_bound_runtime() {
                          "}\n"
                          "struct Point {\n"
                          "    x: i32,\n"
-                         "    fn getX(self): i32 { return self.x }\n"
+                         "    fn getX(self): i32 { return self.x; }\n"
                          "}\n"
-                         "fn transform<T: Positioned>(p: T): i32 { return p.x + p.getX() }\n"
+                         "fn transform<T: Positioned>(p: T): i32 { return p.x + p.getX(); }\n"
                          "fn main(): i32 {\n"
                          "    let p = Point { x: 41 };\n"
                          "    return transform<Point>(p);\n"
@@ -923,7 +993,7 @@ static void test_dyn_interface_method_dispatch_runtime() {
                          "    radius: i32,\n"
                          "    fn area(self): i32 { self.radius }\n"
                          "}\n"
-                         "fn total(a: dyn Area): i32 { return a.area() }\n"
+                         "fn total(a: dyn Area): i32 { return a.area(); }\n"
                          "fn main(): i32 {\n"
                          "    let s: Square = Square { side: 3 };\n"
                          "    let c: Circle = Circle { radius: 5 };\n"
@@ -951,7 +1021,7 @@ static void test_dyn_trait_method_dispatch_runtime() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
     t.write("main.zith", "trait Drawable {\n"
-                         "    fn area(self): i32 { return 0 }\n"
+                         "    fn area(self): i32 { return 0; }\n"
                          "}\n"
                          "struct Square {\n"
                          "    side: i32,\n"
@@ -967,7 +1037,7 @@ static void test_dyn_trait_method_dispatch_runtime() {
                          "implement Circle as Drawable {\n"
                          "    fn area(self): i32 { self.radius }\n"
                          "}\n"
-                         "fn total(a: dyn Drawable): i32 { return a.area() }\n"
+                         "fn total(a: dyn Drawable): i32 { return a.area(); }\n"
                          "fn main(): i32 {\n"
                          "    let s: Square = Square { side: 3 };\n"
                          "    let c: Circle = Circle { radius: 5 };\n"
@@ -1004,7 +1074,7 @@ static void test_dyn_interface_field_access_is_rejected() {
                          "fn bad(a: dyn Area): i32 {\n"
                          "    return a.x;\n"
                          "}\n"
-                         "fn main(): i32 { return 0 }\n");
+                         "fn main(): i32 { return 0; }\n");
 
     auto r = t.run();
     CHECK(!r.ok, "field access through dyn Interface is rejected");
@@ -1800,7 +1870,7 @@ static void test_optional_method_after_not_is_null_runtime() {
     t.write("main.zith", "from lib\n"
                          "fn main(): i32 {\n"
                          "    var b: ?Box = Box { value: 14 };\n"
-                         "    if (not (b is null)) { return b.get(); }\n"
+                         "    if not (b is null) { return b.get(); }\n"
                          "    return 1;\n"
                          "}\n");
 
@@ -2433,12 +2503,15 @@ static void test_codegen() {
     printf("Running test_shifts\n");
     test_shifts();
     test_compound_assign_runtime();
+    test_logical_operator_runtime();
+    test_optional_condition_runtime();
     test_raw_opaque_round_trip_runtime();
     test_bare_opaque_runtime();
     test_bare_opaque_raw_and_mismatch_runtime();
     test_bare_opaque_raw_pointer_same_payload_same_allocation_runtime();
     test_bare_opaque_raw_pointer_different_payload_runtime();
     test_bare_opaque_raw_pointer_literal_after_narrow_runtime();
+    test_implicit_opaque_coercion_and_narrow_runtime();
     printf("Running test_struct_fields_and_parameter\n");
     test_struct_fields_and_parameter();
     printf("Running test_array_of_structs\n");

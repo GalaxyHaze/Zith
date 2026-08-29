@@ -129,7 +129,7 @@ trait Numeric {
 }
 
 implement i32 as Numeric {
-    fn double(self): i32 { return self * 2 }
+    fn double(self): i32 { return self * 2; }
 }
 
 trait Present {
@@ -143,7 +143,7 @@ trait ByteLen {
 }
 
 implement []u8 as ByteLen {
-    fn len(self): i32 { return 4 }
+    fn len(self): i32 { return 4; }
 }
 ```
 

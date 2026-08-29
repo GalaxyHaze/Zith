@@ -4,7 +4,7 @@
 
 fn main(): i32 {
     var total: i32 = 0;
-    for (var i: i32 = 0, i < 4, i = i + 1) {
+    for (var i: i32 = 0), (i < 4), (i = i + 1) {
         if (i == 2) {
             continue;
         }

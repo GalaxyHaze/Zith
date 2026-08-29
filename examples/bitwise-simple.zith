@@ -6,22 +6,22 @@ fn main(): i32 {
     let mask: i32 = 0b1100;
     let bits: i32 = 0x0A;
 
-    if ((mask &. bits) != 8) {
+    if (mask &. bits != 8) {
         return 1;
     }
-    if ((mask |. bits) != 14) {
+    if (mask |. bits != 14) {
         return 2;
     }
-    if ((mask ^. bits) != 6) {
+    if (mask ^. bits != 6) {
         return 3;
     }
-    if ((~0) != (0 - 1)) {
+    if (~0 != (0 - 1)) {
         return 4;
     }
-    if ((1 << 4) != 16) {
+    if (1 << 4 != 16) {
         return 5;
     }
-    if ((32 >> 2) != 8) {
+    if (32 >> 2 != 8) {
         return 6;
     }
 

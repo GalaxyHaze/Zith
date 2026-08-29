@@ -19,7 +19,7 @@ trait Describe {
 }
 
 implement i32 as Describe {
-    fn describe(self): i32 { return 1 }
+    fn describe(self): i32 { return 1; }
 }
 ```
 
@@ -106,6 +106,7 @@ Capabilities are special traits that feed the compiler more information, unlocki
 | `Allocator` | To provide custom allocators |
 | `Generator` | Allows creating runtime-defined resumable or streaming protocols without introducing a dedicated core function kind. |
 | `Share` | Required for `global: share` and crossing thread boundaries |
+| `Branch` | Enables explicit `fork`/`merge` of a shared value to/from a thread |
 | `Lent` | Enables `global: unique`, a runtime-checked exclusive borrow. `global` bindings cannot be moved — `Lent` manages thread-safe distribution. Also allows `lend` parameters. |
 | `Trust` | A trait extending `Trust` may contain `raw fn` methods callable from safe contexts. |
 | `Unique` | Marks a singleton type. It cannot be instantiated — the type name itself acts as the instance. All fields must implement `Share` (thread-safe). A `unique Local` variant is a singleton thread-local. |
@@ -166,6 +167,22 @@ global counter: share Atomic<i32> = 0;
 struct LocalOnly { data: i32 }
 // global bad: share LocalOnly = ...;  -- COMPILE ERROR: lacks Share
 ```
+
+#### `Branch` — Thread Fork/Merge
+
+`Branch` is the capability behind explicit thread fork/merge. It is designed
+for types that can hand a `share` value to one thread and collect the result
+after the thread completes:
+
+```zith
+let handle = fork Worker(share state);
+let result = merge handle;
+```
+
+There is no `await`, future, or resumable task in this protocol. `merge` is
+blocking and consumes the handle once, restoring ownership of the shared value.
+See [the branch protocol plan](https://github.com/GalaxyHaze/Zith/blob/main/docs/plans/branch-protocol.md)
+for the full design.
 
 ### 4.5 Operator Overloading
 

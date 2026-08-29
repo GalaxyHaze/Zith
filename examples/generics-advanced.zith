@@ -9,7 +9,7 @@ interface Positioned {
 
 struct Point {
     x: i32,
-    fn getX(self): i32 { return self.x }
+    fn getX(self): i32 { return self.x; }
 }
 
 fn transform<T: Positioned>(p: T): i32 {

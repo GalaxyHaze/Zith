@@ -70,6 +70,12 @@ In effect, if `a` is never reassigned, it is as though `a` never existed and `b`
 
 > In practice, most code only needs `lend` and `view`.
 
+`share` nodes may participate in the `Branch` protocol. When a shared value is
+handed to a thread through `fork`, NRA tracks a `forkCount`: zero means the
+source owns the node, one means a thread branch is pending, and more than one is
+rejected. `merge` consumes the `ForkHandle` and returns the node to the source.
+See [the branch protocol plan](https://github.com/GalaxyHaze/Zith/blob/main/docs/plans/branch-protocol.md).
+
 #### Implicit Mutability
 
 Each memory modifier carries an implicit content mutability level:

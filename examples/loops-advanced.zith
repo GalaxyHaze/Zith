@@ -27,8 +27,8 @@ fn main(): i32 {
     }
 
     var outer_hits: i32 = 0;
-    outer: for (var i: i32 = 0, i < 3, i = i + 1) {
-        for (var j: i32 = 0, j < 3, j = j + 1) {
+    outer: for (var i: i32 = 0), (i < 3), (i += 1) {
+        for (var j: i32 = 0), (j < 3), (j += 1) {
             if (j == 1) {
                 continue outer;
             }

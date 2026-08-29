@@ -128,9 +128,9 @@ static void test_implement_trait_name_checks() {
 
 static void test_implement_primitive_optional_slice() {
     auto snapshot = frontend::parse("trait Foo {}\n"
-                                    "implement i32 as Foo { fn value(self): i32 { return 1 } }\n"
-                                    "implement ?char as Foo { fn get(self): i32 { return 2 } }\n"
-                                    "implement []char as Foo { fn len(self): i32 { return 3 } }\n");
+                                    "implement i32 as Foo { fn value(self): i32 { return 1; } }\n"
+                                    "implement ?char as Foo { fn get(self): i32 { return 2; } }\n"
+                                    "implement []char as Foo { fn len(self): i32 { return 3; } }\n");
 
     CHECK(snapshot.diagnostics().empty(),
           "primitive, optional and slice implement owners parse without diagnostics");

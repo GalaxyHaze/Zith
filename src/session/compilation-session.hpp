@@ -85,6 +85,7 @@ class CompilationSession {
     std::string mContentOverride;
     std::shared_ptr<FrontendContext> mFrontendContext;
     std::shared_ptr<const CompilationSnapshot> mSnapshot;
+    std::unordered_map<memory::FileId, memory::FileId> mSnapshotDiagnosticFiles;
     std::unique_ptr<cache::Store> mCacheStore;
     bool mCacheHydrated = false;
     std::optional<cache::CacheEntry> mHydratedEntry;

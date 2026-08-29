@@ -1,0 +1,9 @@
+import "stdio.h"
+
+fn main(){
+    let a: ?i32 = null
+    let x: ??i32 = a;
+    if (a){
+        printf("is fully null\n");
+    }
+}
