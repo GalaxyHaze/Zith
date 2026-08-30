@@ -530,23 +530,22 @@ static void test_default_parameters_and_condition_syntax() {
     CHECK(only_while_warning,
           "'not' conditions in if/while/flat and parenthesized for clauses parse cleanly");
 
-    auto bare_conditions          = frontend::parse("fn run(x: ?i32, ok: bool): i32 {\n"
-                                                             "    if not ok { return 0; }\n"
-                                                             "    while not ok { break; }\n"
-                                                             "    for not ok { break; }\n"
-                                                             "    if optional x { return 1; }\n"
-                                                             "    while optional x { break; }\n"
-                                                             "    for optional x { return 2; }\n"
-                                                             "    return 3;\n"
-                                                             "}\n");
-    bool only_bare_while_warnings = true;
+    auto bare_conditions            = frontend::parse("fn run(x: ?i32, ok: bool): i32 {\n"
+                                                                 "    if not ok { return 0; }\n"
+                                                                 "    while not ok { break; }\n"
+                                                                 "    for not ok { break; }\n"
+                                                                 "    if optional x { return 1; }\n"
+                                                                 "    while optional x { break; }\n"
+                                                                 "    for optional x { return 2; }\n"
+                                                                 "    return 3;\n"
+                                                                 "}\n");
+    size_t optional_condition_diags = 0;
     for (const auto &diagnostic : bare_conditions.diagnostics()) {
-        if (diagnostic.isWarning)
-            continue;
-        only_bare_while_warnings = false;
+        if (!diagnostic.isWarning)
+            ++optional_condition_diags;
     }
-    CHECK(only_bare_while_warnings,
-          "bare 'not'/'optional' condition forms in if/while/for parse cleanly");
+    CHECK_EQ(optional_condition_diags, 3u,
+             "removed 'optional' condition forms report the implicit-condition diagnostic");
 }
 
 static void test_for_var_var_reports_specific_diagnostic() {

@@ -202,9 +202,6 @@ private:
     /// instantiated in a type expression. `lowerTypeExpr` checks these before
     /// the declaration bindings so `Pair<i32,f64>` fields see `i32`/`f64`.
     std::vector<GenericBinding> activeTemplateArgs_;
-    /// `x?` is a boolean non-null test only when it appears directly as a
-    /// condition; everywhere else it remains the optional-propagation operator.
-    bool optionalPropInCondition_ = false;
     /// Decl id of the declaration currently being lowered or inferred (0 = none).
     uint32_t currentDeclId_ = 0;
     /// Labels of loops currently being inferred. A non-empty label must be
@@ -285,6 +282,10 @@ private:
     TypeId lowerForeignType(const cinterop::Type &type);
     TypeId lowerForeignConstantType(const cinterop::Constant &constant);
     TypeId inferExpr(frontend::ExprId id);
+    /// Infers an expression used directly as a control-flow condition. The
+    /// expression must be `bool` or an optional `?T`; an optional is tested
+    /// implicitly as `x != null` without narrowing its payload.
+    TypeId inferCondition(frontend::ExprId id, std::string_view message, frontend::TextSpan span);
     TypeId inferLiteral(frontend::ExprId id, std::string_view text);
     TypeId inferName(frontend::ExprId id, std::string_view text);
     TypeId inferUnary(frontend::ExprId id);

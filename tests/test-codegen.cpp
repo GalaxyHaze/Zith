@@ -321,13 +321,14 @@ static void test_optional_condition_runtime() {
     ModernFileCodegenTest t;
     t.write("main.zith", "fn main(): i32 {\n"
                          "    var p: ?i32 = 7;\n"
-                         "    if (optional p) { } else { return 1; }\n"
-                         "    if (p?) { return 0; }\n"
-                         "    return 2;\n"
+                         "    if (p) { } else { return 1; }\n"
+                         "    var null_v: ?i32 = null;\n"
+                         "    if (null_v) { return 2; }\n"
+                         "    return 0;\n"
                          "}\n");
     auto r = t.run();
-    CHECK(r.ok, "optional keyword and postfix '?' conditions still compile and run");
-    CHECK_EQ(r.exitCode, 0, "optional conditions keep their boolean result");
+    CHECK(r.ok, "implicit ?T conditions compile and run");
+    CHECK_EQ(r.exitCode, 0, "a truthy ?i32 starts the branch; a null ?i32 skips it");
 }
 
 static void test_raw_opaque_round_trip_runtime() {
@@ -1957,12 +1958,12 @@ static void test_optional_boolean_condition_runtime() {
     ModernFileCodegenTest t;
     t.write("main.zith", "fn non_null(): i32 {\n"
                          "    let x: ?i32 = 7;\n"
-                         "    if (x?) { return 1; }\n"
+                         "    if (x) { return 1; }\n"
                          "    return 9;\n"
                          "}\n"
                          "fn null_value(): i32 {\n"
                          "    let y: ?i32 = null;\n"
-                         "    if (optional y) { return 9; }\n"
+                         "    if (y) { return 9; }\n"
                          "    return 0;\n"
                          "}\n"
                          "fn main(): i32 {\n"
@@ -1981,12 +1982,12 @@ static void test_optional_pointer_boolean_condition_runtime() {
     t.write("main.zith", "fn non_null(): i32 {\n"
                          "    let x: i32 = 9;\n"
                          "    let q: ?*i32 = &x;\n"
-                         "    if (q?) { return 1; }\n"
+                         "    if (q) { return 1; }\n"
                          "    return 9;\n"
                          "}\n"
                          "fn null_value(): i32 {\n"
                          "    let p: ?*i32 = null;\n"
-                         "    if (p?) { return 9; }\n"
+                         "    if (p) { return 9; }\n"
                          "    return 0;\n"
                          "}\n"
                          "fn main(): i32 {\n"
@@ -2004,12 +2005,12 @@ static void test_optional_condition_keyword_runtime() {
     ModernFileCodegenTest t;
     t.write("main.zith", "fn non_null(): i32 {\n"
                          "    let x: ?i32 = 7;\n"
-                         "    if (x?) { return 1; }\n"
+                         "    if (x) { return 1; }\n"
                          "    return 9;\n"
                          "}\n"
                          "fn null_value(): i32 {\n"
                          "    let y: ?i32 = null;\n"
-                         "    if (y?) { return 9; }\n"
+                         "    if (y) { return 9; }\n"
                          "    return 0;\n"
                          "}\n"
                          "fn main(): i32 {\n"
@@ -2018,9 +2019,8 @@ static void test_optional_condition_keyword_runtime() {
                          "}\n");
 
     auto r = t.run();
-    CHECK(r.usedModern, "optional condition keywords use the modern codegen pipeline");
-    CHECK(r.ok,
-          "postfix optional conditions and optional-keyword conditions compile, link and run");
+    CHECK(r.usedModern, "implicit ?T conditions use the modern codegen pipeline");
+    CHECK(r.ok, "implicit ?T conditions compile, link and run");
     CHECK_EQ(r.exitCode, 0, "the non-null ?i32 branch runs and the null ?i32 branch does not");
 }
 
@@ -2032,9 +2032,9 @@ static void test_bare_condition_forms_runtime() {
                          "}\n"
                          "fn pick(): i32 {\n"
                          "    var x: ?i32 = 4;\n"
-                         "    if (optional x) { return 3; }\n"
-                         "    while (x?) { return 5; }\n"
-                         "    for optional x { return 9; }\n"
+                         "    if (x) { return 3; }\n"
+                         "    while (x) { return 5; }\n"
+                         "    for (x) { return 9; }\n"
                          "    return 0;\n"
                          "}\n"
                          "fn main(): i32 {\n"
@@ -2044,8 +2044,61 @@ static void test_bare_condition_forms_runtime() {
 
     auto r = t.run();
     CHECK(r.usedModern, "bare condition forms use the modern codegen pipeline");
-    CHECK(r.ok, "bare optional/not conditions compile, link and run");
+    CHECK(r.ok, "bare not/optional conditions compile, link and run");
     CHECK_EQ(r.exitCode, 3, "bare not reaches its branch and bare optional is truthy");
+}
+
+static void test_optional_must_extraction_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn main(): i32 {\n"
+                         "    let some: ?i32 = 41;\n"
+                         "    let value: i32 = must some;\n"
+                         "    if (value != 41) { return 1; }\n"
+                         "    let ptr_target: i32 = 7;\n"
+                         "    let some_ptr: ?*i32 = &ptr_target;\n"
+                         "    let ptr_value: i32 = *must some_ptr;\n"
+                         "    if (ptr_value != 7) { return 2; }\n"
+                         "    return 0;\n"
+                         "}\n");
+    auto r = t.run();
+    CHECK(r.usedModern, "must extraction uses the modern codegen pipeline");
+    CHECK(r.ok, "must extraction compiles, links and runs on Some optionals");
+    CHECK_EQ(r.exitCode, 0, "must returns the payload for ?i32 and ?*i32");
+}
+
+static void test_optional_must_none_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn main(): i32 {\n"
+                         "    let none: ?i32 = null;\n"
+                         "    let value: i32 = must none;\n"
+                         "    return value;\n"
+                         "}\n");
+    auto r = t.run();
+    CHECK(r.ok, "must on None compiles, links and terminates");
+    CHECK_EQ(r.exitCode, 128 + 4, "must on None traps via R10003 and does not continue");
+}
+
+static void test_optional_raw_extraction_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "fn some_value(): i32 {\n"
+                         "    let some: ?i32 = 41;\n"
+                         "    let value: i32 = raw some;\n"
+                         "    return value;\n"
+                         "}\n"
+                         "fn none_value(): i32 {\n"
+                         "    let none: ?i32 = null;\n"
+                         "    let value: i32 = raw none;\n"
+                         "    return value;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    if (some_value() != 41) { return 1; }\n"
+                         "    if (none_value() == 0) { return 2; }\n"
+                         "    return 0;\n"
+                         "}\n");
+    auto r = t.run();
+    CHECK(r.usedModern, "raw optional extraction uses the modern codegen pipeline");
+    CHECK(r.ok, "raw optional extraction compiles, links and runs without a null trap");
+    CHECK_EQ(r.exitCode, 2, "raw on None reads uninitialized payload without panicking");
 }
 
 static void test_function_default_arguments_runtime() {
@@ -2739,6 +2792,12 @@ static void test_codegen() {
     test_optional_condition_keyword_runtime();
     printf("Running test_bare_condition_forms_runtime\n");
     test_bare_condition_forms_runtime();
+    printf("Running test_optional_must_extraction_runtime\n");
+    test_optional_must_extraction_runtime();
+    printf("Running test_optional_must_none_runtime\n");
+    test_optional_must_none_runtime();
+    printf("Running test_optional_raw_extraction_runtime\n");
+    test_optional_raw_extraction_runtime();
     printf("Running test_function_default_arguments_runtime\n");
     test_function_default_arguments_runtime();
     printf("Running test_nested_optional_argument_runtime\n");

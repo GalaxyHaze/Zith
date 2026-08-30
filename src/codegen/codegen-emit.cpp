@@ -7,6 +7,7 @@
 
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Value.h>
 
@@ -47,6 +48,7 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
             [&](const hir::HirMakeOpaque &make) { return emitMakeOpaque(make, mod); },
             [&](const hir::HirOpaqueCast &cast) { return emitOpaqueCast(cast, mod); },
             [&](const hir::HirOpaqueCheck &check) { return emitOpaqueCheck(check, mod); },
+            [&](const hir::HirRuntimePanic &panic) { return emitRuntimePanic(panic); },
             [&](const hir::HirRet &ret) { return emitRet(ret, mod); },
             [&](const hir::HirStateTailCall &tail) { return emitStateTailCall(tail, mod); },
             [&](const hir::HirCleanup &cleanup) { return emitCleanup(cleanup, mod); },
@@ -1028,6 +1030,28 @@ llvm::Value *CodeGenEmit::emitOpaqueCast(const hir::HirOpaqueCast &cast,
     auto *payload_addr =
         builder_.CreateBitCast(data, llvm::PointerType::get(builder_.getContext(), 0));
     return builder_.CreateLoad(to_type, payload_addr);
+}
+
+llvm::Value *CodeGenEmit::emitRuntimePanic(const hir::HirRuntimePanic &panic) {
+    if (module_ == nullptr)
+        return nullptr;
+    llvm::Function *panic_fn = module_->getFunction("__zith_runtime_panic");
+    if (panic_fn == nullptr) {
+        llvm::Type *void_type = llvm::Type::getVoidTy(builder_.getContext());
+        panic_fn              = llvm::Function::Create(
+            llvm::FunctionType::get(void_type, {llvm::Type::getInt32Ty(builder_.getContext())},
+                                                 false),
+            llvm::GlobalValue::InternalLinkage, "__zith_runtime_panic", module_);
+        auto *entry = llvm::BasicBlock::Create(builder_.getContext(), "entry", panic_fn);
+        llvm::IRBuilder<> body_builder(entry);
+        body_builder.CreateCall(
+            llvm::Intrinsic::getOrInsertDeclaration(module_, llvm::Intrinsic::trap));
+        body_builder.CreateUnreachable();
+    }
+    builder_.CreateCall(panic_fn, llvm::ConstantInt::get(
+                                      llvm::Type::getInt32Ty(builder_.getContext()), panic.code));
+    builder_.CreateUnreachable();
+    return nullptr;
 }
 
 llvm::Value *CodeGenEmit::emitRet(const hir::HirRet &ret, const hir::HirModule &mod) {

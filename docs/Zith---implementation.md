@@ -232,17 +232,21 @@ salta um alvo exterior.
 
 ### Optional em contexto booleano
 
-`booleanCondition` aceita `ExprKind::OptionalProp` sobre `?T` como `bool`: a condição é
-verdadeira quando o optional tem payload e falsa quando é null. Isto aplica-se a condições de
-`if`, `while` e `for (cond)`. Fora de condição, `x?` continua a ser o operador de propagação
-opcional e exige função de retorno `?T`; `let b: bool = x?` continua rejeitado. `x is null` e
-`not (x is null)` continuam a ser os únicos caminhos de narrowing de optional; não existe nesta
-iteração `?.` nem `?->`.
+Uma expressão `?T` é aceite diretamente em posição de condição (`if`, `while`,
+`for (cond)`, `else (cond)` e armas booleanas de `when`) como teste implícito
+`x != null`. A expressão mantém o tipo `?T` no `TypedMap`; sema usa
+`inferCondition`, e o lowering materializa o teste com `lowerCondition`.
+O açúcar `optional expr` foi removido do parser. `x?` deixa de ter modo booleano
+em condição e passa a validar sempre propagação opcional na função atual.
 
-`HirLowerModern::lowerOptionalBoolean` baixa `x?` de `?*T` para `Ne` contra `HirMakeNone` (niche
-de pointer) e `x?` de `?T` para leitura do discriminante em field index 1. Não gera o braço
-`return null` do lowering de propagação, pelo que não é preciso tipo de retorno opcional no
-contexto condicional.
+`HirLowerModern::lowerOptionalCondition` baixa `?*T` para `Ne` contra
+`HirMakeNone` (niche de pointer) e `?T` agregado para leitura do discriminante
+em field index 1. Não gera `return null` e não altera o tipo do construto.
+
+Extração usa `must x` (panic runtime `R10003` quando é `null`) e `raw x` (bypass
+sem check, explícito e arriscado). Ambos devolvem o payload; `is null`/`not
+(x is null)` continuam a ser os únicos caminhos de narrowing. Não existe nesta
+iteração `?.` nem `?->`.
 
 
 ### Opaque tagged

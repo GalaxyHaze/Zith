@@ -198,6 +198,7 @@ enum class CompactExprKind : uint8_t {
     MakeOpaque,
     OpaqueCast,
     OpaqueCheck,
+    RuntimePanic,
 };
 
 enum class CompactBinaryOp : uint8_t {

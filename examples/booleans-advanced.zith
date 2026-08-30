@@ -1,5 +1,5 @@
-// Exercises: boolean precedence, bare `not`/`optional` condition forms, and
-// compound conditions in every control-flow position.
+// Exercises: boolean precedence, implicit optional conditions, and compound
+// conditions in every control-flow position.
 // Expected exit code: 10
 
 fn score(ok: bool, present: bool): i32 {
@@ -19,10 +19,8 @@ fn score(ok: bool, present: bool): i32 {
 
 fn main(): i32 {
     var maybe: ?i32 = 7;
-    if optional maybe {
-        if not (maybe? == false) {
-            return score(true, true);
-        }
+    if (maybe) {
+        return score(true, true);
     }
     return 0;
 }

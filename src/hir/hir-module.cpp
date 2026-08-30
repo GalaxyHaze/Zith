@@ -432,6 +432,10 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                        buffer += " id ";
                                        buffer += std::to_string(c.type_id);
                                    },
+                                   [&](const HirRuntimePanic &p) {
+                                       buffer += "runtime_panic R";
+                                       buffer += std::to_string(p.code);
+                                   },
                                });
                 buffer += "\n";
             }
@@ -469,6 +473,11 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                              buffer += "  cleanup reverse(";
                                              buffer += std::to_string(cleanup.exprs.size());
                                              buffer += ")\n";
+                                         },
+                                         [&](const HirRuntimePanic &panic) {
+                                             buffer += "  runtime_panic R";
+                                             buffer += std::to_string(panic.code);
+                                             buffer += "\n";
                                          },
                                          [&](const auto &) {
                                              buffer += "  terminal %e";

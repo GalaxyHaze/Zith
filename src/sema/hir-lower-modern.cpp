@@ -1363,8 +1363,6 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
     case frontend::ExprKind::Assign:
         return lowerAssign(expr, type);
     case frontend::ExprKind::OptionalProp:
-        if (types_.kindOf(type) == types::TypeKind::Bool)
-            return lowerOptionalBoolean(expr);
         return lowerOptionalProp(expr, type);
     case frontend::ExprKind::Index:
         return lowerIndex(expr, type);
@@ -1662,8 +1660,14 @@ hir::HirExprId HirLowerModern::lowerUnary(const frontend::Expression &expr,
                                           const types::TypeId type) {
     if (expr.operands.empty())
         return hir::kInvalidHirExpr;
-    if (expr.text == "raw")
+    if (expr.text == "must")
+        return lowerMust(expr, type);
+    if (expr.text == "raw") {
+        const auto operand_type = typeOfExpr(expr.operands[0]);
+        if (types_.kindOf(operand_type) == types::TypeKind::Optional)
+            return lowerRawOptional(expr, type);
         return lowerExpr(expr.operands[0]);
+    }
     const auto operand = lowerExpr(expr.operands[0]);
     if (operand == hir::kInvalidHirExpr)
         return hir::kInvalidHirExpr;
@@ -2488,7 +2492,7 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
     if (expr.operands.size() < 2U)
         return hir::kInvalidHirExpr;
 
-    const auto cond = lowerExpr(expr.operands[0]);
+    const auto cond = lowerCondition(expr.operands[0]);
     if (cond == hir::kInvalidHirExpr)
         return hir::kInvalidHirExpr;
 
@@ -2585,7 +2589,7 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
             narrowing_stack_.push_back(Narrowing{
                 narrowed_local, narrowed_type, narrowed_optional_payload, narrowed_opaque_payload});
         if (has_else_condition) {
-            const auto else_cond = lowerExpr(expr.operands[2]);
+            const auto else_cond = lowerCondition(expr.operands[2]);
             if (else_cond != hir::kInvalidHirExpr) {
                 current_fn_->blocks[current_block_].insts.push(else_cond);
                 hir::HirBranch else_branch;
@@ -2742,10 +2746,14 @@ hir::HirExprId HirLowerModern::lowerWhenCondition(frontend::ExprId condition,
         return addExpr(std::move(conjunction));
     }
 
-    // A boolean condition is tested directly; any other condition is an equality
+    // A boolean or optional condition is tested directly through the same
+    // implicit test rule as `if`/`while`; any other condition is an equality
     // pattern (`(0)` means `subject == 0`).
-    if (types_.kindOf(typeOfExpr(condition)) == types::TypeKind::Bool)
+    const auto condition_type = typeOfExpr(condition);
+    if (types_.kindOf(condition_type) == types::TypeKind::Bool)
         return lowerExpr(condition);
+    if (types_.kindOf(condition_type) == types::TypeKind::Optional)
+        return lowerOptionalCondition(condition);
 
     const auto value   = lowerExpr(condition);
     const auto subject = emitSlotLoad(subject_slot, subject_type);
@@ -2771,7 +2779,7 @@ hir::HirExprId HirLowerModern::lowerWhile(const frontend::Expression &expr) {
 
     setCurrentBlock(header_block);
     current_fn_->blocks[header_block].insts = memory::DynArray<hir::HirExprId>(arena_);
-    const auto cond                         = lowerExpr(expr.operands[0]);
+    const auto cond                         = lowerCondition(expr.operands[0]);
     hir::HirBranch branch;
     branch.cond       = cond;
     branch.then_block = static_cast<hir::HirDeclId>(body_block);
@@ -2811,7 +2819,7 @@ hir::HirExprId HirLowerModern::lowerFor(const frontend::Expression &expr) {
 
     setCurrentBlock(header_block);
     current_fn_->blocks[header_block].insts = memory::DynArray<hir::HirExprId>(arena_);
-    const auto cond                         = lowerExpr(expr.operands[0]);
+    const auto cond                         = lowerCondition(expr.operands[0]);
     hir::HirBranch branch;
     branch.cond       = cond;
     branch.then_block = static_cast<hir::HirDeclId>(body_block);
@@ -3121,17 +3129,21 @@ hir::HirExprId HirLowerModern::lowerOptionalProp(const frontend::Expression &exp
     return emitSlotLoad(result_slot, type);
 }
 
-/// `x?` used as a boolean condition means `x != null`. It lowers to the same
-/// tag/pointer test as `not (x is null)`, but must not synthesize the return
-/// path used by optional propagation.
-hir::HirExprId HirLowerModern::lowerOptionalBoolean(const frontend::Expression &expr) {
-    if (expr.operands.empty())
+hir::HirExprId HirLowerModern::lowerCondition(frontend::ExprId condition) {
+    if (!condition)
         return hir::kInvalidHirExpr;
-    const auto operand = lowerExpr(expr.operands[0]);
-    if (operand == hir::kInvalidHirExpr)
+    const auto condition_type = typeOfExpr(condition);
+    if (types_.kindOf(condition_type) == types::TypeKind::Optional)
+        return lowerOptionalCondition(condition);
+    return lowerExpr(condition);
+}
+
+hir::HirExprId HirLowerModern::lowerOptionalCondition(frontend::ExprId id) {
+    if (!id)
         return hir::kInvalidHirExpr;
-    const auto operand_type = typeOfExpr(expr.operands[0]);
-    if (types_.kindOf(operand_type) != types::TypeKind::Optional)
+    const auto operand      = lowerExpr(id);
+    const auto operand_type = typeOfExpr(id);
+    if (operand == hir::kInvalidHirExpr || types_.kindOf(operand_type) != types::TypeKind::Optional)
         return hir::kInvalidHirExpr;
 
     const auto *optional = std::get_if<types::TypeOptional>(&types_.lookup(operand_type));
@@ -3151,6 +3163,77 @@ hir::HirExprId HirLowerModern::lowerOptionalBoolean(const frontend::Expression &
     current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, operand));
     return addExpr(hir::HirField{addExpr(hir::HirSlotAddr{slot, operand_type}), 1U,
                                  types::kBoolType, operand_type});
+}
+
+/// Lowers extraction of an optional payload. When `checked` is true the None
+/// branch terminates through `R10003`; false reads the payload unconditionally.
+hir::HirExprId HirLowerModern::lowerOptionalPayload(const frontend::Expression &expr,
+                                                    const types::TypeId type, bool checked) {
+    if (expr.operands.empty())
+        return hir::kInvalidHirExpr;
+    const auto operand      = lowerExpr(expr.operands[0]);
+    const auto operand_type = typeOfExpr(expr.operands[0]);
+    if (operand == hir::kInvalidHirExpr || types_.kindOf(operand_type) != types::TypeKind::Optional)
+        return hir::kInvalidHirExpr;
+    if (!checked) {
+        const auto *optional = std::get_if<types::TypeOptional>(&types_.lookup(operand_type));
+        if (optional != nullptr && types_.kindOf(optional->inner) == types::TypeKind::Ptr)
+            return operand;
+        const auto slot = next_slot_++;
+        current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, operand_type));
+        current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, operand));
+        return addExpr(
+            hir::HirField{addExpr(hir::HirSlotAddr{slot, operand_type}), 0U, type, operand_type});
+    }
+
+    const auto slot = next_slot_++;
+    current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, operand_type));
+    current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, operand));
+
+    const auto is_some = [&]() -> hir::HirExprId {
+        const auto *optional = std::get_if<types::TypeOptional>(&types_.lookup(operand_type));
+        if (optional != nullptr && types_.kindOf(optional->inner) == types::TypeKind::Ptr) {
+            hir::HirMakeNone none;
+            none.type = operand_type;
+            return addExpr(hir::HirBinary{addExpr(hir::HirSlotLoad{slot, operand_type}),
+                                          addExpr(std::move(none)), hir::HirBinaryOp::Ne,
+                                          types::kBoolType});
+        }
+        return addExpr(hir::HirField{addExpr(hir::HirSlotAddr{slot, operand_type}), 1U,
+                                     types::kBoolType, operand_type});
+    };
+
+    const auto some_block = newBlock();
+    const auto none_block = newBlock();
+    hir::HirBranch branch;
+    branch.cond       = is_some();
+    branch.then_block = static_cast<hir::HirDeclId>(some_block);
+    branch.else_block = static_cast<hir::HirDeclId>(none_block);
+    setTerminator(addExpr(std::move(branch)));
+
+    setCurrentBlock(none_block);
+    current_fn_->blocks[none_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    hir::HirRuntimePanic panic;
+    panic.code = 10003U;
+    setTerminator(addExpr(std::move(panic)));
+
+    setCurrentBlock(some_block);
+    current_fn_->blocks[some_block].insts = memory::DynArray<hir::HirExprId>(arena_);
+    const auto *optional = std::get_if<types::TypeOptional>(&types_.lookup(operand_type));
+    if (optional != nullptr && types_.kindOf(optional->inner) == types::TypeKind::Ptr)
+        return emitSlotLoad(slot, operand_type);
+    return addExpr(
+        hir::HirField{addExpr(hir::HirSlotAddr{slot, operand_type}), 0U, type, operand_type});
+}
+
+hir::HirExprId HirLowerModern::lowerMust(const frontend::Expression &expr,
+                                         const types::TypeId type) {
+    return lowerOptionalPayload(expr, type, /*checked=*/true);
+}
+
+hir::HirExprId HirLowerModern::lowerRawOptional(const frontend::Expression &expr,
+                                                const types::TypeId type) {
+    return lowerOptionalPayload(expr, type, /*checked=*/false);
 }
 
 hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,

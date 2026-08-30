@@ -22,10 +22,9 @@ implement Result {
 }
 
 fn main(){
-   if optional propagate(null){
+   if propagate(null){
         printf("Null propagated!\n");
    }
    propagate(5);
    let test = Result{5};
-   test.print();
 }

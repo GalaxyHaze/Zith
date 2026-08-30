@@ -64,7 +64,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `bool`, `char` | **Working** | |
 | `i8`–`i128`, `u8`–`u128` | **Working** | Arithmetic between matching widths only; no implicit promotion |
 | `f32`, `f64` | **Working** | Same-width arithmetic only |
-| `?T` (optional) | **Working** | `null → ?T` and `T → ?T` coercions, including nested `??T` accepting `?T` or bare `T`; `?` postfix propagation with operand/return validation. Generic inference uses the optional coercion as a fallback, so `fn wrap<T>(x: ?T): ?T` accepts `wrap(3)` and infers `T = i32`. In boolean conditions, `x?` on `?T` means `x != null`. `null` is rejected for non-optional `*T` |
+| `?T` (optional) | **Working** | `null → ?T` and `T → ?T` coercions, including nested `??T` accepting `?T` or bare `T`; `?` postfix propagation with operand/return validation. Generic inference uses the optional coercion as a fallback, so `fn wrap<T>(x: ?T): ?T` accepts `wrap(3)` and infers `T = i32`. Any `?T` expression is implicitly boolean in conditions (`if (x)` means `x != null`). `null` is rejected for non-optional `*T` |
 | `T!` (failable) | **Working** | Declared type; lowered through HIR |
 | `*T` (pointer) | **Working** | Non-nullable pointer object: `null` requires `?*T`. `*p` deref, `&x` addr-of, and `->` arrow all work. `&x` is a logical move (`E4001` on later reads, direct rebind revives) and `&x`/`@ptrOf(local)` may not escape their storage scope (`E4008`). `*void` is rejected (use `raw opaque`). Pointers imported from C are `?*T`, checked with `is null`; a `?*T` is still accepted unchecked where `*T` is expected |
 | `raw opaque` | **Working** | Dedicated `TypeExprKind::Opaque`, lowered to pointer-to-void (untagged C-style `void*`). Castable to and from any `*T` via `as`; `raw opaque as T` reinterprets without a tag check |
@@ -97,7 +97,8 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | address-of `&x` | **Working** | Address-of via unary `&` |
 | `->` chain operator | **Working** | Arrow access on struct pointers (`p->field`) |
 | index `a[i]` | **Working** | On arrays, slices, pointers; array/slice reads return `?T` with bounds checks. `raw a[i]` skips bounds handling and returns `T` |
-| `?` postfix propagation | **Working** | Requires optional operand in optional-returning function. In `if`/`while`/`for (cond)`, `x?` on `?T` is accepted as a non-null boolean test without requiring an optional return |
+| `?` postfix propagation | **Working** | Requires optional operand in an optional-returning function. `?T` conditions are implicit (`if (x)`), so `x?` is propagation only and is rejected in condition position unless the enclosing function propagates |
+| `must` / `raw` optional extraction | **Working** | `must x` extracts a `?T` payload and terminates with runtime panic `R10003` on `null`; `raw x` extracts the payload without a null check. `is null` remains the only flow-narrowing mechanism |
 | `as` cast | **Working** | Dedicated `ExprKind::Cast` -> `HirCast` -> LLVM conversion. Numeric pairs plus `raw opaque` <-> `*T` (`classifyCast`); pointer-to-pointer between concrete pointees, integer/pointer mixes and user-defined casts stay rejected. Tagged-union member extraction outside a narrowed/checked context requires `raw`; raw-union member casts remain free. No numeric narrowing overflow check |
 | `is null` | **Working** | Dedicated `ExprKind::IsNull`. Requires an optional operand; `?*T` uses the nullptr niche, `?T` reads the discriminant |
 | `is <type>` | **Working (tagged unions + opaque)** | Tagged-union member tests lower to a runtime tag check; inside `if`/`when` they narrow the tested local to the member type. `opaque is T` compares the bare opaque typeId and returns `bool` |
@@ -109,11 +110,11 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 
 | Feature | Status | Notes |
 |---|---|---|
-| `if` / `else` / `else (cond)` / `else if` | **Working** | Conditions accept `bool` and, in condition position, `x?` on `?T` as a non-null test. `else (cond)` is the preferred chained spelling; `else if` is deprecated with `W1008` but still lowers |
-| `while` | **Deprecated** | Still lowers correctly, emits `W1008` suggesting `for (cond) { }`, and accepts `x?` as a non-null condition |
+| `if` / `else` / `else (cond)` / `else if` | **Working** | Conditions accept `bool` or `?T`; `?T` is tested implicitly as non-null. `else (cond)` is the preferred chained spelling; `else if` is deprecated with `W1008` but still lowers |
+| `while` | **Deprecated** | Still lowers correctly, emits `W1008` suggesting `for (cond) { }`, and accepts `?T` as an implicit non-null condition |
 | `break`, `continue` | **Working** | Unlabeled forms target the innermost active loop. Labels accept `outer: for`, `break outer;`, and `continue outer;`; unknown or duplicate active labels are rejected |
 | `return` (void and typed) | **Working** | |
-| `for (cond) { }`, `for { }` | **Working** | Conditional and infinite loop forms lower to the same CFG as `while`; labels are supported on both forms. `x?` is accepted in condition position as a non-null test |
+| `for (cond) { }`, `for { }` | **Working** | Conditional and infinite loop forms lower to the same CFG as `while`; labels are supported on both forms. `?T` conditions are tested implicitly as non-null |
 | `for (init, cond, step) { }` | **Working** | Flat and parenthesized clause forms are accepted. `init` and `step` are both optional; `continue` still runs the step before the next test. Labels are stored on the real `For` node |
 | `for (x in xs)` | **Working** | Duck-typed iterator over a struct with `next(self)`; the canonical `next(self): ?T` returns `null` for the iteration end and a payload for each element. `??T` iterators bind the loop variable as `?T` so `null` elements are distinguishable from the end. The legacy tagged-union `{ T, End }` protocol remains accepted during migration. Labels are supported |
 | `when` / `match` pattern match | **Working** | Arms are written `(pattern) ~> body`, comma-separated; `match` is a parser synonym for `when`. Equality, boolean and range (`1..3`) patterns lower through HIR to codegen. An `(f is Member)` arm narrows `f` for that arm's body. `(_)` is the default arm and must come last; a value-producing `when` without a default reports non-exhaustive. Covered by runtime tests |
@@ -153,7 +154,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | NRA ownership analysis (full alive/dead/lent state machine and four-rule proof; the call-annotation borrow slice is implemented) | [07-memory-model.md](07-memory-model.md) |
 | `comptime` evaluation | [11-comptime.md](11-comptime.md) |
 | `const fn` evaluation | [11-comptime.md](11-comptime.md) |
-| `fail` / `with` / `catch` / `must` / `throw` | [08-error-handling.md](08-error-handling.md) |
+| `fail` / `with` / `catch` / `must(cond)` assertion / `throw` | [08-error-handling.md](08-error-handling.md) |
 | Assets (`ZithProject.toml` asset paths) | [12-assets.md](12-assets.md) |
 | `.zirl` binary format | [01-overview (§1.5)](Zith-spec.md) |
 | `@appendField`, `@removeField`, `@appendMethod` | [11-comptime.md](11-comptime.md) |

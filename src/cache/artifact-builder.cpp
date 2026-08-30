@@ -509,6 +509,10 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                            out.type_id = internType(check.opaque_type);
                            out.ref_e   = check.type_id;
                        },
+                       [&](const hir::HirRuntimePanic &panic) {
+                           out.kind    = CompactExprKind::RuntimePanic;
+                           out.int_val = static_cast<int64_t>(panic.code);
+                       },
                    });
     return out;
 }

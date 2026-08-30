@@ -1912,6 +1912,19 @@ TypeId PerModuleSema::inferExpr(frontend::ExprId id) {
     return result;
 }
 
+TypeId PerModuleSema::inferCondition(frontend::ExprId id, std::string_view message,
+                                     frontend::TextSpan span) {
+    if (!id)
+        return error_type;
+    const TypeId source = inferExpr(id);
+    if (sameType(source, bool_type))
+        return source;
+    if (type_table.optional(resolve(source)) != nullptr)
+        return source;
+    report(span, std::string(message), diagnostics::err::TypeMismatch);
+    return error_type;
+}
+
 TypeId PerModuleSema::inferLiteral(frontend::ExprId id, std::string_view text) {
     if (text == "null")
         return null_type;
@@ -2028,8 +2041,24 @@ TypeId PerModuleSema::inferUnary(frontend::ExprId id) {
         return error_type;
     TypeId result;
     TypeId operand = inferExpr(expr.operands[0]);
+    if (expr.text == "must") {
+        const TypeId resolved = resolve(operand);
+        const auto *opt       = type_table.optional(resolved);
+        if (opt == nullptr) {
+            report(expr.span, "'must' expects an optional operand", diagnostics::err::TypeMismatch);
+            return error_type;
+        }
+        return type_table.stripQualifiers(opt->inner);
+    }
     if (expr.text == "raw") {
-        // `raw x` is an explicit unchecked read; it preserves the inner type.
+        const TypeId resolved = resolve(operand);
+        if (const auto *opt = type_table.optional(resolved)) {
+            // `raw x` on an optional bypasses the null check and extracts its
+            // payload without proving it is present.
+            return type_table.stripQualifiers(opt->inner);
+        }
+        // Other `raw x` usages are the explicit unchecked read escape; they
+        // preserve the inner type.
         return operand;
     }
     if (expr.text == "not") {
@@ -4169,11 +4198,7 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     if (expr.operands.size() < 2)
         return error_type;
-    optionalPropInCondition_ = true;
-    TypeId cond              = inferExpr(expr.operands[0]);
-    optionalPropInCondition_ = false;
-    if (!sameType(cond, bool_type))
-        report(expr.span, "if condition must be boolean", diagnostics::err::TypeMismatch);
+    (void)inferCondition(expr.operands[0], "if condition must be boolean", expr.span);
     const auto &condition = snapshot.expressions()[expr.operands[0].value - 1U];
     frontend::LocalId narrowed_local;
     TypeId original_local_type   = kInvalidTypeId;
@@ -4257,11 +4282,8 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
         else_type =
             expr.operands.size() > 3U ? inferExpr(expr.operands[3]) : inferExpr(expr.operands[2]);
     if (expr.operands.size() > 3U) {
-        optionalPropInCondition_ = true;
-        else_cond_type           = inferExpr(expr.operands[2]);
-        optionalPropInCondition_ = false;
-        if (!sameType(else_cond_type, bool_type))
-            report(expr.span, "if condition must be boolean", diagnostics::err::TypeMismatch);
+        else_cond_type =
+            inferCondition(expr.operands[2], "if condition must be boolean", expr.span);
     }
     if (narrowed_local && narrowed_type) {
         setLocalType(narrowed_local, original_local_type);
@@ -4288,11 +4310,7 @@ TypeId PerModuleSema::inferWhile(frontend::ExprId id) {
     }
     active_loop_labels_.push_back(expr.label);
     if (!expr.operands.empty()) {
-        optionalPropInCondition_ = true;
-        TypeId cond              = inferExpr(expr.operands[0]);
-        optionalPropInCondition_ = false;
-        if (!sameType(cond, bool_type))
-            report(expr.span, "loop condition must be boolean", diagnostics::err::TypeMismatch);
+        (void)inferCondition(expr.operands[0], "loop condition must be boolean", expr.span);
     }
     // The body must be inferred too, otherwise locals declared inside the loop never get a type.
     if (expr.operands.size() >= 2U)
@@ -4313,11 +4331,7 @@ TypeId PerModuleSema::inferFor(frontend::ExprId id) {
     active_loop_labels_.push_back(expr.label);
     // operands: [cond, body, step].
     if (!expr.operands.empty()) {
-        optionalPropInCondition_ = true;
-        TypeId cond              = inferExpr(expr.operands[0]);
-        optionalPropInCondition_ = false;
-        if (!sameType(cond, bool_type))
-            report(expr.span, "loop condition must be boolean", diagnostics::err::TypeMismatch);
+        (void)inferCondition(expr.operands[0], "loop condition must be boolean", expr.span);
     }
     if (expr.operands.size() >= 2U && expr.operands[1])
         (void)inferExpr(expr.operands[1]);
@@ -4757,7 +4771,8 @@ TypeId PerModuleSema::inferWhen(frontend::ExprId id) {
                 report(lo_node.span, "when range pattern must match the subject type",
                        diagnostics::err::TypeMismatch);
             }
-        } else if (cond_type != bool_type && cond_type != error_type) {
+        } else if (cond_type != bool_type && cond_type != error_type &&
+                   type_table.optional(resolve(cond_type)) == nullptr) {
             // A non-boolean condition is an equality pattern: `(0)` means `subject == 0`.
             if (!sameType(subject, cond_type) && !adaptNumericLiteral(condition, subject)) {
                 report(expr.span,
@@ -5725,8 +5740,6 @@ TypeId PerModuleSema::inferOptionalProp(frontend::ExprId id) {
     const auto *opt = type_table.optional(resolved);
     if (!opt)
         return error_type;
-    if (optionalPropInCondition_)
-        return bool_type;
     // Verify enclosing function returns an optional that can accept this inner type
     if (currentReturnType_) {
         TypeId ret_resolved = resolve(currentReturnType_);

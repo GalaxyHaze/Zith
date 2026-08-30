@@ -331,14 +331,21 @@ mais baixa que a comparação: `a or b and c` parsa como `a or (b and c)`, e
 
 Em posição de condição, `not expr` sem parêntesis extra é aceite em `if`, `while`, nas três cláusulas do `for (init), (cond), (step)` e em `for (cond)`. A forma canónica dos exemplos e testes é `if not (cond)`; `not cond` e `not (cond)` continuam aceites por compatibilidade. O parser fecha a cláusula depois do operando, por isso também não deixa o parêntesis de fecho pendurado: `for (var i = 0), (not done), (i += 1) { ... }` e `for (var i = 0), (not (done)), ...` são equivalentes.
 
-Uma condição opcional também pode ser escrita como `optional expr`, açúcar curto para o teste booleano `expr?`: é verdadeira quando o optional tem payload e falsa quando é `null`. Serve apenas para condição (`if`, `while`, `for` e cláusulas de `for`); fora desse contexto, `optional` continua a ser o modificador de tipo. O operando tem de ser `?T` e o teste não faz narrowing do payload.
+Uma condição opcional é implícita: qualquer expressão de tipo `?T` é verdadeira quando
+tem payload e falsa quando é `null`. Serve para condição (`if`, `while`, `for` e
+cláusulas de `for`) e para armas booleanas de `when`. `optional` continua a ser o
+modificador de tipo e a forma `optional expr` em posição de condição foi removida.
+O teste não faz narrowing do payload; para estreitar continua a usar-se `is null`.
 
 ```zith
 fn main(x: ?i32): i32 {
-    if optional x { return 1; }   // payload presente
+    if (x) { return 1; }          // payload presente: teste implícito != null
     return 0;                     // x é null
 }
 ```
+
+Extração explícita de payload usa `must x` (termina com `R10003` em `null`) ou
+`raw x` (sem verificação runtime, explícito e arriscado).
 
 Os loops aceitam labels na forma `outer: for ...` e `outer: while ...` para
 permitir sair ou continuar a partir de loops aninhados:

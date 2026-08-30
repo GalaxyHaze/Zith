@@ -51,6 +51,7 @@ enum class HirExprKind : uint8_t {
     MakeOpaque,
     OpaqueCast,
     OpaqueCheck,
+    RuntimePanic,
 };
 
 enum class HirBinaryOp : uint8_t {
@@ -391,13 +392,20 @@ struct HirOpaqueCheck {
     HirExprKind tag       = HirExprKind::OpaqueCheck;
 };
 
+/// A terminating runtime failure, used for checked optional extraction.
+/// `code` follows the existing `R10001+` runtime error convention.
+struct HirRuntimePanic {
+    uint32_t code   = 0;
+    HirExprKind tag = HirExprKind::RuntimePanic;
+};
+
 using HirExpr =
     std::variant<HirLiteral, HirBinary, HirUnary, HirLet, HirVar, HirCall, HirRet, HirBranch,
                  HirJump, HirPhi, HirAssign, HirIndex, HirField, HirStructLiteral, HirArrayLiteral,
                  HirEnumValue, HirSlotAlloca, HirSlotStore, HirSlotLoad, HirSlotAddr, HirMakeNone,
                  HirMakeSome, HirMakeSlice, HirCast, HirUnionCast, HirUnionCheck,
                  HirLayoutIntrinsic, HirStateTailCall, HirCleanup, HirGlobalConstLoad, HirMakeDyn,
-                 HirDynCall, HirMakeOpaque, HirOpaqueCast, HirOpaqueCheck>;
+                 HirDynCall, HirMakeOpaque, HirOpaqueCast, HirOpaqueCheck, HirRuntimePanic>;
 
 inline HirExprKind exprKind(const HirExpr &expr) {
     return std::visit([](const auto &entry) { return entry.tag; }, expr);

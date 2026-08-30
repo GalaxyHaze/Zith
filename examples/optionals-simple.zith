@@ -1,4 +1,5 @@
-// Exercises: optional types `?T`, `null`, `is null`, and optional conditions.
+// Exercises: optional types `?T`, `null`, `is null`, and implicit optional
+// boolean conditions.
 // Expected exit code: 4
 
 fn pick(flag: bool): ?i32 {
@@ -13,7 +14,7 @@ fn main(): i32 {
     if (some is null) {
         return 1;
     }
-    if not (some?) {
+    if (some is null) {
         return 2;
     }
 

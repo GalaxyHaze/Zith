@@ -777,6 +777,8 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
     case frontend::ExprKind::Unary:
         if (expr->text == "not") {
             emit("not ");
+        } else if (expr->text == "must") {
+            emit("must ");
         } else if (expr->text == "raw") {
             emit("raw ");
         } else {
@@ -949,12 +951,6 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
         }
         break;
     case frontend::ExprKind::OptionalProp:
-        if (expr->isOptionalKeyword) {
-            emit("optional ");
-            if (!expr->operands.empty())
-                visitExpr(expr->operands.front(), current_prec);
-            break;
-        }
         if (!expr->operands.empty())
             visitExpr(expr->operands.front(), current_prec);
         emit("?");

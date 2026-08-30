@@ -1841,10 +1841,17 @@ private:
                             raw_root.is_raw = true;
                             left            = operand;
                         } else if (raw_root.kind == ExprKind::Name) {
-                            // `raw x` is the explicit unchecked read escape
-                            // for a binding initialized later in the block.
+                            // `raw x` is the explicit unchecked read escape for a
+                            // binding initialized later in the block, and raw
+                            // optional extraction when `x` resolves to `?T`.
                             raw_root.isRawName = true;
-                            left               = operand;
+                            Expression raw_unary;
+                            raw_unary.kind  = ExprKind::Unary;
+                            raw_unary.text  = "raw";
+                            raw_unary.scope = current_scope_;
+                            raw_unary.operands.push_back(operand);
+                            raw_unary.span = range(start, index_);
+                            left           = addExpression(std::move(raw_unary));
                         } else {
                             snapshot_.diagnostics_.push_back(
                                 {range(start, index_),
@@ -1863,6 +1870,15 @@ private:
             } else {
                 left = {};
             }
+        } else if (isKeywordToken("must")) {
+            ++index_;
+            Expression unary;
+            unary.kind  = ExprKind::Unary;
+            unary.text  = "must";
+            unary.scope = current_scope_;
+            unary.operands.push_back(parseExpression(kUnaryPrecedence));
+            unary.span = range(start, index_);
+            left       = addExpression(std::move(unary));
         } else if ((snapshot_.tokens_[index_].kind == TokenKind::Operator &&
                     (text(index_) == "-" || text(index_) == "&" || text(index_) == "*" ||
                      text(index_) == "~")) ||
@@ -2271,9 +2287,9 @@ private:
             always.scope = current_scope_;
             always.span  = tokenSpan(start);
             expression.operands.push_back(addExpression(std::move(always)));
-        } else if (isKeywordToken("optional") || isKeywordToken("not")) {
-            // `for not cond { }` and `for optional x { }` are tolerated in
-            // condition style, mirroring the `if`/`while` sugar.
+        } else if (isKeywordToken("optional")) {
+            expression.operands.push_back(parseConditionExpression());
+        } else if (isKeywordToken("not")) {
             expression.operands.push_back(parseConditionExpression());
         } else if (punctuation(index_, '(')) {
             ++index_;
@@ -2594,29 +2610,29 @@ private:
         return addExpression(std::move(expression));
     }
 
-    /// Condition position accepts `not expr` without parentheses and the
-    /// `optional expr` boolean sugar in addition to the normal expression
-    /// grammar. Parenthesised clauses are handled by the caller, which closes
-    /// the group after this helper returns, so `not (done)` never leaks the
-    /// closing parenthesis into the unary operand.
+    /// Condition position accepts `not expr` without parentheses plus the
+    /// normal expression grammar. Parenthesised clauses are handled by the
+    /// caller, which closes the group after this helper returns, so
+    /// `not (done)` never leaks the closing parenthesis into the unary operand.
     [[nodiscard]] ExprId parseConditionExpression() {
         const uint32_t start = index_;
-        if (isKeywordToken("optional") && index_ + 1U < token_count_ &&
-            !punctuation(index_ + 1U, ')') && !punctuation(index_ + 1U, ',') &&
-            !punctuation(index_ + 1U, '{')) {
+        if (isKeywordToken("optional")) {
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_ + 1U),
+                 "optional conditions are implicit; use 'if (x)' where x has type ?T", false,
+                 diagnostics::err::UnsupportedSyntax});
             ++index_;
-            Expression prop;
-            prop.kind                = ExprKind::OptionalProp;
-            prop.scope               = current_scope_;
-            prop.isOptionalKeyword   = true;
             const bool saved         = suppress_struct_literal_;
             suppress_struct_literal_ = true;
             const ExprId operand     = parseExpression();
             suppress_struct_literal_ = saved;
-            if (operand)
-                prop.operands.push_back(operand);
-            prop.span = range(start, index_);
-            return addExpression(std::move(prop));
+            Expression error_expr;
+            error_expr.kind  = ExprKind::Error;
+            error_expr.text  = "optional";
+            error_expr.scope = current_scope_;
+            error_expr.span  = range(start, index_);
+            error_expr.operands.push_back(operand);
+            return addExpression(std::move(error_expr));
         }
         if (isKeywordToken("not") && index_ + 1U < token_count_ && !punctuation(index_ + 1U, ')') &&
             !punctuation(index_ + 1U, ',') && !punctuation(index_ + 1U, '{')) {

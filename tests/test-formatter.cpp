@@ -414,7 +414,7 @@ static void test_formatter_logical_operator_round_trip() {
 static void test_formatter_condition_keywords_round_trip() {
     const std::string source = "fn main(): bool {\n"
                                "    var x: ?i32 = 7;\n"
-                               "    if (optional x) { return true; }\n"
+                               "    if (x) { return true; }\n"
                                "    if (not x is null) { return true; }\n"
                                "    return false;\n"
                                "}\n";
@@ -422,8 +422,10 @@ static void test_formatter_condition_keywords_round_trip() {
     CHECK(snapshot.diagnostics().empty(), "condition keyword source parses cleanly");
     formatter::FmtVisitor formatter(snapshot);
     formatter.format();
-    CHECK(formatter.result().find("optional x") != std::string::npos,
-          "condition keyword sugar round-trips through fmt");
+    CHECK(formatter.result().find("if (x)") != std::string::npos,
+          "implicit optional conditions round-trip through fmt");
+    CHECK(formatter.result().find("optional x") == std::string::npos,
+          "removed optional keyword sugar is not emitted by fmt");
 }
 
 static void test_formatter_else_condition_spelling_round_trip() {

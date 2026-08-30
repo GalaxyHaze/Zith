@@ -2586,39 +2586,81 @@ static void test_modern_optional_condition_boolean() {
     ModernSemaTest t;
     auto accepted = t.run("fn main(): i32 {\n"
                           "    var x: ?i32 = 7;\n"
-                          "    if (x?) { return 1; }\n"
-                          "    while (x?) { return 2; }\n"
-                          "    for (x?) { return 3; }\n"
+                          "    if (x) { return 1; }\n"
+                          "    while (x) { return 2; }\n"
+                          "    for (x) { return 3; }\n"
                           "    return 0;\n"
                           "}\n");
-    CHECK(accepted.ok, "'x?' is accepted as a boolean condition on optional x");
+    CHECK(accepted.ok, "implicit '?T' is accepted as a boolean condition");
 
     ModernSemaTest non_optional;
     auto rejected = non_optional.run("fn main() {\n"
                                      "    var x: i32 = 1;\n"
-                                     "    if (x?) { }\n"
-                                     "    var b: bool = true;\n"
-                                     "    if (b?) { }\n"
+                                     "    if (x) { }\n"
                                      "}\n");
-    CHECK(!rejected.ok, "'?' remains invalid on non-optional operands");
-    CHECK(rejected.hasMessage("if condition must be boolean") ||
-              rejected.hasMessage("'?' operator requires an optional operand"),
-          "the non-optional condition reports the existing boolean diagnostics");
+    CHECK(!rejected.ok, "non-optional conditions remain invalid");
+    CHECK(rejected.hasMessage("if condition must be boolean"),
+          "the non-optional condition reports the existing boolean diagnostic");
 
-    ModernSemaTest as_value;
-    auto value_rejected = as_value.run("fn main(x: ?i32): bool {\n"
-                                       "    let b: bool = x?;\n"
-                                       "    return b;\n"
-                                       "}\n");
-    CHECK(!value_rejected.ok, "'x?' is not a bool value outside condition position");
-    CHECK(value_rejected.hasMessage(
-              "'?' operator used in a function that does not return an optional"),
-          "value-position 'x?' keeps the propagation validation");
+    ModernSemaTest optional_when;
+    auto when_ok = optional_when.run("fn main() {\n"
+                                     "    var x: ?i32 = 7;\n"
+                                     "    when (0) {\n"
+                                     "        (x) ~> { return; },\n"
+                                     "        (_) ~> { return; }\n"
+                                     "    }\n"
+                                     "}\n");
+    CHECK(when_ok.ok, "an optional condition is accepted as a boolean when arm");
 
     ModernSemaTest propagation;
     auto propagated = propagation.run("fn f(x: ?i32): ?i32 { return x?; }\n"
                                       "fn main(): i32 { 0 }\n");
     CHECK(propagated.ok, "return x? keeps its optional-propagation semantics");
+}
+
+static void test_modern_optional_keyword_removed_from_condition() {
+    ModernSemaTest t;
+    auto rejected = t.run("fn main(): i32 {\n"
+                          "    var x: ?i32 = 7;\n"
+                          "    if (optional x) { return 1; }\n"
+                          "    return 0;\n"
+                          "}\n");
+    CHECK(!rejected.ok, "'optional expr' is no longer parsed in condition position");
+    CHECK(rejected.hasMessage("optional conditions are implicit"),
+          "the removal reports the implicit 'if (x)' diagnostic");
+}
+
+static void test_modern_optional_must_and_raw() {
+    ModernSemaTest t;
+    auto must_ok = t.run("fn take(x: ?i32): i32 {\n"
+                         "    return must x;\n"
+                         "}\n"
+                         "fn main(): i32 { 0 }\n");
+    CHECK(must_ok.ok, "'must x' on ?T returns the payload type");
+
+    ModernSemaTest must_bad;
+    auto rejected = must_bad.run("fn take(x: i32): i32 {\n"
+                                 "    return must x;\n"
+                                 "}\n"
+                                 "fn main(): i32 { 0 }\n");
+    CHECK(!rejected.ok, "'must x' on a non-optional operand fails");
+    CHECK(rejected.hasMessage("'must' expects an optional operand"),
+          "must reports the optional-operand requirement");
+
+    ModernSemaTest raw_ok;
+    auto raw_accepted = raw_ok.run("fn take(x: ?i32): i32 {\n"
+                                   "    return raw x;\n"
+                                   "}\n"
+                                   "fn main(): i32 { 0 }\n");
+    CHECK(raw_accepted.ok, "'raw x' on ?T returns the payload type without proof");
+
+    ModernSemaTest raw_scalar;
+    auto raw_scalar_ok = raw_scalar.run("fn read(x: i32): i32 {\n"
+                                        "    return raw x;\n"
+                                        "}\n"
+                                        "fn main(): i32 { 0 }\n");
+    CHECK(raw_scalar_ok.ok,
+          "'raw x' on a non-optional preserves the existing unchecked-read escape");
 }
 
 static void test_modern_nested_optional_coercion() {
@@ -2635,23 +2677,22 @@ static void test_modern_nested_optional_coercion() {
 
 static void test_modern_postfix_optional_condition() {
     ModernSemaTest t;
-    auto accepted = t.run("fn main(): i32 {\n"
+    auto rejected = t.run("fn main(): i32 {\n"
                           "    var x: ?i32 = 7;\n"
                           "    if (x?) { return 1; }\n"
-                          "    while (x?) { return 2; }\n"
-                          "    for (x?) { return 3; }\n"
                           "    return 0;\n"
                           "}\n");
-    CHECK(accepted.ok, "'x?' is accepted as a repeated boolean condition in if/while/for");
+    CHECK(!rejected.ok,
+          "'x?' is propagation only and rejected as a condition in non-optional main");
+    CHECK(rejected.hasMessage("'?' operator used in a function that does not return an optional"),
+          "the condition reports the propagation diagnostic");
 
-    ModernSemaTest non_optional;
-    auto rejected = non_optional.run("fn main() {\n"
-                                     "    var x: i32 = 1;\n"
-                                     "    if (x?) { }\n"
-                                     "}\n");
-    CHECK(!rejected.ok, "'?' remains invalid on non-optional operands in conditions");
-    CHECK(rejected.hasMessage("'?' operator requires an optional operand"),
-          "the condition reports the optional-operand diagnostic");
+    ModernSemaTest accepted;
+    auto ok = accepted.run("fn f(x: ?i32): ?i32 {\n"
+                           "    return x?;\n"
+                           "}\n"
+                           "fn main(): i32 { 0 }\n");
+    CHECK(ok.ok, "'x?' still propagates inside an optional-returning function");
 }
 
 static void test_modern_function_default_arguments() {
@@ -3811,6 +3852,8 @@ static void test_sema() {
     test_modern_optional_condition_boolean();
     test_modern_nested_optional_coercion();
     test_modern_postfix_optional_condition();
+    test_modern_optional_keyword_removed_from_condition();
+    test_modern_optional_must_and_raw();
     test_modern_function_default_arguments();
     test_modern_implicit_opaque_coercion_rejected();
     test_modern_implicit_concrete_to_opaque_accepted();

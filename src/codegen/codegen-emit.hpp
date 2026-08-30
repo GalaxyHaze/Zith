@@ -61,6 +61,7 @@ private:
     llvm::Value *emitMakeOpaque(const hir::HirMakeOpaque &make, const hir::HirModule &mod);
     llvm::Value *emitOpaqueCast(const hir::HirOpaqueCast &cast, const hir::HirModule &mod);
     llvm::Value *emitOpaqueCheck(const hir::HirOpaqueCheck &check, const hir::HirModule &mod);
+    llvm::Value *emitRuntimePanic(const hir::HirRuntimePanic &panic);
     llvm::Value *emitRet(const hir::HirRet &ret, const hir::HirModule &mod);
     llvm::Value *emitLet(const hir::HirLet &let, const hir::HirModule &mod);
     llvm::Value *emitVar(const hir::HirVar &var);

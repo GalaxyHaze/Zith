@@ -1106,7 +1106,7 @@ void test_optional_boolean_on_value_reads_tag() {
     Workspace workspace;
     workspace.writeFile("main.zith", "fn present(v: ?i32): i32 {\n"
                                      "    let x: ?i32 = 7;\n"
-                                     "    if (x?) { return 1; }\n"
+                                     "    if (x) { return 1; }\n"
                                      "    return 0;\n"
                                      "}\n"
                                      "fn main(): i32 { present(7) }\n");
@@ -1115,7 +1115,7 @@ void test_optional_boolean_on_value_reads_tag() {
     Options options(arena);
     auto session = makeSession(workspace, arena, options, "main.zith");
 
-    CHECK(session.runTo(session::Stage::HirLowered), "'x?' as a boolean on ?T lowering succeeds");
+    CHECK(session.runTo(session::Stage::HirLowered), "implicit ?T boolean lowering succeeds");
 
     const auto &hir  = session.hirModule();
     const auto *main = findFunction(hir, session.interner(), "present");
@@ -1137,16 +1137,16 @@ void test_optional_boolean_on_value_reads_tag() {
                     read_tag = true;
             }
         }
-        CHECK(read_tag, "'x?' on ?T reads the optional tag at field index 1");
+        CHECK(read_tag, "implicit ?T conditions read the optional tag at field index 1");
         CHECK_EQ(countTerminatorKind(hir, *main, hir::HirExprKind::Ret), 2u,
-                 "'x?' as a condition does not lower to implicit optional returns");
+                 "implicit ?T conditions do not lower to optional returns");
     }
 }
 
 void test_optional_boolean_on_pointer_uses_niche() {
     Workspace workspace;
     workspace.writeFile("main.zith", "fn present(p: ?*i32): i32 {\n"
-                                     "    if (p?) { return 1; }\n"
+                                     "    if (p) { return 1; }\n"
                                      "    return 0;\n"
                                      "}\n"
                                      "fn main(): i32 { 0 }\n");
@@ -1155,7 +1155,7 @@ void test_optional_boolean_on_pointer_uses_niche() {
     Options options(arena);
     auto session = makeSession(workspace, arena, options, "main.zith");
 
-    CHECK(session.runTo(session::Stage::HirLowered), "'x?' as a boolean on ?*T lowering succeeds");
+    CHECK(session.runTo(session::Stage::HirLowered), "implicit ?*T boolean lowering succeeds");
 
     const auto &hir  = session.hirModule();
     const auto *main = findFunction(hir, session.interner(), "present");
@@ -1182,7 +1182,7 @@ void test_optional_boolean_on_pointer_uses_niche() {
             }
         }
         CHECK(found_ne_against_none,
-              "'x?' on ?*T lowers to a non-null comparison against MakeNone");
+              "implicit ?*T conditions lower to a non-null comparison against MakeNone");
     }
 }
 

@@ -217,8 +217,16 @@ private:
     hir::HirExprId lowerFor(const frontend::Expression &expr);
     hir::HirExprId lowerForIn(const frontend::Expression &expr);
     hir::HirExprId lowerAssign(const frontend::Expression &expr, types::TypeId type);
-    hir::HirExprId lowerOptionalBoolean(const frontend::Expression &expr);
     hir::HirExprId lowerOptionalProp(const frontend::Expression &expr, types::TypeId type);
+    /// Lowers a control-flow condition. A `?T` expression is tested as
+    /// `x != null`; a bool is lowered normally.
+    hir::HirExprId lowerCondition(frontend::ExprId condition);
+    hir::HirExprId lowerOptionalCondition(frontend::ExprId id);
+    hir::HirExprId lowerMust(const frontend::Expression &expr, types::TypeId type);
+    /// Unchecked optional payload extraction for `raw x`.
+    hir::HirExprId lowerRawOptional(const frontend::Expression &expr, types::TypeId type);
+    hir::HirExprId lowerOptionalPayload(const frontend::Expression &expr, types::TypeId type,
+                                        bool checked);
     hir::HirExprId lowerIndex(const frontend::Expression &expr, types::TypeId type);
     hir::HirExprId lowerSliceRange(const frontend::Expression &expr, types::TypeId type);
     /// Applies the representation-level coercions recorded by sema: arrays to

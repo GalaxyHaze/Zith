@@ -1902,6 +1902,12 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
             expr              = std::move(check);
             break;
         }
+        case cache::CompactExprKind::RuntimePanic: {
+            hir::HirRuntimePanic panic;
+            panic.code = static_cast<uint32_t>(ce.int_val);
+            expr       = std::move(panic);
+            break;
+        }
         }
         mHirModule.addExpr(std::move(expr));
     }
