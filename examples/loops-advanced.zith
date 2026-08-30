@@ -2,18 +2,14 @@
 // `break`/`continue`.
 // Expected exit code: 10
 
-struct End {}
-
-union Step { End, i32 }
-
 struct Counter {
     current: i32,
     limit: i32,
-    fn next(var self): Step {
+    fn next(var self): ?i32 {
         if (self->current >= self->limit) {
-            return Step { End {} };
+            return null;
         }
-        let value = Step { self->current };
+        let value = self->current;
         self->current = self->current + 1;
         return value;
     }

@@ -263,6 +263,9 @@ private:
     hir::HirExprId lowerIsType(const frontend::Expression &expr);
     hir::HirExprId lowerLayoutIntrinsic(const frontend::Expression &expr);
     hir::HirExprId lowerCoerceToOptional(types::TypeId target, hir::HirExprId value);
+    /// Builds `None` for an optional aggregate, recursively zeroing nested
+    /// optionals so `??T` keeps its inner `{payload, tag}` layout intact.
+    hir::HirExprId lowerMakeNone(types::TypeId target);
     sema::modern::TypeId semaTypeOfExpr(frontend::ExprId id);
     bool lowerStatement(frontend::StmtId id, hir::HirExprId &last_value);
 

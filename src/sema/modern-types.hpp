@@ -51,6 +51,10 @@ enum class TypeKind : uint8_t {
     Failable,
     Pack,
     Dyn,
+    /// A value that references a machine's `state` declaration. It carries a
+    /// function-shaped signature so `dock S(args)` can be type-checked and
+    /// emitted as an indirect state call.
+    State,
     Alias,
     /// A `type Name = T` declaration: identity is nominal, but layout comes
     /// from the single underlying field.
@@ -192,6 +196,10 @@ public:
     [[nodiscard]] TypeId internOptional(TypeId inner);
     [[nodiscard]] TypeId internArray(TypeId element, uint64_t size);
     [[nodiscard]] TypeId internFunction(memory::DynArray<TypeId> &params, TypeId result);
+    /// Interns the value type carried by a `state(params): ret` annotation.
+    /// The function shape is shared with `fn`, but `TypeKind::State` keeps the
+    /// annotation distinguishable for assignment/dock validation.
+    [[nodiscard]] TypeId internStateFunction(memory::DynArray<TypeId> &params, TypeId result);
     [[nodiscard]] TypeId internStruct(std::string_view name, memory::DynArray<TypeId> &fields,
                                       memory::DynArray<std::string_view> *field_names = nullptr,
                                       memory::DynArray<FieldMeta> *field_meta         = nullptr);
@@ -285,6 +293,7 @@ private:
         Optional,
         Array,
         Function,
+        StateFunction,
         Struct,
         Enum,
         Union,

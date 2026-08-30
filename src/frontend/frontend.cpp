@@ -906,15 +906,19 @@ private:
                 snapshot_.diagnostics_.push_back({range(start, index_),
                                                   "expected a trait or interface after 'dyn'",
                                                   false, diagnostics::err::ExpectedExpr});
-        } else if (isKeywordToken("fn")) {
-            // A function type value: `fn(params): result`.  Parameters are
+        } else if (isKeywordToken("fn") || (isKeywordToken("state") && index_ + 1U < token_count_ &&
+                                            punctuation(index_ + 1U, '('))) {
+            // A function type value: `fn(params): result` or the state value
+            // type `state(params): result`. Parameters are
             // parsed as bare types; the result follows `:` and is appended as
             // the final argument so sema and canonical printing share the
             // existing `arguments = [params..., result]` convention.
+            if (isKeywordToken("state"))
+                type.isStateFunctionType = true;
             ++index_;
             if (!punctuation(index_, '(')) {
                 snapshot_.diagnostics_.push_back({tokenSpan(index_),
-                                                  "expected '(' after 'fn' in function type", false,
+                                                  "expected '(' after function-type keyword", false,
                                                   diagnostics::err::ExpectedExpr});
             } else {
                 ++index_;
@@ -946,7 +950,8 @@ private:
                 type.arguments.push_back(parseType());
             } else {
                 snapshot_.diagnostics_.push_back({range(start, index_),
-                                                  "function type requires a return type after ':'",
+                                                  "function/state type requires a return type "
+                                                  "after ':'",
                                                   false, diagnostics::err::ExpectedExpr});
             }
             type.kind = TypeExprKind::Function;
@@ -2275,8 +2280,10 @@ private:
             const uint32_t clause_start = index_;
             StmtId init_stmt;
             ExprId init_expr;
-            if (index_ < token_count_ && text(index_) == "var") {
+            const bool has_var = index_ < token_count_ && text(index_) == "var";
+            if (has_var)
                 ++index_;
+            if (has_var || (index_ + 1U < token_count_ && punctuation(index_ + 1U, ':'))) {
                 if (index_ >= token_count_ ||
                     (snapshot_.tokens_[index_].kind != TokenKind::Identifier &&
                      snapshot_.tokens_[index_].kind != TokenKind::Keyword)) {
@@ -2285,7 +2292,7 @@ private:
                 }
                 Statement stmt;
                 stmt.kind                = StmtKind::Binding;
-                stmt.binding.bindingKind = BindingKind::Var;
+                stmt.binding.bindingKind = has_var ? BindingKind::Var : BindingKind::Let;
                 stmt.binding.id          = LocalId{statementCountLocals_++};
                 stmt.binding.name        = std::string(text(index_));
                 stmt.binding.span        = tokenSpan(index_++);
@@ -2589,7 +2596,7 @@ private:
 
     /// Condition position accepts `not expr` without parentheses and the
     /// `optional expr` boolean sugar in addition to the normal expression
-    /// grammar.  Parenthesised clauses are handled by the caller, which closes
+    /// grammar. Parenthesised clauses are handled by the caller, which closes
     /// the group after this helper returns, so `not (done)` never leaks the
     /// closing parenthesis into the unary operand.
     [[nodiscard]] ExprId parseConditionExpression() {
@@ -4237,7 +4244,7 @@ std::string canonicalTypeString(const FrontendSnapshot &snapshot, const TypeExpr
     case TypeExprKind::Array:
         return "[" + std::to_string(type.arrayLength) + "]" + nested(0);
     case TypeExprKind::Function: {
-        std::string result = "fn(";
+        std::string result = type.isStateFunctionType ? "state(" : "fn(";
         for (size_t index = 0; index + 1 < type.arguments.size(); ++index) {
             if (index != 0)
                 result += ",";

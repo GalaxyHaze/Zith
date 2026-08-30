@@ -104,6 +104,21 @@ size_t countTerminatorKind(const hir::HirModule &hir, const hir::HirFunction &fn
     return count;
 }
 
+size_t countSlotAllocaOfType(const types::TypeIntern &types, const hir::HirModule &hir,
+                             const hir::HirFunction &fn, types::TypeKind kind) {
+    size_t count = 0;
+    for (const auto &block : fn.blocks) {
+        for (auto inst : block.insts) {
+            if (const auto *alloca = std::get_if<hir::HirSlotAlloca>(&hir.getExpr(inst))) {
+                if (alloca->type != types::kInvalidType && types.kindOf(alloca->type) == kind) {
+                    ++count;
+                }
+            }
+        }
+    }
+    return count;
+}
+
 std::string_view internedName(const memory::StringInterner &interner, memory::InternedId id) {
     const auto text = interner.lookup(id);
     return std::string_view(text.data(), text.size());
@@ -2123,6 +2138,155 @@ void test_variadic_slice_state_lowers_to_hir() {
     CHECK(jump_collects, "jump auto-collects its variadic slice into a temporary");
 }
 
+void test_optional_for_in_lowers_without_union_nodes() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "struct Range {\n"
+                                     "    current: i32,\n"
+                                     "    limit: i32,\n"
+                                     "    fn next(var self): ?i32 {\n"
+                                     "        if (self->current >= self->limit) {\n"
+                                     "            return null;\n"
+                                     "        }\n"
+                                     "        let value = self->current;\n"
+                                     "        self->current = self->current + 1;\n"
+                                     "        return value;\n"
+                                     "    }\n"
+                                     "}\n"
+                                     "fn main(): i32 {\n"
+                                     "    var total: i32 = 0;\n"
+                                     "    let r: Range = Range { current: 0, limit: 3 };\n"
+                                     "    for (x in r) {\n"
+                                     "        total = total + x;\n"
+                                     "    }\n"
+                                     "    return total;\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "optional for-in lowers to HIR");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main is present after optional for-in lowering");
+    if (main == nullptr)
+        return;
+    CHECK_EQ(countUnionCasts(hir, *main), 0u, "?T for-in emits no legacy union cast");
+    CHECK(countExprKind(hir, hir::HirExprKind::MakeSome) > 0u,
+          "?T for-in lowers optional payload construction");
+    CHECK(countExprKind(hir, hir::HirExprKind::Field) > 0u,
+          "?T for-in reads the optional tag/payload fields");
+}
+
+void test_nested_optional_for_in_loop_variable_is_optional() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "struct Range {\n"
+                                     "    current: i32,\n"
+                                     "    limit: i32,\n"
+                                     "    fn next(var self): ??i32 {\n"
+                                     "        if (self->current >= self->limit) {\n"
+                                     "            return null;\n"
+                                     "        }\n"
+                                     "        let value = self->current;\n"
+                                     "        self->current = self->current + 1;\n"
+                                     "        return value;\n"
+                                     "    }\n"
+                                     "}\n"
+                                     "fn main(): i32 {\n"
+                                     "    var total: i32 = 0;\n"
+                                     "    let r: Range = Range { current: 0, limit: 3 };\n"
+                                     "    for (x: ?i32 in r) {\n"
+                                     "        if (x is null) {\n"
+                                     "            total = total + 1;\n"
+                                     "        }\n"
+                                     "    }\n"
+                                     "    return total;\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "nested optional for-in lowers to HIR");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main is present after nested optional for-in lowering");
+    if (main == nullptr)
+        return;
+    size_t optional_allocas = 0;
+    for (const auto &block : main->blocks) {
+        for (auto inst : block.insts) {
+            if (const auto *alloca = std::get_if<hir::HirSlotAlloca>(&hir.getExpr(inst))) {
+                if (alloca->type != types::kInvalidType) {
+                    const bool is_optional = std::get_if<types::TypeOptional>(
+                                                 &session.types().lookup(alloca->type)) != nullptr;
+                    if (is_optional)
+                        ++optional_allocas;
+                }
+            }
+        }
+    }
+    CHECK_EQ(optional_allocas, 3u,
+             "??T for-in allocates the returned optional and the ?T loop variable");
+    CHECK_EQ(countUnionCasts(hir, *main), 0u, "??T for-in emits no legacy union cast");
+}
+
+void test_state_value_dock_lowers_to_indirect_tailcc_call() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "state Machine(n: i32): i32 {\n"
+                                     "    return n;\n"
+                                     "}\n"
+                                     "fn main(): i32 {\n"
+                                     "    let S: state(i32): i32 = Machine;\n"
+                                     "    return dock S(42);\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "state value dock lowers to HIR");
+
+    const auto &hir  = session.hirModule();
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main is present after state value dock lowering");
+    if (main == nullptr)
+        return;
+
+    const hir::HirCall *call = nullptr;
+    for (const auto &block : main->blocks) {
+        for (auto inst : block.insts)
+            if (const auto *candidate = std::get_if<hir::HirCall>(&hir.getExpr(inst))) {
+                call = candidate;
+                break;
+            }
+        if (call == nullptr && block.terminator != hir::kInvalidHirExpr) {
+            if (const auto *ret = std::get_if<hir::HirRet>(&hir.getExpr(block.terminator))) {
+                if (ret->value != hir::kInvalidHirExpr)
+                    if (const auto *candidate =
+                            std::get_if<hir::HirCall>(&hir.getExpr(ret->value))) {
+                        call = candidate;
+                        break;
+                    }
+            }
+        }
+        if (call != nullptr)
+            break;
+    }
+    CHECK(call != nullptr, "state value dock emits a HirCall");
+    if (call == nullptr)
+        return;
+    CHECK(call->callee != hir::kInvalidHirExpr,
+          "state value dock has an indirect callee expression");
+    CHECK(call->resolved_fn == symbols::kInvalidSym,
+          "state value dock does not resolve to a direct state symbol");
+    CHECK(call->fn_type != types::kInvalidType,
+          "state value dock records the lowered state function type");
+    CHECK(call->usesTailCC, "state value dock keeps LLVM tailcc");
+}
+
 } // namespace
 
 static void test_hir_lower_modern() {
@@ -2183,6 +2347,9 @@ static void test_hir_lower_modern() {
     test_state_without_return_type_lowers_to_hir();
     test_variadic_slice_lowers_to_hir();
     test_variadic_slice_state_lowers_to_hir();
+    test_optional_for_in_lowers_without_union_nodes();
+    test_nested_optional_for_in_loop_variable_is_optional();
+    test_state_value_dock_lowers_to_indirect_tailcc_call();
     test_anonymous_pack_literal_lowers_to_hir();
 }
 

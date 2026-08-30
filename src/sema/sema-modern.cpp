@@ -846,44 +846,7 @@ void PerModuleSema::checkReturnsAndCalls() {
             continue;
         TypeId ret_type = fn->result;
         if (decl.body) {
-            TypeId body_type         = typeOfExpr(decl.body);
-            const auto *body_expr    = decl.body.value <= snapshot.expressions().size()
-                                           ? &snapshot.expressions()[decl.body.value - 1U]
-                                           : nullptr;
-            const bool bodyHasReturn = [&]() {
-                if (body_expr == nullptr || body_expr->kind != frontend::ExprKind::Block)
-                    return false;
-                for (const frontend::StmtId stmt_id : body_expr->statements) {
-                    if (!stmt_id || stmt_id.value > snapshot.statements().size())
-                        continue;
-                    if (snapshot.statements()[stmt_id.value - 1U].kind ==
-                        frontend::StmtKind::Return)
-                        return true;
-                }
-                return false;
-            }();
-            const bool bodyEndsWithStateTransfer = [&]() {
-                if (decl.functionKind != frontend::FunctionKind::State || body_expr == nullptr ||
-                    body_expr->kind != frontend::ExprKind::Block) {
-                    return false;
-                }
-                // A `jump` is a terminating transfer for the state body even
-                // when it is not the literally last statement (after binds,
-                // expressions, `defer`, or trailing declarations).
-                for (const frontend::StmtId stmt_id : body_expr->statements) {
-                    if (!stmt_id || stmt_id.value > snapshot.statements().size())
-                        continue;
-                    if (snapshot.statements()[stmt_id.value - 1U].kind ==
-                        frontend::StmtKind::Jump) {
-                        return true;
-                    }
-                    if (snapshot.statements()[stmt_id.value - 1U].kind ==
-                        frontend::StmtKind::Return) {
-                        return false;
-                    }
-                }
-                return false;
-            }();
+            TypeId body_type = typeOfExpr(decl.body);
             if (!sameType(body_type, void_type) && ret_type != void_type) {
                 const bool implicit_ret_ok =
                     decl.body && type_table.kindOf(resolve(ret_type)) == TypeKind::Opaque
@@ -895,11 +858,12 @@ void PerModuleSema::checkReturnsAndCalls() {
                                           ret_type, body_type,
                                           "function body type does not match declared return type");
                 }
-            } else if (sameType(body_type, void_type) && !bodyHasReturn && ret_type != void_type &&
-                       ret_type != error_type && !bodyEndsWithStateTransfer) {
+            } else if (sameType(body_type, void_type) && !exprAlwaysTerminates(decl.body) &&
+                       ret_type != void_type && ret_type != error_type) {
                 reportCoercionFailure(
                     snapshot.expressions()[decl.body.value - 1U].span, ret_type, body_type,
-                    "function body is missing a value of the declared return type");
+                    "function body can fall through without returning a value of the declared "
+                    "return type");
             }
         }
     }
@@ -911,6 +875,116 @@ void PerModuleSema::checkReturnsAndCalls() {
             TypeId call_type = typeOfExpr(expr.id);
             (void)call_type;
         }
+    }
+}
+
+bool PerModuleSema::statementAlwaysTerminates(const frontend::Statement &stmt) const noexcept {
+    switch (stmt.kind) {
+    case frontend::StmtKind::Return:
+    case frontend::StmtKind::Jump:
+        return true;
+    case frontend::StmtKind::Expression:
+        return stmt.expression && exprAlwaysTerminates(stmt.expression);
+    default:
+        return false;
+    }
+}
+
+bool PerModuleSema::conditionIsAlwaysLiteralTrue(frontend::ExprId id) const noexcept {
+    if (!id || id.value > snapshot.expressions().size())
+        return false;
+    const auto &condition = snapshot.expressions()[id.value - 1U];
+    return condition.kind == frontend::ExprKind::Literal && condition.text == "true";
+}
+
+bool PerModuleSema::statementContainsBreak(const frontend::Statement &stmt) const noexcept {
+    if (stmt.kind == frontend::StmtKind::Break)
+        return true;
+    return stmt.expression && exprContainsBreak(stmt.expression);
+}
+
+bool PerModuleSema::exprContainsBreak(frontend::ExprId id) const noexcept {
+    if (!id || id.value > snapshot.expressions().size())
+        return false;
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.kind == frontend::ExprKind::Block) {
+        for (const auto stmt_id : expr.statements) {
+            if (!stmt_id || stmt_id.value > snapshot.statements().size())
+                continue;
+            if (statementContainsBreak(snapshot.statements()[stmt_id.value - 1U]))
+                return true;
+        }
+    }
+    for (const auto operand : expr.operands) {
+        if (exprContainsBreak(operand))
+            return true;
+    }
+    for (const auto statement : expr.statements) {
+        if (!statement || statement.value > snapshot.statements().size())
+            continue;
+        if (statementContainsBreak(snapshot.statements()[statement.value - 1U]))
+            return true;
+    }
+    return false;
+}
+
+bool PerModuleSema::blockAlwaysTerminates(frontend::ExprId id) const noexcept {
+    if (!id || id.value > snapshot.expressions().size())
+        return false;
+    for (const frontend::StmtId stmt_id : snapshot.expressions()[id.value - 1U].statements) {
+        if (!stmt_id || stmt_id.value > snapshot.statements().size())
+            continue;
+        const auto &stmt = snapshot.statements()[stmt_id.value - 1U];
+        if (statementAlwaysTerminates(stmt))
+            return true;
+    }
+    return false;
+}
+
+bool PerModuleSema::exprAlwaysTerminates(frontend::ExprId id) const noexcept {
+    if (!id || id.value > snapshot.expressions().size())
+        return false;
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    switch (expr.kind) {
+    case frontend::ExprKind::Block:
+        return blockAlwaysTerminates(id);
+    case frontend::ExprKind::If:
+        if (expr.operands.size() < 3U)
+            return false;
+        if (!exprAlwaysTerminates(expr.operands[1]))
+            return false;
+        return exprAlwaysTerminates(expr.operands.size() > 3U ? expr.operands[3]
+                                                              : expr.operands[2]);
+    case frontend::ExprKind::When:
+        if (expr.conditions.empty())
+            return false;
+        if (expr.conditions.back())
+            return false; // no default case
+        for (size_t index = 1U; index < expr.operands.size(); ++index) {
+            if (!exprAlwaysTerminates(expr.operands[index]))
+                return false;
+        }
+        return true;
+    case frontend::ExprKind::While:
+        if (expr.operands.empty())
+            return false;
+        return conditionIsAlwaysLiteralTrue(expr.operands[0]) &&
+               !exprContainsBreak(expr.operands[1]);
+    case frontend::ExprKind::For:
+        if (expr.operands.empty())
+            return false;
+        return conditionIsAlwaysLiteralTrue(expr.operands[0]) &&
+               !exprContainsBreak(expr.operands[1]);
+    case frontend::ExprKind::ForIn:
+        // A for-in loop is finite unless the body itself prevents termination.
+        // A `return`, `jump`, or infinite inner loop can keep every iteration
+        // from falling through; a plain final value cannot because a finite
+        // iterator will eventually reach that value and then return normally.
+        if (expr.operands.size() < 2U || !expr.operands[1])
+            return false;
+        return blockAlwaysTerminates(expr.operands[1]);
+    default:
+        return false;
     }
 }
 
@@ -1092,7 +1166,9 @@ TypeId PerModuleSema::substituteSelf(TypeId type, TypeId self, TypeId trait) con
         auto &params = type_table.makeTypeStorage();
         for (const auto param : fn->params)
             params.push(substituteSelf(param, self, trait));
-        return type_table.internFunction(params, substituteSelf(fn->result, self, trait));
+        return type_table.kindOf(resolved) == TypeKind::State
+                   ? type_table.internStateFunction(params, substituteSelf(fn->result, self, trait))
+                   : type_table.internFunction(params, substituteSelf(fn->result, self, trait));
     }
     if (trait && resolve(type) == resolve(trait))
         return self;
@@ -1166,13 +1242,18 @@ TypeId PerModuleSema::lowerBareTypeExpr(const frontend::TypeExpression &type) {
     }
     case frontend::TypeExprKind::Pointer:
     case frontend::TypeExprKind::Optional: {
-        // `*void` / `?*void` are rejected; `raw opaque` remains the spelling for C interop.
-        const TypeId inner =
-            type.arguments.empty() ? kInvalidTypeId : lowerTypeExpr(type.arguments[0]);
-        if (inner && resolve(inner) == void_type) {
-            report(type.span, "pointer to 'void' is not allowed; use 'raw opaque' for C interop",
-                   diagnostics::err::TypeMismatch);
-            return error_type;
+        // `*void` / `?*void` are rejected; `raw opaque` remains the spelling
+        // for C interop. ?*T nullable pointers stay valid.
+        TypeId inner = type.arguments.empty() ? kInvalidTypeId : lowerTypeExpr(type.arguments[0]);
+        if (inner) {
+            const TypeId stripped       = type_table.stripQualifiers(inner);
+            const TypeId resolved_inner = resolve(stripped);
+            if (resolved_inner == void_type) {
+                report(type.span,
+                       "pointer to 'void' is not allowed; use 'raw opaque' for C interop",
+                       diagnostics::err::TypeMismatch);
+                return error_type;
+            }
         }
         return type.kind == frontend::TypeExprKind::Pointer ? type_table.internPointer(inner)
                                                             : type_table.internOptional(inner);
@@ -1193,7 +1274,8 @@ TypeId PerModuleSema::lowerBareTypeExpr(const frontend::TypeExpression &type) {
             params.push(lowerTypeExpr(type.arguments[i]));
         const TypeId result =
             type.arguments.empty() ? kInvalidTypeId : lowerTypeExpr(type.arguments.back());
-        return type_table.internFunction(params, result);
+        return type.isStateFunctionType ? type_table.internStateFunction(params, result)
+                                        : type_table.internFunction(params, result);
     }
     case frontend::TypeExprKind::Opaque:
         // `raw opaque` is the only accepted spelling of an untyped pointer; a literally
@@ -4319,6 +4401,7 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
     uint32_t end_index     = static_cast<uint32_t>(-1);
     bool found_end         = false;
     bool valid_union       = false;
+    TypeId optional_type   = error_type;
     if (next_decl != nullptr) {
         const PerModuleSema *next_sema =
             owner != nullptr ? owner->findModuleSema(next_module) : nullptr;
@@ -4331,10 +4414,17 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
         } else {
             const TypeId result = resolve(fn->result);
             const auto *uf      = type_table.union_type(result);
-            if (uf == nullptr || !uf->is_tagged) {
+            const auto *opt     = type_table.optional(result);
+            if (opt != nullptr) {
+                // Canonical protocol: `next(self): ?T` where `null` is End and
+                // `Some(T)` is an element. `??T` is `?T` payload so the loop
+                // variable itself remains `?T`.
+                element_type  = opt->inner;
+                optional_type = fn->result;
+            } else if (uf == nullptr || !uf->is_tagged) {
                 report(expr.span,
                        "iterator 'next' method must return a tagged union with one value member "
-                       "and 'End'",
+                       "and 'End', or an optional '?T'",
                        diagnostics::err::TypeMismatch);
             } else if (uf->members.size() != 2U) {
                 report(
@@ -4366,15 +4456,19 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
         }
     }
 
-    if (next_decl == nullptr || !valid_union) {
+    if (next_decl == nullptr || (optional_type == error_type && !valid_union)) {
         active_loop_labels_.pop_back();
         return void_type;
     }
 
     typed_map.forInNext.insert(id.value, TypedMap::ForInNext{next_module, next_decl->id});
-    typed_map.forInElementIndex.insert(id.value, element_index);
-    typed_map.forInEndIndex.insert(id.value, end_index);
-    typed_map.forInUnionType.insert(id.value, union_type);
+    if (optional_type != error_type) {
+        typed_map.forInOptionalType.insert(id.value, optional_type);
+    } else {
+        typed_map.forInElementIndex.insert(id.value, element_index);
+        typed_map.forInEndIndex.insert(id.value, end_index);
+        typed_map.forInUnionType.insert(id.value, union_type);
+    }
 
     if (expr.forInBinding) {
         const TypeId ann    = lowerTypeExpr(expr.cast_type);
@@ -4893,6 +4987,26 @@ bool PerModuleSema::coerceValue(frontend::ExprId value, TypeId target, TypeId so
             markSlicePtrCoercionEscaping(value);
         return true;
     }
+    // A real `state` declaration is assignable to the `state(params): ret`
+    // value type only when the signature matches. The source type is the
+    // declaration's normal `fn` shape; the target keeps Kind::State so the
+    // dock call can preserve state call semantics.
+    if (value && source && type_table.kindOf(resolve(target)) == TypeKind::State &&
+        value.value <= snapshot.expressions().size()) {
+        const auto &expr = snapshot.expressions()[value.value - 1U];
+        const auto *resolved =
+            expr.kind == frontend::ExprKind::Name ? findResolvedExpr(value) : nullptr;
+        const frontend::Declaration *state_decl =
+            resolved != nullptr ? declarationForResolved(*resolved) : nullptr;
+        if (state_decl != nullptr && state_decl->kind == frontend::DeclKind::Function &&
+            state_decl->functionKind == frontend::FunctionKind::State && sameType(target, source)) {
+            setExprType(value, target);
+            return true;
+        }
+    }
+    if (type_table.kindOf(resolve(target)) == TypeKind::State &&
+        (source == kInvalidTypeId || type_table.kindOf(resolve(source)) == TypeKind::Function))
+        return false;
     // `lend q` / `view q` has the inner expression's type for overload/target
     // checks, but lowering turns the annotated node into an address. If the
     // value itself already is a borrow pointer, it can still be passed without
@@ -5020,15 +5134,24 @@ void PerModuleSema::inferDockCall(frontend::ExprId id) {
     if (!expr.operands.empty()) {
         const auto *resolved                = findResolvedExpr(expr.operands[0]);
         const frontend::Declaration *target = nullptr;
+        TypeId target_type                  = kInvalidTypeId;
         if (resolved != nullptr) {
             target = findDeclarationForResolved(*this, *resolved);
         }
-        if (target == nullptr || target->kind != frontend::DeclKind::Function ||
-            target->functionKind != frontend::FunctionKind::State) {
+        if (resolved != nullptr)
+            target_type = typeOfResolvedName(expr.operands[0]);
+        // `dock S(args)` may target either a direct `state` declaration or a
+        // value whose type is `state(params): ret`.
+        const bool direct_state = target != nullptr &&
+                                  target->kind == frontend::DeclKind::Function &&
+                                  target->functionKind == frontend::FunctionKind::State;
+        const bool state_value =
+            target_type &&
+            type_table.kindOf(resolve(type_table.stripQualifiers(target_type))) == TypeKind::State;
+        if (!direct_state && !state_value) {
             report(expr.span, "dock target must be a state function",
                    diagnostics::err::UnsupportedSyntax);
         } else {
-            const TypeId target_type = typeOfResolvedName(expr.operands[0]);
             if (const auto *fn = type_table.function(target_type)) {
                 result = fn->result;
                 const bool target_is_slice =
@@ -5086,12 +5209,11 @@ void PerModuleSema::inferDockCall(frontend::ExprId id) {
                         (void)checkVariadicTail(expr.span, expr.operands, fn, slice_index, true);
                 }
                 setExprType(expr.operands[0], target_type);
-                setResolvedCallTarget(expr.operands[0],
-                                      resolved != nullptr ? resolved->target.module
-                                                          : session::ModuleKey{},
-                                      target->id);
-                if (resolved != nullptr && resolved->target.module.empty())
-                    setResolvedCallTarget(expr.operands[0], module, target->id);
+                if (direct_state && target != nullptr)
+                    setResolvedCallTarget(expr.operands[0],
+                                          resolved != nullptr ? resolved->target.module
+                                                              : session::ModuleKey{},
+                                          target->id);
             }
         }
     }
@@ -6636,6 +6758,11 @@ void PerModuleSema::checkZithDeclarations() {
         }
     }
 
+    std::vector<frontend::LocalId> for_in_bindings;
+    for (const auto &expr : snapshot.expressions()) {
+        if (expr.kind == frontend::ExprKind::ForIn && expr.forInBinding)
+            for_in_bindings.push_back(expr.forInBinding);
+    }
     for (const auto &statement : snapshot.statements()) {
         if (statement.kind != frontend::StmtKind::Binding)
             continue;
@@ -6663,7 +6790,9 @@ void PerModuleSema::checkZithDeclarations() {
             kind == TypeKind::Incomplete || kind == TypeKind::Nominal || kind == TypeKind::Alias ||
             kind == TypeKind::Function || kind == TypeKind::Failable || kind == TypeKind::Pack ||
             kind == TypeKind::Trait || kind == TypeKind::Sum || kind == TypeKind::TypeVar;
-        if (!binding.initializer &&
+        const bool is_for_in_binding = std::find(for_in_bindings.begin(), for_in_bindings.end(),
+                                                 binding.id) != for_in_bindings.end();
+        if (!binding.initializer && !is_for_in_binding &&
             (binding.bindingKind == frontend::BindingKind::Let ||
              binding.bindingKind == frontend::BindingKind::Var) &&
             non_trivial) {
@@ -6784,7 +6913,9 @@ bool PerModuleSema::sameType(TypeId a, TypeId b) const noexcept {
     // `error` suppresses cascading diagnostics; `Unknown` (generics / type vars) does not.
     if (resolved_a == error_type || resolved_b == error_type)
         return true;
-    if (ka != kb)
+    const bool state_or_fn_shape = (ka == TypeKind::State && kb == TypeKind::Function) ||
+                                   (ka == TypeKind::Function && kb == TypeKind::State);
+    if (ka != kb && !state_or_fn_shape)
         return false;
     if (ka == TypeKind::Integer) {
         const auto *ia = type_table.integer(resolved_a);
@@ -6844,7 +6975,8 @@ bool PerModuleSema::sameType(TypeId a, TypeId b) const noexcept {
         }
         return true;
     }
-    if (ka == TypeKind::Function) {
+    if (ka == TypeKind::Function || ka == TypeKind::State || kb == TypeKind::Function ||
+        kb == TypeKind::State) {
         const auto *fa = type_table.function(resolved_a);
         const auto *fb = type_table.function(resolved_b);
         if (fa == nullptr || fb == nullptr || fa->params.size() != fb->params.size() ||

@@ -888,7 +888,10 @@ llvm::Value *CodeGenEmit::emitCall(const hir::HirCall &call, const hir::HirModul
                                                    callee->getType()->getPointerAddressSpace());
         if (callee->getType() != fn_ptr_type)
             callee = builder_.CreateBitCast(callee, fn_ptr_type);
-        return builder_.CreateCall(fn_type, callee, args);
+        auto *indirect = builder_.CreateCall(fn_type, callee, args);
+        if (call.usesTailCC)
+            indirect->setCallingConv(llvm::CallingConv::Tail);
+        return indirect;
     }
 
     const bool tailcc =

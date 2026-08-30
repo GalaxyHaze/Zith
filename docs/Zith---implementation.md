@@ -31,7 +31,7 @@ Qualificadores `mut`, `unique`, `share` e `belong` são parseados para recovery/
 
 O parser cria `ExprKind::OwnershipCoerce` apenas em listas de argumentos de call (`parseCallArgument()`), usado nas chamadas `f(...)`, `f<G>(...)`, dock e jump. Só `lend` e `view` são aceites como anotação de argumento; `unique`/`share`/`belong`/`mut` nessa posição reportam `E4007 InvalidCallOwnership`. Fora de um call argument, `lend`/`view` continuam a ser tratados como keywords normais e falham com o diagnóstico normal.
 
-`parseConditionExpression()` é usado em `if`, `while`, nas três cláusulas do `for` e nos grupos parentizados `for (cond)`. A função reconhece `not expr` e constrói `ExprKind::Unary` com texto `not` antes de `parseExpression()`, e reconhece `optional expr` para construir `ExprKind::OptionalProp` sobre o operando. O token seguinte `)`/`,`/`{` interrompe o sugar, para que o parser não absorva o fecho ou separador da cláusula.
+`parseConditionExpression()` é usado em `if`, `while`, nas três cláusulas do `for` e nos grupos parentizados `for (cond)`. A função reconhece `not expr` e constrói `ExprKind::Unary` com texto `not` antes de `parseExpression()`. O token seguinte `)`/`,`/`{` interrompe o sugar, para que o parser não absorva o fecho ou separador da cláusula.
 
 `parseStatements()` mantém `return;` e `return` antes de `}` como formas sem
 valor. Quando `return` tem uma expressão, o parser exige `;` depois de
@@ -244,9 +244,6 @@ de pointer) e `x?` de `?T` para leitura do discriminante em field index 1. Não 
 `return null` do lowering de propagação, pelo que não é preciso tipo de retorno opcional no
 contexto condicional.
 
-O sugar de condição `optional expr` é baixado pelo mesmo caminho: o parser constrói
-`ExprKind::OptionalProp` e `booleanCondition`/`lowerOptionalBoolean` não distinguem
-se o `?` veio da sintaxe postfix ou da palavra-chave `optional`.
 
 ### Opaque tagged
 
@@ -357,7 +354,18 @@ são emitidos primeiro. O cleanup final é `HirExprKind::Cleanup` em reverse ord
 antes de `ret`, branches de `break`/`continue` e `HirStateTailCall`. `state`
 sem return type declarado é tratado como `void` e nunca tem tipo inferido do corpo.
 
-For-in usa o protocolo `next(self)` com retorno tagged union de dois membros: um elemento e o `End` canonico (`struct End {}`). O sema exige exatamente um membro `End`; HIR chama `next` no header do loop, ramifica por `HirUnionCheck` quando o tag é `End` e extrai o elemento com `HirUnionCast` quando não é.
+For-in usa o protocolo canonico `next(self): ?T`: `null` é o fim da iteração e `Some(T)` é um
+elemento. `next(self): ??T` suporta iteradores com elementos opcionais; o loop variable é `?T`
+e só o `None` exterior termina. O HIR chama `next` no header, ramifica por um branch sobre o
+optional (`HirMakeNone`/tag field para optionals de valor, igualdade a `null` para optionals de
+ponteiro) e extrai o payload com `HirField`/load. O protocolo legacy tagged union
+`next(self): { T, End }` continua aceite durante a migração, emitindo `HirUnionCheck`/`HirUnionCast`.
+
+Funções com retorno não-void usam análise de terminação por caminhos: um corpo pode terminar
+sem `return` apenas quando o último valor do bloco tem o tipo certo ou quando todos os caminhos
+terminam (valores finais, `if`/`else` completo, `when` com default, `jump`, loops infinitos sem
+`break` directo). Fallthrough continua a ser erro diagnosticado; não é criado `null` automático
+para `?T`.
 
 ## Testes
 

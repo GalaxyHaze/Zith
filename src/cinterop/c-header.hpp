@@ -34,13 +34,13 @@ enum class ConstantKind : uint8_t { Integer, Float, Bool, Char };
 /// by Zith.  The value is stored ready to lower; no external evaluation is used.
 struct Constant {
     std::string name;
-    ConstantKind kind = ConstantKind::Integer;
-    uint8_t bits      = 32;
-    bool isSigned     = true;
-    std::int64_t integerValue  = 0;
-    double floatValue          = 0.0;
-    bool boolValue             = false;
-    char charValue             = '\0';
+    ConstantKind kind         = ConstantKind::Integer;
+    uint8_t bits              = 32;
+    bool isSigned             = true;
+    std::int64_t integerValue = 0;
+    double floatValue         = 0.0;
+    bool boolValue            = false;
+    char charValue            = '\0';
 };
 
 struct Diagnostic {

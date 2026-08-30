@@ -238,6 +238,11 @@ struct TypeExpression {
     bool isMut = false;
     /// True when the type was written with an explicit `mut` prefix.
     bool hasMutKeyword = false;
+    /// True when a function type was written with the `state` prefix
+    /// (`state(params): ret`) instead of `fn(params): ret`. The lowered type
+    /// keeps the same function shape as `fn`, but the lowerer produces a
+    /// distinct sema type so assignment and `dock` can enforce machine rules.
+    bool isStateFunctionType = false;
     /// Member names for `TypeExprKind::Pack` (`|x: i32, y: i32|`).
     std::vector<std::string> member_names;
 };

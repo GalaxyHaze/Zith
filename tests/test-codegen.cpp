@@ -759,16 +759,14 @@ static void test_labeled_loop_controls_runtime() {
 
 static void test_for_in_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-for-in.zith", "struct End {}\n"
-                                          "union RangeStep { End, i32 }\n"
-                                          "struct Range {\n"
+    auto r = t.run("codegen-for-in.zith", "struct Range {\n"
                                           "    current: i32,\n"
                                           "    limit: i32,\n"
-                                          "    fn next(var self): RangeStep {\n"
+                                          "    fn next(var self): ?i32 {\n"
                                           "        if (self->current >= self->limit) {\n"
-                                          "            return RangeStep { End {} };\n"
+                                          "            return null;\n"
                                           "        }\n"
-                                          "        let value = RangeStep { self->current };\n"
+                                          "        let value = self->current;\n"
                                           "        self->current = self->current + 1;\n"
                                           "        return value;\n"
                                           "    }\n"
@@ -785,7 +783,44 @@ static void test_for_in_runtime() {
                                           "    return total;\n"
                                           "}\n");
     CHECK(r.ok, "for-in runtime test compiles, links, and executes");
-    CHECK_EQ(r.exitCode, 15, "for-in extracts the union element until End");
+    CHECK_EQ(r.exitCode, 15, "for-in extracts ?T elements until the None sentinel");
+}
+
+static void test_nested_optional_for_in_runtime() {
+    CodegenTest t;
+    auto r = t.run("codegen-nested-for-in.zith",
+                   "struct Range {\n"
+                   "    current: i32,\n"
+                   "    limit: i32,\n"
+                   "    fn next(var self): ??i32 {\n"
+                   "        if (self->current >= self->limit) {\n"
+                   "            return null;\n"
+                   "        }\n"
+                   "        if (self->current == 1 or self->current == 3) {\n"
+                   "            let maybe: ?i32 = null;\n"
+                   "            self->current = self->current + 1;\n"
+                   "            return maybe;\n"
+                   "        }\n"
+                   "        let value = self->current;\n"
+                   "        self->current = self->current + 1;\n"
+                   "        return value;\n"
+                   "    }\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    var total: i32 = 0;\n"
+                   "    var nulls: i32 = 0;\n"
+                   "    let r: Range = Range { current: 0, limit: 6 };\n"
+                   "    for (x: ?i32 in r) {\n"
+                   "        if (x is null) {\n"
+                   "            nulls = nulls + 1;\n"
+                   "        } else {\n"
+                   "            total = total + 1;\n"
+                   "        }\n"
+                   "    }\n"
+                   "    return total * 10 + nulls;\n"
+                   "}\n");
+    CHECK(r.ok, "??T for-in runtime test compiles, links, and executes");
+    CHECK_EQ(r.exitCode, 42, "??T exposes null elements without treating them as end");
 }
 
 static void test_imported_counter_runtime() {
@@ -1680,6 +1715,24 @@ static void test_native_function_value_call() {
     CHECK_EQ(r.exitCode, 14, "an indirect call through a native function value returns 14");
 }
 
+static void test_state_value_dock_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zith", "state Machine(n: i32): i32 {\n"
+                         "    if (n == 0) {\n"
+                         "        return 42;\n"
+                         "    }\n"
+                         "    jump Machine(n - 1);\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    let S: state(i32): i32 = Machine;\n"
+                         "    return dock S(100000);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "a state value compiles, links and docks with tailcc");
+    CHECK_EQ(r.exitCode, 42, "dock through a state value returns the machine result");
+}
+
 /// A C runtime mutates a `{ ptr, len }` slice through the same aggregate ABI
 /// that Zith reads, then Zith assigns and reads an element from the slice.
 static void test_mutable_slice_from_c() {
@@ -1909,7 +1962,7 @@ static void test_optional_boolean_condition_runtime() {
                          "}\n"
                          "fn null_value(): i32 {\n"
                          "    let y: ?i32 = null;\n"
-                         "    if (y?) { return 9; }\n"
+                         "    if (optional y) { return 9; }\n"
                          "    return 0;\n"
                          "}\n"
                          "fn main(): i32 {\n"
@@ -1951,12 +2004,12 @@ static void test_optional_condition_keyword_runtime() {
     ModernFileCodegenTest t;
     t.write("main.zith", "fn non_null(): i32 {\n"
                          "    let x: ?i32 = 7;\n"
-                         "    if (optional x) { return 1; }\n"
+                         "    if (x?) { return 1; }\n"
                          "    return 9;\n"
                          "}\n"
                          "fn null_value(): i32 {\n"
                          "    let y: ?i32 = null;\n"
-                         "    if (optional y) { return 9; }\n"
+                         "    if (y?) { return 9; }\n"
                          "    return 0;\n"
                          "}\n"
                          "fn main(): i32 {\n"
@@ -1965,8 +2018,9 @@ static void test_optional_condition_keyword_runtime() {
                          "}\n");
 
     auto r = t.run();
-    CHECK(r.usedModern, "the optional condition keyword uses the modern codegen pipeline");
-    CHECK(r.ok, "'optional expr' conditions compile, link and run");
+    CHECK(r.usedModern, "optional condition keywords use the modern codegen pipeline");
+    CHECK(r.ok,
+          "postfix optional conditions and optional-keyword conditions compile, link and run");
     CHECK_EQ(r.exitCode, 0, "the non-null ?i32 branch runs and the null ?i32 branch does not");
 }
 
@@ -1978,8 +2032,8 @@ static void test_bare_condition_forms_runtime() {
                          "}\n"
                          "fn pick(): i32 {\n"
                          "    var x: ?i32 = 4;\n"
-                         "    if optional x { return 3; }\n"
-                         "    while optional x { return 5; }\n"
+                         "    if (optional x) { return 3; }\n"
+                         "    while (x?) { return 5; }\n"
                          "    for optional x { return 9; }\n"
                          "    return 0;\n"
                          "}\n"
@@ -2601,6 +2655,7 @@ static void test_codegen() {
     test_for_three_clause_runtime();
     test_labeled_loop_controls_runtime();
     test_for_in_runtime();
+    test_nested_optional_for_in_runtime();
     test_imported_counter_runtime();
     printf("Running test_named_struct_literal_and_defaults_runtime\n");
     test_named_struct_literal_and_defaults_runtime();
@@ -2737,6 +2792,8 @@ static void test_codegen() {
     test_function_pointer_call();
     printf("Running test_native_function_value_call\n");
     test_native_function_value_call();
+    printf("Running test_state_value_dock_runtime\n");
+    test_state_value_dock_runtime();
     printf("Running test_mutable_slice_from_c\n");
     test_mutable_slice_from_c();
     printf("Running test_variadic_slice_runtime\n");

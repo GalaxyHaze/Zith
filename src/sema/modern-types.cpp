@@ -105,6 +105,17 @@ TypeId TypeTable::internFunction(memory::DynArray<TypeId> &params, TypeId result
     return entry.id;
 }
 
+TypeId TypeTable::internStateFunction(memory::DynArray<TypeId> &params, TypeId result) {
+    auto &entry         = pushEntry(EntryKind::StateFunction);
+    entry.reported_kind = TypeKind::State;
+    auto &storage       = makeStorage();
+    for (auto &p : params)
+        storage.push(p);
+    entry.fn      = arena_->make<FunctionType>(FunctionType{storage, result});
+    entry.storage = &storage;
+    return entry.id;
+}
+
 TypeId TypeTable::internStruct(std::string_view name, memory::DynArray<TypeId> &fields,
                                memory::DynArray<std::string_view> *field_names,
                                memory::DynArray<FieldMeta> *field_meta) {
@@ -382,6 +393,18 @@ std::string TypeTable::typeToString(TypeId id) const {
             return result;
         }
         return "fn";
+    case TypeKind::State:
+        if (const auto *fn = function(resolved); fn != nullptr) {
+            std::string result = "state(";
+            for (size_t index = 0; index < fn->params.size(); ++index) {
+                if (index != 0)
+                    result += ", ";
+                result += typeToString(fn->params[index]);
+            }
+            result += "): " + typeToString(fn->result);
+            return result;
+        }
+        return "state";
     case TypeKind::Struct:
         if (const auto *st = struct_type(resolved); st != nullptr)
             return std::string(st->name);
@@ -489,7 +512,11 @@ const FloatType *TypeTable::float_kind(TypeId id) const noexcept {
 
 const FunctionType *TypeTable::function(TypeId id) const noexcept {
     const auto *entry = findEntry(id);
-    return entry && entry->kind == EntryKind::Function ? entry->fn : nullptr;
+    if (entry == nullptr)
+        return nullptr;
+    if (entry->kind == EntryKind::Function || entry->kind == EntryKind::StateFunction)
+        return entry->fn;
+    return nullptr;
 }
 
 const StructType *TypeTable::struct_type(TypeId id) const noexcept {
@@ -722,7 +749,8 @@ TypeId TypeTable::lowerTypeExprBare(const frontend::FrontendSnapshot &snapshot,
             params.push(lowerTypeExpr(snapshot, type.arguments[i]));
         TypeId result = type.arguments.empty() ? kInvalidTypeId
                                                : lowerTypeExpr(snapshot, type.arguments.back());
-        return internFunction(params, result);
+        return type.isStateFunctionType ? internStateFunction(params, result)
+                                        : internFunction(params, result);
     }
     case frontend::TypeExprKind::Slice:
         if (!type.arguments.empty())

@@ -1,6 +1,31 @@
 import "stdio.h"
 
+fn propagate(a: ?i32): ?i32{
+    let sum = a? + 5;
+    printf("sum is: %d\n", sum);
+    sum
+}
+
+union Result{
+    i32, f64
+}
+
+implement Result {
+    fn print(self: view Self){
+        if (self is i32){
+            printf("the integer is; %d\n", self);
+        }
+        else (self is f64){
+            printf("the double is: %f\n", self);
+        }
+    }
+}
+
 fn main(){
-   let slice: []char = "literal";
-   printf("let's try '%s' & it len is: %d\n", slice, @lengthOf(slice));
+   if optional propagate(null){
+        printf("Null propagated!\n");
+   }
+   propagate(5);
+   let test = Result{5};
+   test.print();
 }

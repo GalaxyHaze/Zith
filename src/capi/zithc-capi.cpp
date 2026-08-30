@@ -76,7 +76,7 @@ std::string renderTypeExpr(const zith::frontend::TypeExpression &te,
         return "[" + std::to_string(te.arrayLength) + "]" + inner;
     }
     case zith::frontend::TypeExprKind::Function: {
-        std::string result = "fn(";
+        std::string result = te.isStateFunctionType ? "state(" : "fn(";
         for (size_t i = 0; i + 1U < te.arguments.size(); ++i) {
             if (i > 0)
                 result += ", ";

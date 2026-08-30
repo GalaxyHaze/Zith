@@ -1980,6 +1980,89 @@ static void test_modern_for_three_clause() {
 }
 
 static void test_modern_for_in_iterators() {
+    ModernSemaTest optional_ok;
+    auto opt = optional_ok.run("struct Range {\n"
+                               "    current: i32,\n"
+                               "    limit: i32,\n"
+                               "    fn next(var self): ?i32 {\n"
+                               "        if (self->current >= self->limit) {\n"
+                               "            return null;\n"
+                               "        }\n"
+                               "        let value = self->current;\n"
+                               "        self->current = self->current + 1;\n"
+                               "        return value;\n"
+                               "    }\n"
+                               "}\n"
+                               "fn main(): i32 {\n"
+                               "    var total: i32 = 0;\n"
+                               "    let r: Range = Range { current: 0, limit: 5 };\n"
+                               "    for (x in r) {\n"
+                               "        total = total + x;\n"
+                               "    }\n"
+                               "    return total;\n"
+                               "}\n");
+    CHECK(opt.ok, "for-in with next returning ?T type-checks");
+
+    ModernSemaTest nested_optional_ok;
+    auto nested = nested_optional_ok.run("struct Range {\n"
+                                         "    current: i32,\n"
+                                         "    limit: i32,\n"
+                                         "    fn next(var self): ??i32 {\n"
+                                         "        if (self->current >= self->limit) {\n"
+                                         "            return null;\n"
+                                         "        }\n"
+                                         "        let value = self->current;\n"
+                                         "        self->current = self->current + 1;\n"
+                                         "        return value;\n"
+                                         "    }\n"
+                                         "}\n"
+                                         "fn main(): i32 {\n"
+                                         "    var total: i32 = 0;\n"
+                                         "    var seen_nulls: i32 = 0;\n"
+                                         "    let r: Range = Range { current: 0, limit: 5 };\n"
+                                         "    for (x: ?i32 in r) {\n"
+                                         "        if (x is null) {\n"
+                                         "            seen_nulls = seen_nulls + 1;\n"
+                                         "        } else {\n"
+                                         "            total = total + 1;\n"
+                                         "        }\n"
+                                         "    }\n"
+                                         "    return total + seen_nulls;\n"
+                                         "}\n");
+    CHECK(nested.ok, "for-in with next returning ??T type-checks with a ?T loop variable");
+
+    ModernSemaTest nested_typed_ok;
+    auto nested_typed = nested_typed_ok.run("struct Range {\n"
+                                            "    current: i32,\n"
+                                            "    limit: i32,\n"
+                                            "    fn next(var self): ??i32 {\n"
+                                            "        if (self->current >= self->limit) {\n"
+                                            "            return null;\n"
+                                            "        }\n"
+                                            "        if (self->current == 1) {\n"
+                                            "            self->current = self->current + 1;\n"
+                                            "            return null;\n"
+                                            "        }\n"
+                                            "        let value = self->current;\n"
+                                            "        self->current = self->current + 1;\n"
+                                            "        return value;\n"
+                                            "    }\n"
+                                            "}\n"
+                                            "fn main(): i32 {\n"
+                                            "    var total: i32 = 0;\n"
+                                            "    var seen_nulls: i32 = 0;\n"
+                                            "    let r: Range = Range { current: 0, limit: 5 };\n"
+                                            "    for (x: ?i32 in r) {\n"
+                                            "        if (x is null) {\n"
+                                            "            seen_nulls = seen_nulls + 1;\n"
+                                            "        } else {\n"
+                                            "            total = total + 1;\n"
+                                            "        }\n"
+                                            "    }\n"
+                                            "    return total * 10 + seen_nulls;\n"
+                                            "}\n");
+    CHECK(nested_typed.ok, "??T iterators expose a ?T loop variable even when annotated");
+
     ModernSemaTest ok;
     auto a = ok.run("struct End {}\n"
                     "union RangeStep { i32, End }\n"
@@ -2104,6 +2187,188 @@ static void test_modern_for_in_iterators() {
     CHECK(!g.ok, "for-in rejects an iterator union with more than two members");
     CHECK(g.hasMessage("must have exactly two members: a value and 'End'"),
           "reports the three-member union");
+}
+
+static void test_modern_fallthrough_returns() {
+    ModernSemaTest empty_body;
+    auto empty = empty_body.run("fn f(): i32 {\n"
+                                "}\n");
+    CHECK(!empty.ok, "non-void function with an empty body is rejected");
+    CHECK(empty.hasMessage("can fall through without returning a value"),
+          "empty non-void body reports the missing-return diagnostic");
+
+    ModernSemaTest optional_body;
+    auto optional = optional_body.run("fn f(): ?i32 {\n"
+                                      "}\n");
+    CHECK(!optional.ok, "non-void optional-returning function with an empty body is rejected");
+    CHECK(optional.hasMessage("can fall through without returning a value"),
+          "empty optional-returning body reports the missing-return diagnostic");
+
+    ModernSemaTest if_without_else;
+    auto if_only = if_without_else.run("fn f(flag: bool): i32 {\n"
+                                       "    if (flag) {\n"
+                                       "        return 1;\n"
+                                       "    }\n"
+                                       "}\n");
+    CHECK(!if_only.ok, "non-void if without else is rejected");
+    CHECK(if_only.hasMessage("can fall through without returning a value"),
+          "if-without-else fallthrough reports the missing-return diagnostic");
+
+    ModernSemaTest when_without_default;
+    auto when_only = when_without_default.run("fn f(n: i32): i32 {\n"
+                                              "    when (n) {\n"
+                                              "        (n == 0) ~> { return 1; }\n"
+                                              "    }\n"
+                                              "}\n");
+    CHECK(!when_only.ok, "non-void when without default is rejected");
+    CHECK(when_only.hasMessage("can fall through without returning a value"),
+          "when-without-default fallthrough reports the missing-return diagnostic");
+
+    ModernSemaTest complete_if;
+    auto complete = complete_if.run("fn f(flag: bool): i32 {\n"
+                                    "    if (flag) {\n"
+                                    "        return 1;\n"
+                                    "    } else {\n"
+                                    "        return 2;\n"
+                                    "    }\n"
+                                    "}\n");
+    CHECK(complete.ok, "if/else with returns in both arms is accepted");
+
+    ModernSemaTest final_value;
+    auto value = final_value.run("fn f(flag: bool): i32 {\n"
+                                 "    if (flag) {\n"
+                                 "        1\n"
+                                 "    } else {\n"
+                                 "        2\n"
+                                 "    }\n"
+                                 "}\n");
+    CHECK(value.ok, "a final if/else with value arms supplies the implicit return");
+
+    ModernSemaTest infinite_for;
+    auto forever = infinite_for.run("fn f(): i32 {\n"
+                                    "    for { }\n"
+                                    "}\n");
+    CHECK(forever.ok, "an infinite for without break is accepted as terminating");
+
+    ModernSemaTest infinite_for_break;
+    auto breaks = infinite_for_break.run("fn f(): i32 {\n"
+                                         "    for {\n"
+                                         "        break;\n"
+                                         "    }\n"
+                                         "}\n");
+    CHECK(!breaks.ok, "an infinite for with a direct break can fall through and is rejected");
+
+    ModernSemaTest infinite_for_break_in_if;
+    auto nested_break = infinite_for_break_in_if.run("fn f(flag: bool): i32 {\n"
+                                                     "    for {\n"
+                                                     "        if (flag) {\n"
+                                                     "            break;\n"
+                                                     "        }\n"
+                                                     "    }\n"
+                                                     "}\n");
+    CHECK(!nested_break.ok,
+          "an infinite for with a break inside nested control flow is rejected conservatively");
+    CHECK(nested_break.hasMessage("can fall through without returning a value"),
+          "nested break fallthrough reports the missing-return diagnostic");
+
+    ModernSemaTest finite_for_in;
+    auto finite = finite_for_in.run("struct Range {\n"
+                                    "    current: i32,\n"
+                                    "    limit: i32,\n"
+                                    "    fn next(var self): ?i32 {\n"
+                                    "        if (self->current >= self->limit) {\n"
+                                    "            return null;\n"
+                                    "        }\n"
+                                    "        let value = self->current;\n"
+                                    "        self->current = self->current + 1;\n"
+                                    "        return value;\n"
+                                    "    }\n"
+                                    "}\n"
+                                    "fn f(): i32 {\n"
+                                    "    let r: Range = Range { current: 0, limit: 3 };\n"
+                                    "    for (x in r) { }\n"
+                                    "}\n");
+    CHECK(!finite.ok, "a finite for-in without a value can fall through and is rejected");
+    CHECK(finite.hasMessage("can fall through without returning a value"),
+          "finite for-in fallthrough reports the missing-return diagnostic");
+
+    ModernSemaTest for_in_early_return;
+    auto early = for_in_early_return.run("struct Range {\n"
+                                         "    current: i32,\n"
+                                         "    limit: i32,\n"
+                                         "    fn next(var self): ?i32 {\n"
+                                         "        if (self->current >= self->limit) {\n"
+                                         "            return null;\n"
+                                         "        }\n"
+                                         "        let value = self->current;\n"
+                                         "        self->current = self->current + 1;\n"
+                                         "        return value;\n"
+                                         "    }\n"
+                                         "}\n"
+                                         "fn f(): i32 {\n"
+                                         "    let r: Range = Range { current: 0, limit: 3 };\n"
+                                         "    for (x in r) {\n"
+                                         "        return x;\n"
+                                         "    }\n"
+                                         "}\n");
+    CHECK(early.ok, "a finite for-in whose body always returns is accepted");
+
+    ModernSemaTest state_jump;
+    auto jumps = state_jump.run("state Start(): i32 {\n"
+                                "    jump Done();\n"
+                                "}\n"
+                                "state Done(): i32 {\n"
+                                "    return 1;\n"
+                                "}\n"
+                                "fn main(): i32 {\n"
+                                "    return dock Start();\n"
+                                "}\n",
+                                session::Stage::HirLowered);
+    CHECK(jumps.ok, "a state body ending in jump is accepted as terminating");
+}
+
+static void test_modern_state_value() {
+    ModernSemaTest ok;
+    auto value = ok.run("state Machine(n: i32): i32 {\n"
+                        "    return n;\n"
+                        "}\n"
+                        "fn main(): i32 {\n"
+                        "    let S: state(i32): i32 = Machine;\n"
+                        "    return dock S(42);\n"
+                        "}\n",
+                        session::Stage::HirLowered);
+    CHECK(value.ok,
+          "a state declaration assigns to state(params): ret and docks through the value");
+
+    ModernSemaTest wrong_return;
+    auto bad = wrong_return.run("state Machine(): bool {\n"
+                                "    return true;\n"
+                                "}\n"
+                                "fn main(): i32 {\n"
+                                "    let S: state(): i32 = Machine;\n"
+                                "    return 0;\n"
+                                "}\n");
+    CHECK(!bad.ok, "state value assignment rejects a mismatched signature");
+
+    ModernSemaTest wrong_arity;
+    auto arity = wrong_arity.run("state Machine(n: i32): i32 {\n"
+                                 "    return n;\n"
+                                 "}\n"
+                                 "fn main(): i32 {\n"
+                                 "    let S: state(i32): i32 = Machine;\n"
+                                 "    return dock S();\n"
+                                 "}\n");
+    CHECK(!arity.ok, "dock through a state value validates call arity");
+
+    ModernSemaTest plain_fn;
+    auto fn_value = plain_fn.run("fn f(n: i32): i32 {\n"
+                                 "    return n;\n"
+                                 "}\n"
+                                 "fn main(): i32 {\n"
+                                 "    let S: state(i32): i32 = f;\n"
+                                 "    let R: state(i32): i32 = 42;\n"
+                                 "}\n");
+    CHECK(!fn_value.ok, "state value assignment rejects a plain fn value");
 }
 
 static void test_modern_generic_params() {
@@ -2368,37 +2633,25 @@ static void test_modern_nested_optional_coercion() {
     CHECK(accepted.ok, "each missing optional layer coerces into the annotated type");
 }
 
-static void test_modern_optional_condition_keyword() {
+static void test_modern_postfix_optional_condition() {
     ModernSemaTest t;
     auto accepted = t.run("fn main(): i32 {\n"
                           "    var x: ?i32 = 7;\n"
-                          "    if (optional x) { return 1; }\n"
-                          "    while (optional x) { return 2; }\n"
-                          "    for (optional x) { return 3; }\n"
+                          "    if (x?) { return 1; }\n"
+                          "    while (x?) { return 2; }\n"
+                          "    for (x?) { return 3; }\n"
                           "    return 0;\n"
                           "}\n");
-    CHECK(accepted.ok, "'optional expr' is accepted as a boolean condition on optional x");
+    CHECK(accepted.ok, "'x?' is accepted as a repeated boolean condition in if/while/for");
 
     ModernSemaTest non_optional;
     auto rejected = non_optional.run("fn main() {\n"
                                      "    var x: i32 = 1;\n"
-                                     "    if (optional x) { }\n"
+                                     "    if (x?) { }\n"
                                      "}\n");
-    CHECK(!rejected.ok, "'optional expr' is rejected on non-optional operands");
+    CHECK(!rejected.ok, "'?' remains invalid on non-optional operands in conditions");
     CHECK(rejected.hasMessage("'?' operator requires an optional operand"),
-          "the non-optional keyword form reports the optional-operand diagnostic");
-
-    ModernSemaTest bare;
-    auto bare_accepted = bare.run("fn main(): i32 {\n"
-                                  "    var x: ?i32 = 7;\n"
-                                  "    if optional x { return 1; }\n"
-                                  "    while optional x { return 2; }\n"
-                                  "    for optional x { return 3; }\n"
-                                  "    var ok: bool = true;\n"
-                                  "    if not ok { return 4; }\n"
-                                  "    return 0;\n"
-                                  "}\n");
-    CHECK(bare_accepted.ok, "bare optional/not condition forms in if/while/for type-check cleanly");
+          "the condition reports the optional-operand diagnostic");
 }
 
 static void test_modern_function_default_arguments() {
@@ -3549,13 +3802,15 @@ static void test_sema() {
     test_modern_for_flat_and_parenthesized_forms();
     test_modern_for_three_clause();
     test_modern_for_in_iterators();
+    test_modern_fallthrough_returns();
+    test_modern_state_value();
     test_modern_generic_params();
     test_modern_generic_struct_literal_inference();
     test_modern_struct_field_visibility();
     test_modern_module_depth_field_visibility();
     test_modern_optional_condition_boolean();
     test_modern_nested_optional_coercion();
-    test_modern_optional_condition_keyword();
+    test_modern_postfix_optional_condition();
     test_modern_function_default_arguments();
     test_modern_implicit_opaque_coercion_rejected();
     test_modern_implicit_concrete_to_opaque_accepted();

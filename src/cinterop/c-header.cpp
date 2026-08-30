@@ -37,9 +37,9 @@ bool isCompilerPredefined(std::string_view name) {
     // Clang's predefined macros are visited as MacroDefinition cursors with
     // (for user `__LINE__` redefinitions) the same source file.  Filtering the
     // classic double-underscore names keeps those out of Zith's module scope.
-    if (name == "__LINE__" || name == "__FILE__" || name == "__DATE__"
-        || name == "__TIME__" || name == "__TIMESTAMP__" || name == "__COUNTER__"
-        || name == "__BASE_FILE__" || name == "__INCLUDE_LEVEL__")
+    if (name == "__LINE__" || name == "__FILE__" || name == "__DATE__" || name == "__TIME__" ||
+        name == "__TIMESTAMP__" || name == "__COUNTER__" || name == "__BASE_FILE__" ||
+        name == "__INCLUDE_LEVEL__")
         return true;
     if (name.size() >= 4U && name.starts_with("__") && name.ends_with("__"))
         return true;
@@ -128,19 +128,19 @@ bool lowerType(const CXType source, Type &result, std::string &unsupported) {
 }
 
 struct ParseState {
-    CXFile mainFile = nullptr;
+    CXFile mainFile        = nullptr;
     CXTranslationUnit unit = nullptr;
     CHeaderArtifact &artifact;
 };
 
 struct Scalars {
-    ConstantKind kind  = ConstantKind::Integer;
-    bool isSigned      = true;
-    uint8_t bits       = 32;
+    ConstantKind kind     = ConstantKind::Integer;
+    bool isSigned         = true;
+    uint8_t bits          = 32;
     std::int64_t intValue = 0;
-    double floatValue  = 0.0;
-    bool boolValue     = false;
-    char charValue     = '\0';
+    double floatValue     = 0.0;
+    bool boolValue        = false;
+    char charValue        = '\0';
 };
 
 [[nodiscard]] bool parseCharacterLiteral(std::string_view token, char &out) {
@@ -173,14 +173,13 @@ struct Scalars {
 
     // Keep the suffix list and fit checks in sync with the Zith literal types.
     constexpr std::string_view kIntSuffixes[] = {
-        "usize", "u64", "u32", "u16", "u8",
-        "isize", "i64", "i32", "i16", "i8",
+        "usize", "u64", "u32", "u16", "u8", "isize", "i64", "i32", "i16", "i8",
     };
     for (const auto suffix : kIntSuffixes) {
         if (!token.ends_with(suffix))
             continue;
-        std::int64_t parsed             = 0;
-        const std::string_view digits = token.substr(0U, token.size() - suffix.size());
+        std::int64_t parsed                    = 0;
+        const std::string_view digits          = token.substr(0U, token.size() - suffix.size());
         const support::IntLiteralStatus status = support::parseIntegerLiteral(digits, parsed);
         if (status == support::IntLiteralStatus::Overflow)
             return false;
@@ -197,11 +196,10 @@ struct Scalars {
             else if (width == "32")
                 bits = 32;
         }
-        const bool signed_type = !suffix.starts_with('u');
-        const std::uint64_t magnitude =
-            signed_type ? static_cast<std::uint64_t>(std::abs(parsed))
-                        : static_cast<std::uint64_t>(parsed);
-        const bool fits = [&]() {
+        const bool signed_type        = !suffix.starts_with('u');
+        const std::uint64_t magnitude = signed_type ? static_cast<std::uint64_t>(std::abs(parsed))
+                                                    : static_cast<std::uint64_t>(parsed);
+        const bool fits               = [&]() {
             if (!signed_type) {
                 if (bits == 64U)
                     return true;
@@ -228,8 +226,8 @@ struct Scalars {
         if (out.intValue < std::numeric_limits<std::int32_t>::min() ||
             out.intValue > std::numeric_limits<std::int32_t>::max())
             return false;
-        out.kind  = ConstantKind::Integer;
-        out.bits  = 32;
+        out.kind     = ConstantKind::Integer;
+        out.bits     = 32;
         out.isSigned = true;
         return true;
     }
@@ -242,19 +240,19 @@ struct Scalars {
         out.floatValue                = std::strtod(text.c_str(), &end);
         if (end == nullptr || *end != '\0')
             return false;
-        out.kind  = ConstantKind::Float;
-        out.bits  = 32;
+        out.kind     = ConstantKind::Float;
+        out.bits     = 32;
         out.isSigned = true;
         return true;
     }
     const std::string text = std::string(token);
-    char *end      = nullptr;
-    out.floatValue = std::strtod(text.c_str(), &end);
+    char *end              = nullptr;
+    out.floatValue         = std::strtod(text.c_str(), &end);
     if (end == nullptr || *end != '\0')
         return false;
-    out.kind      = ConstantKind::Float;
-    out.bits      = 64;
-    out.isSigned  = true;
+    out.kind     = ConstantKind::Float;
+    out.bits     = 64;
+    out.isSigned = true;
     return true;
 }
 
@@ -267,8 +265,8 @@ bool acceptConstant(const CXCursor cursor, const CXTranslationUnit unit, Constan
     }
 
     std::vector<std::string> tokens;
-    CXToken *raw_tokens  = nullptr;
-    unsigned token_count = 0;
+    CXToken *raw_tokens        = nullptr;
+    unsigned token_count       = 0;
     const CXSourceRange extent = clang_getCursorExtent(cursor);
     clang_tokenize(unit, extent, &raw_tokens, &token_count);
 
@@ -342,25 +340,24 @@ CXChildVisitResult visitCursor(const CXCursor cursor, const CXCursor, CXClientDa
     auto &state = *static_cast<ParseState *>(data);
     if (clang_getCursorKind(cursor) == CXCursor_MacroDefinition &&
         clang_Cursor_isMacroFunctionLike(cursor) != 0 && isMainFile(cursor, state.mainFile)) {
-        state.artifact.skippedFunctions.push_back(
-            takeString(clang_getCursorSpelling(cursor)) + ": macro skipped: function-like");
+        state.artifact.skippedFunctions.push_back(takeString(clang_getCursorSpelling(cursor)) +
+                                                  ": macro skipped: function-like");
         return CXChildVisit_Continue;
     }
     if (clang_getCursorKind(cursor) == CXCursor_MacroDefinition &&
-        isMainFile(cursor, state.mainFile) &&
-        clang_Cursor_isMacroFunctionLike(cursor) == 0 &&
+        isMainFile(cursor, state.mainFile) && clang_Cursor_isMacroFunctionLike(cursor) == 0 &&
         clang_Cursor_isMacroBuiltin(cursor) == 0) {
         Constant constant;
         std::string reason;
         const auto name = takeString(clang_getCursorSpelling(cursor));
         constant.name   = name;
         if (isCompilerPredefined(name)) {
-            state.artifact.skippedFunctions.push_back(name + ": macro skipped: compiler predefined");
+            state.artifact.skippedFunctions.push_back(name +
+                                                      ": macro skipped: compiler predefined");
         } else if (!acceptConstant(cursor, state.unit, constant, reason)) {
             state.artifact.skippedFunctions.push_back(
-                constant.name.empty()
-                    ? "macro: " + reason
-                    : constant.name + ": macro skipped: " + reason);
+                constant.name.empty() ? "macro: " + reason
+                                      : constant.name + ": macro skipped: " + reason);
         } else {
             bool duplicate = false;
             for (const auto &existing : state.artifact.constants) {

@@ -54,6 +54,10 @@ struct TypedMap {
     memory::FlatMap<uint32_t, uint32_t> forInElementIndex;
     memory::FlatMap<uint32_t, uint32_t> forInEndIndex;
     memory::FlatMap<uint32_t, TypeId> forInUnionType;
+    /// Canonical `next(self): ?T` / `??T` iterator protocol. When this is set,
+    /// HIR lowers the loop by branching on the returned optional instead of
+    /// reading a legacy tagged-union `End` member.
+    memory::FlatMap<uint32_t, TypeId> forInOptionalType;
     /// For `p.Trait.method()`, the base receiver expression id stored for the
     /// intermediate `p.Trait` expression. HIR lowering uses this base instead
     /// of lowering the marker as a field access.
@@ -65,7 +69,8 @@ struct TypedMap {
 
     explicit TypedMap(memory::Arena &)
         : exprTypes(), declTypes(), localTypes(), forInNext(), forInElementIndex(), forInEndIndex(),
-          forInUnionType(), traitQualifiedReceiverBase(), opaqueSourceTypes() {}
+          forInUnionType(), forInOptionalType(), traitQualifiedReceiverBase(), opaqueSourceTypes() {
+    }
 };
 
 class SemaPipeline;
@@ -301,6 +306,24 @@ private:
     /// or `jump`, including nested control-flow bodies.
     [[nodiscard]] bool deferBodyHasControlFlow(frontend::ExprId id) const noexcept;
     [[nodiscard]] bool deferStatementHasControlFlow(const frontend::Statement &stmt) const noexcept;
+    /// Path-based termination analysis used by `checkReturnsAndCalls`. A
+    /// non-void function whose body has void type may only fall through when
+    /// every reachable path is guaranteed to leave the function: `return`,
+    /// state `jump`, both arms of an `if`/`else`, a `when` with a default, or
+    /// an unbounded loop whose body cannot break out. A trailing value is not
+    /// treated as termination here; it is accepted separately through the
+    /// final-value coercion check when the body itself has a non-void type.
+    [[nodiscard]] bool exprAlwaysTerminates(frontend::ExprId id) const noexcept;
+    [[nodiscard]] bool blockAlwaysTerminates(frontend::ExprId id) const noexcept;
+    [[nodiscard]] bool statementAlwaysTerminates(const frontend::Statement &stmt) const noexcept;
+    /// True when the loop condition is the literal `true`, so the loop is an
+    /// unbounded `for` until a transfer appears in the body.
+    [[nodiscard]] bool conditionIsAlwaysLiteralTrue(frontend::ExprId id) const noexcept;
+    /// True when a block or expression contains a `break`. Used to reject
+    /// infinite loops that can exit and therefore fall through the function
+    /// body; nested loops are treated conservatively.
+    [[nodiscard]] bool statementContainsBreak(const frontend::Statement &stmt) const noexcept;
+    [[nodiscard]] bool exprContainsBreak(frontend::ExprId id) const noexcept;
     TypeId inferIf(frontend::ExprId id);
     TypeId inferWhile(frontend::ExprId id);
     TypeId inferFor(frontend::ExprId id);

@@ -691,9 +691,20 @@ fn add(a: i32, b: i32)      { a + b }   // inferred type
 fn first<T>(slice: []T): ?T {
     slice[0]?
 }
+
+fn pick(flag: bool): i32 {
+    if (flag) {
+        1
+    } else {
+        2
+    }
+}
 ```
 
 > The compiler cannot infer a `union` or `dyn` return type without an explicit type hint.
+> Non-void functions may use an implicit return only when every possible path produces a value
+> or otherwise terminates. Falling off an `if` without `else`, a `when` without a default, or an
+> empty body is a diagnostic.
 
 ### 5.2 Function Kinds
 
@@ -1183,6 +1194,10 @@ let r = for ([acc, i]: i32), (i in 0..n) { acc *= i + 1 } or 0;
 
 > If the loop body may never run, its return value is deduced as optional — unless `or` collapses it to a non-optional value.
 
+User iterators expose `next(self)`. The canonical protocol returns `?T`: `null` ends the loop
+and `Some(element)` is bound to the loop variable. Iterators that yield optional elements return
+`??T`, binding the loop variable as `?T`; only the outer `None` is the iteration end.
+
 > The init/cond/step form accepts comma-separated, parenthesized expressions — `for (i = 0), (i < 10), (i += 1)` — or the flat alternative, `for (i = 0, i < 10, i += 1)`.
 
 ### 9.3 Chain Flow (`->`)
@@ -1236,6 +1251,10 @@ state-to-state transitions and rejects old `flow`/`marker` spellings.
 - **`return`**: `return value;` inside a state returns from the whole state machine and gives
   the `dock` call its result. State functions are ordinary LLVM functions, and each transition
   is a direct `musttail` call immediately followed by `ret`.
+- **`state(params): ReturnType` value**: a real state declaration can be stored in a value
+  with the matching `state(params): ReturnType` signature. `dock` accepts that value with the
+  same argument and return-type checks as a direct state call, and the call is emitted as an
+  indirect `tailcc` call.
 
 ```zith
 state Count(n: i32): i32 {
@@ -1248,6 +1267,17 @@ state Count(n: i32): i32 {
 fn main(): i32 {
     let result = dock Count(3);
     return result;
+}
+```
+
+```zith
+state Machine(n: i32): i32 {
+    return n;
+}
+
+fn main(): i32 {
+    let S: state(i32): i32 = Machine;
+    return dock S(42);
 }
 ```
 

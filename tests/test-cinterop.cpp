@@ -465,15 +465,14 @@ void test_object_like_macro_constants() {
     std::printf("=== Object-like macro constants ===\n");
 
     {
-        const auto art = parseHeaderFromContent(
-            "scalar_constants.h",
-            "#define ANSWER 42\n"
-            "#define RATIO 1.5f\n"
-            "#define YES true\n"
-            "#define LETTER 'A'\n"
-            "#define BIG 12345678901234567890u64\n"
-            "#define NEG -7i64\n"
-            "#define NAME(x) x\n");
+        const auto art =
+            parseHeaderFromContent("scalar_constants.h", "#define ANSWER 42\n"
+                                                         "#define RATIO 1.5f\n"
+                                                         "#define YES true\n"
+                                                         "#define LETTER 'A'\n"
+                                                         "#define BIG 12345678901234567890u64\n"
+                                                         "#define NEG -7i64\n"
+                                                         "#define NAME(x) x\n");
         CHECK(art->diagnostics.empty(), "scalar macro constants do not fail the import");
         if (const auto *c = findConstant(*art, "ANSWER")) {
             CHECK_EQ(static_cast<int>(c->kind), static_cast<int>(ConstantKind::Integer),
@@ -511,8 +510,7 @@ void test_object_like_macro_constants() {
                      "BIG is Integer");
             CHECK_EQ(c->bits, 64, "BIG is u64");
             CHECK(!c->isSigned, "BIG is unsigned");
-            CHECK_EQ(static_cast<unsigned long long>(c->integerValue),
-                     12345678901234567890ULL,
+            CHECK_EQ(static_cast<unsigned long long>(c->integerValue), 12345678901234567890ULL,
                      "BIG preserves u64 magnitude");
         } else {
             std::printf("skips: ");

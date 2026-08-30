@@ -386,7 +386,7 @@ void FmtVisitor::emitType(const frontend::TypeExprId id) {
             emitType(type->arguments.front());
         break;
     case frontend::TypeExprKind::Function: {
-        emit("fn(");
+        emit(type->isStateFunctionType ? "state(" : "fn(");
         for (size_t index = 0; index + 1U < type->arguments.size(); ++index) {
             if (index != 0)
                 emit(", ");

@@ -547,7 +547,12 @@ pipeline real, porque o `main` não é um modo opt-in.
 - Funções, bindings `let`/`var`/`const`, structs, enums, unions, génericos e
   monomorfização antes de HIR.
 - `when`/`match`, `for`, `state`/`dock`/`jump`, `->`, slices, arrays, opcionais,
-  pointers e o protocolo de iterador `next(self)`.
+  pointers e o protocolo de iterador canonico `next(self): ?T` (`??T` para elementos opcionais).
+- Funções não-void não podem cair sem valor; um corpo só termina implicitamente quando um valor
+  final tem o tipo certo ou todos os caminhos terminam (`return`, `jump`, `if`/`else` completo,
+  `when` com default ou loop infinito sem `break` directo).
+- `state(params): ret` é um tipo de valor para referências a states reais; `let S: state(i32): i32 =
+  Machine; dock S(args);` é aceite com as verificações de assinatura do state.
 - Qualificadores `lend`/`view` parseados e tipados; anotações `lend x`/`view x`
   em argumentos de call, exclusividade por call e lowering para ponteiros;
   `unique`/`share`/`belong` são rejeitados; `view` bloqueia escrita; receiver move é lógico.

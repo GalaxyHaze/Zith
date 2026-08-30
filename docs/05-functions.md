@@ -9,6 +9,11 @@
 
 ### 5.1 Return Types & Implicit Returns
 
+Non-void functions may use an implicit return only when every possible path produces a value or
+otherwise terminates. A final expression with the declared type and complete `if`/`else` or
+`when` bodies are accepted; falling off the end of an `if` without `else`, a `when` without a
+default, or an empty body is a diagnostic, not an implicit `null`.
+
 ```zith
 fn add(a: i32, b: i32): i32 { a + b }   // explicit type, implicit return
 fn add(a: i32, b: i32)      { a + b }   // inferred type
@@ -17,6 +22,14 @@ fn add(a: i32, b: i32)      { a + b }   // inferred type
 // propagates null via the implicit optional from '?'.
 fn first<T>(slice: []T): ?T {
     slice[0]?
+}
+
+fn pick(flag: bool): i32 {
+    if (flag) {
+        1
+    } else {
+        2
+    }
 }
 ```
 

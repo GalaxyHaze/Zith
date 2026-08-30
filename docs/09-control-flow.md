@@ -32,7 +32,7 @@ if (not (x > 0)) { ... }
 
 ```zith
 for { ... }                                     // infinite
-for (i in iterable) { @println(i); }            // user iterator with next() and End
+for (i in iterable) { @println(i); }            // user iterator with next(self): ?T
 for (i = 0), (i < 10), (i += 1) { ... }         // init / cond / step
 for (v in range(0, 100)) { @println(v); }       // over a generator
 
@@ -57,21 +57,17 @@ outer: for (...) {                               // labeled loop
 
 > If the loop body may never run, its return value is deduced as optional — unless `or` collapses it to a non-optional value.
 
-> The init/cond/step form accepts comma-separated, parenthesized expressions — `for (i = 0), (i < 10), (i += 1)` — or the flat alternative, `for (i = 0, i < 10, i += 1)`. The iterator form expects a value whose type exposes `next(self)`. `next` must return a tagged union with exactly two members: the element type and the empty `End` marker. `for` calls `next` once per iteration, exits when the result is `End`, and otherwise binds the non-End member as the loop variable.
+> The init/cond/step form accepts comma-separated, parenthesized expressions — `for (i = 0), (i < 10), (i += 1)` — or the flat alternative, `for (i = 0, i < 10, i += 1)`. The iterator form expects a value whose type exposes `next(self)`. The canonical `next` returns `?T`: `null` is the iteration end and `Some(element)` is a loop value. For iterators that need to yield optional elements, `next(self): ??T` binds the loop variable as `?T`, so a `null` element is a valid iteration value and only the outer `None` ends the loop. `for` calls `next` once per iteration, exits when the result is the outer `None`, and otherwise binds the inner payload as the loop variable.
 
 ```zith
-struct End {}
-
-union RangeStep { i32, End }
-
 struct Range {
     current: i32,
     limit: i32,
-    fn next(var self): RangeStep {
+    fn next(var self): ?i32 {
         if (self->current >= self->limit) {
-            return RangeStep { End {} };
+            return null;
         }
-        let value = RangeStep { self->current };
+        let value = self->current;
         self->current = self->current + 1;
         return value;
     }
@@ -84,6 +80,9 @@ fn main() {
     }
 }
 ```
+
+The tagged-union `{ T, End }` protocol remains accepted during migration, but the optional
+protocol is canonical and should be used for new iterators.
 
 ### 9.3 Chain Flow (`->`)
 
@@ -129,6 +128,9 @@ between different signatures still compile to direct, stackless calls.
   and may use module/global state and ordinary locals.
 - **`dock`**: `dock Start(args)` is an expression. It calls a state and returns the value
   produced by `return` in the final state.
+- **`state(params): ReturnType` value**: a real state declaration can be stored in a value
+  with the matching `state(params): ReturnType` signature, and `dock` accepts that value with
+  the same argument and return-type checks as a direct state call.
 - **`jump`**: `jump Next(args);` is terminating and only valid inside a state. It may target a
   state with a different parameter list from the same machine, and it lowers to `musttail tailcc`
   followed by `ret`.
@@ -153,6 +155,17 @@ Transitions never grow the stack on targets with backend `musttail` support. All
 machine use LLVM `tailcc`, including ordinary `dock` calls into them, so transitions between
 different parameter lists keep one consistent ABI. The compiler diagnoses unsupported targets
 instead of silently falling back to a marker runtime.
+
+```zith
+state Machine(n: i32): i32 {
+    return n;
+}
+
+fn main(): i32 {
+    let S: state(i32): i32 = Machine;
+    return dock S(42);
+}
+```
 
 ### 9.5 Scope Cleanup (`defer` / `drop`)
 

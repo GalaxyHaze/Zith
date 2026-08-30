@@ -798,10 +798,16 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
             if (types_.kindOf(current_fn_->return_type) == types::TypeKind::Optional &&
                 info.decl->body) {
                 const auto val_sema_type = semaTypeOfExpr(info.decl->body);
-                if (sema_.typeTable().kindOf(val_sema_type) != TypeKind::Optional)
+                if (current_fn_return_sema_type_ != sema::modern::kInvalidTypeId &&
+                    val_sema_type != sema::modern::kInvalidTypeId)
+                    ret.value = lowerCoerceToOptionalDepth(current_fn_->return_type,
+                                                           current_fn_return_sema_type_,
+                                                           val_sema_type, body_expr);
+                else if (sema_.typeTable().kindOf(val_sema_type) != TypeKind::Optional)
                     ret.value = lowerCoerceToOptional(current_fn_->return_type, body_expr);
-                else
+                else {
                     ret.value = body_expr;
+                }
             } else {
                 ret.value = body_expr;
             }
@@ -891,7 +897,8 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
                                              : types::kErrorType;
         break;
     }
-    case TypeKind::Function: {
+    case TypeKind::Function:
+    case TypeKind::State: {
         const auto *fn = sema_.typeTable().function(type);
         if (fn == nullptr) {
             lowered = types::kErrorType;
@@ -1398,11 +1405,8 @@ hir::HirExprId HirLowerModern::lowerExpr(frontend::ExprId id) {
 hir::HirExprId HirLowerModern::lowerLiteral(const frontend::Expression &expr,
                                             const types::TypeId type) {
     // null literal maps to HirMakeNone when the target type is optional
-    if (expr.text == "null" && types_.kindOf(type) == types::TypeKind::Optional) {
-        hir::HirMakeNone make_none;
-        make_none.type = type;
-        return addExpr(std::move(make_none));
-    }
+    if (expr.text == "null" && types_.kindOf(type) == types::TypeKind::Optional)
+        return lowerMakeNone(type);
     hir::HirLiteral literal{};
     literal.type = type;
     switch (types_.kindOf(type)) {
@@ -2317,8 +2321,12 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
         const auto *resolved                           = findResolvedExpr(callee_id);
         const auto *target_decl =
             resolved != nullptr ? resolvedFunctionDecl(*resolved, &resolved_module) : nullptr;
-        if (target_decl != nullptr && target_decl->kind == frontend::DeclKind::Function &&
-            target_decl->functionKind == frontend::FunctionKind::State) {
+        const auto sema_state_callee =
+            semaTypeOfExpr(callee_id) != sema::modern::kInvalidTypeId &&
+            sema_.typeTable().kindOf(semaTypeOfExpr(callee_id)) == sema::modern::TypeKind::State;
+        if ((target_decl != nullptr && target_decl->kind == frontend::DeclKind::Function &&
+             target_decl->functionKind == frontend::FunctionKind::State) ||
+            sema_state_callee) {
             auto &hir_call      = std::get<hir::HirCall>(hir_.getExprMut(call_id));
             hir_call.usesTailCC = true;
             if (current_fn_ != nullptr)
@@ -2854,19 +2862,20 @@ hir::HirExprId HirLowerModern::lowerForIn(const frontend::Expression &expr) {
         current_types_ != nullptr ? current_types_->forInEndIndex.get(expr.id.value) : nullptr;
     const auto *union_sema_type_ptr =
         current_types_ != nullptr ? current_types_->forInUnionType.get(expr.id.value) : nullptr;
-    if (next_ptr == nullptr || !next_ptr->decl || element_index_ptr == nullptr ||
-        end_index_ptr == nullptr || union_sema_type_ptr == nullptr || !expr.forInBinding) {
+    const auto *optional_sema_type_ptr =
+        current_types_ != nullptr ? current_types_->forInOptionalType.get(expr.id.value) : nullptr;
+    const bool has_optional = optional_sema_type_ptr != nullptr && !!*optional_sema_type_ptr;
+    const bool has_union =
+        element_index_ptr != nullptr && end_index_ptr != nullptr && union_sema_type_ptr != nullptr;
+    if (next_ptr == nullptr || !next_ptr->decl || !expr.forInBinding ||
+        (!has_optional && !has_union)) {
         return hir::kInvalidHirExpr;
     }
 
     const frontend::DeclId next_decl     = next_ptr->decl;
     const session::ModuleKey next_module = next_ptr->module;
-    const uint32_t element_index         = *element_index_ptr;
-    const uint32_t end_index             = *end_index_ptr;
-    const auto union_sema_type           = *union_sema_type_ptr;
-    const auto union_type                = lowerType(union_sema_type);
     const auto loop_type                 = typeOfLocal(expr.forInBinding);
-    if (types_.kindOf(union_type) != types::TypeKind::Union || loop_type == types::kErrorType)
+    if (loop_type == types::kErrorType)
         return hir::kInvalidHirExpr;
 
     // Keep the iterable alive for the whole loop. A value receiver is copied
@@ -2921,21 +2930,44 @@ hir::HirExprId HirLowerModern::lowerForIn(const frontend::Expression &expr) {
     if (next_call == hir::kInvalidHirExpr)
         return hir::kInvalidHirExpr;
     const auto next_slot = next_slot_++;
-    current_fn_->blocks[header_block].insts.push(emitSlotAlloca(next_slot, union_type));
+    const auto next_type =
+        has_optional ? lowerType(*optional_sema_type_ptr) : lowerType(*union_sema_type_ptr);
+    current_fn_->blocks[header_block].insts.push(emitSlotAlloca(next_slot, next_type));
     current_fn_->blocks[header_block].insts.push(emitSlotStore(next_slot, next_call));
-    const auto union_addr = addExpr(hir::HirSlotAddr{next_slot, union_type});
-    const auto *union_def = std::get_if<types::TypeUnion>(&types_.lookup(union_type));
-    const auto *def = union_def != nullptr ? types_.lookupUnionDef(union_def->def_id) : nullptr;
-    if (def == nullptr || !def->is_tagged)
-        return hir::kInvalidHirExpr;
-    const auto tag_type = tagType(types_, static_cast<uint32_t>(def->members.size()));
-    const auto tag      = addExpr(hir::HirField{union_addr, 1U, tag_type, union_type});
-    hir::HirUnionCheck check;
-    check.value        = tag;
-    check.union_type   = union_type;
-    check.member_index = end_index;
+    hir::HirExprId cond_expr = addExpr(hir::HirMakeNone{next_type});
+    if (has_optional) {
+        // `next(self): ?T`: `None` is End. For aggregate optionals the tag is
+        // field 1; for optional pointers the value itself is the sentinel.
+        const auto *optional = std::get_if<types::TypeOptional>(&types_.lookup(next_type));
+        const bool niche =
+            optional != nullptr && types_.kindOf(optional->inner) == types::TypeKind::Ptr;
+        if (!niche) {
+            const auto next_addr = addExpr(hir::HirSlotAddr{next_slot, next_type});
+            cond_expr = addExpr(hir::HirField{next_addr, 1U, types::kBoolType, next_type});
+            cond_expr = addExpr(hir::HirUnary{hir::HirUnaryOp::Not, cond_expr, types::kBoolType});
+        } else {
+            const auto loaded = addExpr(hir::HirSlotLoad{next_slot, next_type});
+            cond_expr         = addExpr(hir::HirBinary{loaded, addExpr(hir::HirMakeNone{next_type}),
+                                               hir::HirBinaryOp::Eq, types::kBoolType});
+        }
+    } else {
+        const uint32_t end_index = *end_index_ptr;
+        const auto union_type    = lowerType(*union_sema_type_ptr);
+        const auto *union_def    = std::get_if<types::TypeUnion>(&types_.lookup(union_type));
+        const auto *def = union_def != nullptr ? types_.lookupUnionDef(union_def->def_id) : nullptr;
+        if (def == nullptr || !def->is_tagged)
+            return hir::kInvalidHirExpr;
+        const auto tag_type = tagType(types_, static_cast<uint32_t>(def->members.size()));
+        const auto tag = addExpr(hir::HirField{addExpr(hir::HirSlotAddr{next_slot, union_type}), 1U,
+                                               tag_type, union_type});
+        hir::HirUnionCheck check;
+        check.value        = tag;
+        check.union_type   = union_type;
+        check.member_index = end_index;
+        cond_expr          = addExpr(std::move(check));
+    }
     hir::HirBranch branch;
-    branch.cond       = addExpr(std::move(check));
+    branch.cond       = cond_expr;
     branch.then_block = static_cast<hir::HirDeclId>(exit_block);
     branch.else_block = static_cast<hir::HirDeclId>(body_block);
     setTerminator(addExpr(std::move(branch)));
@@ -2943,13 +2975,25 @@ hir::HirExprId HirLowerModern::lowerForIn(const frontend::Expression &expr) {
     // Body: loop = step as Element; lower the user block.
     setCurrentBlock(body_block);
     current_fn_->blocks[body_block].insts = memory::DynArray<hir::HirExprId>(arena_);
-    hir::HirUnionCast cast;
-    cast.value           = emitSlotLoad(next_slot, union_type);
-    cast.from            = union_type;
-    cast.to              = loop_type;
-    cast.member_index    = element_index;
-    cast.checked         = false;
-    const auto payload   = addExpr(std::move(cast));
+    auto payload                          = emitSlotLoad(next_slot, next_type);
+    if (has_optional) {
+        // Optional payload extraction: field 0 for aggregate `?T`; the value
+        // itself for nullable pointers. `??T` extracts the outer payload,
+        // which is still `?T` and becomes the loop variable type directly.
+        const auto *optional = std::get_if<types::TypeOptional>(&types_.lookup(next_type));
+        if (optional != nullptr && types_.kindOf(optional->inner) != types::TypeKind::Ptr) {
+            payload = addExpr(hir::HirField{addExpr(hir::HirSlotAddr{next_slot, next_type}), 0U,
+                                            loop_type, next_type});
+        }
+    } else {
+        hir::HirUnionCast cast;
+        cast.value        = payload;
+        cast.from         = lowerType(*union_sema_type_ptr);
+        cast.to           = loop_type;
+        cast.member_index = *element_index_ptr;
+        cast.checked      = false;
+        payload           = addExpr(std::move(cast));
+    }
     const auto loop_slot = localSlot(expr.forInBinding);
     current_fn_->blocks[body_block].insts.push(emitSlotAlloca(loop_slot, loop_type));
     current_fn_->blocks[body_block].insts.push(emitSlotStore(loop_slot, payload));
@@ -4522,6 +4566,12 @@ hir::HirExprId HirLowerModern::lowerCoerceToOptional(types::TypeId target, hir::
     return addExpr(std::move(some));
 }
 
+hir::HirExprId HirLowerModern::lowerMakeNone(types::TypeId target) {
+    hir::HirMakeNone make_none;
+    make_none.type = target;
+    return addExpr(std::move(make_none));
+}
+
 hir::HirExprId HirLowerModern::lowerCoerceToOptionalDepth(types::TypeId target,
                                                           sema::modern::TypeId target_sema,
                                                           sema::modern::TypeId source_sema,
@@ -4678,9 +4728,13 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
             if (value != hir::kInvalidHirExpr &&
                 types_.kindOf(current_fn_->return_type) == types::TypeKind::Optional) {
                 const auto val_sema_type = semaTypeOfExpr(statement.expression);
-                if (sema_.typeTable().kindOf(val_sema_type) != TypeKind::Optional) {
+                if (current_fn_return_sema_type_ != sema::modern::kInvalidTypeId &&
+                    val_sema_type != sema::modern::kInvalidTypeId)
+                    value = lowerCoerceToOptionalDepth(current_fn_->return_type,
+                                                       current_fn_return_sema_type_, val_sema_type,
+                                                       value);
+                else if (sema_.typeTable().kindOf(val_sema_type) != TypeKind::Optional)
                     value = lowerCoerceToOptional(current_fn_->return_type, value);
-                }
             }
             value = lowerCoerceToTarget(current_fn_->return_type, statement.expression, value);
             if (current_fn_return_sema_type_ != sema::modern::kInvalidTypeId)
