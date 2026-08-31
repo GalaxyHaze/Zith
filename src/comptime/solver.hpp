@@ -2,13 +2,10 @@
 
 #include "diagnostics/diagnostic-engine.hpp"
 #include "hir/hir-module.hpp"
-#include "legacy-zith/ast/ast-builder.hpp"
-#include "legacy-zith/ast/ast-nodes.hpp"
 #include "memory/arena.hpp"
+#include "sema/modern-types.hpp"
 #include "symbols/symbol-table.hpp"
 #include "types/type-intern.hpp"
-
-#include "sema/modern-types.hpp"
 
 #include <string_view>
 
@@ -32,8 +29,6 @@ struct MonomorphEntry {
 
 class Solver {
     types::TypeIntern &types_;
-    ast::AstBuilder *ast_{};
-    ast::ProgramNode *program_{};
     symbols::SymbolTable &syms_ [[maybe_unused]];
     diagnostics::DiagnosticEngine &diags_;
     sema::modern::TypeTable *modern_types_ [[maybe_unused]];
@@ -51,9 +46,9 @@ class Solver {
     std::string mangleName(std::string_view base, types::TypeId arg);
 
 public:
-    explicit Solver(types::TypeIntern &types, ast::AstBuilder *ast, ast::ProgramNode *program,
-                    symbols::SymbolTable &syms, diagnostics::DiagnosticEngine &diags,
-                    memory::Arena &hir_arena, sema::modern::TypeTable *modern_types = nullptr);
+    explicit Solver(types::TypeIntern &types, symbols::SymbolTable &syms,
+                    diagnostics::DiagnosticEngine &diags, memory::Arena &hir_arena,
+                    sema::modern::TypeTable *modern_types = nullptr);
 
     bool solve(hir::HirModule &hir);
     /// Runs only the residual post-lowering compatibility checks. Generic

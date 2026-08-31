@@ -103,6 +103,7 @@ private:
     const comptime::GenericInstantiationPass *current_instantiation_ = nullptr;
     const comptime::InstantiationInstance *current_instance_         = nullptr;
     hir::HirFunction *current_fn_                                    = nullptr;
+    const frontend::Declaration *current_fn_decl_                    = nullptr;
     frontend::ScopeId info_decl_parent_scope_;
     sema::modern::TypeId current_fn_return_sema_type_ = sema::modern::kInvalidTypeId;
     bool current_fn_is_state_                         = false;
@@ -163,6 +164,7 @@ private:
     uint32_t stableConcreteTypeId(types::TypeId type) const;
 
     types::TypeId lowerType(sema::modern::TypeId type);
+    sema::modern::TypeId lowerTypeExprConcrete(frontend::TypeExprId id);
     types::TypeId lowerForeignType(const cinterop::Type &type);
     types::TypeId typeOfExpr(frontend::ExprId id);
     types::TypeId typeOfLocal(frontend::LocalId id);

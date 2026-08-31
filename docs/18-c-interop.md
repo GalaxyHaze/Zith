@@ -3,7 +3,7 @@
 > **Implementation status:** `extern fn` bindings are **working** on all targets. Native libclang
 > C header import is **working** for common libc-style declarations (including variadic functions,
 > array-decayed parameters, `va_list`, and function-pointer parameters). Object-like macros that
-> expand to an exact scalar literal are also imported as constants. Function-like macros,
+> expand to an exact scalar literal are imported as constants and verified through the CLI. Function-like macros,
 > strings, globals, bitfields, and complex layouts remain **unimported**. See
 > [impl-status.md](impl-status.md).
 

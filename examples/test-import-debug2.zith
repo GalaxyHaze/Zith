@@ -1,0 +1,5 @@
+import std/counter
+fn main(): i32 {
+    let c = std.counter.Counter(0, 3, 1, false);
+    return c.index;
+}

@@ -1,0 +1,9 @@
+import std/counter as cnt
+fn main(): i32 {
+    let c: cnt.Counter = cnt.Counter { index: 0, limit: 5, step: 1, inclusive: false };
+    var total: i32 = 0;
+    for (x in c) {
+        total = total + x;
+    }
+    return total;
+}

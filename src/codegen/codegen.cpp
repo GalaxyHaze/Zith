@@ -1,8 +1,6 @@
 #include "codegen.hpp"
 
 #include "diagnostics/error-codes.hpp"
-#include "legacy-zith/ast/ast-builder.hpp"
-#include "legacy-zith/ast/ast-nodes.hpp"
 
 #include <llvm/ADT/SmallString.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>

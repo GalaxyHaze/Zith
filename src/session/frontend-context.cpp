@@ -929,6 +929,30 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
     for (const auto &module : modules) {
         ModuleResolution resolution;
         resolution.module = module->key;
+        // `export path` re-exports a dependency to every consumer of this
+        // module. Collect the transitive exported imports so each module sees
+        // both its own imports and those forwarded by its direct dependencies.
+        std::vector<const ImportEdge *> effective_edges;
+        std::vector<ModuleKey> pending_export_roots{module->key};
+        std::unordered_set<ModuleKey> visited_export_roots;
+        while (!pending_export_roots.empty()) {
+            const auto export_root = pending_export_roots.back();
+            pending_export_roots.pop_back();
+            if (!visited_export_roots.insert(export_root).second)
+                continue;
+            for (const auto &edge : import_graph) {
+                if (edge.importer != export_root)
+                    continue;
+                if (export_root != module->key && !edge.request.isExport)
+                    continue;
+                effective_edges.push_back(&edge);
+                const auto target_it = module_by_key.find(
+                    edge.targets.empty() ? ModuleKey{} : edge.targets.front());
+                if (target_it != module_by_key.end())
+                    pending_export_roots.push_back(target_it->first);
+            }
+        }
+
         // Bindings are keyed by (scope, name): a name only conflicts with another
         // binding declared in the *same* scope.  The module scope is ScopeId{}.
         std::map<std::pair<uint32_t, std::string>, std::vector<size_t>> bindings;
@@ -1089,8 +1113,9 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
             }
         }
 
-        for (const auto &edge : import_graph) {
-            if (edge.importer != module->key || !edge.error.empty())
+        for (const auto *edge_ptr : effective_edges) {
+            const auto &edge = *edge_ptr;
+            if (!edge.error.empty())
                 continue;
             if (edge.targetKind == ImportTargetKind::CHeader) {
                 if (edge.cHeader == nullptr)
@@ -1136,16 +1161,15 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 continue;
             }
             const auto default_name =
-                edge.request.path.empty() ? std::string{} : edge.request.path.back();
+                edge.request.path.empty() ? std::string{} : edge.request.path.front();
             if (!edge.request.alias.empty()) {
-                add_binding({edge.request.alias,
-                             ResolutionKind::ModuleAlias,
-                             edge.request.aliasSpan,
-                             {edge.targets.empty() ? ModuleKey{} : edge.targets.front(), {}},
-                             {},
-                             {},
-                             {}},
-                            frontend::ScopeId{});
+                ResolvedName alias;
+                alias.name       = edge.request.alias;
+                alias.kind       = ResolutionKind::ModuleAlias;
+                alias.span       = edge.request.aliasSpan;
+                alias.target     = {edge.targets.empty() ? ModuleKey{} : edge.targets.front(), {}};
+                alias.modulePath = edge.request.path;
+                add_binding(std::move(alias), frontend::ScopeId{});
             }
             if (!edge.request.selectors.empty()) {
                 for (const auto &selector : edge.request.selectors) {
@@ -1211,62 +1235,90 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                     }
                 }
             } else if (edge.request.alias.empty() && !default_name.empty()) {
-                bool default_name_collides = false;
-                for (const auto &target : edge.targets) {
-                    const auto module_it = module_by_key.find(target);
-                    if (module_it == module_by_key.end())
-                        continue;
-                    for (const auto &symbol : module_it->second->publicSymbols) {
-                        if (symbol.name == default_name) {
-                            default_name_collides = true;
-                            break;
-                        }
-                    }
-                    if (default_name_collides)
-                        break;
-                }
-                if (default_name_collides) {
-                    // The default module alias would shadow the module's own
-                    // public symbol, so inject the public namespace directly.
-                    // This keeps code such as `string.init(...)` working when
-                    // `import "soon/string"` exports a struct named `string`.
-                    for (const auto &target : edge.targets) {
-                        const auto module_it = module_by_key.find(target);
-                        if (module_it == module_by_key.end())
-                            continue;
-                        for (const auto &symbol : module_it->second->publicSymbols) {
-                            ResolvedName imported{symbol.name,
-                                                  ResolutionKind::Import,
-                                                  edge.request.span,
-                                                  {target, symbol.id},
-                                                  {},
-                                                  {},
-                                                  {}};
-                            imported.declKind        = symbol.kind;
-                            imported.signature       = symbol.signature;
-                            imported.isExtern        = symbol.isExtern;
-                            imported.externalSymbol  = symbol.externalSymbol;
-                            imported.isVariadic      = symbol.isVariadic;
-                            imported.isVariadicSlice = symbol.isVariadicSlice;
-                            add_binding(std::move(imported), frontend::ScopeId{});
-                        }
-                    }
-                } else {
-                    add_binding({default_name,
-                                 ResolutionKind::ModuleAlias,
-                                 edge.request.pathSpan,
-                                 {edge.targets.empty() ? ModuleKey{} : edge.targets.front(), {}},
-                                 {},
-                                 {},
-                                 {}},
-                                frontend::ScopeId{});
-                }
+                // `import Path` is a namespace binding for the full dotted
+                // path (`std.counter.Counter`), never a bare last-segment
+                // injection (`Counter`). Consumers therefore cannot reach
+                // symbols until the path is written.
+                ResolvedName alias;
+                alias.name       = default_name;
+                alias.kind       = ResolutionKind::ModuleAlias;
+                alias.span       = edge.request.pathSpan;
+                alias.target     = {edge.targets.empty() ? ModuleKey{} : edge.targets.front(), {}};
+                alias.modulePath = edge.request.path;
+                add_binding(std::move(alias), frontend::ScopeId{});
             }
         }
 
+        std::unordered_set<uint32_t> field_operand_ids;
+        for (const auto &expression : module->frontend->expressions()) {
+            if (expression.kind == frontend::ExprKind::Field && !expression.operands.empty())
+                field_operand_ids.insert(expression.operands[0].value);
+        }
         for (const auto &expression : module->frontend->expressions()) {
             if (module->frontend->isMacroTemplateExpr(expression.id))
                 continue;
+            if (expression.kind == frontend::ExprKind::Field &&
+                field_operand_ids.contains(expression.id.value))
+                continue;
+            if (expression.kind == frontend::ExprKind::StructLiteral &&
+                expression.text.find('.') != std::string::npos) {
+                // Qualified struct literals keep their full dotted name in
+                // `text` (e.g. `std.counter.Counter{...}`). Resolve through
+                // the module alias just like a Field chain so sema can fetch
+                // the concrete declaration from its module.
+                const auto dot = expression.text.find('.');
+                const auto root_name = std::string_view(expression.text).substr(0, dot);
+                const auto *alias = lookupBinding(resolution, root_name, expression.scope,
+                                                  module->frontend->scopes());
+                if (alias == nullptr || alias->kind != ResolutionKind::ModuleAlias)
+                    continue;
+                std::vector<std::string> segments;
+                size_t cursor = 0;
+                while (cursor < expression.text.size()) {
+                    const auto next = expression.text.find('.', cursor);
+                    segments.push_back(expression.text.substr(
+                        cursor, next == std::string::npos
+                                    ? std::string::npos
+                                    : next - cursor));
+                    if (next == std::string::npos)
+                        break;
+                    cursor = next + 1U;
+                }
+                const auto target = alias->target.module;
+                const auto artifact_it = module_by_key.find(target);
+                if (artifact_it == module_by_key.end() || segments.size() < 2U)
+                    continue;
+                const auto &artifact = *artifact_it->second;
+                bool found = false;
+                for (const auto &symbol : artifact.publicSymbols) {
+                    if (symbol.name != segments.back())
+                        continue;
+                    ResolvedName member;
+                    member.name           = symbol.name;
+                    member.kind           = ResolutionKind::Import;
+                    member.span           = expression.span;
+                    member.target         = {target, symbol.id};
+                    member.expr           = expression.id;
+                    member.declKind       = symbol.kind;
+                    member.signature      = symbol.signature;
+                    member.isExtern       = symbol.isExtern;
+                    member.externalSymbol = symbol.externalSymbol;
+                    member.isVariadic     = symbol.isVariadic;
+                    member.isVariadicSlice = symbol.isVariadicSlice;
+                    member.modulePath      = segments;
+                    resolution.expressions.push_back(std::move(member));
+                    found = true;
+                    break;
+                }
+                if (!found)
+                    diagnostics.push_back({diagnostics::Severity::Error,
+                                           diagnostics::err::NoMember,
+                                           "qualified literal '" + expression.text +
+                                               "' has no public member '" +
+                                               segments.back() + "'",
+                                           module->fileId, expression.span.start,
+                                           expression.span.end});
+            }
             // Enum discriminant expressions may reference earlier variants by bare
             // name (`PREV = SHIFT + 1`). The variants live in the enum's own lookup
             // table rather than the module scope, so resolve those occurrences to the
@@ -1315,54 +1367,90 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 }
             }
             if (expression.kind == frontend::ExprKind::Field && !expression.operands.empty()) {
-                // `console.println` where `console` is an `import ... as console` alias:
-                // resolve the member against the aliased module's public symbols and bind
-                // the field expression itself, so sema/lowering never see the alias name.
-                const auto base_id = expression.operands[0];
-                if (base_id.value > module->frontend->expressions().size())
+                // `console.println`, `std.counter.Counter`, or `out.println`
+                // where the base is a module alias. Fully-qualified paths whose
+                // middle segments are also module aliases keep resolving down
+                // the chain; the final field binds to the imported symbol so
+                // sema/lowering never see an alias name.
+                std::vector<const frontend::Expression *> chain;
+                const frontend::Expression *cursor = &expression;
+                while (cursor->kind == frontend::ExprKind::Field &&
+                       !cursor->operands.empty()) {
+                    chain.push_back(cursor);
+                    if (cursor->operands[0].value > module->frontend->expressions().size())
+                        break;
+                    cursor = &module->frontend->expressions()[cursor->operands[0].value - 1U];
+                }
+                if (chain.empty() || cursor->kind != frontend::ExprKind::Name)
                     continue;
-                const auto &base = module->frontend->expressions()[base_id.value - 1U];
-                if (base.kind != frontend::ExprKind::Name)
-                    continue;
+                const frontend::Expression &root = *cursor;
                 const auto *alias =
-                    lookupBinding(resolution, base.text, base.scope, module->frontend->scopes());
+                    lookupBinding(resolution, root.text, root.scope,
+                                  module->frontend->scopes());
                 if (alias == nullptr || alias->kind != ResolutionKind::ModuleAlias)
                     continue;
-                const ModuleKey target_module = alias->target.module;
-                if (target_module.empty())
+                const auto full_path     = alias->modulePath;
+                const auto target_module = alias->target.module;
+                if (target_module.empty() || full_path.empty())
                     continue;
-                const auto module_it = module_by_key.find(target_module);
-                if (module_it == module_by_key.end())
+
+                auto *target_artifact = [&]() -> const ModuleArtifact * {
+                    const auto member_module = module_by_key.find(target_module);
+                    return member_module == module_by_key.end() ? nullptr
+                                                                : member_module->second;
+                }();
+                if (target_artifact == nullptr)
                     continue;
-                bool found = false;
-                for (const auto &symbol : module_it->second->publicSymbols) {
-                    if (symbol.name != expression.text)
-                        continue;
-                    ResolvedName member{expression.text,
-                                        ResolutionKind::Import,
-                                        expression.span,
-                                        {target_module, symbol.id},
-                                        {},
-                                        {},
-                                        expression.scope};
-                    member.expr            = expression.id;
-                    member.declKind        = symbol.kind;
-                    member.signature       = symbol.signature;
-                    member.isExtern        = symbol.isExtern;
-                    member.externalSymbol  = symbol.externalSymbol;
-                    member.isVariadic      = symbol.isVariadic;
-                    member.isVariadicSlice = symbol.isVariadicSlice;
-                    resolution.expressions.push_back(std::move(member));
+
+                // Namespace segments like `std.io` are not members of the
+                // imported module itself. The outermost field (`println` in
+                // `std.io.console.println`) may still match a public symbol;
+                // when it is a method instead, the deepest inner field that
+                // names an imported type is the symbol sema needs for the
+                // receiver (`string` in `string.string.make()`).
+                const frontend::Expression &member_node = *chain.front();
+                const auto bindSymbol = [&](const frontend::Expression &node) {
+                    for (const auto &symbol : target_artifact->publicSymbols) {
+                        if (symbol.name != node.text)
+                            continue;
+                        ResolvedName member;
+                        member.name            = symbol.name;
+                        member.kind            = ResolutionKind::Import;
+                        member.span            = node.span;
+                        member.target          = {target_module, symbol.id};
+                        member.expr            = node.id;
+                        member.declKind        = symbol.kind;
+                        member.signature       = symbol.signature;
+                        member.isExtern        = symbol.isExtern;
+                        member.externalSymbol  = symbol.externalSymbol;
+                        member.isVariadic      = symbol.isVariadic;
+                        member.isVariadicSlice = symbol.isVariadicSlice;
+                        member.modulePath      = full_path;
+                        resolution.expressions.push_back(std::move(member));
+                        return true;
+                    }
+                    return false;
+                };
+                bool found = bindSymbol(member_node);
+                // `make` in `string.string.make()` is a method on the imported
+                // type at the first inner segment, not a public symbol of the
+                // module itself. Bind that segment so method resolution can
+                // still see the imported receiver type.
+                if (!found && chain.size() > 1U) {
+                    for (size_t index = chain.size() - 1U; index > 0U; --index) {
+                        if (bindSymbol(*chain[index]))
+                            break;
+                    }
                     found = true;
-                    break;
                 }
-                if (!found) {
-                    diagnostics.push_back({diagnostics::Severity::Error, diagnostics::err::NoMember,
-                                           "module alias '" + base.text +
-                                               "' has no public member '" + expression.text + "'",
-                                           module->fileId, expression.span.start,
-                                           expression.span.end});
-                }
+                if (!found)
+                    diagnostics.push_back({diagnostics::Severity::Error,
+                                           diagnostics::err::NoMember,
+                                           "module path '" + joinPath(full_path) +
+                                               "' has no public member '" +
+                                               member_node.text + "'",
+                                           module->fileId, member_node.span.start,
+                                           member_node.span.end});
                 continue;
             }
             if (expression.kind != frontend::ExprKind::Name)

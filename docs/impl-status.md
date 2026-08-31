@@ -30,10 +30,10 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | Lexer | **Working** | Hand-written, character-at-a-time. Longest-first maximal munch for all multi-char operators. `&&` and `||` are rejected with a dedicated error pointing to `and` / `or` |
 | Parser | **Working** | Recursive-descent. Function decls, expressions, imports. |
 | Formatter | **Working** | Round-trip stable for all 16 `ExprKind` nodes including `Index`, `OptionalProp`, `Field`, `Arrow`, and `StructLiteral` |
-| Import resolution | **Working** | `import`, `from`, `export`, `alias`, `type` |
+| Import resolution | **Working** | `import path`, `import path as name`, `from path`, `export path`, and selectors; qualified access works in expressions, types, constructors and methods |
 | Name resolution | **Working** | Scope-chained `lookupBinding`. Per-scope `DuplicateDecl`. |
 | Type checking | **Working** | All `ExprKind` nodes. Optional/null validation. Index bounds. |
-| Generic instantiation | **Working (step 04/05)** | Generic `fn`, `struct`, `alias`, `enum`, `union`, and `implement` blocks are monomorphized before HIR. Calls and named types resolve concrete instances. Generic inference considers implicit optional coercions, so `?T`/`??T` parameters can infer `T` from a bare or partially-optional argument while non-optional parameters remain exact. `T: A + B` bounds are parsed, stored, and enforced at generic call sites; trait-bound method calls type-check through the declared trait method |
+| Generic instantiation | **Working (step 04/05)** | Generic `fn`, `struct`, `alias`, `enum`, `union`, and `implement` blocks are monomorphized before HIR. Calls and named types resolve concrete instances. Enum/union templates accept inline `fn` methods and generic `implement as Trait` blocks alongside their positional variants/members. Generic inference considers implicit optional coercions, so `?T`/`??T` parameters can infer `T` from a bare or partially-optional argument while non-optional parameters remain exact. `T: A + B` bounds are parsed, stored, and enforced at generic call sites; trait-bound method calls type-check through the declared trait method |
 | Comptime / Solve | **Reserved** | Macro expansion happens in frontend; the solver remains a compatibility stub. Generic monomorphization now runs before NRA/HIR in step-04 |
 | NRA / Reference Analysis | **In progress** | NRA is the full Zith reference/ownership analysis. Zith-- implements a partial simplified version: residual facts are accumulated and consumed before final lowering, while the full alive/dead/lent state machine and four-rule proof remain to be completed. Internal names such as `NraFacts` and `nraStage` keep the historical NRA spelling |
 | HIR lowering | **Working** | Covers all working features; residual ownership facts attach to side tables without introducing ownership HIR nodes |
@@ -73,7 +73,7 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 | `[...]T` (variadic slice) | **Working** | Last parameter only. Auto-collects a homogeneous tail into a temporary slice; accepts an explicit final `[]T`/`[N]T` and an empty tail. Supported for free functions, methods, dyn trait/interface methods, generic inference, states/dock/jump and overloads; fixed-arity overloads are preferred |
 | `fn(...): R` (function value) | **Working** | Parses as a type value, type-checks non-generic function references, and lowers/calls through C function-pointer ABI. No closures or captures |
 | `dyn Trait` / `dyn Interface` | **Working (methods)** | Concrete values coerce to fat pointers (`HirMakeDyn`) with per-type vtables (`HirVTable`); method calls lower to `HirDynCall`. Zith-- exposes only methods through `dyn`; interface fields remain available on concrete types and generic bounds, and `a.x` on `dyn Interface` reports `E3001` |
-| `struct`, `component`, `enum`, `union` | **Working** | Declarations parse and resolve |
+| `struct`, `component`, `enum`, `union` | **Working** | Declarations parse and resolve. Generic `enum`/`union` templates support inline methods, concrete instantiation for HIR/codegen, and trait conformance (`implement Enum<T> as Trait` / `implement Union<T> as Trait`) |
 | `trait`, `interface` | **Working (conformance)** | Declaration bodies store trait method requirements/default methods and interface fields plus declaration-only method requirements. Single (`x: T`) and grouped (`[x, y]: T`) interface fields are equivalent. Trait implementations are verified against required signatures with `Self` substitution; duplicate implementations are rejected (`E2027`). Interfaces satisfy structurally by checking fields and compatible method signatures, generic interface bounds expose those members, and explicit interface implementation is rejected (`E2025`) |
 | `implement T as Trait {}` | **Working** | Records a verified nominal conformance edge and resolves calls to concrete trait defaults. The canonical syntax is `implement T as Trait`; the legacy `for Trait` spelling remains parsed |
 | `type` | **Partial** | `type Name = T` creates a nominal one-field wrapper and is not interchangeable with `T`; construction/field access still need an explicit value syntax |
@@ -139,11 +139,11 @@ on internal structure; status reflects actual compiler behaviour, not spec inten
 
 | Feature | Status | Notes |
 |---|---|---|
-| `import`, `from`, `export` | **Working** | Import resolution with correct paths |
+| `import`, `from`, `export` | **Working** | `import path` exposes only the full dotted namespace (`std.io.console.println`), `import path as name` exposes `name.symbol`, `from path` injects public symbols, and `export path` re-exports the namespace plus public symbols |
 | `alias` | **Working** | |
 | `pub`, `mod` | **Working** | |
 | `mod(..)`, `mod(N)` | **Working** | Module-depth visibility is applied to declarations and to struct fields; `mod(..)` is unlimited and `mod(N)` allows N directory levels below the owner |
-| C header imports | **Working (common C)** | libclang only; variadic functions, array-decayed parameters, `va_list`, and function-pointer parameters supported. Object-like scalar macros are imported as constants. Single unsupported decls/macros are skipped and recorded in `skippedFunctions`; function-like macros, strings, globals, bitfields, packed/anonymous records and flexible arrays remain unimported. Struct-by-value ABI is not verified |
+| C header imports | **Working (common C)** | libclang only; variadic functions, array-decayed parameters, `va_list`, and function-pointer parameters supported. Object-like scalar macros are imported as constants and verified through the CLI. Single unsupported decls/macros are skipped and recorded in `skippedFunctions`; function-like macros, strings, globals, bitfields, packed/anonymous records and flexible arrays remain unimported. Struct-by-value ABI is not verified |
 
 ---
 

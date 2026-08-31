@@ -167,6 +167,7 @@ TypeId TypeTable::internEnum(std::string_view name, TypeId underlying,
                              memory::DynArray<int64_t> &discriminants) {
     auto &entry         = pushEntry(EntryKind::Enum);
     entry.reported_kind = TypeKind::Enum;
+    entry.name_view     = persistString(name);
     entry.underlying    = underlying;
     auto &name_storage  = makeNameStorage();
     for (auto &n : variant_names)
@@ -174,7 +175,8 @@ TypeId TypeTable::internEnum(std::string_view name, TypeId underlying,
     auto &disc_storage = makeDiscStorage();
     for (auto &d : discriminants)
         disc_storage.push(d);
-    entry.enum_ty = arena_->make<EnumType>(EnumType{name, underlying, name_storage, disc_storage});
+    entry.enum_ty =
+        arena_->make<EnumType>(EnumType{entry.name_view, underlying, name_storage, disc_storage});
     entry.name_storage = &name_storage;
     entry.disc_storage = &disc_storage;
     return entry.id;
@@ -184,10 +186,11 @@ TypeId TypeTable::internUnion(std::string_view name, memory::DynArray<TypeId> &m
                               bool is_tagged) {
     auto &entry         = pushEntry(EntryKind::Union);
     entry.reported_kind = TypeKind::Union;
+    entry.name_view     = persistString(name);
     auto &storage       = makeStorage();
     for (auto &m : members)
         storage.push(m);
-    entry.union_ty = arena_->make<UnionType>(UnionType{name, storage, is_tagged});
+    entry.union_ty = arena_->make<UnionType>(UnionType{entry.name_view, storage, is_tagged});
     entry.storage  = &storage;
     return entry.id;
 }
@@ -623,12 +626,19 @@ void TypeTable::ConformanceTable::registerConformance(TypeId type, TypeId trait)
 bool TypeTable::ConformanceTable::satisfies(TypeId type, TypeId trait_or_interface) const {
     if (!type || !trait_or_interface)
         return false;
+    const std::string rendered_type =
+        table_ != nullptr ? table_->typeToString(type) : std::string{};
+    const std::string rendered_trait =
+        table_ != nullptr ? table_->typeToString(trait_or_interface) : std::string{};
     for (const auto &existing : conformances_) {
-        const std::string rendered_type =
-            table_ != nullptr ? table_->typeToString(type) : std::string{};
-        const std::string rendered_trait =
-            table_ != nullptr ? table_->typeToString(trait_or_interface) : std::string{};
         if (existing.type == rendered_type && existing.trait == rendered_trait)
+            return true;
+        // A conformance registered for a generic template also holds for every
+        // concrete instance of that template: `implement Box<T> as Trait`
+        // applies to `Box<i32>` and, in this iteration, `Enum<T>` / `Union<T>`.
+        const std::string existing_base = baseName(existing.type);
+        const std::string rendered_base = baseName(rendered_type);
+        if (existing.trait == rendered_trait && existing_base == rendered_base)
             return true;
     }
     // Structural interface satisfaction is implemented by PerModuleSema,
@@ -636,6 +646,12 @@ bool TypeTable::ConformanceTable::satisfies(TypeId type, TypeId trait_or_interfa
     // stores nominal conformance edges; sema consults this query before falling
     // back to its own interface check.
     return false;
+}
+
+std::string TypeTable::ConformanceTable::baseName(std::string_view name) noexcept {
+    if (const size_t angle = name.find('<'); angle != std::string_view::npos)
+        name = name.substr(0, angle);
+    return std::string(name);
 }
 
 TypeId TypeTable::lookupNamed(std::string_view name) const noexcept {

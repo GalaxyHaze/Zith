@@ -1,0 +1,5 @@
+import std/io/console
+fn main(): i32 {
+    std.console.println("full path one segment");
+    return 0;
+}

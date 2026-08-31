@@ -1,30 +1,9 @@
 import "stdio.h"
-
-fn propagate(a: ?i32): ?i32{
-    let sum = a? + 5;
-    printf("sum is: %d\n", sum);
-    sum
-}
-
-union Result{
-    i32, f64
-}
-
-implement Result {
-    fn print(self: view Self){
-        if (self is i32){
-            printf("the integer is; %d\n", self);
-        }
-        else (self is f64){
-            printf("the double is: %f\n", self);
-        }
-    }
-}
+import std/counter
 
 fn main(){
-   if propagate(null){
-        printf("Null propagated!\n");
-   }
-   propagate(5);
-   let test = Result{5};
+    let c = std.counter.Counter{-50,50,1,true};
+    for (var i in std.counter.Counter{-2,2,1,true}){
+        printf("the index is %d\n", i);
+    }
 }

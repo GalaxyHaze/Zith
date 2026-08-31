@@ -51,7 +51,6 @@ option(ZITH_BUILD_CAPI "Build the C ABI library" ON)
 option(ZITH_BUILD_BENCHMARKS "Build local benchmark executables" OFF)
 option(ZITH_IS_WASM "Build for WebAssembly target" OFF)
 option(ZITH_HAS_LLVM "Enable LLVM codegen backend" ON)
-option(ZITH_BUILD_LEGACY_LIB "Build the legacy parser/sema compatibility library" ON)
 option(ZITH_ENABLE_C_COMPILE "Enable recursive .c compilation for ffi.c_source_dirs / --c-source-dir" ON)
 option(ZITH_TCC_FETCH "Fetch and build TinyCC when libtcc is not found on the system" ON)
 option(ZITH_ENABLE_DEBUG_PRINT "Enable compile-time debug prints in compiler internals" OFF)
@@ -61,7 +60,6 @@ option(ZITH_ENABLE_C_INTEROP "Enable automatic C header bindings through libclan
 `ZITH_HAS_LLVM` is auto-disabled when LLVM 18+ is not found, not just when
 `-DZITH_HAS_LLVM=OFF` is passed. `ZITH_ENABLE_C_COMPILE` and
 `ZITH_ENABLE_C_INTEROP` are disabled for WebAssembly and cross-compilation.
-`ZITH_BUILD_BENCHMARKS` requires `ZITH_BUILD_LEGACY_LIB=ON`.
 
 ## Debug Prints & Temporary Instrumentation
 
@@ -93,12 +91,8 @@ keep only the helper itself.
 
     ##Project Layout Details
 
-        Modern compiler source lives under `src /`;
-`lib/legacy-zith/` contains the
-legacy parser/sema compatibility library that the modern pipeline still links
-against. The CMake target `legacy-zith` and `zithcLib` reference each other, so
-tests link both with `-Wl,--start-group ... -Wl,--end-group` to allow circular
-archive resolution.
+Modern compiler source lives under `src/`; the archived legacy parser/sema
+library is outside the active tree and no longer participates in the build.
 
 Common language/codebase organization:
 
@@ -142,8 +136,7 @@ the subsystem is invoked.
 Tests are standalone executables under `tests/` and are registered through the
 `add_zith_test` helper in the root `CMakeLists.txt`. A few notes:
 
-- Tests build against both `zithcLib` and `legacy-zith` when legacy support is
-  enabled, so expect archive-ordering issues if that linkage changes.
+- Tests build against `zithcLib`; no legacy archive is linked.
 - The example suite (`test-examples`) drives the real CLI and requires
   `ZITH_HAS_LLVM` plus the `zithc` target.
 - Benchmarks are opt-in via `ZITH_BUILD_BENCHMARKS=ON`; lexer smoke tests are
@@ -235,6 +228,20 @@ If no results, run `opencode-rag index`.
 - A stored quirk is outdated, wrong, or has been fixed — update it or delete it instead of adding a contradicting duplicate
 - NEVER finish a coding session without adding quirks for resolved errors.
 <!-- END opencode-rag -->
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs are tracked in GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default triage label vocabulary. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context domain docs layout. See `docs/agents/domain.md`.
 
 ## Memory & Knowledge Management (memsearch)
 

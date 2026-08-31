@@ -669,7 +669,8 @@ GenericInstantiationPass::substituteType(const sema::modern::TypeId type,
             auto &members = type_table_.makeTypeStorage();
             for (const auto member : ut->members)
                 members.push(substituteType(member, args));
-            const sema::modern::TypeId reified = type_table_.internUnion(concrete, members);
+            const sema::modern::TypeId reified =
+                type_table_.internUnion(concrete, members, ut->is_tagged);
             type_table_.registerNamed(concrete, reified);
             return reified;
         }

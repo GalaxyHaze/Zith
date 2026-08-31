@@ -224,6 +224,9 @@ struct TypeExpression {
     TypeExprKind kind = TypeExprKind::Error;
     TextSpan span;
     std::string name;
+    /// Segments of a dotted qualified name (`std.counter.Counter`). When
+    /// non-empty, `name` holds the same string joined with '.'.
+    std::vector<std::string> segments;
     std::vector<TypeExprId> arguments;
     uint64_t arrayLength = 0;
     /// True only for the last parameter type of a Zith function declaration,

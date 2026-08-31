@@ -2,23 +2,27 @@
 
 > **Implementation status:** `import`, `from`, `export`, `alias`, `type`, and `pub`/`mod` visibility
 > are **working**. `use` (word/context activation) is **parse skipped** — the body is accepted but
-> has no semantics. `::` scope resolution and namespace access via `.` are **not yet implemented**
-> in the modern pipeline. See [impl-status.md](impl-status.md).
+> has no semantics. `::` scope resolution is not implemented in the modern pipeline; qualified
+> namespace access via `.` is working for imported modules, types and members. See
+> [impl-status.md](impl-status.md).
 
 ### 2.1 Import Keywords
 
 | Keyword | Behavior |
 |---|---|
-| `import path` / `import path as name` | Imports a module under its path as a namespace, or under an explicit alias. Members are accessed as `name.symbol` |
+| `import path` / `import path as name` | Imports a module under its first path segment as a namespace, or under an explicit alias. Members are accessed as the full dotted path (`std.io.console.println`) or `alias.symbol` |
 | `from path` | Injects all visible symbols directly into scope, sugar for simple cases |
 | `export path` | Re-exports a dependency; consumers of this module receive it as well |
 
 ```zith
-import std/io/console as console;
-@console.println("hi");
+import std/io/console;
+std.io.console.println("full path");
+
+import std/io/console as out;
+out.println("alias");
 
 from std/io/console;
-@println("hi");
+println("direct");
 
 export std/io/console;
 ```

@@ -959,6 +959,28 @@ private:
                    snapshot_.tokens_[index_].kind == TokenKind::Keyword) {
             type.kind = TypeExprKind::Name;
             type.name = std::string(text(index_++));
+            // Dotted qualified names in type position are written without
+            // spaces (`std.counter.Counter`); each `.` is a separate operator
+            // token in the lexer. Record the full path so sema can route it
+            // through the import resolution graph instead of a bare name.
+            std::vector<std::string> segments{type.name};
+            while (index_ + 1U < token_count_ && punctuation(index_, '.') &&
+                   (snapshot_.tokens_[index_ + 1U].kind == TokenKind::Identifier ||
+                    snapshot_.tokens_[index_ + 1U].kind == TokenKind::Keyword)) {
+                ++index_; // '.'
+                const auto segment = std::string(text(index_++));
+                segments.push_back(segment);
+            }
+            if (segments.size() > 1U) {
+                type.segments = std::move(segments);
+                std::string dotted;
+                for (size_t i = 0; i < type.segments.size(); ++i) {
+                    if (i != 0U)
+                        dotted += ".";
+                    dotted += type.segments[i];
+                }
+                type.name = std::move(dotted);
+            }
             // Generic applications in type position: `Pair<T, U>`, `Node<i32>`.
             // The parser accepts a balanced `<...>` after a type name; sema reports
             // unresolved generic templates when they cannot be monomorphized.
@@ -1336,6 +1358,88 @@ private:
             expression.kind = is_literal ? ExprKind::Literal : ExprKind::Name;
             expression.text = std::string(token_text);
             ++index_;
+            // A dotted name followed immediately by `{` is a qualified struct
+            // literal (`std.counter.Counter{...}`). Call chains such as
+            // `std.io.console.println(...)` remain ordinary Field nodes so
+            // sema/HIR method resolution keeps the existing receiver logic.
+            if (!suppress_struct_literal_ && !is_literal) {
+                uint32_t probe = index_;
+                std::string qualified_name = expression.text;
+                bool ends_at_brace         = false;
+                while (probe + 1U < token_count_ && punctuation(probe, '.') &&
+                       (snapshot_.tokens_[probe + 1U].kind == TokenKind::Identifier ||
+                        snapshot_.tokens_[probe + 1U].kind == TokenKind::Keyword)) {
+                    qualified_name += ".";
+                    qualified_name += std::string(text(probe + 1U));
+                    probe += 2U;
+                }
+                ends_at_brace = punctuation(probe, '{');
+                if (ends_at_brace && qualified_name != expression.text) {
+                    index_ = probe;
+                    ++index_; // '{'
+                    Expression struct_lit;
+                    struct_lit.kind  = ExprKind::StructLiteral;
+                    struct_lit.scope = current_scope_;
+                    struct_lit.text  = std::move(qualified_name);
+                    bool saw_named   = false;
+                    bool saw_positional = false;
+                    const auto parseFieldValue = [&]() -> ExprId {
+                        if (index_ < token_count_ && text(index_) == "_" &&
+                            snapshot_.tokens_[index_].kind == TokenKind::Identifier) {
+                            Expression placeholder;
+                            placeholder.kind  = ExprKind::Placeholder;
+                            placeholder.text  = "_";
+                            placeholder.scope = current_scope_;
+                            placeholder.span  = tokenSpan(index_++);
+                            return addExpression(std::move(placeholder));
+                        }
+                        return parseExpression();
+                    };
+                    while (index_ < token_count_ && !punctuation(index_, '}')) {
+                        if (punctuation(index_, ',')) {
+                            ++index_;
+                            continue;
+                        }
+                        const bool is_named =
+                            (snapshot_.tokens_[index_].kind == TokenKind::Identifier ||
+                             snapshot_.tokens_[index_].kind == TokenKind::Keyword) &&
+                            punctuation(index_ + 1U, ':');
+                        if (is_named) {
+                            if (saw_positional) {
+                                snapshot_.diagnostics_.push_back(
+                                    {range(start, index_),
+                                     "cannot mix positional and named struct literal fields",
+                                     false, diagnostics::err::TypeMismatch});
+                            }
+                            saw_named = true;
+                            const std::string field_name = std::string(text(index_++));
+                            ++index_; // ':'
+                            struct_lit.field_names.push_back(field_name);
+                            struct_lit.operands.push_back(parseFieldValue());
+                        } else {
+                            if (saw_named) {
+                                snapshot_.diagnostics_.push_back(
+                                    {range(start, index_),
+                                     "cannot mix positional and named struct literal fields",
+                                     false, diagnostics::err::TypeMismatch});
+                            }
+                            saw_positional = true;
+                            struct_lit.operands.push_back(parseFieldValue());
+                        }
+                        if (punctuation(index_, ','))
+                            ++index_;
+                        else if (!punctuation(index_, '}'))
+                            break;
+                    }
+                    if (punctuation(index_, '}'))
+                        ++index_;
+                    else
+                        snapshot_.diagnostics_.push_back(
+                            {range(start, index_), "expected '}' after struct literal fields"});
+                    struct_lit.span = range(start, index_);
+                    return parsePostfix(addExpression(std::move(struct_lit)), start);
+                }
+            }
             // Struct literal: Name { field: expr, ... }
             // Only treat as struct literal when immediately followed by '{' after a Name.
             if (!suppress_struct_literal_ && !is_literal && punctuation(index_, '{')) {
@@ -1509,6 +1613,42 @@ private:
                 } else {
                     snapshot_.diagnostics_.push_back(
                         {range(start, index_), "expected field name after '.'"});
+                }
+                if (isGenericApplication()) {
+                    const uint32_t gen_start = index_;
+                    ++index_; // '<'
+                    Expression generic_call;
+                    generic_call.kind  = ExprKind::Call;
+                    generic_call.scope = current_scope_;
+                    generic_call.operands.push_back(result);
+                    while (index_ < token_count_ && !isOperatorToken(">")) {
+                        generic_call.genericArgs.push_back(parseType());
+                        if (!punctuation(index_, ','))
+                            break;
+                        ++index_;
+                    }
+                    if (isOperatorToken(">"))
+                        ++index_;
+                    else
+                        snapshot_.diagnostics_.push_back(
+                            {range(gen_start, index_), "expected '>' after generic arguments"});
+                    if (punctuation(index_, '(')) {
+                        ++index_;
+                        while (index_ < token_count_ && !punctuation(index_, ')')) {
+                            generic_call.operands.push_back(parseCallArgument());
+                            if (!punctuation(index_, ','))
+                                break;
+                            ++index_;
+                        }
+                        if (punctuation(index_, ')'))
+                            ++index_;
+                        else
+                            snapshot_.diagnostics_.push_back(
+                                {range(gen_start, index_), "expected ')'"});
+                    }
+                    generic_call.span = range(start, index_);
+                    result            = addExpression(std::move(generic_call));
+                    continue;
                 }
                 continue;
             }
@@ -3665,10 +3805,13 @@ private:
             snapshot_.diagnostics_.push_back({range(start, index_),
                                               "Zith--: const declaration requires an initializer",
                                               false, diagnostics::err::UnsupportedSyntax});
-        } else if ((kind == DeclKind::Struct || kind == DeclKind::Interface) &&
+        } else if ((kind == DeclKind::Struct || kind == DeclKind::Interface ||
+                    kind == DeclKind::Enum || kind == DeclKind::Union) &&
                    punctuation(index_, '{')) {
             // Struct bodies contain fields and methods; interface bodies contain
-            // fields and declaration-only method requirements.
+            // fields and declaration-only method requirements. Enum and union
+            // bodies keep their positional members/variants and may also declare
+            // inline methods, which lower exactly like struct methods.
             ++index_;
             while (index_ < token_count_ && !punctuation(index_, '}')) {
                 if (punctuation(index_, ',')) {
@@ -3693,7 +3836,38 @@ private:
                     }
                     continue;
                 }
-                if (kind == DeclKind::Interface) {
+                if (kind == DeclKind::Enum) {
+                    if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
+                        snapshot_.diagnostics_.push_back(
+                            {tokenSpan(index_), "expected a variant name"});
+                        ++index_;
+                        continue;
+                    }
+                    Parameter variant;
+                    variant.name = std::string(text(index_));
+                    variant.span = tokenSpan(index_++);
+                    if (index_ < token_count_ && text(index_) == "=") {
+                        if (punctuation(index_ + 1, '{')) {
+                            snapshot_.diagnostics_.push_back(
+                                {range(index_, index_ + 2),
+                                 "struct-backed enum variants are not supported in this version",
+                                 false, diagnostics::err::UnsupportedSyntax});
+                            ++index_;
+                        } else {
+                            ++index_;
+                            variant.defaultValue = parseExpression();
+                        }
+                    }
+                    declaration.parameters.push_back(std::move(variant));
+                } else if (kind == DeclKind::Union) {
+                    // Positional union body: `union Name { T, U, ... }`. Each member is
+                    // stored as an unnamed Parameter whose `type` names the member type;
+                    // named-variant unions remain a future extension.
+                    Parameter member;
+                    member.span = tokenSpan(index_);
+                    member.type = parseType();
+                    declaration.parameters.push_back(std::move(member));
+                } else if (kind == DeclKind::Interface) {
                     if (!parseInterfaceField(declaration.parameters))
                         break;
                 } else if (!parseStructField(declaration.parameters))
@@ -3703,7 +3877,7 @@ private:
                 ++index_;
             else
                 snapshot_.diagnostics_.push_back(
-                    {range(start, index_), "expected '}' after struct or interface fields"});
+                    {range(start, index_), "expected '}' after composite members"});
         } else if (kind == DeclKind::Trait && punctuation(index_, '{')) {
             ++index_;
             while (index_ < token_count_ && !punctuation(index_, '}')) {
@@ -3727,71 +3901,6 @@ private:
             else
                 snapshot_.diagnostics_.push_back(
                     {range(start, index_), "expected '}' after trait methods"});
-        } else if (kind == DeclKind::Enum && punctuation(index_, '{')) {
-            // C-style enum body: `enum Name[: IntType] { Variant [= <int literal>], ... }`.
-            // Each variant is stored as a Parameter; an explicit `= N` becomes its defaultValue.
-            ++index_;
-            while (index_ < token_count_ && !punctuation(index_, '}')) {
-                if (punctuation(index_, ',')) {
-                    ++index_;
-                    continue;
-                }
-                if (snapshot_.tokens_[index_].kind != TokenKind::Identifier) {
-                    snapshot_.diagnostics_.push_back(
-                        {tokenSpan(index_), "expected a variant name"});
-                    ++index_;
-                    continue;
-                }
-                Parameter variant;
-                variant.name = std::string(text(index_));
-                variant.span = tokenSpan(index_++);
-                if (index_ < token_count_ && text(index_) == "=") {
-                    if (punctuation(index_ + 1, '{')) {
-                        snapshot_.diagnostics_.push_back(
-                            {range(index_, index_ + 2),
-                             "struct-backed enum variants are not supported in this version", false,
-                             diagnostics::err::UnsupportedSyntax});
-                        ++index_;
-                    } else {
-                        ++index_;
-                        variant.defaultValue = parseExpression();
-                    }
-                }
-                declaration.parameters.push_back(std::move(variant));
-                if (punctuation(index_, ','))
-                    ++index_;
-                else if (!punctuation(index_, '}'))
-                    break;
-            }
-            if (punctuation(index_, '}'))
-                ++index_;
-            else
-                snapshot_.diagnostics_.push_back(
-                    {range(start, index_), "expected '}' after enum variants"});
-        } else if (kind == DeclKind::Union && punctuation(index_, '{')) {
-            // Positional union body: `union Name { T, U, ... }`. Each member is
-            // stored as an unnamed Parameter whose `type` names the member type;
-            // named-variant unions remain a future extension.
-            ++index_;
-            while (index_ < token_count_ && !punctuation(index_, '}')) {
-                if (punctuation(index_, ',')) {
-                    ++index_;
-                    continue;
-                }
-                Parameter member;
-                member.span = tokenSpan(index_);
-                member.type = parseType();
-                declaration.parameters.push_back(std::move(member));
-                if (punctuation(index_, ','))
-                    ++index_;
-                else if (!punctuation(index_, '}'))
-                    break;
-            }
-            if (punctuation(index_, '}'))
-                ++index_;
-            else
-                snapshot_.diagnostics_.push_back(
-                    {range(start, index_), "expected '}' after union members"});
         } else if (punctuation(index_, '{')) {
             skipDelimited('{', '}');
         }

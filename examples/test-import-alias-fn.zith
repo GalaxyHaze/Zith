@@ -1,0 +1,5 @@
+import std/io/console as out
+fn main(): i32 {
+    out.println("alias path");
+    return 0;
+}

@@ -220,14 +220,14 @@ void test_import_graph_and_resolution_table() {
     CHECK(has_namespace, "module alias resolves as a namespace binding");
 }
 
-void test_default_import_with_colliding_public_symbol() {
+void test_default_import_exposes_full_path_namespace() {
     Workspace workspace;
     workspace.write("string.zith", "pub struct string { pub data: i32 }\n"
                                    "implement string {\n"
                                    "    pub fn make(): string { string { data: 1 } }\n"
                                    "}\n");
     workspace.write("main.zith", "import string\n"
-                                 "fn main() { return string.make().data; }\n");
+                                 "fn main() { return string.string.make().data; }\n");
 
     FrontendContext context(workspace.config(1));
     auto result = context.analyzeFile(workspace.path("main.zith"));
@@ -243,20 +243,17 @@ void test_default_import_with_colliding_public_symbol() {
     if (!resolution)
         return;
 
-    bool has_imported_string  = false;
-    bool has_default_alias    = false;
-    int imported_public_count = 0;
+    bool has_default_alias   = false;
+    bool has_imported_symbol = false;
     for (const auto &binding : resolution->bindings) {
         if (binding.name == "string") {
-            has_imported_string |= binding.kind == ResolutionKind::Import;
             has_default_alias |= binding.kind == ResolutionKind::ModuleAlias;
-            if (binding.kind == ResolutionKind::Import)
-                ++imported_public_count;
         }
+        if (binding.name == "make")
+            has_imported_symbol |= binding.kind == ResolutionKind::Import;
     }
-    CHECK(has_imported_string, "colliding default import injects the public symbol");
-    CHECK(!has_default_alias, "colliding default import does not inject a module alias");
-    CHECK_EQ(imported_public_count, 1, "only the public symbol named 'string' is imported");
+    CHECK(has_default_alias, "default import creates the first path segment as a module alias");
+    CHECK(!has_imported_symbol, "default import does not inject symbols into the caller scope");
 }
 
 void test_session_materializes_dependency_overlays() {
@@ -493,7 +490,7 @@ static void test_frontend_context() {
     test_cache_invalidation_and_overlays();
     test_partial_artifact_cycle_and_session_snapshot();
     test_import_graph_and_resolution_table();
-    test_default_import_with_colliding_public_symbol();
+    test_default_import_exposes_full_path_namespace();
     test_session_materializes_dependency_overlays();
     test_parameter_names_are_scoped_per_function();
     test_local_bindings_are_scoped();

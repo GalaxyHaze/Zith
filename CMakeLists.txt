@@ -9,7 +9,6 @@ option(ZITH_BUILD_CAPI "Build the C ABI library" ON)
 option(ZITH_BUILD_BENCHMARKS "Build local benchmark executables" OFF)
 option(ZITH_IS_WASM "Build for WebAssembly target" OFF)
 option(ZITH_HAS_LLVM "Enable LLVM codegen backend" ON)
-option(ZITH_BUILD_LEGACY_LIB "Build the legacy parser/sema compatibility library" ON)
 option(ZITH_ENABLE_STRICT_WARNINGS "Strict Clang warning set for development" ON)
 option(ZITH_ENABLE_C_COMPILE "Enable recursive .c compilation for ffi.c_source_dirs / --c-source-dir" ON)
 set(ZITH_TCC_ROOT "" CACHE PATH "Optional root containing libtcc headers and libraries")
@@ -212,15 +211,6 @@ add_subdirectory(src/memory)
 file(GLOB_RECURSE ZITH_LIB_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 list(REMOVE_ITEM ZITH_LIB_SOURCES "${CMAKE_SOURCE_DIR}/src/cli/zithc-main.cpp")
 
-if(ZITH_BUILD_LEGACY_LIB)
-    file(GLOB_RECURSE ZITH_LEGACY_SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/lib/legacy-zith/ast/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/lib/legacy-zith/lexer/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/lib/legacy-zith/parser/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/lib/legacy-zith/sema/*.cpp"
-    )
-endif()
-
 if(ZITH_IS_WASM)
     file(GLOB_RECURSE CLI_CMD_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/cli/cmd/*.cpp")
     list(REMOVE_ITEM ZITH_LIB_SOURCES ${CLI_CMD_SOURCES})
@@ -237,12 +227,7 @@ endif()
 
 add_library(zithcLib STATIC ${ZITH_LIB_SOURCES})
 
-if(ZITH_BUILD_LEGACY_LIB)
-    add_library(legacy-zith STATIC ${ZITH_LEGACY_SOURCES})
-target_include_directories(legacy-zith PUBLIC lib)
-endif()
-
-target_include_directories(zithcLib PUBLIC src lib)
+target_include_directories(zithcLib PUBLIC src)
 
 if(ZITH_IS_WASM)
     target_compile_definitions(zithcLib PUBLIC ZITH_IS_WASM=1)
@@ -257,11 +242,7 @@ endif()
 
 if(ZITH_IS_WASM)
     add_executable(zith-playground src/wasm/playground.cpp src/wasm/wasi-stubs.cpp)
-    if(TARGET legacy-zith)
-        target_link_libraries(zith-playground PRIVATE legacy-zith zithcLib)
-    else()
-        target_link_libraries(zith-playground PRIVATE zithcLib)
-    endif()
+    target_link_libraries(zith-playground PRIVATE zithcLib)
     set_target_properties(zith-playground PROPERTIES OUTPUT_NAME zith-playground SUFFIX ".wasm")
     target_link_options(zith-playground PRIVATE -Wl,--no-entry -Wl,--export=zith_alloc -Wl,--export=zith_free -Wl,--export=zith_run_source -Wl,--export=zith_compile_source -Wl,--export=zith_last_error_ptr -Wl,--export=zith_last_error_len -Wl,--export=zith_last_output_ptr -Wl,--export=zith_last_output_len -Wl,--export=zith_error_count -Wl,--export=zith_error_at -Wl,--export=zith_compiler_version_ptr -Wl,--export=zith_compiler_version_len )
     target_compile_options(zith-playground PRIVATE -Wno-unknown-attributes -Wno-missing-prototypes)
@@ -271,23 +252,10 @@ target_link_libraries(zithcLib PUBLIC
     zith-core
     tomlplusplus::tomlplusplus
 )
-if(TARGET legacy-zith)
-    target_link_libraries(legacy-zith PUBLIC
-        zith-core
-        tomlplusplus::tomlplusplus
-    )
-endif()
-
 if(NOT ZITH_IS_WASM)
     target_link_libraries(zithcLib PUBLIC mio)
-    if(TARGET legacy-zith)
-        target_link_libraries(legacy-zith PUBLIC mio)
-    endif()
     get_target_property(_mio_includes mio INTERFACE_INCLUDE_DIRECTORIES)
     target_include_directories(zithcLib SYSTEM PUBLIC ${_mio_includes})
-    if(TARGET legacy-zith)
-        target_include_directories(legacy-zith SYSTEM PUBLIC ${_mio_includes})
-    endif()
 endif()
 
 if(ZITH_HAS_LLVM AND NOT ZITH_IS_WASM)
@@ -322,10 +290,6 @@ if(ZITH_HAS_LLVM AND NOT ZITH_IS_WASM)
     endif()
     target_include_directories(zithcLib SYSTEM PUBLIC ${LLVM_INCLUDE_DIRS})
     target_compile_definitions(zithcLib PUBLIC ZITH_HAS_LLVM=1)
-    if(TARGET legacy-zith)
-        target_include_directories(legacy-zith SYSTEM PUBLIC ${LLVM_INCLUDE_DIRS})
-        target_compile_definitions(legacy-zith PUBLIC ZITH_HAS_LLVM=1)
-    endif()
 endif()
 target_compile_definitions(zithcLib PUBLIC ZITH_VERSION="${ZITH_VERSION}")
 target_compile_definitions(zithcLib PUBLIC
@@ -369,17 +333,10 @@ endif()
 if(ZITH_BUILD_CLI AND NOT ZITH_IS_WASM)
     add_executable(zithc src/cli/zithc-main.cpp)
     target_link_libraries(zithc PRIVATE zithcLib)
-    if(TARGET legacy-zith)
-        target_link_libraries(zithc PRIVATE legacy-zith zithcLib)
-    endif()
 endif()
 
 if(ZITH_BUILD_BENCHMARKS AND NOT ZITH_IS_WASM)
-    if(NOT TARGET legacy-zith)
-        message(FATAL_ERROR "ZITH_BUILD_BENCHMARKS requires ZITH_BUILD_LEGACY_LIB=ON")
-    endif()
-    add_executable(bench-lexer bench/bench-lexer.cpp bench/lexer-benchmark.cpp)
-    target_link_libraries(bench-lexer PRIVATE legacy-zith zithcLib)
+    message(FATAL_ERROR "ZITH_BUILD_BENCHMARKS requires archived lexer benchmark sources")
 endif()
 
 include(CTest)
@@ -390,24 +347,10 @@ if(BUILD_TESTING AND NOT ZITH_IS_WASM)
     target_compile_definitions(${NAME} PRIVATE
         ZITH_STDLIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/stdlib")
         target_link_libraries(${NAME} PRIVATE zithcLib)
-        if(TARGET legacy-zith)
-            # zithcLib and legacy-zith reference each other: module-loader in the
-            # modern library uses the legacy parser and the legacy sema pipeline
-            # uses modern type lowering, so the two archives must be rescanned.
-            target_link_libraries(${NAME} PRIVATE
-                -Wl,--start-group legacy-zith zithcLib -Wl,--end-group)
-        endif()
         add_test(NAME ${NAME} COMMAND ${NAME})
     endfunction()
 
-    add_zith_test(test-lexer tests/test-lexer.cpp)
-    add_zith_test(test-import tests/test-import.cpp)
-    add_zith_test(test-alias tests/test-alias.cpp)
-    add_zith_test(test-struct tests/test-struct.cpp)
-    add_zith_test(test-scan tests/test-scan.cpp)
-    add_zith_test(test-sema tests/test-sema.cpp)
     add_zith_test(test-formatter tests/test-formatter.cpp)
-    add_zith_test(test-recovery tests/test-recovery.cpp)
     add_zith_test(test-telemetry tests/test-telemetry.cpp)
     add_zith_test(test-frontend-context tests/test-frontend-context.cpp)
     add_zith_test(test-frontend tests/test-frontend.cpp)
@@ -417,12 +360,12 @@ if(BUILD_TESTING AND NOT ZITH_IS_WASM)
     add_zith_test(test-generic-constraints tests/test-generic-constraints.cpp)
     add_zith_test(test-macro tests/test-macro.cpp)
     add_zith_test(test-memory tests/test-memory.cpp)
-    add_zith_test(test-parser-expr tests/test-parser-expr.cpp)
     add_zith_test(test-cache tests/test-cache.cpp)
     add_zith_test(test-modern-types tests/test-modern-types.cpp)
     add_zith_test(test-frontend-modern-pipeline tests/test-frontend-modern-pipeline.cpp)
     add_zith_test(test-hir-lower-modern tests/test-hir-lower-modern.cpp)
     add_zith_test(test-generics-mono tests/test-generics-mono.cpp)
+    add_zith_test(test-enum-union-generics tests/test-enum-union-generics.cpp)
     add_zith_test(test-cinterop tests/test-cinterop.cpp)
     add_zith_test(test-c-compile tests/test-c-compile.cpp)
     add_zith_test(test-optional-slice tests/test-optional-slice.cpp)
@@ -436,10 +379,6 @@ if(BUILD_TESTING AND NOT ZITH_IS_WASM)
     add_zith_test(test-variadic tests/test-variadic.cpp)
     add_zith_test(test-compound-assign tests/test-compound-assign.cpp)
     add_zith_test(test-wasm-contract tests/test-wasm-contract.cpp)
-    add_executable(test-lexer-benchmark tests/test-lexer-benchmark.cpp bench/lexer-benchmark.cpp)
-    target_include_directories(test-lexer-benchmark PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(test-lexer-benchmark PRIVATE legacy-zith zithcLib)
-    add_test(NAME test-lexer-benchmark COMMAND test-lexer-benchmark)
     if(ZITH_HAS_LLVM)
         add_zith_test(test-codegen tests/test-codegen.cpp)
         # The example suite drives the real CLI, so it needs codegen and a linker.
@@ -453,14 +392,6 @@ if(BUILD_TESTING AND NOT ZITH_IS_WASM)
         endif()
     endif()
 
-    if(TARGET bench-lexer)
-        add_test(NAME bench-lexer-text-smoke COMMAND bench-lexer --warmup 0 --samples 1)
-        set_tests_properties(bench-lexer-text-smoke PROPERTIES PASS_REGULAR_EXPRESSION "MiB/s")
-        add_test(NAME bench-lexer-json-smoke
-            COMMAND bench-lexer --format json --warmup 0 --samples 1)
-        set_tests_properties(bench-lexer-json-smoke PROPERTIES
-            PASS_REGULAR_EXPRESSION "\"scenario\":\"mixed-valid\".*\"host\":")
-    endif()
 endif()
 
 if(ZITH_BUILD_CLI AND NOT ZITH_IS_WASM)
@@ -518,18 +449,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     if(BUILD_TESTING AND NOT ZITH_IS_WASM)
         foreach(
             TARGET
-            test-lexer
-            test-import
-            test-alias
-            test-struct
-            test-scan
-            test-sema
             test-formatter
             test-codegen
-            test-parser-expr
             test-modern-types
             test-frontend-modern-pipeline
-            test-lexer-benchmark
         )
             if(TARGET ${TARGET})
                 target_compile_options(${TARGET} PRIVATE ${ZITH_CLANG_WARNINGS})

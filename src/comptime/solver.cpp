@@ -38,12 +38,11 @@ bool typeHasGenericParam(types::TypeId t, types::TypeIntern &types) {
 
 } // anonymous namespace
 
-Solver::Solver(types::TypeIntern &types, ast::AstBuilder *ast, ast::ProgramNode *program,
-               symbols::SymbolTable &syms, diagnostics::DiagnosticEngine &diags,
-               memory::Arena &hir_arena, sema::modern::TypeTable *modern_types)
-    : types_(types), ast_(ast), program_(program), syms_(syms), diags_(diags),
-      modern_types_(modern_types), hir_arena_(hir_arena), generic_fns_(hir_arena),
-      monomorphs_(hir_arena) {}
+Solver::Solver(types::TypeIntern &types, symbols::SymbolTable &syms,
+               diagnostics::DiagnosticEngine &diags, memory::Arena &hir_arena,
+               sema::modern::TypeTable *modern_types)
+    : types_(types), syms_(syms), diags_(diags), modern_types_(modern_types),
+      hir_arena_(hir_arena), generic_fns_(hir_arena), monomorphs_(hir_arena) {}
 
 bool Solver::solve(hir::HirModule &hir) {
     if (!collectGenerics())
@@ -72,8 +71,6 @@ bool Solver::runPostLower(hir::HirModule &hir) {
 
 bool Solver::collectGenerics() {
     // AstBuilder removed — Solver not used by modern pipeline.
-    (void)ast_;
-    (void)program_;
     return true;
 }
 

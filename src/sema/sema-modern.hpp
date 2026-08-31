@@ -133,6 +133,11 @@ private:
     void checkFunctionDefaults();
     void checkZithDeclarations();
     void checkConstFieldAssignments();
+    /// Registers generic implementation methods needed by a `dyn Trait` /
+    /// `dyn Interface` coercion of `source` into `target`. The methods inherit
+    /// the concrete enum/union owner's type arguments and must exist before HIR
+    /// lowers the vtable.
+    void primeDynImplementations(TypeId target, TypeId source);
     /// Zith-- requires constant expressions for `const` declarations.
     bool isConstantExpression(frontend::ExprId id) const;
     /// True when any field along a place-expression path is a const struct field.
@@ -437,6 +442,15 @@ private:
     /// Canonical owner name for a lowered struct type, excluding template
     /// arguments (`Pair<i32>` → `Pair`).
     [[nodiscard]] std::string ownerNameOf(TypeId pointee) const;
+    /// True when `name` is one of the generic parameter names visible for the
+    /// declaration currently being lowered (including owner-inherited params).
+    [[nodiscard]] bool isGenericTypeParamName(std::string_view name,
+                                              uint32_t decl_id) const noexcept;
+    /// For a concrete union receiver, returns the member types as the
+    /// instantiation arguments of the generic owner. Positional unions map
+    /// one parameter to one member, so the member storage itself is the
+    /// substituted argument vector.
+    [[nodiscard]] std::vector<TypeId> unionArgsFor(TypeId type) const noexcept;
     /// Resolves a canonical implementation owner spelling (`i32`, `?char`,
     /// `[]u8`, `Point`) back to the interned type. Returns invalid when the
     /// spelling is not a supported implement target.
@@ -555,6 +569,11 @@ private:
     const session::ResolvedName *findResolvedExpr(frontend::ExprId id) const noexcept;
     const session::ResolvedName *findResolvedBinding(std::string_view name,
                                                      frontend::ScopeId scope) const noexcept;
+    /// Resolves the imported module for a qualified type expression (`std.counter.Counter`).
+    [[nodiscard]] session::ModuleKey
+    resolveQualifiedPath(const frontend::TypeExpression &type) const noexcept;
+    [[nodiscard]] frontend::ScopeId
+    currentScopeForType(const frontend::TypeExpression &type) const noexcept;
     /// Default expression of struct field `field_index` in the named struct, or an empty id.
     frontend::ExprId findFieldDefault(std::string_view struct_name,
                                       size_t field_index) const noexcept;
@@ -608,6 +627,12 @@ public:
     [[nodiscard]] const std::vector<session::ModuleArtifactPtr> &modules() const noexcept {
         return snapshot_.modules();
     }
+    /// True when `id` resolves to the `self` receiver in the module's sema.
+    [[nodiscard]] bool isSelfReceiver(session::ModuleKey module,
+                                      frontend::ExprId id) const noexcept;
+    /// True when `id` resolves to a borrow parameter (`*lend T` / `*view T`).
+    [[nodiscard]] bool isBorrowParameter(session::ModuleKey module,
+                                         frontend::ExprId id) const noexcept;
     TypedMap &typedMap(session::ModuleKey module) noexcept;
 
 private:

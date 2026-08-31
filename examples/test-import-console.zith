@@ -1,0 +1,5 @@
+import std/io/console
+fn main(): i32 {
+    std.io.console.println("full path");
+    return 0;
+}

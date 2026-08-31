@@ -14,7 +14,6 @@
 #include "sema/nra-facts.hpp"
 #include "sema/sema-modern.hpp"
 #include "types/type-kind.hpp"
-#include "types/type-lower.hpp"
 
 #include "cache/artifact-builder.hpp"
 #include "cache/cache-paths.hpp"
@@ -771,7 +770,7 @@ bool CompilationSession::lowerStage() {
     // The solver only needs to run on cold builds. Warm builds restore the HIR
     // artifact directly and the generic pass already ran before HIR lowering.
 
-    comptime::Solver solver(mTypes, nullptr, nullptr, mSyms, mDiags, mHirArena);
+    comptime::Solver solver(mTypes, mSyms, mDiags, mHirArena);
     if (!solver.runPostLower(mHirModule)) {
         mDiags.emit();
         return false;

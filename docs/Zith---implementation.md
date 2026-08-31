@@ -160,6 +160,15 @@ type". Este comportamento é intencional no Zith-- e a superfície pública de `
 métodos. Para ler fields, use um tipo concreto ou um bound genérico `T: Interface` (que continua
 a expor fields e methods no corpo).
 
+`enum` e `union` são tratados como `struct` para efeitos de generics e métodos:
+o parser aceita métodos `fn` inline no corpo, `lowerDeclarationTypes` regista os
+templates com `GenericParam`, e `instantiateTypeExpr` reifica `Enum<T>`/`Union<T>`
+com membros/variantes substituídos e preservação de `is_tagged`. `findMethodsForOwner`
+e `inferMethodCall` resolvem receivers `TypeKind::Enum`/`TypeKind::Union` com o owner
+base, e `implement Enum<T>`/`implement Union<T>` herdam params e registam
+conformance como em `implement Struct<T>`. `HirLowerModern::lowerType` usa o type id
+concreto, e discriminantes de enum genérico descem do tipo sema actual em vez do template.
+
 Discriminantes de enum são avaliados em `lowerDeclarationTypes`, não como literais fixos.
 O evaluator percorre recursivamente literais inteiros, unários `-`/`~`, binários aritméticos,
 bitwise `&.`/`|.`/`^.`, shifts e comparações, variantes anteriores do enum e referências a
@@ -378,6 +387,9 @@ Os seguintes testes cobrem a iteração:
 - `test-frontend`: bindings `let`/`var`/`const`, rejeição de `global`/`mut`/ownership/tags, const fields.
 - `test-sema`: valida const global/local, campos const, propagação de imutabilidade em structs/unions, discriminantes constantes de enum e atribuições proibidas.
 - `test-hir-lower-modern`: `HirGlobalConst`, `HirGlobalConstLoad` e valores de enum calculados a partir de expressões.
+- `test-enum-union-generics`: métodos inline em enums/unions genéricos, reificação,
+  `implement E<T>`/`implement U<T,U>`, `dyn` de instâncias concretas, aridade/`Self`
+  e raw casts lowered post-instantiation.
 - `test-codegen`: execução runtime de um const global e de uma maquina de estados com `musttail tailcc`, incluindo parâmetros divergentes.
 - `test-cache`/`test-zirl-sections`: pool de expressões, globals e state machine metadata persistidos.
 - `test-memory-qualifiers`: lend/view aceites; anotações de call `E4005`/`E4007`, exclusividade por call e views read-only; unique/share/belong e mut rejeitados.

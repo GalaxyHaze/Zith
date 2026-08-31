@@ -172,6 +172,7 @@ public:
         [[nodiscard]] bool satisfies(TypeId type, TypeId trait_or_interface) const;
 
     private:
+        [[nodiscard]] static std::string baseName(std::string_view name) noexcept;
         struct Conformance {
             std::string type;
             std::string trait;

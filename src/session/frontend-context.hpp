@@ -319,6 +319,10 @@ struct ResolvedName {
     bool isVariadicSlice = false;
     /// Source binding kind for `DeclKind::Variable` and local variable bindings.
     frontend::BindingKind bindingKind = frontend::BindingKind::Let;
+    /// Import namespace segments for `ResolutionKind::ModuleAlias`, e.g.
+    /// `["std", "counter"]` for `import std/counter`. Empty for aliases that
+    /// name a single-symbol import or for non-module resolutions.
+    std::vector<std::string> modulePath;
 };
 
 struct ModuleResolution {

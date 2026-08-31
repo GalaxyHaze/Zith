@@ -30,6 +30,7 @@ constexpr Example kExamples[] = {
     {"const-enums-advanced.zith", 12, false},
     {"dyn-interfaces-simple.zith", 10, false},
     {"dyn-interfaces-advanced.zith", 14, false},
+    {"enum-union-generics.zith", 42, false},
     {"function-values-simple.zith", 14, false},
     {"function-values-advanced.zith", 31, false},
     {"functions-defaults-simple.zith", 15, false},

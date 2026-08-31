@@ -176,6 +176,53 @@ fn main(): i32 {
 }
 ```
 
+Enums e unions também são tipos nomeados genéricos completos. Podem declarar
+métodos inline no próprio corpo, participar em `implement Trait`, e os seus
+tipos concretos são monomorphizados como `Status<i32>` ou `Any<i32, f64>`:
+
+```zith
+trait Value {
+    fn value(self): i32 { return 0; }
+}
+
+enum Status<T> {
+    Ok = 0,
+    Err = 1,
+    fn code(self): i32 { return @sizeOf(T) as i32; }
+}
+
+union Any<T, U> {
+    T,
+    U,
+    fn width(self): i32 { return @sizeOf(T) as i32; }
+}
+
+implement Status<T> as Value {
+    fn value(self): i32 { return @sizeOf(T) as i32; }
+}
+
+implement Any<T, U> as Value {
+    fn value(self): i32 { return @sizeOf(T) as i32; }
+}
+
+fn report(v: dyn Value): i32 {
+    return v.value();
+}
+
+fn main(): i32 {
+    let status: Status<i32> = Status.Ok;
+    var any: Any<i32, f64> = Any<i32, f64>{ 42 };
+    let n: i32 = raw any as i32;
+    return status.code() + any.width() + report(status) + report(any) - 3 * (@sizeOf(i32) as i32) + n - 42;
+}
+```
+
+Os discriminantes de variantes continuam a ser constantes inteiras: um template
+genérico não pode usar o tipo genérico no discriminante. As variantes são valores
+constantes do tipo concreto depois de instanciado (`Status.Ok`), e unions mantêm
+o comportamento actual de tagged/raw, incluindo `raw self as T` em métodos
+inline.
+
 ## Variadic Slices
 
 O último parâmetro de uma função ou método pode ser um variadic slice `[...]T`. Em

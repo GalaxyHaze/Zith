@@ -1,0 +1,54 @@
+// Exercises: generic enums and unions with inline methods, trait
+// implementations, raw union casts, and dyn-trait dispatch.
+// Expected exit code: 42
+
+trait Value {
+    fn value(self): i32 { return 0; }
+}
+
+enum Status<T> {
+    Ok = 0,
+    Err = 1,
+    fn code(self): i32 { return @sizeOf(T) as i32; }
+}
+
+union Any<T, U> {
+    T,
+    U,
+    fn width(self): i32 { return @sizeOf(T) as i32; }
+}
+
+implement Status<T> as Value {
+    fn value(self): i32 { return @sizeOf(T) as i32; }
+}
+
+implement Any<T, U> as Value {
+    fn value(self): i32 { return @sizeOf(T) as i32; }
+}
+
+fn report(v: dyn Value): i32 {
+    return v.value();
+}
+
+fn main(): i32 {
+    let status: Status<i32> = Status.Ok;
+    var any: Any<i32, f64> = Any<i32, f64>{ 42 };
+    let n: i32 = raw any as i32;
+
+    if (status.code() != @sizeOf(i32) as i32) {
+        return 1;
+    }
+    if (any.width() != @sizeOf(i32) as i32) {
+        return 2;
+    }
+    if (n != 42) {
+        return 3;
+    }
+    if (report(status) != @sizeOf(i32) as i32) {
+        return 4;
+    }
+    if (report(any) != @sizeOf(i32) as i32) {
+        return 5;
+    }
+    return 42;
+}

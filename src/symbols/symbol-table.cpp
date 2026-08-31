@@ -1,7 +1,4 @@
-#include "symbol-table.hpp"
-#include "legacy-zith/ast/ast-builder.hpp"
-#include "legacy-zith/ast/ast-nodes.hpp"
-#include "legacy-zith/ast/type-expr.hpp"
+#include "symbols/symbol-table.hpp"
 
 namespace zith::symbols {
 
@@ -242,9 +239,8 @@ void SymbolTable::dump(FILE *out, ast::AstBuilder *bld) const {
                 for (auto mid : sym.members)
                     if (symbols_[mid].kind == SymKind::Fn)
                         methods++;
-                size_t fields = 0;
                 (void)bld; // AstBuilder removed; dump is diagnostic-only
-                std::fprintf(out, " (%zu fields & %zu methods)", fields, methods);
+                std::fprintf(out, " (%zu fields & %zu methods)", size_t{0}, methods);
                 break;
             }
             default:
