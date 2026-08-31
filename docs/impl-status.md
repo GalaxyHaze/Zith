@@ -7,6 +7,9 @@ actual compiler behaviour at baseline `a5f3716`. Each feature was verified by ru
 `build/zithc check` against a standalone test file, with source inspection where a status depends
 on internal structure; status reflects actual compiler behaviour, not spec intent.
 
+Implementation work that is incomplete or needs review is tracked in
+[implementation-debt.md](implementation-debt.md).
+
 ---
 
 ## Status Legend

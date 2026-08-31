@@ -826,21 +826,22 @@ static void test_nested_optional_for_in_runtime() {
 
 static void test_imported_counter_runtime() {
     CodegenTest t;
-    auto r =
-        t.run("codegen-imported-counter.zith",
-              "import std/counter\n"
-              "fn main(): i32 {\n"
-              "    var total: i32 = 0;\n"
-              "    let half: std.counter.Counter = std.counter.Counter { index: 0, limit: 5, step: 1, inclusive: false };\n"
-              "    for (x in half) {\n"
-              "        total = total + x;\n"
-              "    }\n"
-              "    let full: std.counter.Counter = std.counter.Counter { index: 0, limit: 5, step: 1, inclusive: true };\n"
-              "    for (y in full) {\n"
-              "        total = total + y;\n"
-              "    }\n"
-              "    return total;\n"
-              "}\n");
+    auto r = t.run("codegen-imported-counter.zith",
+                   "import std/counter\n"
+                   "fn main(): i32 {\n"
+                   "    var total: i32 = 0;\n"
+                   "    let half: std.counter.Counter = std.counter.Counter { index: 0, limit: 5, "
+                   "step: 1, inclusive: false };\n"
+                   "    for (x in half) {\n"
+                   "        total = total + x;\n"
+                   "    }\n"
+                   "    let full: std.counter.Counter = std.counter.Counter { index: 0, limit: 5, "
+                   "step: 1, inclusive: true };\n"
+                   "    for (y in full) {\n"
+                   "        total = total + y;\n"
+                   "    }\n"
+                   "    return total;\n"
+                   "}\n");
     CHECK(r.ok, "the stdlib Counter imports, lowers, and runs");
     CHECK_EQ(r.exitCode, 25,
              "Counter excludes the limit by default and includes it when requested");

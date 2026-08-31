@@ -946,8 +946,8 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 if (export_root != module->key && !edge.request.isExport)
                     continue;
                 effective_edges.push_back(&edge);
-                const auto target_it = module_by_key.find(
-                    edge.targets.empty() ? ModuleKey{} : edge.targets.front());
+                const auto target_it =
+                    module_by_key.find(edge.targets.empty() ? ModuleKey{} : edge.targets.front());
                 if (target_it != module_by_key.end())
                     pending_export_roots.push_back(target_it->first);
             }
@@ -1266,10 +1266,10 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 // `text` (e.g. `std.counter.Counter{...}`). Resolve through
                 // the module alias just like a Field chain so sema can fetch
                 // the concrete declaration from its module.
-                const auto dot = expression.text.find('.');
+                const auto dot       = expression.text.find('.');
                 const auto root_name = std::string_view(expression.text).substr(0, dot);
-                const auto *alias = lookupBinding(resolution, root_name, expression.scope,
-                                                  module->frontend->scopes());
+                const auto *alias    = lookupBinding(resolution, root_name, expression.scope,
+                                                     module->frontend->scopes());
                 if (alias == nullptr || alias->kind != ResolutionKind::ModuleAlias)
                     continue;
                 std::vector<std::string> segments;
@@ -1277,33 +1277,31 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 while (cursor < expression.text.size()) {
                     const auto next = expression.text.find('.', cursor);
                     segments.push_back(expression.text.substr(
-                        cursor, next == std::string::npos
-                                    ? std::string::npos
-                                    : next - cursor));
+                        cursor, next == std::string::npos ? std::string::npos : next - cursor));
                     if (next == std::string::npos)
                         break;
                     cursor = next + 1U;
                 }
-                const auto target = alias->target.module;
+                const auto target      = alias->target.module;
                 const auto artifact_it = module_by_key.find(target);
                 if (artifact_it == module_by_key.end() || segments.size() < 2U)
                     continue;
                 const auto &artifact = *artifact_it->second;
-                bool found = false;
+                bool found           = false;
                 for (const auto &symbol : artifact.publicSymbols) {
                     if (symbol.name != segments.back())
                         continue;
                     ResolvedName member;
-                    member.name           = symbol.name;
-                    member.kind           = ResolutionKind::Import;
-                    member.span           = expression.span;
-                    member.target         = {target, symbol.id};
-                    member.expr           = expression.id;
-                    member.declKind       = symbol.kind;
-                    member.signature      = symbol.signature;
-                    member.isExtern       = symbol.isExtern;
-                    member.externalSymbol = symbol.externalSymbol;
-                    member.isVariadic     = symbol.isVariadic;
+                    member.name            = symbol.name;
+                    member.kind            = ResolutionKind::Import;
+                    member.span            = expression.span;
+                    member.target          = {target, symbol.id};
+                    member.expr            = expression.id;
+                    member.declKind        = symbol.kind;
+                    member.signature       = symbol.signature;
+                    member.isExtern        = symbol.isExtern;
+                    member.externalSymbol  = symbol.externalSymbol;
+                    member.isVariadic      = symbol.isVariadic;
                     member.isVariadicSlice = symbol.isVariadicSlice;
                     member.modulePath      = segments;
                     resolution.expressions.push_back(std::move(member));
@@ -1311,11 +1309,9 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                     break;
                 }
                 if (!found)
-                    diagnostics.push_back({diagnostics::Severity::Error,
-                                           diagnostics::err::NoMember,
+                    diagnostics.push_back({diagnostics::Severity::Error, diagnostics::err::NoMember,
                                            "qualified literal '" + expression.text +
-                                               "' has no public member '" +
-                                               segments.back() + "'",
+                                               "' has no public member '" + segments.back() + "'",
                                            module->fileId, expression.span.start,
                                            expression.span.end});
             }
@@ -1374,8 +1370,7 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 // sema/lowering never see an alias name.
                 std::vector<const frontend::Expression *> chain;
                 const frontend::Expression *cursor = &expression;
-                while (cursor->kind == frontend::ExprKind::Field &&
-                       !cursor->operands.empty()) {
+                while (cursor->kind == frontend::ExprKind::Field && !cursor->operands.empty()) {
                     chain.push_back(cursor);
                     if (cursor->operands[0].value > module->frontend->expressions().size())
                         break;
@@ -1385,8 +1380,7 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                     continue;
                 const frontend::Expression &root = *cursor;
                 const auto *alias =
-                    lookupBinding(resolution, root.text, root.scope,
-                                  module->frontend->scopes());
+                    lookupBinding(resolution, root.text, root.scope, module->frontend->scopes());
                 if (alias == nullptr || alias->kind != ResolutionKind::ModuleAlias)
                     continue;
                 const auto full_path     = alias->modulePath;
@@ -1396,8 +1390,7 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
 
                 auto *target_artifact = [&]() -> const ModuleArtifact * {
                     const auto member_module = module_by_key.find(target_module);
-                    return member_module == module_by_key.end() ? nullptr
-                                                                : member_module->second;
+                    return member_module == module_by_key.end() ? nullptr : member_module->second;
                 }();
                 if (target_artifact == nullptr)
                     continue;
@@ -1409,7 +1402,7 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 // names an imported type is the symbol sema needs for the
                 // receiver (`string` in `string.string.make()`).
                 const frontend::Expression &member_node = *chain.front();
-                const auto bindSymbol = [&](const frontend::Expression &node) {
+                const auto bindSymbol                   = [&](const frontend::Expression &node) {
                     for (const auto &symbol : target_artifact->publicSymbols) {
                         if (symbol.name != node.text)
                             continue;
@@ -1444,11 +1437,9 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                     found = true;
                 }
                 if (!found)
-                    diagnostics.push_back({diagnostics::Severity::Error,
-                                           diagnostics::err::NoMember,
+                    diagnostics.push_back({diagnostics::Severity::Error, diagnostics::err::NoMember,
                                            "module path '" + joinPath(full_path) +
-                                               "' has no public member '" +
-                                               member_node.text + "'",
+                                               "' has no public member '" + member_node.text + "'",
                                            module->fileId, member_node.span.start,
                                            member_node.span.end});
                 continue;

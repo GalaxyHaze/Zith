@@ -598,10 +598,10 @@ private:
     friend FrontendSnapshot parse(std::string source);
     friend FrontendSnapshot parseWithImports(std::string source,
                                              const std::vector<ImportedMacroRecord> &imported);
+    friend void markMacroTemplates(FrontendSnapshot &snapshot);
     friend void lex(FrontendSnapshot &snapshot);
     friend void parseCst(FrontendSnapshot &snapshot);
     friend void lowerAst(FrontendSnapshot &snapshot);
-    friend void markMacroTemplates(FrontendSnapshot &snapshot);
     friend class AstLowerer;
     friend class MacroExpander;
     double expandMs_ = 0.0;
