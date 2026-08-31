@@ -1,12 +1,12 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="16-words-custom-operators">16. Words (Custom Operators)</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>prefix</code>, <code>suffix</code>, <code>infix</code>, and <code>nop</code> declarations are <strong>parse skipped</strong> — the declaration is accepted but the body is dropped via <code>skipDelimited</code>. Word call expressions are a <strong>parse error</strong>. No semantic or HIR support. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>prefix</code>, <code>suffix</code>, <code>infix</code>, and <code>nop</code> declarations are <strong>parse skipped</strong> — the declaration is accepted but the body is dropped via <code>skipDelimited</code>. Word call expressions are a <strong>parse error</strong>. No semantic or HIR support. See <a href="./reference/D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <p>Words let you define custom operators from identifiers. Each word has a fixed position — <strong>prefix</strong>, <strong>infix</strong>, or <strong>suffix</strong> — with language-defined precedence.</p>
 <ul>
   <li>You must activate a word with <code>use</code>, even if you already imported its module.</li>
   <li>Two words with the same name in the same scope: compile error.</li>
   <li>If the compiler sees any ambiguity (even potential), it errors out.</li>
-  <li>Best practice: define words inside a <code>context</code> (<a href="./D-contexts.html">§17</a>).</li>
+  <li>Best practice: define words inside a <code>context</code> (<a href="./reference/D-contexts.html">§17</a>).</li>
 </ul>
 <h3 id="161-word-types">16.1 Word Types</h3>
 <table>
@@ -88,4 +88,4 @@ operator* (SELECT, list) { ... }</code></pre>
 </ul>
 <blockquote><p>Words let you pass keywords, words, and macros as arguments.</p></blockquote>
 <hr>
-<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
+<p><em><a href="./reference/D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

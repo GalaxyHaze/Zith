@@ -58,7 +58,7 @@
     }
     </script>
 </head>
-<body>
+<body class="zith-portal">
 
     <!-- Header Navigation -->
     <header class="site-header">
@@ -82,9 +82,7 @@
             </nav>
 
             <div class="nav-actions">
-                <button class="btn-icon" id="openSettingsBtn" aria-label="Open Settings">
-                    <span>⚙</span> Settings
-                </button>
+                <button class="btn-icon" id="openSettingsBtn" aria-label="Open Effects Settings">⚙</button>
                 <button class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="Toggle Navigation Menu">
                     ☰
                 </button>
@@ -94,14 +92,12 @@
 
     <!-- Hero Section -->
     <section class="hero-section">
-        <div class="hero-badge">
-            <span>◆</span> Zith Compiler v0.6.0 Released
-        </div>
+       
         <h1 class="hero-title">
-            Systems Programming,<br><span>Reimagined.</span>
+            Zith
         </h1>
-        <p class="hero-subtitle">
-            A statically typed, compiled systems language with compile-time memory safety powered by <strong>Node Resource Analysis (NRA)</strong> &mdash; zero runtime overhead, no garbage collector, and no borrow checker complexity.
+        <p class="hero-subtitle typewriter">
+            A statically typed, compiled systems language with compile-time memory safety powered by <strong>Node Resource Analysis (NRA)</strong>, zero runtime overhead, no garbage collector, and no borrow checker complexity.
         </p>
         <div class="hero-cta">
             <a href="#install" class="btn btn-primary">Install Zith</a>
@@ -115,7 +111,7 @@
     <section class="spotlight-section">
         <div class="section-header">
             <h2>Code Spotlight</h2>
-            <p>Discover Zith's expressive syntax, static ownership model, and direct C interop.</p>
+            <p class="typewriter">Discover Zith's expressive syntax, static ownership model, and direct C interop.</p>
         </div>
 
         <div class="spotlight-grid">
@@ -133,8 +129,8 @@
                         <span class="dot amber"></span>
                         <span class="dot green"></span>
                     </div>
-                    <span class="window-filename" id="codeFilename">main.zt</span>
-                    <button class="copy-btn" id="copyCodeBtn">Copy Code</button>
+                    <span class="window-filename" id="codeFilename">main.zith</span>
+                    <button class="copy-btn" id="copyCodeBtn" type="button">Copy Code</button>
                 </div>
                 <div class="code-block-container">
                     <pre><code id="codeDisplay"></code></pre>
@@ -150,7 +146,7 @@
     <section class="features-section">
         <div class="section-header">
             <h2>Why Zith?</h2>
-            <p>Engineered for high performance, deterministic lifetimes, and clean systems architecture.</p>
+            <p class="typewriter">Engineered for high performance, deterministic lifetimes, and clean systems architecture.</p>
         </div>
 
         <div class="features-grid">
@@ -178,7 +174,7 @@
     <section class="install-section" id="install">
         <div class="section-header">
             <h2>Quick Installation</h2>
-            <p>Get <code>zithc</code> installed on macOS, Linux, or Windows in seconds.</p>
+            <p class="typewriter">Get <code>zithc</code> installed on macOS, Linux, or Windows in one click.</p>
         </div>
 
         <div class="install-box">
@@ -189,7 +185,7 @@
                 <button class="install-tab" data-pm="ps1">PowerShell (Windows)</button>
             </div>
             <div class="install-content">
-                <code class="install-cmd" id="installCmd">brew tap galaxyhaze/zithc && brew install zithc</code>
+                <code class="install-cmd typewriter-install" id="installCmd">brew tap galaxyhaze/zithc && brew install zithc</code>
                 <button class="copy-btn" id="copyInstallBtn">Copy</button>
             </div>
         </div>
@@ -199,25 +195,24 @@
     <section class="news-section">
         <div class="section-header">
             <h2>Latest Updates &amp; Dev Log</h2>
-            <p>Recent progress from the Zith development diary and release changelog.</p>
+            <p class="typewriter">Recent progress from the Zith development diary and release changelog.</p>
         </div>
 
         <div class="news-grid" id="newsGrid">
-            <!-- Populated dynamically via JS -->
-            <div class="news-card">
-                <span class="news-date">6 August 2026</span>
-                <h3><a href="./about/">Operators, and Where Ownership Belongs</a></h3>
-                <p>Exploring operator semantics, copy vs move semantics, and owner boundaries in the Zith type checker.</p>
+            <div class="news-card is-skeleton" aria-hidden="true">
+                <span class="news-date"></span>
+                <h3></h3>
+                <p></p>
             </div>
-            <div class="news-card">
-                <span class="news-date">4 August 2026</span>
-                <h3><a href="./about/">Macros Land in the Zith Pipeline</a></h3>
-                <p>Implementing compile-time macro expansion and C ABI interop improvements in zithc.</p>
+            <div class="news-card is-skeleton" aria-hidden="true">
+                <span class="news-date"></span>
+                <h3></h3>
+                <p></p>
             </div>
-            <div class="news-card">
-                <span class="news-date">29 July 2026</span>
-                <h3><a href="./about/">Structs and the Modern Pipeline</a></h3>
-                <p>Refactoring memory allocation, field alignments, and Node Resource Analysis graph propagation.</p>
+            <div class="news-card is-skeleton" aria-hidden="true">
+                <span class="news-date"></span>
+                <h3></h3>
+                <p></p>
             </div>
         </div>
     </section>
@@ -264,7 +259,6 @@
 
         <div class="footer-bottom">
             <p>&copy; 2026 GalaxyHaze &amp; Zith Contributors. Open source systems programming.</p>
-            <button class="btn-icon" id="footerSettingsBtn">⚙ CRT Effects</button>
         </div>
     </footer>
 
@@ -273,7 +267,7 @@
         <div class="modal-box">
             <div class="modal-header">
                 <h3 id="modalTitle">⚙ CRT Visual Effects</h3>
-                <button class="copy-btn" id="closeSettingsBtn">✕</button>
+                <button class="copy-btn modal-close-btn" id="closeSettingsBtn" aria-label="Close settings">✕</button>
             </div>
             <div class="modal-body">
                 <div class="settings-group" data-group="scanlines">
@@ -309,8 +303,21 @@
     <!-- CRT Screen Overlay -->
     <div class="crt-overlay"></div>
 
+    <!-- Dev Log Post Reader -->
+    <div class="post-modal hidden" id="postModal" role="dialog" aria-modal="true" aria-labelledby="postModalTitle">
+        <div class="post-modal-box">
+            <div class="post-modal-header">
+                <h3 id="postModalTitle">Dev Log Entry</h3>
+                <button class="copy-btn modal-close-btn" id="closePostBtn" aria-label="Close dev log entry">✕</button>
+            </div>
+            <div class="post-modal-body" id="postModalBody"></div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="./js/settings.js"></script>
+    <script src="./js/zith-highlight.js"></script>
+    <script src="./js/ambient.js"></script>
     <script src="./js/index.js"></script>
 </body>
 </html>

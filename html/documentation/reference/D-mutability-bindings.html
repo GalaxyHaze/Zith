@@ -1,6 +1,6 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="6-mutability--bindings">6. Mutability &amp; Bindings</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>let</code>, <code>var</code>, <code>const</code>, and <code>global</code> bindings are <strong>working</strong>. Binding destructuring with <code>[ ]</code> and pack literals are <strong>spec-only</strong> — no parser or sema support. NRA ownership modifiers (<code>lend</code>, <code>view</code>, <code>unique</code>, <code>share</code>, <code>belong</code>) are <strong>spec-only</strong>. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>let</code>, <code>var</code>, <code>const</code>, and <code>global</code> bindings are <strong>working</strong>. Binding destructuring with <code>[ ]</code> and pack literals are <strong>spec-only</strong> — no parser or sema support. NRA ownership modifiers (<code>lend</code>, <code>view</code>, <code>unique</code>, <code>share</code>, <code>belong</code>) are <strong>spec-only</strong>. See <a href="./reference/D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="61-deep-mutability-model">6.1 Deep Mutability Model</h3>
 <p>Zith uses deep mutability: a modifier on a binding flows into every nested field. Fields inside a struct inherit the mutability of the instance that holds them — no per-field <code>mut</code> annotation needed.</p>
 <h3 id="62-binding-keywords">6.2 Binding Keywords</h3>
@@ -35,7 +35,7 @@
     </tr>
   </tbody>
 </table>
-<blockquote><p><code>let</code>/<code>var</code> control reassignability of the binding itself. Content mutability is handled separately through memory modifiers (<a href="./D-memory-model.html">§7</a>).</p></blockquote>
+<blockquote><p><code>let</code>/<code>var</code> control reassignability of the binding itself. Content mutability is handled separately through memory modifiers (<a href="./reference/D-memory-model.html">§7</a>).</p></blockquote>
 <pre><code class="language-zith">// let/var control REBIND only. Content mutability comes from memory modifiers.
 let x: mut Point;      // cannot reassign x; Point&#x27;s fields are mutable (mut)
 var y: Point;          // can reassign y; Point&#x27;s fields are immutable (default, no mut)
@@ -73,4 +73,4 @@ let r = for ([acc, i]: i32), (i in 0..n) {
         } or 0;</code></pre>
 <blockquote><p>Packs are like anonymous structs — the compiler extracts fields by order and passes them as function arguments. They have a concrete layout determined at compile time. They are primarily used for destructuring and as loop accumulators.</p></blockquote>
 <hr>
-<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
+<p><em><a href="./reference/D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

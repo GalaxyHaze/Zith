@@ -188,9 +188,10 @@ def inline(text: str, page: Page, outputs: dict[str, str], source_map: dict[str,
 
 
 def relative_href(source_output: str, target_output: str) -> str:
-    source_dir = Path(source_output).parent
-    target = Path(target_output)
-    return "./" + str(Path(reldir(target, source_dir))).replace("\\", "/")
+    # The documentation app loads fragments into html/documentation/D-home.html,
+    # so generated links must be relative to the documentation root, not to the
+    # fragment's own guide/spec subdirectory.
+    return "./" + target_output.replace("\\", "/")
 
 
 def reldir(target: Path, source_dir: Path) -> Path:
@@ -496,12 +497,10 @@ def validate(files: dict[Path, str], tree: dict) -> list[str]:
                 if anchor and anchor not in output_ids[output]:
                     errors.append(f"{output}: missing local anchor #{anchor}")
                 continue
-            normalized = posixpath.normpath(
-                posixpath.join(posixpath.dirname(output), file_part.removeprefix("./"))
-            )
-            if normalized == ".." or normalized.startswith("../"):
-                errors.append(f"{output}: link escapes documentation root: {href}")
-                continue
+            # Generated fragments are fetched from D-home.html and injected into
+            # the documentation document, so their links are relative to the
+            # documentation root rather than to the fragment's subdirectory.
+            normalized = posixpath.normpath(file_part.removeprefix("./"))
             if normalized not in outputs:
                 errors.append(f"{output}: broken internal link {href}")
             elif anchor and anchor not in output_ids[normalized]:

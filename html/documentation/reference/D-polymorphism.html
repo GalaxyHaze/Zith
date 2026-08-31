@@ -1,11 +1,11 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="14-runtime-polymorphism--dynamic-behaviour">14. Runtime: Polymorphism &amp; Dynamic Behaviour</h1>
-<blockquote><p><strong>Implementation status:</strong> Static dispatch via generics and <code>implement T as Trait {}</code> is <strong>working</strong>. <code>dyn Trait</code> and <code>dyn Interface</code> dispatch are <strong>working in Zith--</strong>: concrete values are coerced to a fat pointer (data pointer plus a method vtable), and calls on the <code>dyn</code> value are lowered through that vtable. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> Static dispatch via generics and <code>implement T as Trait {}</code> is <strong>working</strong>. <code>dyn Trait</code> and <code>dyn Interface</code> dispatch are <strong>working in Zith--</strong>: concrete values are coerced to a fat pointer (data pointer plus a method vtable), and calls on the <code>dyn</code> value are lowered through that vtable. See <a href="./reference/D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="141-static-vs-dynamic-dispatch">14.1 Static vs Dynamic Dispatch</h3>
 <p>By default, Zith uses static dispatch — the compiler knows the exact implementation at compile time. Zero overhead.</p>
 <p>Use <code>dyn</code> for dynamic dispatch. At the call site you get polymorphism; the compiler and LLVM can often optimize away the indirection, making it zero-cost in practice.</p>
 <h3 id="142-dyn-as-a-type-hint">14.2 <code>dyn</code> as a Type Hint</h3>
-<p>Like <code>union</code> (see <a href="./D-type-system.html#36-union">§3.6</a>), <code>dyn</code> works as a <strong>type hint</strong>. When the compiler can't deduce the concrete type, you write <code>dyn</code> to tell it you want dynamic behavior:</p>
+<p>Like <code>union</code> (see <a href="./reference/D-type-system.html#36-union">§3.6</a>), <code>dyn</code> works as a <strong>type hint</strong>. When the compiler can't deduce the concrete type, you write <code>dyn</code> to tell it you want dynamic behavior:</p>
 <pre><code class="language-zith">let x: dyn = 5;
 if (x is i32) x += 32;   // smart-cast inside the branch
 
@@ -104,4 +104,4 @@ fn logDyn(val: dyn Printable) { val.print(); }</code></pre>
 </ul>
 <p>If you try to use a non-object-safe trait with <code>dyn</code>, the compiler rejects it.</p>
 <hr>
-<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
+<p><em><a href="./reference/D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

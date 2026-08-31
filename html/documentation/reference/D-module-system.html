@@ -1,6 +1,6 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="2-module-system">2. Module System</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>import</code>, <code>from</code>, <code>export</code>, <code>alias</code>, <code>type</code>, and <code>pub</code>/<code>mod</code> visibility are <strong>working</strong>. <code>use</code> (word/context activation) is <strong>parse skipped</strong> — the body is accepted but has no semantics. <code>::</code> scope resolution and namespace access via <code>.</code> are <strong>not yet implemented</strong> in the modern pipeline. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>import</code>, <code>from</code>, <code>export</code>, <code>alias</code>, <code>type</code>, and <code>pub</code>/<code>mod</code> visibility are <strong>working</strong>. <code>use</code> (word/context activation) is <strong>parse skipped</strong> — the body is accepted but has no semantics. <code>::</code> scope resolution is not implemented in the modern pipeline; qualified namespace access via <code>.</code> is working for imported modules, types and members. See <a href="./reference/D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="21-import-keywords">2.1 Import Keywords</h3>
 <table>
   <thead>
@@ -12,7 +12,7 @@
   <tbody>
     <tr>
       <td><code>import path</code> / <code>import path as name</code></td>
-      <td>Imports a module under its path as a namespace, or under an explicit alias. Members are accessed as <code>name.symbol</code></td>
+      <td>Imports a module under its first path segment as a namespace, or under an explicit alias. Members are accessed as the full dotted path (<code>std.io.console.println</code>) or <code>alias.symbol</code></td>
     </tr>
     <tr>
       <td><code>from path</code></td>
@@ -24,11 +24,14 @@
     </tr>
   </tbody>
 </table>
-<pre><code class="language-zith">import std/io/console as console;
-@console.println(&quot;hi&quot;);
+<pre><code class="language-zith">import std/io/console;
+std.io.console.println(&quot;full path&quot;);
+
+import std/io/console as out;
+out.println(&quot;alias&quot;);
 
 from std/io/console;
-@println(&quot;hi&quot;);
+println(&quot;direct&quot;);
 
 export std/io/console;</code></pre>
 <h3 id="22-alias-vs-use-vs-type">2.2 <code>alias</code> vs <code>use</code> vs <code>type</code></h3>
@@ -136,4 +139,4 @@ union AnyNumber { i32, f64, bool }</code></pre>
   </tbody>
 </table>
 <hr>
-<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
+<p><em><a href="./reference/D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

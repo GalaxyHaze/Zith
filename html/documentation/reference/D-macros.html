@@ -1,6 +1,6 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="15-macros">15. Macros</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>@macro</code> and <code>raw macro</code> calls are implemented and expand through sema/HIR. Tag macros (<code>&lt;Tag&gt;</code>) are implemented for statement-position expansion with named attributes; they do not produce a value. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>@macro</code> and <code>raw macro</code> calls are implemented and expand through sema/HIR. Tag macros (<code>&lt;Tag&gt;</code>) are implemented for statement-position expansion with named attributes; they do not produce a value. See <a href="./reference/D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <table>
   <thead>
     <tr>
@@ -23,7 +23,7 @@
     </tr>
   </tbody>
 </table>
-<blockquote><p>Best practice: define macros inside a <code>context</code> block (<a href="./D-contexts.html">§17</a>) rather than activating them globally.</p></blockquote>
+<blockquote><p>Best practice: define macros inside a <code>context</code> block (<a href="./reference/D-contexts.html">§17</a>) rather than activating them globally.</p></blockquote>
 <ul>
   <li>Macros accept a special first parameter named <code>attributes</code> (with no meta-type) to receive</li>
 </ul>
@@ -71,4 +71,4 @@ save(file);</code></pre>
 &lt;/Section&gt;</code></pre>
 <p>Attributes are optional and must be named <code>attributes</code> as the first parameter. Every attribute is <code>name: value</code> (no <code>=</code> form) and is substituted wherever the body uses <code>attributes.name</code>. Tag macros cannot be used as expressions.</p>
 <hr>
-<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
+<p><em><a href="./reference/D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

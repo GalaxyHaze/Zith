@@ -1,4 +1,4 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="errors">Errors</h1>
 <p>Optional (<code>?T</code>) and failable (<code>T!</code>) types are working declared types. <code>null</code> coerces to <code>?T</code>, a plain <code>T</code> coerces to <code>?T</code>, and the postfix <code>?</code> operator propagates an optional operand inside a function that itself returns an optional.</p>
 <pre><code class="language-zith">fn halve(value: ?i32): ?i32 {
@@ -7,4 +7,4 @@
 }</code></pre>
 <p>The recovery vocabulary around those types is not implemented. <code>fail</code>, <code>with</code>, <code>catch</code>, <code>must</code>, and <code>throw</code> remain specification-only. Keep examples to optionals and explicit branching until error values land.</p>
 <p><code>as</code> is a real cast that lowers to an LLVM conversion, covering numeric pairs and <code>raw opaque</code> &lt;-&gt; <code><em>T</code>; other conversions are rejected and there is no narrowing overflow check. <code>is null</code> requires an optional operand, and <code>is Type</code> is implemented for tagged-union members and <code>opaque</code>. Flow-sensitive narrowing after an <code>is null</code> check on <code>?</em>T</code> does not exist yet, so <code>E3005</code> is reported where non-null pointer proof is required.</p>
-<p>The planned rules are in the <a href="./../reference/D-error-handling.html">Error Handling reference</a>; the current boundary is in <a href="./../reference/D-implementation-status.html">Implementation Status</a>.</p>
+<p>The planned rules are in the <a href="./reference/D-error-handling.html">Error Handling reference</a>; the current boundary is in <a href="./reference/D-implementation-status.html">Implementation Status</a>.</p>

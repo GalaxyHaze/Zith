@@ -1,7 +1,7 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="zith">Zith--</h1>
 <h2 id="objetivo">Objetivo</h2>
-<p>Zith-- é o subconjunto da linguagem compilado pelo <code>main</code> atual da toolchain, documentado em <a href="./D-implementation-status.html"><code>docs/impl-status.md</code></a>. O objetivo desta divisão é manter o <code>main</code> pequeno e verificável: só entra em <code>Zith--</code> o que está implementado e protegido por testes nesta iteração, independentemente de a spec maior <code>Zith-spec.md</code> descrever mais features.</p>
+<p>Zith-- é o subconjunto da linguagem compilado pelo <code>main</code> atual da toolchain, documentado em <a href="./reference/D-implementation-status.html"><code>docs/impl-status.md</code></a>. O objetivo desta divisão é manter o <code>main</code> pequeno e verificável: só entra em <code>Zith--</code> o que está implementado e protegido por testes nesta iteração, independentemente de a spec maior <code>Zith-spec.md</code> descrever mais features.</p>
 <p>Esta iteração mantém os tipos e features existentes, mas restringe bindings, storage e ownership a um núcleo verificável:</p>
 <ul>
   <li><code>let</code> para bindings locais imutáveis não-rebindáveis.</li>
@@ -73,7 +73,7 @@ fn main(): i32 {
 }</code></pre>
 <p>O <code>=</code> interno à lista de parâmetros pertence ao default do parâmetro. Um alias <code>fn f(...): T = extern name</code> continua a ser parseado depois do retorno e não colide com a sintaxe de defaults.</p>
 <p>Methods continuam com <code>self</code> implícito. <code>self.field</code> é a forma canónica e auto-derefs o receiver; <code>self-&gt;field</code> continua aceite como legacy. Um <code>self</code> simples é read-only: <code>self.x = 1</code> é rejeitado. <code>var self</code> permite mutação in-place dos campos do receiver, como <code>self.x += 1</code>.</p>
-<p>O owner de um bloco <code>implement</code> pode ser um primitivo, <code>?T</code> ou <code>[]T</code>, além de um tipo nomeado:</p>
+<p>O owner de um bloco <code>implement</code> pode ser um primitivo, <code>?T</code>, <code>[]T</code> ou <code>*char</code>, além de um tipo nomeado:</p>
 <pre><code class="language-zith">trait Value {
     fn value(self): i32;
 }
@@ -100,11 +100,21 @@ fn main(): i32 {
     let s: []char = raw arr[0..3];
     return a.value() + o.get() + s.len();  // 7 + 1 + 3
 }</code></pre>
-<p>Estes owners participam na conformação nominal: requirements e defaults são verificados, duplicatas continuam a falhar, e tipos concretos satisfazem bounds genéricos <code>T: Trait</code>. Pointer (<code>*T</code>) e fixed-array (<code>[N]T</code>) continuam fora desta iteração.</p>
+<p>Estes owners participam na conformação nominal: requirements e defaults são verificados, duplicatas continuam a falhar, e tipos concretos satisfazem bounds genéricos <code>T: Trait</code>. Pointer genérico (<code><em>T</code>) e fixed-array (<code>[N]T</code>) continuam fora desta iteração, com exceção do owner canónico <code></em>char</code>. Num <code>implement <em>char</code>, o <code>self</code> simples é o próprio valor <code></em>char</code> (não <code>**char</code>); <code>self[0]</code> lê o primeiro carácter e <code>.method()</code>/<code>-&gt;method()</code> passam o valor do pointer. <code>?*char</code> não participa em coerções de slice nem em owners de implement.</p>
 <p>Quando um método com <code>self</code> simples ou <code>var self</code> é chamado, o sema invalida logicamente a ligação do receiver no chamador: leituras subsequentes reportam <code>E4001 UseAfterMove</code>, e escrita através do receiver inválido também. Atribuir diretamente ao nome da variável revive a ligação. <code>view</code>/<code>lend</code>, receivers explícitos por pointer e chamadas de funções livres ainda não marcam o valor no chamador nesta fase.</p>
+<p>Os métodos de <code>implement *char</code> são a exceção: o receiver é um valor pointer e a chamada passa esse valor, por isso <code>p.method()</code> e <code>p-&gt;method()</code> não movem o binding local.</p>
+<h2 id="pointer-object-e">Pointer Object e <code>&amp;</code></h2>
+<p>Nesta iteração, <code><em>T</code> é um pointer object não-nullable e <code>?</em>T</code> é o mesmo object nullable. <code>p.x</code>, <code>p-&gt;x</code> e <code>*p</code> continuam a ser accessos válidos sobre pointers. <code>&amp;x</code> é um move lógico do binding: depois do <code>&amp;x</code>, o sema mantém uma versão local nova do mesmo binding para o pointer resultante, mas o nome <code>x</code> fica morto até uma atribuição directa o reviver. Leituras depois de <code>&amp;x</code> reportam <code>E4001 UseAfterMove</code>; <code>raw</code> continua a ser o escape explicito para leituras unchecked.</p>
+<pre><code class="language-zith">fn main(): i32 {
+    var x: i32 = 10;
+    let p: *i32 = &amp;x;   // move lógico: x fica morto
+    x = 12;             // revive a versão lógica de x
+    return *p;          // o pointer continua a apontar para storage local
+}</code></pre>
+<p>Pointers derivados de <code>&amp;x</code> ou <code>@ptrOf(local)</code> não podem escapar para escopos mais longos nem ser guardados como dados persistentes. Devolver esses pointers, guardá-los em structs/arrays, globals ou aggregados <code>defer</code> reporta <code>E4008 PointerEscopesScope</code>. Uma chamada por valor com um argumento pointer é um borrow temporário e fica permitida; <code>raw</code> sobre index/deref mantém o comportamento sem ownership object.</p>
 <p>Um call de método pode ser qualificado com um trait ou interface satisfeita pelo tipo do receiver: <code>p.Trait.method()</code> ou <code>p.Interface.method()</code>. A qualificação resolve apenas o método visível naquele trait/interface, evitando a ambiguidade <code>E2008</code> quando dois traits conformes expõem o mesmo nome:</p>
-<pre><code class="language-zith">trait A { fn pick(self): i32 { return 1 } }
-trait B { fn pick(self): i32 { return 2 } }
+<pre><code class="language-zith">trait A { fn pick(self): i32 { return 1; } }
+trait B { fn pick(self): i32 { return 2; } }
 struct P { x: i32 }
 implement P as A {}
 implement P as B {}
@@ -134,6 +144,42 @@ fn total(a: dyn Area): i32 { a.area() }
 fn main(): i32 {
     return total(Square { side: 3 }) + total(Circle { radius: 5 });
 }</code></pre>
+<p>Enums e unions também são tipos nomeados genéricos completos. Podem declarar métodos inline no próprio corpo, participar em <code>implement Trait</code>, e os seus tipos concretos são monomorphizados como <code>Status&lt;i32&gt;</code> ou <code>Any&lt;i32, f64&gt;</code>:</p>
+<pre><code class="language-zith">trait Value {
+    fn value(self): i32 { return 0; }
+}
+
+enum Status&lt;T&gt; {
+    Ok = 0,
+    Err = 1,
+    fn code(self): i32 { return @sizeOf(T) as i32; }
+}
+
+union Any&lt;T, U&gt; {
+    T,
+    U,
+    fn width(self): i32 { return @sizeOf(T) as i32; }
+}
+
+implement Status&lt;T&gt; as Value {
+    fn value(self): i32 { return @sizeOf(T) as i32; }
+}
+
+implement Any&lt;T, U&gt; as Value {
+    fn value(self): i32 { return @sizeOf(T) as i32; }
+}
+
+fn report(v: dyn Value): i32 {
+    return v.value();
+}
+
+fn main(): i32 {
+    let status: Status&lt;i32&gt; = Status.Ok;
+    var any: Any&lt;i32, f64&gt; = Any&lt;i32, f64&gt;{ 42 };
+    let n: i32 = raw any as i32;
+    return status.code() + any.width() + report(status) + report(any) - 3 * (@sizeOf(i32) as i32) + n - 42;
+}</code></pre>
+<p>Os discriminantes de variantes continuam a ser constantes inteiras: um template genérico não pode usar o tipo genérico no discriminante. As variantes são valores constantes do tipo concreto depois de instanciado (<code>Status.Ok</code>), e unions mantêm o comportamento actual de tagged/raw, incluindo <code>raw self as T</code> em métodos inline.</p>
 <h2 id="variadic-slices">Variadic Slices</h2>
 <p>O último parâmetro de uma função ou método pode ser um variadic slice <code>[...]T</code>. Em <code>Zith--</code>, a chamada recolhe todos os argumentos finais homogéneos a partir desse ponto para um slice temporário; não há varargs de C com tail heterogéneo:</p>
 <pre><code class="language-zith">fn sum(rest: [...]i32): i32 {
@@ -157,6 +203,20 @@ fn main(): i32 {
     sum(1, 2, 3);                   // auto-collect homogéneo
 }</code></pre>
 <p>Variadic slices funcionam em funções livres, métodos com <code>self</code>, métodos de <code>dyn Trait</code>/<code>dyn Interface</code> e funções genéricas. Num parâmetro genérico, <code>[...]T</code> infere <code>T</code> a partir do primeiro elemento do tail, ou do tipo do slice/array explícito. Overloads com arity fixa continuam a preferir a assinatura exata sobre o variadic slice.</p>
+<h2 id="inferncia-genrica-com-t">Inferência genérica com <code>?T</code></h2>
+<p>Um parâmetro que declara um optional com um tipo genérico participa nas coerções opcionais normais durante a inferência. O compilador tenta primeiro o matching estrutural exacto; se o parâmetro é <code>?T</code> e o argumento é um valor não-optional, a inferência trata o argumento como se já estivesse envolvido no optional e liga <code>T</code> ao tipo do argumento. A mesma regra aplica-se a camadas mais fundas, desde que o inner seja generic:</p>
+<pre><code class="language-zith">fn wrap&lt;T&gt;(x: ?T): ?T { return x; }
+fn nested&lt;T&gt;(x: ??T): ?T { return x?; }
+
+fn main(): i32 {
+    let a: ?i32 = wrap(3);       // T = i32
+    let b: ?f64 = wrap&lt;f64&gt;(2.5); // tipo explícito
+    let c: ?i32 = nested(5);      // T = i32
+    let maybe: ?i32 = 7;
+    let d: ?i32 = nested(maybe);  // T = i32, coerção adicional envolvida
+    return 0;
+}</code></pre>
+<p>A inferência só usa esta coerção para opcionais; outras conversões implícitas não propagam ligacões genéricas nesta iteração.</p>
 <p>Um accesso como <code>a.x</code> quando <code>a: dyn Area</code> e <code>Area</code> declara <code>x</code> é rejeitado com <code>E3001</code> (field access on non-struct type). Use <code>is</code>/cast para um tipo concreto quando precisar do field, ou um bound genérico <code>T: Area</code> se o campo puder ser lido estaticamente.</p>
 <p>Funções livres e argumentos de métodos podem declarar parâmetros <code>lend</code>/<code>view</code>; nesses casos o call site precisa da anotação correspondente para bindings por valor (ver <a href="#ownership">Ownership</a>).</p>
 <h2 id="const-global">Const Global</h2>
@@ -197,14 +257,18 @@ enum Flag {
 <p>Strings e caracteres decodificam o conjunto de escapes estilo C (<code>\n</code>, <code>\r</code>, <code>\t</code>, <code>\0</code>, <code>\\</code>, <code>\'</code>, <code>\"</code> e <code>\xHH</code>). <code>\#</code> é aceite como escape adicional e produz um <code>#</code> literal; é útil quando o texto tem de ser preservado sem o tratamento futuro de interpolação com <code>#</code>. Escapes desconhecidos continuam a reportar <code>E0001</code>.</p>
 <h2 id="controlo-de-fluxo">Controlo de Fluxo</h2>
 <p>O <code>Zith--</code> usa condições parentizadas e palavras inglesas para os operadores booleanos. A negação é <code>not</code>; <code>not (cond)</code> é a forma idiomática, embora <code>not cond</code> continue a ser aceite. O <code>!</code> fica reservado a uma futura forma postfix e não é um operador unário prefixo nesta iteração.</p>
+<p><code>return;</code> termina uma função <code>void</code>. Quando <code>return</code> transporta uma expressão o ponto e vírgula é obrigatório: <code>return expr;</code>. O parser emite <code>E1002</code> ExpectedSemicolon quando a expressão não é terminada por <code>;</code>.</p>
+<p><code>if</code> aceita um <code>else</code> opcional. A condição encadeada escreve-se na forma preferida <code>else (cond) { ... }</code>; a forma legada <code>else if (cond) { ... }</code> continua aceite, mas emite <code>W1008</code> DeprecatedSyntax com a sugestão de substituição.</p>
 <p>Os operadores booleanos <code>or</code>, <code>and</code> e <code>xor</code> têm precedência fixa, respetivamente mais baixa que a comparação: <code>a or b and c</code> parsa como <code>a or (b and c)</code>, e <code>a and b or c</code> como <code>(a and b) or c</code>. <code>and</code>/<code>or</code> exigem operandos <code>bool</code>; <code>xor</code> aceita <code>bool</code> ou dois inteiros do mesmo tipo.</p>
-<p>Em posição de condição, <code>not expr</code> sem parêntesis extra é aceite em <code>if</code>, <code>while</code>, nas três cláusulas do <code>for (init), (cond), (step)</code> e em <code>for (cond)</code>. O parser fecha a cláusula depois do operando, por isso também não deixa o parêntesis de fecho pendurado: <code>for (var i = 0), (not done), (i += 1) { ... }</code> e <code>for (var i = 0), (not (done)), ...</code> são equivalentes.</p>
-<p>Uma condição opcional também pode ser escrita como <code>optional expr</code>, açúcar curto para o teste booleano <code>expr?</code>: é verdadeira quando o optional tem payload e falsa quando é <code>null</code>. Serve apenas para condição (<code>if</code>, <code>while</code>, <code>for</code> e cláusulas de <code>for</code>); fora desse contexto, <code>optional</code> continua a ser o modificador de tipo. O operando tem de ser <code>?T</code> e o teste não faz narrowing do payload.</p>
+<p>Em posição de condição, <code>not expr</code> sem parêntesis extra é aceite em <code>if</code>, <code>while</code>, nas três cláusulas do <code>for (init), (cond), (step)</code> e em <code>for (cond)</code>. A forma canónica dos exemplos e testes é <code>if not (cond)</code>; <code>not cond</code> e <code>not (cond)</code> continuam aceites por compatibilidade. O parser fecha a cláusula depois do operando, por isso também não deixa o parêntesis de fecho pendurado: <code>for (var i = 0), (not done), (i += 1) { ... }</code> e <code>for (var i = 0), (not (done)), ...</code> são equivalentes.</p>
+<p>Uma condição opcional é implícita: qualquer expressão de tipo <code>?T</code> é verdadeira quando tem payload e falsa quando é <code>null</code>. Serve para condição (<code>if</code>, <code>while</code>, <code>for</code> e cláusulas de <code>for</code>) e para armas booleanas de <code>when</code>. <code>optional</code> continua a ser o modificador de tipo e a forma <code>optional expr</code> em posição de condição foi removida. O teste não faz narrowing do payload; para estreitar continua a usar-se <code>is null</code>.</p>
 <pre><code class="language-zith">fn main(x: ?i32): i32 {
-    if optional x { return 1; }   // payload presente
+    if (x) { return 1; }          // payload presente: teste implícito != null
     return 0;                     // x é null
 }</code></pre>
+<p>Extração explícita de payload usa <code>must x</code> (termina com <code>R10003</code> em <code>null</code>) ou <code>raw x</code> (sem verificação runtime, explícito e arriscado).</p>
 <p>Os loops aceitam labels na forma <code>outer: for ...</code> e <code>outer: while ...</code> para permitir sair ou continuar a partir de loops aninhados:</p>
+<p>Os exemplos de <code>for</code> com três cláusulas escrevem-se sempre na forma <code>for (init), (cond), (step)</code>.</p>
 <pre><code class="language-zith">fn scan(xs: []i32): i32 {
     var total: i32 = 0;
     outer: for (var i: i32 = 0), (i &lt; 10), (i = i + 1) {
@@ -220,6 +284,17 @@ enum Flag {
 <p><code>defer expr;</code> e <code>defer { ... }</code> registam cleanup no bloco lexical mais próximo, em reverse order de registo, e correm no fallthrough e em <code>return</code>, <code>break</code>, <code>continue</code> e <code>jump</code>. Um <code>defer</code> pode capturar bindings declarados mais tarde no mesmo bloco; o sema tipa o corpo adiado depois de conhecer os bindings diretos do bloco e o HIR emite o cleanup depois de criar os slots. Se um exit antes da inicialização do binding capturado puder fazer o cleanup correr sem esse valor, o compilador rejeita com <code>defer may run before captured binding '&lt;name&gt;' is initialized</code>.</p>
 <h2 id="tipos">Tipos</h2>
 <p>Os tipos atuais são mantidos: primitivos, <code>struct</code>, <code>union</code>, <code>enum</code>, <code>string</code>, genéricos, function types e as formas compostas existentes. <code>ptr</code>, <code>array</code>, <code>slice</code> e <code>optional</code> são modificadores/compostos já existentes, não uma lista excludente de tipos.</p>
+<h3 id="intrinsics-de-slices-arrays-e-strings">Intrinsics de slices, arrays e strings</h3>
+<p><code>@lengthOf(x)</code> e <code>@ptrOf(x)</code> aceitam slices <code>[]T</code>, arrays <code>[N]T</code> e string literals. <code>@lengthOf</code> devolve <code>u64</code>; <code>@ptrOf</code> devolve <code><em>T</code> (ou <code></em>char</code> para strings e slices <code>[]char</code>). Num array local, <code>@ptrOf</code> aponta para o slot local e fica sujeito às restrições de escape do pointer object; em slices devolve o ponteiro ao storage subjacente, sem <code>raw</code>.</p>
+<pre><code class="language-zith">fn main(): i32 {
+    var values: [3]i32 = [10, 20, 30];
+    let slice: []i32 = raw values[0..3];
+    if (@lengthOf(slice) != 3) { return 1; }
+    if (raw @ptrOf(slice)[1] != 20) { return 2; }
+    if (@lengthOf(&quot;zith&quot;) != 4) { return 3; }
+    return 0;
+}</code></pre>
+<p>String literals têm tipo de origem <code><em>char</code> e adaptam-se implicitamente a <code>[]char</code> quando o destino é esse slice; não há um builtin <code>string</code> novo. Só literals têm esse comprimento em compile-time: um valor <code></em>char</code> não-literal não converte implicitamente para <code>[]char</code> sem um comprimento visível. A conversão inversa de <code>[]char</code> para <code>*char</code> fica disponível e equivale a <code>@ptrOf(slice)</code>, sujeita às regras de escape de <code>E4008 PointerEscapesScope</code>. Devolver <code>@ptrOf(local)</code> ou guardá-lo onde a lifetime possa exceder o storage local reporta também <code>E4008 PointerEscapesScope</code>.</p>
 <h3 id="visibilidade-de-campos">Visibilidade de campos</h3>
 <p>Os campos de <code>struct</code> são privados por defeito. <code>pub name: T = default</code> abre explicitamente o campo para outros módulos; <code>mod name: T = default</code> e <code>mod(N) name: T = default</code> usam a regra de visibilidade de módulo existente, com o mesmo significado de <code>mod</code>/<code>mod(N)</code>/<code>mod(..)</code> usado em declarações:</p>
 <pre><code class="language-zith">struct Box {
@@ -361,7 +436,15 @@ tag macro Box(content) { &lt;content/&gt; }</code></pre>
 <ul>
   <li><code>when</code>/<code>match</code>, <code>for</code>, <code>state</code>/<code>dock</code>/<code>jump</code>, <code>-&gt;</code>, slices, arrays, opcionais,</li>
 </ul>
-<p>pointers e o protocolo de iterador <code>next(self)</code>.</p>
+<p>pointers e o protocolo de iterador canonico <code>next(self): ?T</code> (<code>??T</code> para elementos opcionais).</p>
+<ul>
+  <li>Funções não-void não podem cair sem valor; um corpo só termina implicitamente quando um valor</li>
+</ul>
+<p>final tem o tipo certo ou todos os caminhos terminam (<code>return</code>, <code>jump</code>, <code>if</code>/<code>else</code> completo, <code>when</code> com default ou loop infinito sem <code>break</code> directo).</p>
+<ul>
+  <li><code>state(params): ret</code> é um tipo de valor para referências a states reais; `let S: state(i32): i32 =</li>
+</ul>
+<p>Machine; dock S(args);` é aceite com as verificações de assinatura do state.</p>
 <ul>
   <li>Qualificadores <code>lend</code>/<code>view</code> parseados e tipados; anotações <code>lend x</code>/<code>view x</code></li>
 </ul>

@@ -1,4 +1,4 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="modules">Modules</h1>
 <p>Use <code>import</code> to bring in a namespace, <code>from</code> to inject visible symbols, and <code>export</code> to re-export a dependency. These forms are working compiler features, resolved with correct paths.</p>
 <pre><code class="language-zith">import std/io/console as console;
@@ -7,4 +7,4 @@
 from std/io/console;
 @println(&quot;hello&quot;);</code></pre>
 <p><code>alias</code> names an existing symbol or namespace and <code>type</code> creates a distinct type; both work. <code>pub</code> and <code>mod</code> visibility work, while <code>mod(..)</code> and <code>mod(N)</code> are accepted by the parser with unverified sema behaviour.</p>
-<p><code>use</code> is reserved for words, contexts, and operators. It parses as a declaration but its body is skipped with no semantics, so it has no effect today. Read the <a href="./../reference/D-module-system.html">Module System reference</a>.</p>
+<p><code>use</code> is reserved for words, contexts, and operators. It parses as a declaration but its body is skipped with no semantics, so it has no effect today. Read the <a href="./reference/D-module-system.html">Module System reference</a>.</p>

@@ -1,6 +1,7 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="20-standard-library">20. Standard Library</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>stdlib/c/io.zith</code> and <code>stdlib/std/io/console.zith</code> are the only shipped modules. <code>puts</code> and <code>println</code> work. All other standard library content is <strong>spec-only</strong>. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>stdlib/c/io.zith</code> and <code>stdlib/std/io/console.zith</code> are the only shipped modules. <code>puts</code> and <code>println</code> work. All other standard library content is <strong>spec-only</strong>. See <a href="./reference/D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<p><code>std</code>/<code>soon</code> remain documentation-only in this iteration; no existing module is being rewritten. The documented convention uses resource types with <code>init</code>/<code>destroy</code>, read-only methods with <code>view</code>, and mutating methods with <code>lend</code>. <code>defer</code> runs <code>destroy(self: lend Self)</code> on resource cleanup; <code>drop</code> remains outside the <code>Zith--</code> subset.</p>
 <h3 id="201-three-part-structure">20.1 Three-Part Structure</h3>
 <table>
   <thead>
@@ -78,4 +79,4 @@ fn write(self: lend File, data: []u8): void!;</code></pre>
   </tbody>
 </table>
 <hr>
-<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
+<p><em><a href="./reference/D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

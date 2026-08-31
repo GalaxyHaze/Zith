@@ -1,7 +1,8 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="5-functions">5. Functions</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>fn</code>, <code>state</code>, <code>raw fn</code>, and <code>extern fn</code> are <strong>working</strong>. <code>const fn</code> is <strong>parse-level in progress</strong>: it parses as a function declaration, but compile-time evaluation is not implemented yet. Overloading (<a href="#54-overloading">§5.4</a>) is <strong>working</strong>. Concurrency is no longer a core function kind; any runtime async/task model is expressed through ordinary library types and calls. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>fn</code>, <code>state</code>, <code>raw fn</code>, and <code>extern fn</code> are <strong>working</strong>. <code>const fn</code> is <strong>parse-level in progress</strong>: it parses as a function declaration, but compile-time evaluation is not implemented yet. Overloading (<a href="#54-overloading">§5.4</a>) is <strong>working</strong>. Concurrency is no longer a core function kind; any runtime async/task model is expressed through ordinary library types and calls. See <a href="./reference/D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="51-return-types--implicit-returns">5.1 Return Types &amp; Implicit Returns</h3>
+<p>Non-void functions may use an implicit return only when every possible path produces a value or otherwise terminates. A final expression with the declared type and complete <code>if</code>/<code>else</code> or <code>when</code> bodies are accepted; falling off the end of an <code>if</code> without <code>else</code>, a <code>when</code> without a default, or an empty body is a diagnostic, not an implicit <code>null</code>.</p>
 <pre><code class="language-zith">fn add(a: i32, b: i32): i32 { a + b }   // explicit type, implicit return
 fn add(a: i32, b: i32)      { a + b }   // inferred type
 
@@ -9,6 +10,14 @@ fn add(a: i32, b: i32)      { a + b }   // inferred type
 // propagates null via the implicit optional from &#x27;?&#x27;.
 fn first&lt;T&gt;(slice: []T): ?T {
     slice[0]?
+}
+
+fn pick(flag: bool): i32 {
+    if (flag) {
+        1
+    } else {
+        2
+    }
 }</code></pre>
 <blockquote><p>The compiler cannot infer a <code>union</code> or <code>dyn</code> return type without an explicit type hint.</p></blockquote>
 <h3 id="52-function-kinds">5.2 Function Kinds</h3>
@@ -30,7 +39,7 @@ fn first&lt;T&gt;(slice: []T): ?T {
     </tr>
     <tr>
       <td><code>state</code></td>
-      <td>A state in a machine with one return type and possibly diverging parameters; <code>dock State(args)</code> starts the machine and <code>jump Next(args)</code> terminates a state with a direct LLVM <code>tailcc</code>/<code>musttail</code> transition (<a href="./D-control-flow.html#94-state-functions-and-state-machines">§9.4</a>).</td>
+      <td>A state in a machine with one return type and possibly diverging parameters; <code>dock State(args)</code> starts the machine and <code>jump Next(args)</code> terminates a state with a direct LLVM <code>tailcc</code>/<code>musttail</code> transition (<a href="./reference/D-control-flow.html#94-state-functions-and-state-machines">§9.4</a>).</td>
     </tr>
     <tr>
       <td><code>raw fn</code></td>
@@ -50,7 +59,7 @@ fn first&lt;T&gt;(slice: []T): ?T {
 }</code></pre>
 <p>The Zith name keeps normal module, overload, and receiver semantics. The right-hand identifier is used as the C ABI linker symbol; the compiler emits an external declaration with that name and never generates a body. This form is not allowed on <code>const fn</code>, <code>state</code>, trait requirements, or interface requirements.</p>
 <blockquote><p>The five function kinds are exclusive and cannot be combined: there is no <code>raw const fn</code>, <code>extern raw fn</code>, or similar spelling. <code>raw fn</code> and <code>extern fn</code> are separate concerns: <code>raw fn</code> opts out of NRA, while <code>extern fn</code> selects the C ABI.</p></blockquote>
-<p>Macro calls use the <code>@</code> prefix — <code>@println</code>, <code>@log</code>, <code>@serialize</code> — while ordinary function calls use a bare name, such as <code>console.write</code>, <code>process</code>, or <code>save</code>. See <a href="./D-macros.html">§15</a> for the full rule.</p>
+<p>Macro calls use the <code>@</code> prefix — <code>@println</code>, <code>@log</code>, <code>@serialize</code> — while ordinary function calls use a bare name, such as <code>console.write</code>, <code>process</code>, or <code>save</code>. See <a href="./reference/D-macros.html">§15</a> for the full rule.</p>
 <h3 id="53-runtime-tasks-coroutines-and-concurrency-apis">5.3 Runtime Tasks, Coroutines, and Concurrency APIs</h3>
 <pre><code class="language-zith">// The compiler treats runtime task types like any other library type.
 // There is no `async fn`, `yield`, `spawn`, or `await` syntax in the core language.
@@ -97,4 +106,4 @@ fn main(): i32 {
 <p>wins and shadows outer declarations entirely.</p>
 <p>Overloading is implemented by qualifying linkage names as <code>&lt;module&gt;.&lt;Owner&gt;.&lt;name&gt;(&lt;params&gt;)</code>, for example <code>std.io.console.println(*char)</code>. <code>extern fn</code> declarations and <code>main</code> keep their plain source name so that C interop and the linker's entry point are unaffected.</p>
 <hr>
-<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
+<p><em><a href="./reference/D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

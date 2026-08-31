@@ -1,4 +1,4 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./../reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="types">Types</h1>
 <p>Zith has signed and unsigned integer types (<code>i8</code>-<code>i128</code>, <code>u8</code>-<code>u128</code>), floating-point types (<code>f32</code>, <code>f64</code>), <code>bool</code>, and <code>char</code>. Structs, components, enums, and unions are working core declarations. Arithmetic requires matching widths; there is no implicit promotion.</p>
 <pre><code class="language-zith">struct Point {
@@ -32,4 +32,4 @@ fn restore(handle: raw opaque): *i32 {
 <p>Layout builtins work in expression position: <code>@sizeOf(T)</code> types as <code>u64</code> for any complete type, and <code>@offsetOf(S, field)</code> and <code>@alignOf(S)</code> are struct-only and type as <code>i32</code>.</p>
 <h2 id="dynamic-dispatch">Dynamic dispatch</h2>
 <p><code>dyn Trait</code> and <code>dyn Interface</code> are implemented for method dispatch. A concrete value coerces to a fat pointer with a per-type vtable, and method calls through the value dispatch dynamically. Interface fields are used for conformance and are still readable on concrete types or generic bounds, but not through a <code>dyn Interface</code> value.</p>
-<p>Start with explicit annotations when learning. The <a href="./../reference/D-type-system.html">Type System reference</a> defines generic types, unions, and the experimental narrowing rules; <a href="./../reference/D-implementation-status.html">Implementation Status</a> records what compiles today.</p>
+<p>Start with explicit annotations when learning. The <a href="./reference/D-type-system.html">Type System reference</a> defines generic types, unions, and the experimental narrowing rules; <a href="./reference/D-implementation-status.html">Implementation Status</a> records what compiles today.</p>

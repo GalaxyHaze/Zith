@@ -1,6 +1,6 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="18-c-interop">18. C Interop</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>extern fn</code> bindings are <strong>working</strong> on all targets. Native libclang C header import is <strong>working</strong> for common libc-style declarations (including variadic functions, array-decayed parameters, <code>va_list</code>, and function-pointer parameters). Object-like macros that expand to an exact scalar literal are also imported as constants. Function-like macros, strings, globals, bitfields, and complex layouts remain <strong>unimported</strong>. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>extern fn</code> bindings are <strong>working</strong> on all targets. Native libclang C header import is <strong>working</strong> for common libc-style declarations (including variadic functions, array-decayed parameters, <code>va_list</code>, and function-pointer parameters). Object-like macros that expand to an exact scalar literal are imported as constants and verified through the CLI. Function-like macros, strings, globals, bitfields, and complex layouts remain <strong>unimported</strong>. See <a href="./reference/D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <p>Zith supports manual <code>extern fn</code> bindings on every target. Native builds which find libclang also support a restricted, automatic C-header import path.</p>
 <p>For Zith-style binders that need normal module, overload, and method semantics, keep the full Zith signature on the left and put the C linker symbol on the right:</p>
 <pre><code class="language-zith">struct Window {}
@@ -76,7 +76,7 @@ fn main(): i32 {
     </tr>
   </tbody>
 </table>
-<p>Because a C pointer imports as <code>?<em>T</code> (see <a href="./D-error-handling.html#811-c-pointers-are-t">8.1.1</a>), reinterpreting one is written <code>as ?</em>T</code>; <code>as <em>T</code> is rejected with <code>E3003</code> so the null case cannot be dropped silently. Passing a pointer the other way needs no cast: any <code></em>T</code> or <code>?<em>T</code> is accepted for a C <code>void</em></code> parameter.</p>
+<p>Because a C pointer imports as <code>?<em>T</code> (see <a href="./reference/D-error-handling.html#811-c-pointers-are-t">8.1.1</a>), reinterpreting one is written <code>as ?</em>T</code>; <code>as <em>T</code> is rejected with <code>E3003</code> so the null case cannot be dropped silently. Passing a pointer the other way needs no cast: any <code></em>T</code> or <code>?<em>T</code> is accepted for a C <code>void</em></code> parameter.</p>
 <pre><code class="language-zith">import &quot;stdlib.h&quot;
 
 fn main(): i32 {
@@ -86,7 +86,7 @@ fn main(): i32 {
     free(&amp;local);                           // *i32  -&gt; void*, no cast
     return 0;
 }</code></pre>
-<p>Records passed or returned <strong>by value</strong> import as named foreign types but have no verified ABI; constructing or reading their fields from Zith is not supported yet (see Known Debt in <a href="./D-implementation-status.html">impl-status.md</a>).</p>
+<p>Records passed or returned <strong>by value</strong> import as named foreign types but have no verified ABI; constructing or reading their fields from Zith is not supported yet (see Known Debt in <a href="./reference/D-implementation-status.html">impl-status.md</a>).</p>
 <p>The project may configure C parsing and linking in <code>ZithProject.toml</code>:</p>
 <pre><code class="language-toml">[ffi]
 include_dirs = [&quot;vendor/include&quot;]
@@ -118,4 +118,4 @@ fn bindTo = extern someAsmRoutine(x: u64): u64;</code></pre>
 }
 // Generates a C-compatible symbol, callable from C as an ordinary function</code></pre>
 <hr>
-<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
+<p><em><a href="./reference/D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

@@ -1,6 +1,6 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="10-concurrency--runtime-apis">10. Concurrency &amp; Runtime APIs</h1>
-<blockquote><p><strong>Implementation status:</strong> concurrency is not a core syntax feature. The compiler does not model <code>async fn</code>, <code>yield</code>, <code>spawn</code>, or <code>await</code> as language constructs; any future concurrency support is expected to arrive through <code>stdlib</code> and runtime APIs built from ordinary functions, types, and NRA-checked resource rules. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> concurrency is not a core syntax feature. The compiler does not model <code>async fn</code>, <code>yield</code>, <code>spawn</code>, or <code>await</code> as language constructs; any future concurrency support is expected to arrive through <code>stdlib</code> and runtime APIs built from ordinary functions, types, and NRA-checked resource rules. See <a href="./reference/D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="101-core-language-position">10.1 Core-Language Position</h3>
 <p>Zith's core language does not define concurrency-specific statements, operators, or function kinds. There are no dedicated HIR nodes for tasks, threads, <code>await</code>, or coroutine suspension. The compiler understands only:</p>
 <ul>
@@ -33,4 +33,4 @@ let result = merge handle;</code></pre>
 <p>that define the contract.</p>
 <p>The compiler does not special-case threads or async control flow. If a runtime API needs stronger guarantees, it must express them through normal signatures, types, and traits that NRA can reason about before HIR is finalized.</p>
 <hr>
-<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
+<p><em><a href="./reference/D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

@@ -1,4 +1,4 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="4-traits-interfaces--capabilities">4. Traits, Interfaces &amp; Capabilities</h1>
 <blockquote><p><strong>Implementation status:</strong> <code>trait</code>, <code>interface</code>, and <code>implement T as Trait {}</code> declarations are <strong>working</strong> (parsed, resolved, and type-checked). Trait conformance is nominal: an implementation is validated against every required method and the conformance edge is recorded for generic bounds. Interfaces are structural: a concrete struct satisfies an interface automatically when every declared field exists with the required type and every declared method requirement has a compatible signature. Using an interface as a generic bound exposes the interface fields and methods to the generic body. Trait defaults are resolved for concrete owners during sema; <code>dyn Trait</code>, dynamic dispatch, <code>requires</code>/<code>extends</code> as explicit constraints, and per-owner default-method HIR generation remain spec-only or pending. <code>Self</code> in implementations and trait defaults resolves to the implementing type.</p></blockquote>
 <p>The <code>implement</code> owner may be a primitive, <code>?T</code>, or <code>[]T</code> in addition to a named struct/enum:</p>
@@ -7,10 +7,10 @@
 }
 
 implement i32 as Describe {
-    fn describe(self): i32 { return 1 }
+    fn describe(self): i32 { return 1; }
 }</code></pre>
 <p>Traits implemented for these owners participate in nominal conformance exactly like named types, so they are usable in generic bounds (<code>T: Describe</code>) and expose default methods on the receiver. Pointer and fixed-array owners remain unsupported.</p>
-<blockquote><p>See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p>See <a href="./reference/D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="41-traits-vs-interfaces">4.1 Traits vs. Interfaces</h3>
 <table>
   <thead>
@@ -219,4 +219,4 @@ trait SafeBuffer extends Trust {
     raw fn readByte(self, offset: u64): u8 {}
 }</code></pre>
 <hr>
-<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
+<p><em><a href="./reference/D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

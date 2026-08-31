@@ -1,6 +1,6 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="11-comptime">11. Comptime</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>const fn</code> declarations are <strong>parse-level in progress</strong>; parsing them as functions is implemented, but compile-time evaluation is <strong>spec-only</strong>. <code>comptime</code> blocks, compile-time reflection intrinsics, and <code>const fn</code> evaluation are not implemented. <code>const</code> bindings are <strong>working</strong> (immutable at runtime) but are not evaluated at compile time. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>const fn</code> declarations are <strong>parse-level in progress</strong>; parsing them as functions is implemented, but compile-time evaluation is <strong>spec-only</strong>. <code>comptime</code> blocks, compile-time reflection intrinsics, and <code>const fn</code> evaluation are not implemented. <code>const</code> bindings are <strong>working</strong> (immutable at runtime) but are not evaluated at compile time. See <a href="./reference/D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <p>Comptime covers compile-time computation: reflection, type manipulation, and <code>const</code> blocks.</p>
 <h3 id="111-comptime-bindings">11.1 Comptime Bindings</h3>
 <pre><code class="language-zith">const counter: mut = 0;
@@ -66,4 +66,4 @@ type Celsius = i32;
 <p>&gt;</p>
 <blockquote><p>A type created with <code>type</code> (e.g. <code>type Celsius = i32</code>) is a primitive alias — it has no fields to modify and is always immutable. You can still add methods via <code>implement</code>, but you cannot <code>@appendField</code> or <code>@removeField</code>.</p></blockquote>
 <hr>
-<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
+<p><em><a href="./reference/D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

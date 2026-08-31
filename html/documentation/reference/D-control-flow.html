@@ -1,6 +1,6 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="9-control-flow">9. Control Flow</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>if</code>/<code>else</code>, <code>break</code>, <code>continue</code>, <code>return</code>, and loop labels are <strong>working</strong>. <code>for</code> is the canonical loop: <code>for { ... }</code>, <code>for (cond) { ... }</code>, the comma-based 3-clause form, and duck-typed <code>for (x in iterable)</code> are <strong>working</strong>; labels can target any of these forms and loop bodies can lower to the same CFG machinery as the old <code>while</code>. <code>while</code> still works but emits a deprecation warning (<code>W1008</code>) pointing at <code>for (cond) { }</code>. The literal range forms (<code>0..4</code>) are not implemented yet. <code>when</code> pattern matching is <strong>working</strong>, including equality, boolean, range, and tagged-union type-narrowing arms. <code>state</code> declarations, <code>dock</code> calls, and <code>jump</code> terminating transfers are <strong>working</strong> and compile to direct LLVM <code>musttail</code> calls; the old <code>flow fn</code>/<code>marker</code>/TLS-blob model is removed. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>if</code>/<code>else</code>, <code>break</code>, <code>continue</code>, <code>return</code>, and loop labels are <strong>working</strong>. <code>for</code> is the canonical loop: <code>for { ... }</code>, <code>for (cond) { ... }</code>, the comma-based 3-clause form, and duck-typed <code>for (x in iterable)</code> are <strong>working</strong>; labels can target any of these forms and loop bodies can lower to the same CFG machinery as the old <code>while</code>. <code>while</code> still works but emits a deprecation warning (<code>W1008</code>) pointing at <code>for (cond) { }</code>. The literal range forms (<code>0..4</code>) are not implemented yet. <code>when</code> pattern matching is <strong>working</strong>, including equality, boolean, range, and tagged-union type-narrowing arms. <code>state</code> declarations, <code>dock</code> calls, and <code>jump</code> terminating transfers are <strong>working</strong> and compile to direct LLVM <code>musttail</code> calls; the old <code>flow fn</code>/<code>marker</code>/TLS-blob model is removed. See <a href="./reference/D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="91-syntax-rules">9.1 Syntax Rules</h3>
 <p>Parentheses <code>()</code> are mandatory on every control structure's condition except function calls. Logical operators use English keywords; bitwise operators use standard symbols followed by <code>.</code>:</p>
 <pre><code class="language-zith">if (x &gt; 0 and y &lt; 10) { ... }
@@ -10,7 +10,7 @@ let mask = a &amp;. b |. c ^. d;</code></pre>
 <pre><code class="language-zith">if (not (x &gt; 0)) { ... }</code></pre>
 <h3 id="92-for">9.2 <code>for</code></h3>
 <pre><code class="language-zith">for { ... }                                     // infinite
-for (i in iterable) { @println(i); }            // user iterator with next() and End
+for (i in iterable) { @println(i); }            // user iterator with next(self): ?T
 for (i = 0), (i &lt; 10), (i += 1) { ... }         // init / cond / step
 for (v in range(0, 100)) { @println(v); }       // over a generator
 
@@ -24,19 +24,15 @@ let r = for ([acc, i]: i32), (i in 0..n) { acc *= i + 1 } or 0;</code></pre>
     }
 }</code></pre>
 <blockquote><p>If the loop body may never run, its return value is deduced as optional — unless <code>or</code> collapses it to a non-optional value.</p></blockquote>
-<blockquote><p>The init/cond/step form accepts comma-separated, parenthesized expressions — <code>for (i = 0), (i &lt; 10), (i += 1)</code> — or the flat alternative, <code>for (i = 0, i &lt; 10, i += 1)</code>. The iterator form expects a value whose type exposes <code>next(self)</code>. <code>next</code> must return a tagged union with exactly two members: the element type and the empty <code>End</code> marker. <code>for</code> calls <code>next</code> once per iteration, exits when the result is <code>End</code>, and otherwise binds the non-End member as the loop variable.</p></blockquote>
-<pre><code class="language-zith">struct End {}
-
-union RangeStep { i32, End }
-
-struct Range {
+<blockquote><p>The init/cond/step form accepts comma-separated, parenthesized expressions — <code>for (i = 0), (i &lt; 10), (i += 1)</code> — or the flat alternative, <code>for (i = 0, i &lt; 10, i += 1)</code>. The iterator form expects a value whose type exposes <code>next(self)</code>. The canonical <code>next</code> returns <code>?T</code>: <code>null</code> is the iteration end and <code>Some(element)</code> is a loop value. For iterators that need to yield optional elements, <code>next(self): ??T</code> binds the loop variable as <code>?T</code>, so a <code>null</code> element is a valid iteration value and only the outer <code>None</code> ends the loop. <code>for</code> calls <code>next</code> once per iteration, exits when the result is the outer <code>None</code>, and otherwise binds the inner payload as the loop variable.</p></blockquote>
+<pre><code class="language-zith">struct Range {
     current: i32,
     limit: i32,
-    fn next(var self): RangeStep {
+    fn next(var self): ?i32 {
         if (self-&gt;current &gt;= self-&gt;limit) {
-            return RangeStep { End {} };
+            return null;
         }
-        let value = RangeStep { self-&gt;current };
+        let value = self-&gt;current;
         self-&gt;current = self-&gt;current + 1;
         return value;
     }
@@ -48,6 +44,7 @@ fn main() {
         println(x);
     }
 }</code></pre>
+<p>The tagged-union <code>{ T, End }</code> protocol remains accepted during migration, but the optional protocol is canonical and should be used for new iterators.</p>
 <h3 id="93-chain-flow">9.3 Chain Flow (<code>-&gt;</code>)</h3>
 <p>The <code>-&gt;</code> operator pipes output left to right. The previous value is available as <code>..</code>, and tags capture values for later use. <code>!</code> and <code>?</code> propagate out of the chain normally. Precedence is left-to-right and lower than function calls.</p>
 <pre><code class="language-zith">getData() -&gt; process(..) -&gt; save(..);
@@ -85,6 +82,10 @@ foo(), ( f1(..) -&gt; f2() ) -&gt; f3(..);
 </ul>
 <p>produced by <code>return</code> in the final state.</p>
 <ul>
+  <li><strong><code>state(params): ReturnType</code> value</strong>: a real state declaration can be stored in a value</li>
+</ul>
+<p>with the matching <code>state(params): ReturnType</code> signature, and <code>dock</code> accepts that value with the same argument and return-type checks as a direct state call.</p>
+<ul>
   <li><strong><code>jump</code></strong>: <code>jump Next(args);</code> is terminating and only valid inside a state. It may target a</li>
 </ul>
 <p>state with a different parameter list from the same machine, and it lowers to <code>musttail tailcc</code> followed by <code>ret</code>.</p>
@@ -104,6 +105,14 @@ fn main(): i32 {
     return result;
 }</code></pre>
 <p>Transitions never grow the stack on targets with backend <code>musttail</code> support. All states in a machine use LLVM <code>tailcc</code>, including ordinary <code>dock</code> calls into them, so transitions between different parameter lists keep one consistent ABI. The compiler diagnoses unsupported targets instead of silently falling back to a marker runtime.</p>
+<pre><code class="language-zith">state Machine(n: i32): i32 {
+    return n;
+}
+
+fn main(): i32 {
+    let S: state(i32): i32 = Machine;
+    return dock S(42);
+}</code></pre>
 <h3 id="95-scope-cleanup-defer--drop">9.5 Scope Cleanup (<code>defer</code> / <code>drop</code>)</h3>
 <p><code>defer expr;</code> and <code>defer { ... }</code> are implemented in the <code>Zith--</code> subset. <code>defer expr;</code> registers one cleanup expression; <code>defer { ... }</code> registers the whole body as a cleanup-only block that does not produce a value. Statements in a deferred body run in written order, while separate <code>defer</code> statements run in reverse registration order when their nearest lexical block exits.</p>
 <p>A <code>defer</code> may capture bindings declared later in the same lexical block. The sema defers typing of the deferred body until the block's direct bindings are known, and lowering emits deferred cleanup after those slots are created. If a <code>return</code>, <code>break</code>, <code>continue</code>, <code>jump</code>, or nested control-flow exit before the binding can leave the block while the capture is still uninitialized, the compiler rejects it:</p>
@@ -128,4 +137,4 @@ fn main(): i32 {
 <p><code>jump</code>.</p>
 <p>Inside a loop, cleanup runs each time the loop body exits, including a <code>break</code> or <code>continue</code>. <code>drop</code> remains a reserved keyword and is still a roadmap candidate: planned as the deterministic per-owner cleanup hook through the same reverse-order mechanism, but not yet implemented. Anything stronger, such as <code>errdefer</code> or <code>drop</code> interactions with borrows, is kept out of the current iteration. The implementation plan is in <code>docs/plans/defer-drop.md</code>.</p>
 <hr>
-<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
+<p><em><a href="./reference/D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

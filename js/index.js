@@ -1,29 +1,183 @@
 document.addEventListener('DOMContentLoaded', function() {
 
+    var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var typewriterTimers = {};
+
+    function cancelTypewriter(element) {
+        if (!element) return;
+        var key = typeof element.id === 'string' && element.id ? element.id : element;
+        if (typewriterTimers[key]) {
+            typewriterTimers[key].forEach(clearTimeout);
+            delete typewriterTimers[key];
+        }
+    }
+
+    function splitHtmlTokens(html) {
+        var tokens = [];
+        var re = /<[^>]+>|[^<]+/g;
+        var match;
+        while ((match = re.exec(html)) !== null) {
+            if (match[0].charAt(0) === '<') {
+                tokens.push({ html: match[0], text: "" });
+            } else {
+                var plain = match[0]
+                    .replace(/&amp;/g, "&")
+                    .replace(/&lt;/g, "<")
+                    .replace(/&gt;/g, ">")
+                    .replace(/&quot;/g, '"')
+                    .replace(/&#39;/g, "'");
+                tokens.push({ html: match[0], text: plain });
+            }
+        }
+        return tokens;
+    }
+
+    function htmlPrefixForText(html, textCount) {
+        var out = "";
+        var decoded = 0;
+        var i = 0;
+        var entities = [
+            ["&amp;", "&"],
+            ["&lt;", "<"],
+            ["&gt;", ">"],
+            ["&quot;", '"'],
+            ["&#39;", "'"]
+        ];
+
+        while (i < html.length && decoded < textCount) {
+            var matched = false;
+            entities.forEach(function(entity) {
+                if (!matched && html.indexOf(entity[0], i) === i) {
+                    out += entity[0];
+                    i += entity[0].length;
+                    matched = true;
+                }
+            });
+            if (!matched) {
+                out += html.charAt(i);
+                i += 1;
+            }
+            decoded += 1;
+        }
+        return out;
+    }
+
+    function typeHtml(element, fullHtml) {
+        cancelTypewriter(element);
+        element.innerHTML = "";
+        element.classList.remove('is-typing');
+
+        if (reducedMotion) {
+            element.innerHTML = fullHtml;
+            return;
+        }
+
+        var tokens = splitHtmlTokens(fullHtml);
+        var tokenKey = typeof element.id === 'string' && element.id ? element.id : element;
+        typewriterTimers[tokenKey] = [];
+        var progress = 0;
+        element.classList.add('is-typing');
+
+        function render() {
+            var totalChars = tokens.reduce(function(sum, token) {
+                return sum + (token.text ? token.text.length : 0);
+            }, 0);
+
+            if (progress >= totalChars) {
+                element.innerHTML = fullHtml;
+                element.classList.remove('is-typing');
+                delete typewriterTimers[tokenKey];
+                return;
+            }
+
+            var html = "";
+            var remaining = progress;
+            var currentDelay = 18;
+
+            tokens.forEach(function(token) {
+                if (token.html.charAt(0) === '<') {
+                    html += token.html;
+                    return;
+                }
+                if (remaining <= 0) return;
+                var count = Math.min(remaining, token.text.length);
+                html += htmlPrefixForText(token.html, count);
+                remaining -= count;
+            });
+
+            element.innerHTML = html;
+            progress++;
+
+            // Pause briefly at line breaks so multiline code reads naturally.
+            if (tokens.some(function(token) {
+                return token.text && token.html.indexOf("\n") !== -1;
+            })) {
+                currentDelay = 30;
+            }
+
+            typewriterTimers[tokenKey].push(setTimeout(render, currentDelay));
+        }
+
+        render();
+    }
+
     // --- Code Spotlight Data ---
+    var highlight = window.ZithHighlight ? window.ZithHighlight.highlight : function(text) {
+        return String(text == null ? "" : text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    };
+
     var codeSnippets = {
         hello: {
-            filename: 'main.zt',
-            rawText: `pub fn main() {\n    println("Hello, Zith!");\n}`,
-            codeHtml: `<span class="kw">pub fn</span> <span class="fn">main</span>() {\n    <span class="fn">println</span>(<span class="st">"Hello, Zith!"</span>);\n}`,
-            explanation: `A concise <strong>Hello World</strong> in Zith. Public entry point with clean string formatting and standard I/O.`
+            filename: 'main.zith',
+            rawText: `from std/io/console
+            
+fn main(){
+    println("Hello, Zith!");
+}`,
+            explanation: `A simple & expressive <strong>Hello World</strong> in Zith.`
         },
         nra: {
-            filename: 'memory_nra.zt',
-            rawText: `struct Buffer {\n    data: raw<u8>,\n    len: usize,\n}\n\nfn process_buffer(view buf: &Buffer) {\n    println("Buffer length: {buf.len}");\n}\n\npub fn main() {\n    let mut buf = Buffer { data: null, len: 1024 };\n    process_buffer(&buf); // 'view' borrows safely without moving ownership\n}`,
-            codeHtml: `<span class="kw">struct</span> <span class="ty">Buffer</span> {\n    data: <span class="ty">raw</span>&lt;<span class="ty">u8</span>&gt;,\n    len: <span class="ty">usize</span>,\n}\n\n<span class="kw">fn</span> <span class="fn">process_buffer</span>(view buf: &amp;<span class="ty">Buffer</span>) {\n    <span class="fn">println</span>(<span class="st">"Buffer length: {buf.len}"</span>);\n}\n\n<span class="kw">pub fn</span> <span class="fn">main</span>() {\n    <span class="kw">let mut</span> buf = <span class="ty">Buffer</span> { data: <span class="kw">null</span>, len: <span class="num">1024</span> };\n    <span class="fn">process_buffer</span>(&amp;buf); <span class="cm">// 'view' borrows safely without moving ownership</span>\n}`,
+            filename: 'memory-nra.zith',
+            rawText: `struct Buffer {
+    data: optional<*u8>,
+    len: usize,
+}
+
+fn processBuffer(buf: view Buffer){
+    println("Buffer length: {buf.len}");
+}
+    
+fn main(){
+    let buf = Buffer { data: null, len: 1024 };
+    processBuffer(&buf); // 'view' borrows safely without moving ownership
+}`,
             explanation: `<strong>Node Resource Analysis (NRA)</strong> inspects resource graph propagation. Keywords like <code>lend</code>, <code>view</code>, and <code>sink</code> specify ownership transfer or read-only borrowing at compile time without borrow checker annotations.`
         },
         c_interop: {
-            filename: 'c_abi.zt',
-            rawText: `@foreign c {\n    fn printf(fmt: raw<c_char>, ...) : c_int;\n    fn malloc(size: usize) : raw<void>;\n    fn free(ptr: raw<void>);\n}\n\npub fn main() {\n    let msg = "Direct zero-cost C ABI calls from Zith!\\n";\n    unsafe {\n        printf("%s".ptr, msg.ptr);\n    }\n}`,
-            codeHtml: `<span class="kw">@foreign</span> <span class="st">c</span> {\n    <span class="kw">fn</span> <span class="fn">printf</span>(fmt: <span class="ty">raw</span>&lt;<span class="ty">c_char</span>&gt;, ...) : <span class="ty">c_int</span>;\n    <span class="kw">fn</span> <span class="fn">malloc</span>(size: <span class="ty">usize</span>) : <span class="ty">raw</span>&lt;<span class="ty">void</span>&gt;;\n    <span class="kw">fn</span> <span class="fn">free</span>(ptr: <span class="ty">raw</span>&lt;<span class="ty">void</span>&gt;);\n}\n\n<span class="kw">pub fn</span> <span class="fn">main</span>() {\n    <span class="kw">let</span> msg = <span class="st">"Direct zero-cost C ABI calls from Zith!\\n"</span>;\n    <span class="kw">unsafe</span> {\n        <span class="fn">printf</span>(<span class="st">"%s"</span>.ptr, msg.ptr);\n    }\n}`,
-            explanation: `<strong>Zero-Overhead C Interop</strong> allows declaring foreign C function signatures directly with <code>@foreign c</code> block syntax, calling C libraries without wrapper overhead.`
+            filename: 'c-interop.zith',
+            rawText: `import "stdio.h"
+
+fn main(){
+    let msg = "A direct C call!";
+    raw{
+        printf(msg);
+    }
+}            `,
+            explanation: `<strong>Zero headache C Interop</strong> allows importing C headers directly with <code>import "path"</code>, calling C libraries without wrapper boilerplate`
         },
         pattern: {
-            filename: 'matching.zt',
-            rawText: `enum Status {\n    Ok(u32),\n    Error(String),\n    Pending,\n}\n\nfn handle_status(status: Status) {\n    when status {\n        Status.Ok(code) => println("Success: {code}"),\n        Status.Error(err) => println("Error: {err}"),\n        Status.Pending => println("Processing..."),\n    }\n}`,
-            codeHtml: `<span class="kw">enum</span> <span class="ty">Status</span> {\n    Ok(<span class="ty">u32</span>),\n    Error(<span class="ty">String</span>),\n    Pending,\n}\n\n<span class="kw">fn</span> <span class="fn">handle_status</span>(status: <span class="ty">Status</span>) {\n    <span class="kw">when</span> status {\n        <span class="ty">Status</span>.Ok(code) =&gt; <span class="fn">println</span>(<span class="st">"Success: {code}"</span>),\n        <span class="ty">Status</span>.Error(err) =&gt; <span class="fn">println</span>(<span class="st">"Error: {err}"</span>),\n        <span class="ty">Status</span>.Pending =&gt; <span class="fn">println</span>(<span class="st">"Processing..."</span>),\n    }\n}`,
+            filename: 'pattern-matching.zith',
+            rawText: `enum Status{
+    Ok = 200,
+    Error = 404,    
+    Pending = 202
+}\n\nfn handleStatus(status: Status) {
+    when (status){
+        (Status.Ok) ~> println("Success: {code}"),
+        (Status.Error) ~> println("Error: {err}"),
+        (Status.Pending) ~> println("Processing...")   
+    }
+}`,
             explanation: `Exhaustive pattern matching with <code>when</code> expression inspects tagged unions and enums cleanly, ensuring all branch variants are handled at compile time.`
         }
     };
@@ -36,8 +190,10 @@ document.addEventListener('DOMContentLoaded', function() {
         var snippet = codeSnippets[tabKey];
 
         document.getElementById('codeFilename').textContent = snippet.filename;
-        document.getElementById('codeDisplay').innerHTML = snippet.codeHtml;
-        document.getElementById('codeExplanation').innerHTML = snippet.explanation;
+        typeHtml(document.getElementById('codeDisplay'), highlight(snippet.rawText));
+        var explanation = document.getElementById('codeExplanation');
+        typeHtml(explanation, snippet.explanation);
+        explanation.classList.add('typewriter-code');
 
         document.querySelectorAll('#codeTabs .tab-btn').forEach(function(btn) {
             btn.classList.toggle('active', btn.dataset.tab === tabKey);
@@ -52,6 +208,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Initialize first code snippet
     setCodeTab('hello');
+
+    // Typewriter for static gray sub-titles on page load.
+    document.querySelectorAll('.typewriter').forEach(function(el) {
+        typeHtml(el, el.innerHTML);
+    });
 
     // --- Copy Code Button ---
     var copyCodeBtn = document.getElementById('copyCodeBtn');
@@ -80,7 +241,9 @@ document.addEventListener('DOMContentLoaded', function() {
     function setInstallPm(pmKey) {
         if (!installCmds[pmKey]) return;
         currentInstallPm = pmKey;
-        document.getElementById('installCmd').textContent = installCmds[pmKey];
+        var installCmd = document.getElementById('installCmd');
+        installCmd.classList.add('typewriter-install');
+        typeHtml(installCmd, installCmds[pmKey]);
 
         document.querySelectorAll('#installTabs .install-tab').forEach(function(tab) {
             tab.classList.toggle('active', tab.dataset.pm === pmKey);
@@ -116,19 +279,72 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(function(entries) {
                 if (!Array.isArray(entries) || entries.length === 0) return;
                 var topEntries = entries.slice(0, 3);
+                var descriptions = {
+                    'Operators, and Where Ownership Belongs': 'Operator semantics, move and borrow boundaries, and where the ownership proof belongs in the pipeline.',
+                    'Macros Land in the Zith Pipeline': 'Compile-time macro expansion lands alongside C ABI interop improvements in zithc.',
+                    'Structs and the Modern Pipeline': 'Memory allocation, field alignment, and Node Resource Analysis graph propagation across the compiler.'
+                };
                 grid.innerHTML = topEntries.map(function(e) {
-                    return '<div class="news-card">' +
+                    var text = descriptions[e.title] || 'Latest entry from the Zith development diary.';
+                    return '<article class="news-card">' +
                            '  <span class="news-date">' + e.date + '</span>' +
                            '  <h3><a href="./about/posts/' + e.file + '">' + e.title + '</a></h3>' +
-                           '</div>';
+                           '  <p class="typewriter">' + text + '</p>' +
+                           '</article>';
                 }).join('');
+                grid.querySelectorAll('.typewriter').forEach(function(p) {
+                    typeHtml(p, p.innerHTML);
+                });
             })
             .catch(function() {
-                // Keep static fallback rendered in HTML
             });
     }
 
     loadNews();
+
+    // --- Dev Log Post Reader ---
+    var newsGrid = document.getElementById('newsGrid');
+    var postModal = document.getElementById('postModal');
+    var postModalBody = document.getElementById('postModalBody');
+    var closePostBtn = document.getElementById('closePostBtn');
+
+    function openPostModal(url) {
+        if (!postModal || !postModalBody) return;
+        fetch(url)
+            .then(function(r) { return r.text(); })
+            .then(function(html) {
+                var match = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+                var body = match ? match[1] : html;
+                body = body.replace(/<script[\s\S]*?<\/script>/gi, '');
+                postModalBody.innerHTML = body;
+                postModal.classList.remove('hidden');
+            })
+            .catch(function() {
+                postModalBody.innerHTML = '<p class="error">Failed to load this entry.</p>';
+                postModal.classList.remove('hidden');
+            });
+    }
+
+    function closePostModal() {
+        if (postModal) postModal.classList.add('hidden');
+    }
+
+    if (newsGrid) {
+        newsGrid.addEventListener('click', function(e) {
+            var link = e.target.closest('a');
+            if (!link || !link.href || link.href.indexOf('/about/posts/') === -1) return;
+            e.preventDefault();
+            openPostModal(link.getAttribute('href'));
+        });
+    }
+
+    if (closePostBtn) closePostBtn.addEventListener('click', closePostModal);
+
+    if (postModal) {
+        postModal.addEventListener('click', function(e) {
+            if (e.target === postModal) closePostModal();
+        });
+    }
 
     // --- CRT Settings Modal ---
     var settingsModal = document.getElementById('settingsModal');

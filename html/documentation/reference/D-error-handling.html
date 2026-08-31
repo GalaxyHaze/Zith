@@ -1,6 +1,6 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="8-error-handling">8. Error Handling</h1>
-<blockquote><p><strong>Implementation status:</strong> <code>?T</code> and <code>T!</code> types are <strong>working</strong>. <code>?</code> postfix propagation is <strong>working</strong> with full operand and return-type validation. <code>null → ?T</code> and <code>T → ?T</code> coercions are <strong>working</strong>. <code>must</code>, <code>raw</code>, <code>fail</code>, <code>with</code>, <code>catch</code>, <code>throw</code>, and prefix <code>?</code>/<code>!</code> fallback are <strong>spec-only</strong>. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> <code>?T</code> and <code>T!</code> types are <strong>working</strong>. <code>?</code> postfix propagation is <strong>working</strong> with full operand and return-type validation. <code>null → ?T</code> and <code>T → ?T</code> coercions are <strong>working</strong>. Optional extraction with <code>must</code> (runtime panic on <code>null</code>) and <code>raw</code> (unchecked) is <strong>working</strong>. <code>fail</code>, <code>with</code>, <code>catch</code>, <code>throw</code>, and prefix <code>?</code>/<code>!</code> fallback are <strong>spec-only</strong>. See <a href="./reference/D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <p>Error handling in Zith is fully static and return-based — there are no exceptions, and no semicolon is required after <code>?</code> or <code>!</code>.</p>
 <h3 id="81-failable-types">8.1 Failable Types</h3>
 <table>
@@ -188,4 +188,4 @@ loadConfigure {
     a / b
 }</code></pre>
 <hr>
-<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
+<p><em><a href="./reference/D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>

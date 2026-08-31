@@ -1,11 +1,11 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="zith-language-specification">ZITH Language Specification</h1>
 <p><strong>Draft v0.9 — 2026</strong></p>
 <blockquote><p>Zith is a statically typed systems programming language with a small, composable core and a large toolbox for domain-specific work. It proves memory safety at compile time without a garbage collector or borrow checker.</p></blockquote>
 <h2 id="introduction">Introduction</h2>
 <p>Zith gives you full control with a minimal &amp; clean syntax — you don't have to choose between verbose but safe or readable but slow. Its memory model, Node Resource Analysis (NRA), proves ownership and lifetime safety using five keywords: <code>lend</code>, <code>view</code>, <code>unique</code>, <code>share</code>, and <code>belong</code> — plus a <code>default</code> (no keyword) modifier.</p>
 <p>Beyond memory safety, Zith has a general-purpose core with a much larger toolbox: state machines, contexts (DSLs), words (custom operators), comptime. You choose when to use them. Zith also follows the <strong>Rule of Three</strong>: "if a function needs more than three specialized tools, something went wrong."</p>
-<p>This document is a draft of the language specification, currently v0.9. Not every feature described here is implemented in the compiler. For the exact picture of what works today, see <a href="./D-implementation-status.html">Implementation Status</a>. It serves three audiences: developers learning Zith for the first time, contributors working on the <code>zithc</code> compiler, and tooling authors building editors, linters, or other infrastructure around the language.</p>
+<p>This document is a draft of the language specification, currently v0.9. Not every feature described here is implemented in the compiler. For the exact picture of what works today, see <a href="./reference/D-implementation-status.html">Implementation Status</a>. It serves three audiences: developers learning Zith for the first time, contributors working on the <code>zithc</code> compiler, and tooling authors building editors, linters, or other infrastructure around the language.</p>
 <h3 id="notation-used-in-this-document">Notation used in this document</h3>
 <table>
   <thead>
@@ -17,19 +17,19 @@
   <tbody>
     <tr>
       <td><code>?T</code></td>
-      <td>Optional type — <code>T</code> or <code>null</code> (<a href="./D-error-handling.html#81-failable-types">§8.1</a>)</td>
+      <td>Optional type — <code>T</code> or <code>null</code> (<a href="./reference/D-error-handling.html#81-failable-types">§8.1</a>)</td>
     </tr>
     <tr>
       <td><code>T!</code></td>
-      <td>Result type — <code>T</code> or an error (<a href="./D-error-handling.html#81-failable-types">§8.1</a>)</td>
+      <td>Result type — <code>T</code> or an error (<a href="./reference/D-error-handling.html#81-failable-types">§8.1</a>)</td>
     </tr>
     <tr>
       <td><code>?</code> / <code>!</code> (postfix)</td>
-      <td>Unwrap an optional / result, propagating or falling back (<a href="./D-error-handling.html#83-propagation--fallback">§8.3</a>)</td>
+      <td>Unwrap an optional / result, propagating or falling back (<a href="./reference/D-error-handling.html#83-propagation--fallback">§8.3</a>)</td>
     </tr>
     <tr>
       <td><code>@name</code></td>
-      <td>Compiler intrinsic or macro invocation (<a href="./D-comptime.html#113-reflection">§11.3</a>, <a href="./D-macros.html">§15</a>)</td>
+      <td>Compiler intrinsic or macro invocation (<a href="./reference/D-comptime.html#113-reflection">§11.3</a>, <a href="./reference/D-macros.html">§15</a>)</td>
     </tr>
     <tr>
       <td><code>#name</code></td>
@@ -37,7 +37,7 @@
     </tr>
     <tr>
       <td><code>::</code></td>
-      <td>Scope resolution — reach past a shadowed name (<a href="./D-module-system.html#23-namespace-access--scope-resolution">§2.3</a>)</td>
+      <td>Scope resolution — reach past a shadowed name (<a href="./reference/D-module-system.html#23-namespace-access--scope-resolution">§2.3</a>)</td>
     </tr>
   </tbody>
 </table>
@@ -153,121 +153,121 @@ use SQL;   // pollutes the rest of the file</code></pre>
   <tbody>
     <tr>
       <td>2</td>
-      <td><a href="./D-module-system.html">Module System</a></td>
+      <td><a href="./reference/D-module-system.html">Module System</a></td>
       <td><code>02-module-system.md</code></td>
       <td><code>import</code>, <code>from</code>, <code>export</code>, <code>alias</code>, <code>use</code>, visibility</td>
     </tr>
     <tr>
       <td>3</td>
-      <td><a href="./D-type-system.html">Type System</a></td>
+      <td><a href="./reference/D-type-system.html">Type System</a></td>
       <td><code>03-type-system.md</code></td>
       <td>Primitives, structs, enums, unions, generics, <code>when</code></td>
     </tr>
     <tr>
       <td>4</td>
-      <td><a href="./D-traits-interfaces.html">Traits, Interfaces &amp; Capabilities</a></td>
+      <td><a href="./reference/D-traits-interfaces.html">Traits, Interfaces &amp; Capabilities</a></td>
       <td><code>04-traits-interfaces.md</code></td>
       <td>Nominal traits, structural interfaces, capabilities, operator overloading</td>
     </tr>
     <tr>
       <td>5</td>
-      <td><a href="./D-functions.html">Functions</a></td>
+      <td><a href="./reference/D-functions.html">Functions</a></td>
       <td><code>05-functions.md</code></td>
       <td><code>fn</code>, <code>const fn</code>, <code>state</code>, <code>raw fn</code>, <code>extern fn</code>, return types</td>
     </tr>
     <tr>
       <td>6</td>
-      <td><a href="./D-mutability-bindings.html">Mutability &amp; Bindings</a></td>
+      <td><a href="./reference/D-mutability-bindings.html">Mutability &amp; Bindings</a></td>
       <td><code>06-mutability-bindings.md</code></td>
       <td><code>let</code>, <code>var</code>, <code>global</code>, <code>const</code>, deep mutability, destructuring</td>
     </tr>
     <tr>
       <td>7</td>
-      <td><a href="./D-memory-model.html">Memory Model (NRA)</a></td>
+      <td><a href="./reference/D-memory-model.html">Memory Model (NRA)</a></td>
       <td><code>07-memory-model.md</code></td>
       <td>Ownership, <code>lend</code>/<code>view</code>/<code>unique</code>/<code>share</code>/<code>belong</code>, the four rules</td>
     </tr>
     <tr>
       <td>8</td>
-      <td><a href="./D-error-handling.html">Error Handling</a></td>
+      <td><a href="./reference/D-error-handling.html">Error Handling</a></td>
       <td><code>08-error-handling.md</code></td>
       <td><code>?T</code>, <code>T!</code>, <code>with</code>/<code>catch</code>, <code>fail</code> blocks, <code>throw</code></td>
     </tr>
     <tr>
       <td>9</td>
-      <td><a href="./D-control-flow.html">Control Flow</a></td>
+      <td><a href="./reference/D-control-flow.html">Control Flow</a></td>
       <td><code>09-control-flow.md</code></td>
       <td><code>if</code>, <code>when</code>, <code>for</code>, <code>-&gt;</code>, <code>state</code>, docks, jumps</td>
     </tr>
     <tr>
       <td>10</td>
-      <td><a href="./D-concurrency.html">Concurrency &amp; Runtime APIs</a></td>
+      <td><a href="./reference/D-concurrency.html">Concurrency &amp; Runtime APIs</a></td>
       <td><code>10-concurrency.md</code></td>
       <td>stdlib/runtime concurrency surface, resource safety, no core syntax</td>
     </tr>
     <tr>
       <td>11</td>
-      <td><a href="./D-comptime.html">Comptime</a></td>
+      <td><a href="./reference/D-comptime.html">Comptime</a></td>
       <td><code>11-comptime.md</code></td>
       <td><code>const</code>, reflection, type manipulation, intrinsics</td>
     </tr>
     <tr>
       <td>12</td>
-      <td><a href="./D-assets.html">Assets</a></td>
+      <td><a href="./reference/D-assets.html">Assets</a></td>
       <td><code>12-assets.md</code></td>
       <td>Compile-time asset processing, <code>ZithProject.toml</code></td>
     </tr>
     <tr>
       <td>13</td>
-      <td><a href="./D-raw-unsafe.html">Raw &amp; Unsafe</a></td>
+      <td><a href="./reference/D-raw-unsafe.html">Raw &amp; Unsafe</a></td>
       <td><code>13-raw-unsafe.md</code></td>
       <td><code>raw</code>, <code>unsafe</code>, <code>Trust</code> capability</td>
     </tr>
     <tr>
       <td>14</td>
-      <td><a href="./D-polymorphism.html">Polymorphism</a></td>
+      <td><a href="./reference/D-polymorphism.html">Polymorphism</a></td>
       <td><code>14-polymorphism.md</code></td>
       <td><code>dyn</code>, static vs dynamic dispatch, object safety</td>
     </tr>
     <tr>
       <td>15</td>
-      <td><a href="./D-macros.html">Macros</a></td>
+      <td><a href="./reference/D-macros.html">Macros</a></td>
       <td><code>15-macros.md</code></td>
       <td>Scoped, raw, tag macros, <code>@</code> prefix, call-site scope behaviour</td>
     </tr>
     <tr>
       <td>16</td>
-      <td><a href="./D-words.html">Words</a></td>
+      <td><a href="./reference/D-words.html">Words</a></td>
       <td><code>16-words.md</code></td>
       <td>Custom operators, <code>operator</code>, <code>token</code>, precedence</td>
     </tr>
     <tr>
       <td>17</td>
-      <td><a href="./D-contexts.html">Contexts</a></td>
+      <td><a href="./reference/D-contexts.html">Contexts</a></td>
       <td><code>17-contexts.md</code></td>
       <td>DSL bundling, scoped activation</td>
     </tr>
     <tr>
       <td>18</td>
-      <td><a href="./D-c-interop.html">C Interop</a></td>
+      <td><a href="./reference/D-c-interop.html">C Interop</a></td>
       <td><code>18-c-interop.md</code></td>
       <td><code>.h</code> import, manual binding, <code>extern 'C'</code></td>
     </tr>
     <tr>
       <td>19</td>
-      <td><a href="./D-project-config.html">Project Configuration</a></td>
+      <td><a href="./reference/D-project-config.html">Project Configuration</a></td>
       <td><code>19-project-config.md</code></td>
       <td><code>ZithProject.toml</code>, <code>ZithFlags</code></td>
     </tr>
     <tr>
       <td>20</td>
-      <td><a href="./D-standard-library.html">Standard Library</a></td>
+      <td><a href="./reference/D-standard-library.html">Standard Library</a></td>
       <td><code>20-standard-library.md</code></td>
       <td><code>std</code>, <code>soon</code>, <code>c</code> namespaces</td>
     </tr>
     <tr>
       <td>21</td>
-      <td><a href="./D-best-practices.html">Best Practices</a></td>
+      <td><a href="./reference/D-best-practices.html">Best Practices</a></td>
       <td><code>21-best-practices.md</code></td>
       <td>Ownership patterns, naming conventions, Rule of Three</td>
     </tr>

@@ -4,6 +4,8 @@ const filebarPath = document.getElementById("filebarPath");
 const defaultPage = "./getting-started/D-introduction.html";
 const treeVersion = 2;
 
+const sidebarCollapse = document.getElementById("sidebarCollapse");
+
 let treeModel = [];
 let flatPages = [];
 let pageMeta = new Map();
@@ -89,6 +91,16 @@ function renderMenu(items, parent) {
     });
 
     parent.appendChild(ul);
+}
+
+if (sidebarCollapse && sidebar) {
+    sidebarCollapse.addEventListener("click", function() {
+        const collapsed = document.body.classList.toggle("docs-sidebar-collapsed");
+        sidebarCollapse.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        sidebarCollapse.setAttribute("aria-label", collapsed ? "Expand documentation explorer" : "Collapse documentation explorer");
+        const icon = sidebarCollapse.querySelector(".sidebar-collapse-icon");
+        if (icon) icon.textContent = collapsed ? "▸" : "◂";
+    });
 }
 
 function buildPageIndex(items, trail = []) {

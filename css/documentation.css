@@ -61,6 +61,50 @@ body {
     overflow: hidden;
 }
 
+body.docs-sidebar-collapsed .lateralBar {
+    width: 48px;
+    min-width: 48px;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+body.docs-sidebar-collapsed .lateralBar::before,
+body.docs-sidebar-collapsed .lateralBar::after,
+body.docs-sidebar-collapsed .lateralBar ul {
+    display: none;
+}
+
+.sidebar-collapse {
+    position: fixed;
+    top: 12px;
+    left: 238px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    background: rgba(0, 0, 0, 0.72);
+    border: 1px solid #555;
+    border-radius: 5px;
+    color: var(--color-cyan);
+    font-family: "Fira Code", monospace;
+    font-size: 12px;
+    cursor: pointer;
+    transition: 0.15s;
+}
+
+.sidebar-collapse:hover,
+.sidebar-collapse:focus-visible {
+    border-color: var(--color-orange);
+    color: var(--color-orange);
+    background: rgba(0, 0, 0, 0.9);
+}
+
+.sidebar-collapse-icon {
+    font-size: 15px;
+    line-height: 1;
+}
+
 p, pre {
     margin: 0;
 }
@@ -735,6 +779,12 @@ MOBILE
 ===================*/
 
 @media (max-width: 1080px) {
+
+    .sidebar-collapse {
+        left: auto;
+        right: 12px;
+        top: 8px;
+    }
 
     body {
         flex-direction: column;

@@ -1,6 +1,6 @@
-<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
+<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> Zith documentation describes a language under active development. Check <a href="./reference/D-implementation-status.html">Implementation Status</a> before relying on a feature.</p></div>
 <h1 id="3-type-system">3. Type System</h1>
-<blockquote><p><strong>Implementation status:</strong> Primitive types, structs, enums, unions, <code>?T</code>, <code>T!</code>, <code>[N]T</code>, <code>[]T</code>, pointers, type aliases, <code>implement</code>, and generics (<code>&lt;T&gt;</code>) are all <strong>working</strong>. <code>as</code> casting is <strong>working</strong> for numeric conversions only, and is required: there are no implicit conversions between numeric types (a numeric <em>literal</em> still adapts to its annotated type). Pointers are non-nullable — <code>null</code> requires <code>?<em>T</code> — and <code></em>void</code> is rejected in favour of <code>raw opaque</code>. <code>is</code> is limited to <code>(val is null)</code> on an optional; union narrowing, <code>when</code> pattern matching, and NRA ownership modifiers (<code>lend</code>, <code>view</code>, etc.) are <strong>spec-only</strong>. <code>dyn Trait</code>/<code>dyn Interface</code> dispatch is <strong>working</strong> for methods in Zith--. See <a href="./D-implementation-status.html">impl-status.md</a>.</p></blockquote>
+<blockquote><p><strong>Implementation status:</strong> Primitive types, structs, enums, unions, <code>?T</code>, <code>T!</code>, <code>[N]T</code>, <code>[]T</code>, pointers, type aliases, <code>implement</code>, and generics (<code>&lt;T&gt;</code>) are all <strong>working</strong>. <code>as</code> casting is <strong>working</strong> for numeric conversions only, and is required: there are no implicit conversions between numeric types (a numeric <em>literal</em> still adapts to its annotated type). Pointers are non-nullable — <code>null</code> requires <code>?<em>T</code> — and <code></em>void</code> is rejected in favour of <code>raw opaque</code>. <code>is</code> is limited to <code>(val is null)</code> on an optional; union narrowing, <code>when</code> pattern matching, and NRA ownership modifiers (<code>lend</code>, <code>view</code>, etc.) are <strong>spec-only</strong>. <code>dyn Trait</code>/<code>dyn Interface</code> dispatch is <strong>working</strong> for methods in Zith--. See <a href="./reference/D-implementation-status.html">impl-status.md</a>.</p></blockquote>
 <h3 id="31-primitive-types">3.1 Primitive Types</h3>
 <table>
   <thead>
@@ -65,7 +65,7 @@
 </table>
 <h4 id="strings--origin-tracking">Strings &amp; Origin Tracking</h4>
 <p><code>char</code> is a UTF-8 code unit. <code>string</code> is a built-in library type backed by <code>[]char</code> with UTF-8 encoding.</p>
-<p>NRA tracks the <strong>origin</strong> of every string node — <code>literal</code>, <code>allocator</code>, or <code>local</code> (see <a href="./D-memory-model.html#71-what-nra-tracks">§7.1</a> for the complete set):</p>
+<p>NRA tracks the <strong>origin</strong> of every string node — <code>literal</code>, <code>allocator</code>, or <code>local</code> (see <a href="./reference/D-memory-model.html#71-what-nra-tracks">§7.1</a> for the complete set):</p>
 <pre><code class="language-zith">// []char implicitly casts to string, zero-cost (literal origin)
 let s: string = &quot;hello&quot;;
 
@@ -131,7 +131,7 @@ implement Node&lt;f32&gt; { ... }</code></pre>
 }
 
 implement i32 as Numeric {
-    fn double(self): i32 { return self * 2 }
+    fn double(self): i32 { return self * 2; }
 }
 
 trait Present {
@@ -145,7 +145,7 @@ trait ByteLen {
 }
 
 implement []u8 as ByteLen {
-    fn len(self): i32 { return 4 }
+    fn len(self): i32 { return 4; }
 }</code></pre>
 <p><code>implement</code> owners are limited to primitives, <code>?T</code>, <code>[]T</code>, and named types in this iteration. Pointer and fixed-array owners (<code>*T</code>, <code>[N]T</code>) are rejected.</p>
 <p>Components define method bodies inline — they cannot use <code>implement</code>:</p>
@@ -195,7 +195,7 @@ let x: union = when (flag) {
 };</code></pre>
 <blockquote><p>Without an explicit <code>union</code> type hint, the compiler cannot deduce a union — it must be stated explicitly.</p></blockquote>
 <p>&gt;</p>
-<blockquote><p><code>dyn</code> works the same way as a type hint — see <a href="./D-polymorphism.html#142-dyn-as-a-type-hint">§14.2</a>.</p></blockquote>
+<blockquote><p><code>dyn</code> works the same way as a type hint — see <a href="./reference/D-polymorphism.html#142-dyn-as-a-type-hint">§14.2</a>.</p></blockquote>
 <p><code>raw union</code> is an untagged C-style union, valid only inside <code>raw</code> contexts. Accessing the wrong variant is undefined behavior.</p>
 <h4 id="adt-style-named-variants">ADT-style (Named Variants)</h4>
 <p>Unions can also have named variants, similar to Rust enums:</p>
@@ -296,4 +296,4 @@ when (point) {
 <pre><code class="language-zith">let n: i32 = 42;
 let f = n as f64;</code></pre>
 <hr>
-<p><em><a href="./D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
+<p><em><a href="./reference/D-specification.html">Zith Language Specification</a> — Draft v0.9</em></p>
