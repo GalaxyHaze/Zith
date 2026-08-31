@@ -1,0 +1,30 @@
+[
+    {
+        "key": "hello",
+        "label": "Hello World",
+        "file": "main.zith",
+        "code": "from std/io/console\n\nfn main(){\n    println(\"Hello, Zith!\");\n}",
+        "explanation": "A simple & expressive <strong>Hello World</strong> in Zith."
+    },
+    {
+        "key": "nra",
+        "label": "Memory & NRA",
+        "file": "memory-nra.zith",
+        "code": "struct Buffer {\n    data: optional<*u8>,\n    len: usize,\n}\n\nfn processBuffer(buf: view Buffer){\n    println(\"Buffer length: {buf.len}\");\n}\n    \nfn main(){\n    let buf = Buffer { data: null, len: 1024 };\n    processBuffer(view buf); // 'view' borrows safely without moving ownership\n}",
+        "explanation": "<strong>Node Resource Analysis (NRA)</strong> inspects resource graph propagation. Keywords like <code>view</code> and <code>sink</code> define ownership boundaries at compile time."
+    },
+    {
+        "key": "c_interop",
+        "label": "C Interop",
+        "file": "c-interop.zith",
+        "code": "import \"stdio.h\"\n\nfn main(){\n    let msg = \"A direct C call!\";\n    raw{\n        printf(msg);\n    }\n}",
+        "explanation": "<strong>Zero headache C Interop</strong> allows importing C headers directly with <code>import \"path\"</code>."
+    },
+    {
+        "key": "pattern",
+        "label": "Pattern Matching",
+        "file": "pattern-matching.zith",
+        "code": "enum Status{\n    Ok = 200,\n    Error = 404,\n    Pending = 202\n}\n\nfn handleStatus(status: Status) {\n    when (status){\n        (Status.Ok)  println(\"Success: {status}\"),\n        (Status.Error)  println(\"Error: {status}\"),\n        (Status.Pending)  println(\"Processing...\")   \n    }\n}",
+        "explanation": "Exhaustive pattern matching with <code>when</code> expression inspects tagged unions and enums."
+    }
+]

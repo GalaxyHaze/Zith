@@ -114,32 +114,7 @@
             <p class="typewriter">Discover Zith's expressive syntax, static ownership model, and direct C interop.</p>
         </div>
 
-        <div class="spotlight-grid">
-            <div class="spotlight-tabs" id="codeTabs">
-                <button class="tab-btn active" data-tab="hello">Hello World</button>
-                <button class="tab-btn" data-tab="nra">Memory &amp; NRA</button>
-                <button class="tab-btn" data-tab="c_interop">C Interop</button>
-                <button class="tab-btn" data-tab="pattern">Pattern Matching</button>
-            </div>
-
-            <div class="code-viewer">
-                <div class="code-window-bar">
-                    <div class="window-dots">
-                        <span class="dot red"></span>
-                        <span class="dot amber"></span>
-                        <span class="dot green"></span>
-                    </div>
-                    <span class="window-filename" id="codeFilename">main.zith</span>
-                    <button class="copy-btn" id="copyCodeBtn" type="button">Copy Code</button>
-                </div>
-                <div class="code-block-container">
-                    <pre><code id="codeDisplay"></code></pre>
-                </div>
-                <div class="code-explanation" id="codeExplanation">
-                    <!-- Updated via JS -->
-                </div>
-            </div>
-        </div>
+        <div class="spotlight-grid" data-code-spotlight="./json/code-spotlight.json"></div>
     </section>
 
     <!-- Key Features Section -->
@@ -317,6 +292,8 @@
     <!-- Scripts -->
     <script src="./js/settings.js"></script>
     <script src="./js/zith-highlight.js"></script>
+    <script src="./js/typewriter.js"></script>
+    <script src="./js/code-spotlight.js"></script>
     <script src="./js/ambient.js"></script>
     <script src="./js/index.js"></script>
 </body>
