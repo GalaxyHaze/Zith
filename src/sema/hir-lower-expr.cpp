@@ -221,8 +221,6 @@ hir::HirExprId HirLowerModern::lowerLiteral(const frontend::Expression &expr,
                 return hir::kInvalidHirExpr;
             }
             literal.str_val = interner_.intern(decoded);
-        } else {
-            literal.str_val = interner_.intern(text);
         }
         break;
     }
@@ -972,7 +970,8 @@ hir::HirExprId HirLowerModern::lowerLayoutIntrinsic(const frontend::Expression &
                     ? current_module_->frontend->expressions()[expr.operands[0].value - 1U].text
                     : std::string_view{});
             if (!text.empty() && text.front() == '"' && text.back() == '"')
-                (void)decodeEscapes(std::string_view(text.data() + 1U, text.size() - 2U), decoded);
+                (void)decodeEscapes(std::string_view(text.data() + 1U, text.size() - 2U), decoded,
+                                    true);
             intrinsic.string_length = decoded.empty() ? 0 : decoded.size();
         }
         intrinsic.which        = expr.text == "lengthOf" ? hir::HirLayoutIntrinsic::Which::LengthOf
@@ -1175,7 +1174,7 @@ hir::HirExprId HirLowerModern::lowerCoerceToTarget(types::TypeId target,
                 if (pointer_hir != types::kErrorType &&
                     decodeEscapes(
                         std::string_view(literal.text.data() + 1U, literal.text.size() - 2U),
-                        decoded)) {
+                        decoded, true)) {
                     hir::HirLiteral pointer_literal;
                     pointer_literal.type     = pointer_hir;
                     pointer_literal.str_val  = interner_.intern(std::string_view(decoded));

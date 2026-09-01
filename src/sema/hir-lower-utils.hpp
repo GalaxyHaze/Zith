@@ -13,9 +13,17 @@
 
 namespace zith::sema::modern {
 
+/// Internal representation of `\#`. The normal output path converts it back to
+/// `#`; a format-message path can keep it to distinguish escaped hashes from
+/// the `#` placeholder at runtime.
+inline constexpr char kFormatHashSentinel = '\x1f';
+
 /// Decodes the C-like escape set inside string/char literal bodies. Returns false
-/// (without touching `output`) when an escape is malformed or unknown.
-bool decodeEscapes(std::string_view text, std::string &output);
+/// (without touching `output`) when an escape is malformed or unknown. With
+/// `keep_marker` false, the `\#` sentinel is restored to `#`; callers that will
+/// feed a format scanner should request the sentinel so an escaped hash remains
+/// distinguishable from a placeholder.
+bool decodeEscapes(std::string_view text, std::string &output, bool keep_marker = false);
 
 uint64_t internFunctionKey(memory::StringInterner &interner, std::string_view module,
                            frontend::DeclId decl);

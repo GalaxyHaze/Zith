@@ -7,7 +7,7 @@
 
 namespace zith::sema::modern {
 
-bool decodeEscapes(std::string_view text, std::string &output) {
+bool decodeEscapes(std::string_view text, std::string &output, bool keep_marker) {
     for (size_t index = 0; index < text.size(); ++index) {
         const char current = text[index];
         if (current != '\\') {
@@ -34,7 +34,7 @@ bool decodeEscapes(std::string_view text, std::string &output) {
             output.push_back('\\');
             break;
         case '#':
-            output.push_back('#');
+            output.push_back(keep_marker ? kFormatHashSentinel : '#');
             break;
         case '\'':
             output.push_back('\'');
@@ -74,6 +74,11 @@ uint64_t internFunctionKey(memory::StringInterner &interner, std::string_view mo
 
 std::string moduleNamespace(std::string_view module_key, const session::CacheKey &cache_key) {
     const std::filesystem::path path{module_key};
+    // The console module is imported from many roots during a normal stdlib
+    // build. Normalize its canonical namespace so function lookup (and the
+    // vtable/string symbols that depend on it) is stable.
+    if (module_key == "stdlib/std/io/console.zith")
+        return "std.io.console";
     std::string best_relative;
     size_t best_root_length = 0;
     const auto consider     = [&](const std::string &root) {
