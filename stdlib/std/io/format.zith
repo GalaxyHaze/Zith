@@ -1,0 +1,227 @@
+import "stdlib.h"
+import "stdio.h"
+import "string.h"
+
+/// Feeble standard-library formatting contract. Instances append their
+/// textual representation to a reusable buffer and return a plain I/O status.
+pub trait Formatable {
+    fn format(self, dest: lend FormatBuffer): IoError;
+}
+
+/// Plain failable status for the I/O and formatting modules. The `f` prefix is
+/// the standard-library convention for failed variants.
+pub enum IoError {
+    Ok = 0,
+    fAllocation = 1,
+    fWrite = 2,
+}
+
+/// Reusable byte buffer used by `print` and `println`. It owns its heap
+/// storage and must be destroyed with `destroyBuffer` or `destroy`.
+pub struct FormatBuffer {
+    data: ?*char = null,
+    capacity: u64 = 0,
+    length: u64 = 0,
+
+    fn ensure(var self, extra: u64): IoError {
+        return ensureBuffer(lend self, extra);
+    }
+
+    fn appendRaw(var self, src: *char, count: u64): IoError {
+        return appendRawBuffer(lend self, src, count);
+    }
+
+    fn appendChar(var self, ch: char): IoError {
+        return appendCharBuffer(lend self, ch);
+    }
+
+    fn appendMark(var self, ch: char): IoError {
+        return appendMarkBuffer(lend self, ch);
+    }
+
+    fn appendU32(var self, value: u32): IoError {
+        return appendNumberBuffer(lend self, value);
+    }
+
+    fn text(self: view FormatBuffer): view []char {
+        return raw self.data[0u64..self.length];
+    }
+
+    fn len(self: view FormatBuffer): u64 {
+        return self.length;
+    }
+
+    fn destroy(var self) {
+        destroyBuffer(lend self);
+    }
+}
+
+pub fn emptyFormatBuffer(): FormatBuffer {
+    return FormatBuffer {};
+}
+
+pub fn ensureBuffer(self: lend FormatBuffer, extra: u64): IoError {
+    let needed = self.length + extra;
+    if (needed <= self.capacity) {
+        return IoError.Ok;
+    }
+    let desired = self.capacity + extra + 64;
+    var next: ?*char = malloc(desired as u64) as ?*char;
+    if (next is null) {
+        return IoError.fAllocation;
+    }
+    if (self.length > 0 and not (self.data is null)) {
+        memcpy(next, self.data, self.length);
+    }
+    free(self.data);
+    self.data = next;
+    self.capacity = desired;
+    return IoError.Ok;
+}
+
+pub fn appendRawBuffer(self: lend FormatBuffer, src: *char, count: u64): IoError {
+    let status = ensureBuffer(lend self, count);
+    if (status != IoError.Ok) {
+        return status;
+    }
+    if (count > 0 and not (self.data is null)) {
+        var chars: []char = raw self.data[0u64..self.capacity];
+        var bytes: []char = raw src[0u64..count];
+        var index: u64 = 0;
+        for (index < count) {
+            chars[self.length + index] = raw bytes[index];
+            index = index + 1;
+        }
+        self.length = self.length + count;
+    }
+    return IoError.Ok;
+}
+
+pub fn appendCharBuffer(self: lend FormatBuffer, ch: char): IoError {
+    let status = ensureBuffer(lend self, 1);
+    if (status != IoError.Ok) {
+        return status;
+    }
+    if (not (self.data is null)) {
+        var chars: []char = raw self.data[0u64..self.capacity];
+        chars[self.length] = ch;
+        self.length = self.length + 1;
+    }
+    return IoError.Ok;
+}
+
+pub fn appendMarkBuffer(self: lend FormatBuffer, ch: char): IoError {
+    if (ch == '#') {
+        return appendCharBuffer(lend self, '\x1f');
+    }
+    return appendCharBuffer(lend self, ch);
+}
+
+pub fn appendNumberBuffer(self: lend FormatBuffer, value: u32): IoError {
+    let status = ensureBuffer(lend self, 32);
+    if (status != IoError.Ok) {
+        return status;
+    }
+    var scratch: ?*char = malloc(64) as ?*char;
+    if (scratch is null) {
+        return IoError.fAllocation;
+    }
+    let written = snprintf(scratch, 64, "%u", value);
+    if (written < 0) {
+        free(scratch);
+        return IoError.fWrite;
+    }
+    let status2 = appendRawBuffer(lend self, scratch, written as u64);
+    free(scratch);
+    return status2;
+}
+
+pub fn destroyBuffer(self: lend FormatBuffer): void {
+    free(self.data);
+    self.data = null;
+    self.capacity = 0;
+    self.length = 0;
+}
+
+pub fn formatString(self: []char, dest: lend FormatBuffer): IoError {
+    var chars: []char = self;
+    if (@lengthOf(chars) > 0) {
+        return appendRawBuffer(lend dest, @ptrOf(chars), @lengthOf(chars));
+    }
+    return IoError.Ok;
+}
+
+pub fn formatBool(self: bool, dest: lend FormatBuffer): IoError {
+    if (self) {
+        return appendRawBuffer(lend dest, "true", 4);
+    }
+    return appendRawBuffer(lend dest, "false", 5);
+}
+
+fn appendFloat(self: f64, dest: lend FormatBuffer): IoError {
+    var scratch: ?*char = malloc(64) as ?*char;
+    if (scratch is null) {
+        return IoError.fAllocation;
+    }
+    let written = snprintf(scratch, 64, "%g", self);
+    if (written < 0) {
+        free(scratch);
+        return IoError.fWrite;
+    }
+    let status = appendRawBuffer(lend dest, scratch, written as u64);
+    free(scratch);
+    return status;
+}
+
+pub fn formatF32(self: f32, dest: lend FormatBuffer): IoError {
+    return appendFloat(self as f64, lend dest);
+}
+
+pub fn formatF64(self: f64, dest: lend FormatBuffer): IoError {
+    return appendFloat(self, lend dest);
+}
+
+pub fn formatU32(self: u32, dest: lend FormatBuffer): IoError {
+    return appendNumberBuffer(lend dest, self);
+}
+
+pub fn formatPtr(self: *char, dest: lend FormatBuffer): IoError {
+    let length = strlen(self);
+    return appendRawBuffer(lend dest, self, length);
+}
+
+implement []char as Formatable {
+    fn format(self: []char, dest: lend FormatBuffer): IoError {
+        return formatString(self, lend dest);
+    }
+}
+
+implement bool as Formatable {
+    fn format(self: bool, dest: lend FormatBuffer): IoError {
+        return formatBool(self, lend dest);
+    }
+}
+
+implement f32 as Formatable {
+    fn format(self: f32, dest: lend FormatBuffer): IoError {
+        return formatF32(self, lend dest);
+    }
+}
+
+implement f64 as Formatable {
+    fn format(self: f64, dest: lend FormatBuffer): IoError {
+        return formatF64(self, lend dest);
+    }
+}
+
+implement u32 as Formatable {
+    fn format(self: u32, dest: lend FormatBuffer): IoError {
+        return formatU32(self, lend dest);
+    }
+}
+
+implement *char as Formatable {
+    fn format(self, dest: lend FormatBuffer): IoError {
+        return formatPtr(self, lend dest);
+    }
+}

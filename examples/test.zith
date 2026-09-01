@@ -1,9 +1,37 @@
-import "stdio.h"
-import std/counter
+// Exercises the stdlib I/O contract: positional formatting, the literal `\#`
+// escape, user-formatable structs, and line input.
+// Expected exit code: 0
 
-fn main(){
-    let c = std.counter.Counter{-50,50,1,true};
-    for (var i in std.counter.Counter{-2,2,1,true}){
-        printf("the index is %d\n", i);
+from std/io/console
+from std/io/format
+
+struct Point {
+    [x, y]: u32,
+
+    fn format(self, dest: lend FormatBuffer): IoError {
+        dest.appendRaw("(", 1);
+        dest.appendU32(self.x);
+        dest.appendRaw(", ", 2);
+        dest.appendU32(self.y);
+        dest.appendRaw(")", 1);
+        return IoError.Ok;
     }
+}
+
+implement Point as Formatable {
+    fn format(self, dest: lend FormatBuffer): IoError {
+        dest.appendRaw("Point#", 6);
+        self.format(lend dest);
+        return IoError.Ok;
+    }
+}
+
+fn main(): i32 {
+    println("point: #  hash: \#", Point { x: 3, y: 4 });
+    let line = input();
+    defer line.destroy();
+    if (line.good()) {
+        println("read: #", line.text());
+    }
+    return 0;
 }

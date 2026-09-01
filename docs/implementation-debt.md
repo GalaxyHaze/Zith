@@ -84,6 +84,36 @@ engenharia para rever e gerir.
 Estas entradas são detalhadas em [impl-status.md](/home/diogo/Zith/docs/impl-status.md) na secção
 `Known Debt` e devem ser movidas/consolidadas aqui quando forem tratadas.
 
+### 7. Falhas remanescentes conhecidas em `test-codegen`
+
+Estado de 2026-09-01: `./build/test-codegen` reporta `364 passed, 6 failed`.
+Estas falhas não pertencem ao contrato stdlib I/O e ficam para tratamento
+separado:
+
+- Pointer indexing inválido por ownership: `E4008 pointer to local storage
+  cannot escape the current scope` em dois verificações; a validade/borderline
+  destes programas deve ser revista.
+- `when` com ramos literal, range e default falha na compilação/dispatch;
+  precisa de revisão no frontend, sema ou lowering de ranges/`when`.
+- Qualified `lend`/`view` receivers falham verificação de IR (`E5001`);
+  o receiver mutante em `*T` qualificado ainda não é gerado de forma válida.
+
+Não avançar com estas correcções enquanto dura o trabalho de stdlib I/O, para
+manter o diff focado.
+
+### 8. `ParseInput` / `InputLine.cast<T>` ficou adiado
+
+- Estado: o contrato stdlib documenta `ParseInput` e `input().cast<T>` para
+  `bool`, `f32`, `f64`, `u32` e `*char`, mas o subset actual não suporta traits
+  com `Self` como retorno nem chamadas estáticas a um tipo genérico
+  (`T.parse(self)`); `line.cast<T>()` também não resolve como método genérico.
+- Dívida real: falta suporte a trait assinaturas polimórficas com `Self` no
+  retorno (`?Self`) para primitivos, ou uma solução de parsing sem trait
+  genérica (por exemplo métodos sobrecarregados por tipo no `InputLine`).
+- Decisão durante esta iteração: não bloquear `print`/`println`/`input` por esse
+  suporte; o `InputLine` actual devolve buffer e o parsing será adicionado num
+  passo posterior.
+
 ---
 
 ## Dívida de estrutura: monolitos

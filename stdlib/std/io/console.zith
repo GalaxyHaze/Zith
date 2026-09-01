@@ -1,5 +1,113 @@
-from c/io
+import "stdio.h"
+import "stdlib.h"
+from std/io/format
 
-pub fn println(msg: *char) {
-    puts(msg);
+/// Owned single-line input. `ok` is false only when the stream ended or a
+/// read failed; `text` is then empty.
+pub struct InputLine {
+    data: ?*char = null,
+    length: u64 = 0,
+    ok: bool = false,
+
+    fn text(self: view InputLine): view []char {
+        return raw self.data[0u64..self.length];
+    }
+
+    fn len(self: view InputLine): u64 {
+        return self.length;
+    }
+
+    fn good(self: view InputLine): bool {
+        return self.ok;
+    }
+
+    fn destroy(var self) {
+        free(self.data);
+        self.data = null;
+        self.length = 0;
+        self.ok = false;
+    }
+}
+
+fn inputLineAllocate(): ?*char {
+    return malloc(256) as ?*char;
+}
+
+pub fn input(): InputLine {
+    var data: ?*char = inputLineAllocate();
+    if (data is null) {
+        return InputLine { null, 0, false };
+    }
+    var length: u64 = 0;
+    var ch = getchar();
+    var ok = ch != -1;
+    for (ok and ch != 10 and length + 1 < 256) {
+        var chars: []char = raw data[0u64..256u64];
+        chars[length] = ch as char;
+        length = length + 1;
+        let next = getchar();
+        ok = next != -1;
+        ch = next;
+    }
+    var line = InputLine { data, length, ok };
+    return line;
+}
+
+fn formatNext(value: dyn Formatable, buffer: lend FormatBuffer): IoError {
+    return value.format(lend buffer);
+}
+
+fn writeBuffer(msg: []char, newline: bool, values: [...]dyn Formatable): IoError {
+    var buffer = emptyFormatBuffer();
+    var index: u64 = 0;
+    var next: u64 = 0;
+    let length = @lengthOf(msg);
+    var status = IoError.Ok;
+    for (index < length) {
+        let ch = raw msg[index];
+        if (ch == '#') {
+            if (index + 1 < length and raw msg[index + 1] == '\x1f') {
+                status = appendCharBuffer(lend buffer, '#');
+                index = index + 2;
+                continue;
+            }
+            if (next < @lengthOf(values)) {
+                status = formatNext(raw values[next], lend buffer);
+            } else {
+                status = appendRawBuffer(lend buffer, "{absent}", 8);
+            }
+            next = next + 1;
+            index = index + 1;
+            continue;
+        }
+        if (ch == '\x1f') {
+            status = appendCharBuffer(lend buffer, '#');
+            index = index + 1;
+            continue;
+        }
+        status = appendCharBuffer(lend buffer, ch);
+        index = index + 1;
+    }
+    if (newline) {
+        status = appendCharBuffer(lend buffer, '\n');
+    }
+    if (status == IoError.Ok) {
+        let text = buffer.text();
+        var index: u64 = 0;
+        let length = @lengthOf(text);
+        for (index < length) {
+            putchar((raw text[index]) as i32);
+            index = index + 1;
+        }
+    }
+    destroyBuffer(lend buffer);
+    return status;
+}
+
+pub fn print(msg: []char, values: [...]dyn Formatable): IoError {
+    return writeBuffer(msg, false, values);
+}
+
+pub fn println(msg: []char, values: [...]dyn Formatable): IoError {
+    return writeBuffer(msg, true, values);
 }

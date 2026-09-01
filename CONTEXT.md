@@ -49,3 +49,33 @@ _Avoid_: importer, resolver, module loader
 **Module resolution**:
 The per-module mapping from expression nodes and bindings to concrete declarations, imports, and foreign C header entries.
 _Avoid_: symbol table, binding table
+
+## Standard Library
+
+**Formatable**:
+The trait implemented by values that can be rendered through `print`/`println`.
+_Avoid_: Printable, displayable, serializer
+
+**FormatBuffer**:
+The backing object supplied to `Formatable.format(self, dest)` so a value can append its rendered text.
+_Avoid_: string builder, write buffer, output stream
+
+**InputLine**:
+The wrapper returned by `input()`. It owns the read buffer, exposes the trimmed line through methods, and supports `cast<T>`.
+_Avoid_: input string, result line, readline result
+
+**ParseInput**:
+The trait implemented by primitive input types that can be parsed from an `InputLine`; a failed parse returns `null`.
+_Avoid_: parser, conversion trait, strconv
+
+**IoError**:
+The result type used by `print`/`println` (and potentially `input`) for allocation and write failures in Zith--.
+_Avoid_: error union, result error, failable error
+
+**Consume**:
+The ownership convention for resource cleanup: `destroy(self: lend)` owns and consumes the value, calling `free`/release internally.
+_Avoid_: destructor, drop, free method
+
+**Primitive erasure**:
+Erasing a primitive value to a `dyn Trait` fat pointer so it can be handled through the same dynamic-dispatch surface as structs.
+_Avoid_: boxing, wrapping, vtbl primitive
