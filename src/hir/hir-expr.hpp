@@ -44,6 +44,7 @@ enum class HirExprKind : uint8_t {
     UnionCheck,
     LayoutIntrinsic,
     StateTailCall,
+    CanonicalType,
     Cleanup,
     GlobalConstLoad,
     MakeDyn,
@@ -363,7 +364,8 @@ struct HirMakeOpaque {
     HirTypeId source_type = types::kInvalidType;
     HirTypeId opaque_type = types::kInvalidType;
     uint32_t type_id      = 0;
-    HirExprKind tag       = HirExprKind::MakeOpaque;
+    types::TypeCanonicalId canonical_id{};
+    HirExprKind tag = HirExprKind::MakeOpaque;
 };
 
 /// Checked (or raw reinterpreting) extraction of a concrete value from a bare
@@ -376,7 +378,8 @@ struct HirOpaqueCast {
     HirTypeId opaque_type = types::kInvalidType;
     HirTypeId result_type = types::kInvalidType; // checked: `?to`, raw: `to`
     uint32_t type_id      = 0;
-    bool checked          = false;
+    types::TypeCanonicalId canonical_id{};
+    bool checked = false;
     /// `as raw opaque` reinterprets the tagged payload pointer itself (field 0)
     /// as `void*`, so codegen does not load through the payload.
     bool returns_ptr = false;
@@ -389,7 +392,8 @@ struct HirOpaqueCheck {
     HirExprId value       = hir::kInvalidHirExpr;
     HirTypeId opaque_type = types::kInvalidType;
     uint32_t type_id      = 0;
-    HirExprKind tag       = HirExprKind::OpaqueCheck;
+    types::TypeCanonicalId canonical_id{};
+    HirExprKind tag = HirExprKind::OpaqueCheck;
 };
 
 /// A terminating runtime failure, used for checked optional extraction.
@@ -399,13 +403,21 @@ struct HirRuntimePanic {
     HirExprKind tag = HirExprKind::RuntimePanic;
 };
 
+/// Compile-time canonical type identity: `at-canonicalType(T)`.
+struct HirCanonicalType {
+    types::TypeCanonicalId canonical_id{};
+    HirTypeId type  = types::kInvalidType;
+    HirExprKind tag = HirExprKind::CanonicalType;
+};
+
 using HirExpr =
     std::variant<HirLiteral, HirBinary, HirUnary, HirLet, HirVar, HirCall, HirRet, HirBranch,
                  HirJump, HirPhi, HirAssign, HirIndex, HirField, HirStructLiteral, HirArrayLiteral,
                  HirEnumValue, HirSlotAlloca, HirSlotStore, HirSlotLoad, HirSlotAddr, HirMakeNone,
                  HirMakeSome, HirMakeSlice, HirCast, HirUnionCast, HirUnionCheck,
                  HirLayoutIntrinsic, HirStateTailCall, HirCleanup, HirGlobalConstLoad, HirMakeDyn,
-                 HirDynCall, HirMakeOpaque, HirOpaqueCast, HirOpaqueCheck, HirRuntimePanic>;
+                 HirDynCall, HirMakeOpaque, HirOpaqueCast, HirOpaqueCheck, HirRuntimePanic,
+                 HirCanonicalType>;
 
 inline HirExprKind exprKind(const HirExpr &expr) {
     return std::visit([](const auto &entry) { return entry.tag; }, expr);

@@ -1,5 +1,6 @@
 #include "sema/hir-lower-modern.hpp"
 
+#include "cache/cache.hpp"
 #include "cinterop/c-header.hpp"
 #include "common/overloaded.hpp"
 #include "sema/hir-lower-utils.hpp"
@@ -16,7 +17,7 @@ uint32_t HirLowerModern::alignUp(uint32_t value, uint32_t align) noexcept {
     return remainder == 0 ? value : value + (align - remainder);
 }
 
-uint32_t HirLowerModern::lowerTypeSize(types::TypeId type) noexcept {
+uint32_t HirLowerModern::lowerTypeSize(types::TypeId type) const noexcept {
     switch (types_.kindOf(type)) {
     case types::TypeKind::Bool:
     case types::TypeKind::Char:
@@ -118,7 +119,7 @@ uint32_t HirLowerModern::lowerTypeSize(types::TypeId type) noexcept {
     }
 }
 
-uint32_t HirLowerModern::lowerTypeAlign(types::TypeId type) noexcept {
+uint32_t HirLowerModern::lowerTypeAlign(types::TypeId type) const noexcept {
     switch (types_.kindOf(type)) {
     case types::TypeKind::Bool:
     case types::TypeKind::Char:
@@ -611,12 +612,15 @@ sema::modern::TypeId HirLowerModern::semaTypeOfExpr(frontend::ExprId id) {
                : *sema_id_ptr;
 }
 
-uint32_t HirLowerModern::stableConcreteTypeId(types::TypeId type) const {
-    uint32_t hash     = 2166136261U;
+types::TypeCanonicalId HirLowerModern::canonicalTypeId(types::TypeId type) const {
+    uint64_t hi_hash  = 14695981039346656037ULL;
+    uint64_t lo_hash  = 14695981039346656037ULL;
     const auto append = [&](const uint8_t *bytes, size_t count) {
         for (size_t i = 0; i < count; ++i) {
-            hash ^= bytes[i];
-            hash *= 16777619U;
+            hi_hash ^= bytes[i];
+            hi_hash *= 1099511628211ULL;
+            lo_hash ^= static_cast<uint8_t>(bytes[i] ^ 0x5cu);
+            lo_hash *= 1099511628211ULL;
         }
     };
     auto appendU64 = [&](uint64_t value) {
@@ -669,9 +673,23 @@ uint32_t HirLowerModern::stableConcreteTypeId(types::TypeId type) const {
                            appendU64(10);
                            const auto &def = types_.getStructDef(current);
                            appendName(def.name);
-                           for (const auto &field : def.fields) {
-                               appendName(field.name);
-                               self(self, field.type);
+                           // Canonical field order is size-stable for opaque
+                           // hydration: same concrete struct spelled in two
+                           // modules must hash in identical field order.
+                           std::vector<size_t> order(static_cast<size_t>(def.fields.size()));
+                           for (size_t index = 0; index < order.size(); ++index)
+                               order[index] = index;
+                           std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+                               const size_t bytes_a = lowerTypeSize(def.fields[a].type);
+                               const size_t bytes_b = lowerTypeSize(def.fields[b].type);
+                               if (bytes_a != bytes_b)
+                                   return bytes_a < bytes_b;
+                               return interner_.lookup(def.fields[a].name) <
+                                      interner_.lookup(def.fields[b].name);
+                           });
+                           for (const size_t index : order) {
+                               appendName(def.fields[index].name);
+                               self(self, def.fields[index].type);
                            }
                        },
                        [&](const types::TypeFn &t) {
@@ -776,7 +794,18 @@ uint32_t HirLowerModern::stableConcreteTypeId(types::TypeId type) const {
                         snapshot_.cacheKey());
     append(reinterpret_cast<const uint8_t *>(domain.data()), domain.size());
 
-    return hash == 0U ? 1U : hash;
+    types::TypeCanonicalId result;
+    result.hi = hi_hash;
+    result.lo = lo_hash;
+    return result;
+}
+
+uint32_t
+HirLowerModern::runtimeTagForCanonicalType(const types::TypeCanonicalId &canonical_id) const {
+    const uint32_t tag = cache_store_ != nullptr ? cache_store_->assignCanonicalId(canonical_id)
+                                                 : types_.canonicalTag(canonical_id, 0U);
+    types_.setCanonicalTag(canonical_id, tag);
+    return tag;
 }
 
 /// `x is null` lowers to a tag/pointer comparison; no dedicated HIR node is needed.

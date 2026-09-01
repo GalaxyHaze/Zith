@@ -108,6 +108,7 @@ Implementation work that is incomplete or needs review is tracked in
 | range `1..5` | **Check only** | Parsed as binary `..`; no dedicated sema |
 | struct literal `Foo { x: 1, y: 2 }` | **Working** | Struct literal with named fields via `{}` syntax. Inaccessible private/mod fields are rejected except in the file that declares the struct |
 | `@sizeOf`, `@offsetOf`, `@alignOf` | **Working** | `@` parses in expression position. `@sizeOf(T)` accepts any complete type and types as `u64`; `@offsetOf(S, field)` and `@alignOf(S)` are struct-only and type as `i32`. `@sizeOf(void)` reports `E3001` ("requires a complete type") |
+| `@canonicalType` | **Working** | Returns a stable `u128` derived from module namespace, canonical field order, and type name; lowers to `HirCanonicalType` and is serialized through the artifact cache. |
 
 ### Control Flow
 

@@ -79,3 +79,21 @@ _Avoid_: destructor, drop, free method
 **Primitive erasure**:
 Erasing a primitive value to a `dyn Trait` fat pointer so it can be handled through the same dynamic-dispatch surface as structs.
 _Avoid_: boxing, wrapping, vtbl primitive
+
+## Opaque Identity
+
+**Canonical type id**:
+The stable 128-bit identity of a Zith type, derived from its defining module namespace, canonical field order, and type name, used to hydrate `opaque` values.
+_Avoid_: typeId, tag hash, deterministic hash id
+
+**Runtime opaque tag**:
+The project-local `u32` assigned by the compiler for a canonical type id and stored in the opaque runtime representation.
+_Avoid_: global type id, canonical runtime id, stable tag
+
+**Canonical type registry**:
+The persistent project cache file that records which canonical type ids already have runtime opaque tags, used to keep later builds stable.
+_Avoid_: global registry, runtime type table, tag table
+
+**Canonical opaque mapping**:
+The serialized per-artifact pair `{ canonical type id, runtime opaque tag }` that lets a cached opaque value be hydrated with its original tag.
+_Avoid_: opaque metadata, tag recovery record, cache typehash

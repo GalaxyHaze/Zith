@@ -69,10 +69,11 @@ private:
     [[nodiscard]] ExprId parsePostfix(ExprId result, uint32_t start);
 
     static constexpr const char *kIntrinsicNames[] = {
-        "offsetOf", "alignOf",     "sizeOf",      "fields",       "hasTrait", "struct", "component",
-        "union",    "enum",        "nullable",    "primitive",    "allocate", "pack",   "toStruct",
-        "toPack",   "appendField", "removeField", "appendMethod", "file",     "line",   "fnName",
-        "location", "ok",          "err",         "lengthOf",     "ptrOf",
+        "offsetOf",  "alignOf",  "sizeOf",        "fields",      "hasTrait",    "struct",
+        "component", "union",    "enum",          "nullable",    "primitive",   "allocate",
+        "pack",      "toStruct", "toPack",        "appendField", "removeField", "appendMethod",
+        "file",      "line",     "fnName",        "location",    "ok",          "err",
+        "lengthOf",  "ptrOf",    "canonicalType",
     };
 
     static bool isIntrinsicName(std::string_view name) noexcept;

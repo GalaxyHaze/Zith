@@ -141,6 +141,12 @@ detecciona o literal mesmo depois do retype do sema, cria o pointer literal deco
 que não é literal não converte para `[]char`; a conversão implícita de `[]char` para `*char`
 equivale a `@ptrOf` e é marcada como escaping por `E4008` quando escapa ao storage local.
 
+`@canonicalType(T)` segue o caminho de `LayoutIntrinsic` no frontend, mas o sema tipa a
+expressão como `u128`. `HirLowerModern::canonicalTypeId` deriva o id estável a partir do
+namespace do módulo, tipo e campos ordenados por tamanho; `lowerLayoutIntrinsic` materializa
+`HirCanonicalType`. Codegen emite o valor como constante `i128` e o cache persiste os dois
+`uint64_t` do id.
+
 `inferMethodCall` reconhece `p.Trait.method()` (AST `Call(Field(Field(p, Trait), method))`)
 antes da lookup normal. Quando o receiver é um struct que satisfaz a trait/interface nomeada,
 o nó intermediário `p.Trait` é marcado com o tipo concreto e o recebedor real é guardado em

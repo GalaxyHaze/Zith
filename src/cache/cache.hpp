@@ -4,10 +4,13 @@
 #include "cache/cache-types.hpp"
 #include "cache/manifest.hpp"
 #include "session/frontend-context.hpp" // session::CacheKey, session::ContentFingerprint
+#include "types/type-id.hpp"
 #include "zirl/zirl-header.hpp"
 
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -23,11 +26,23 @@ struct StoreMetrics {
     size_t evictions = 0;
 };
 
+struct CanonicalIdLess {
+    [[nodiscard]] bool operator()(const types::TypeCanonicalId &a,
+                                  const types::TypeCanonicalId &b) const noexcept {
+        return a.hi != b.hi ? a.hi < b.hi : a.lo < b.lo;
+    }
+};
+
 // Persistent per-module artifact store.  Owns the on-disk cache directory and a
 // Manifest for reverse-dependency invalidation.  Thread-safe.
 class Store {
 public:
     Store(std::string cache_root, const session::CacheKey &cache_key);
+
+    /// Return the project-local opaque tag for `canonical_id`, assigning a new
+    /// stable tag when the id is seen for the first time and persisting it to
+    /// `<cacheRoot>/canonical-any`.
+    uint32_t assignCanonicalId(const types::TypeCanonicalId &canonical_id);
 
     // Try to load and validate the artifact for `canonical_path` whose source
     // fingerprint is `fp`.  Returns the artifact on a full hit, or std::nullopt
@@ -63,10 +78,16 @@ private:
     std::string root_;
     uint32_t cache_key_hash_ = 0;
     Manifest manifest_;
+    mutable std::mutex canonical_mutex_;
+    std::map<types::TypeCanonicalId, uint32_t, CanonicalIdLess> canonical_registry_;
+    std::map<uint32_t, types::TypeCanonicalId> canonical_by_tag_;
     mutable std::mutex metrics_mutex_;
     StoreMetrics metrics_;
 
     [[nodiscard]] std::string artifactPath(std::string_view canonical_path) const;
+    [[nodiscard]] std::string canonicalRegistryPath() const;
+    void loadCanonicalRegistry();
+    void saveCanonicalRegistryLocked();
     void bumpHits() {
         std::lock_guard<std::mutex> lock(metrics_mutex_);
         ++metrics_.hits;

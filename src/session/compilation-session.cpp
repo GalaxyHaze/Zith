@@ -626,24 +626,17 @@ bool CompilationSession::scanStage() {
     if (mCacheHydrated) {
         if (mHydratedEntry.has_value()) {
             const auto &art = mHydratedEntry->artifact;
-            const bool has_opaque_type =
-                std::any_of(art.types.begin(), art.types.end(), [](const cache::CompactType &ct) {
-                    return ct.kind == cache::CompactTypeKind::OpaqueTagged;
-                });
-            const bool has_opaque_node =
-                std::any_of(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &ce) {
-                    return ce.kind == cache::CompactExprKind::MakeOpaque ||
-                           ce.kind == cache::CompactExprKind::OpaqueCast ||
-                           ce.kind == cache::CompactExprKind::OpaqueCheck;
-                });
-            if (has_opaque_type || has_opaque_node) {
-                mDiags.reportError(
-                    diagnostics::err::UnsupportedSyntax,
-                    "cached bare 'opaque' values are not supported because their type ids "
-                    "are module-local in this version; invalidate the cache or disable it "
-                    "before compiling this module",
-                    memory::Span{});
-                return false;
+            for (const auto &mapping : art.canonical_mappings) {
+                const types::TypeCanonicalId canonical_id{mapping.hi, mapping.lo};
+                const uint32_t expected = mCacheStore->assignCanonicalId(canonical_id);
+                if (mapping.runtime_id != expected) {
+                    mDiags.reportError(
+                        diagnostics::err::UnsupportedSyntax,
+                        "cached canonical opaque tag is unstable; invalidate the cache and "
+                        "rebuild this project",
+                        memory::Span{});
+                    return false;
+                }
             }
         }
         if (mOpts.get().flags.emitHir()) {
@@ -760,7 +753,7 @@ bool CompilationSession::lowerStage() {
     }
 
     sema::modern::HirLowerModern lower(mHirArena, mDiags, *mSnapshot, *mModernSemaPipeline, mTypes,
-                                       *mInterner, mNraFacts.get());
+                                       *mInterner, mNraFacts.get(), mCacheStore.get());
     if (!lower.run()) {
         mDiags.emit();
         return false;
@@ -1393,6 +1386,10 @@ void CompilationSession::writePersistentCache() {
 void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
     // Recreate the exported surface first so downstream lookup (including
     // methods that point at Fn declarations) sees stable symbol ids.
+    mTypes.setCurrentModule(art.canonical_path);
+    for (const auto &mapping : art.canonical_mappings) {
+        mTypes.setCanonicalTag(types::TypeCanonicalId{mapping.hi, mapping.lo}, mapping.runtime_id);
+    }
     std::vector<symbols::SymId> decl_sym_ids;
     decl_sym_ids.reserve(art.decls.size());
     for (const auto &decl : art.decls) {
@@ -1875,38 +1872,56 @@ void CompilationSession::hydrateFromArtifact(const cache::Artifact &art) {
         }
         case cache::CompactExprKind::MakeOpaque: {
             hir::HirMakeOpaque make;
-            make.value       = ce.ref_a;
-            make.source_type = compactType(ce.ref_b);
-            make.opaque_type = compactType(ce.type_id);
-            make.type_id     = ce.ref_c;
-            expr             = std::move(make);
+            make.value        = ce.ref_a;
+            make.source_type  = compactType(ce.ref_b);
+            make.opaque_type  = compactType(ce.type_id);
+            make.type_id      = ce.ref_c;
+            make.canonical_id = ce.ints.size() >= 2U
+                                    ? types::TypeCanonicalId{ce.ints[0], ce.ints[1]}
+                                    : types::kInvalidCanonicalId;
+            expr              = std::move(make);
             break;
         }
         case cache::CompactExprKind::OpaqueCast: {
             hir::HirOpaqueCast cast;
-            cast.value       = ce.ref_a;
-            cast.from        = compactType(ce.ref_b);
-            cast.to          = compactType(ce.ref_c);
-            cast.opaque_type = compactType(ce.ref_d);
-            cast.result_type = compactType(ce.type_id);
-            cast.type_id     = ce.ref_e;
-            cast.checked     = (ce.flags & 1U) != 0;
-            cast.returns_ptr = (ce.flags & 2U) != 0;
-            expr             = std::move(cast);
+            cast.value        = ce.ref_a;
+            cast.from         = compactType(ce.ref_b);
+            cast.to           = compactType(ce.ref_c);
+            cast.opaque_type  = compactType(ce.ref_d);
+            cast.result_type  = compactType(ce.type_id);
+            cast.type_id      = ce.ref_e;
+            cast.canonical_id = ce.ints.size() >= 2U
+                                    ? types::TypeCanonicalId{ce.ints[0], ce.ints[1]}
+                                    : types::kInvalidCanonicalId;
+            cast.checked      = (ce.flags & 1U) != 0;
+            cast.returns_ptr  = (ce.flags & 2U) != 0;
+            expr              = std::move(cast);
             break;
         }
         case cache::CompactExprKind::OpaqueCheck: {
             hir::HirOpaqueCheck check;
-            check.value       = ce.ref_a;
-            check.opaque_type = compactType(ce.type_id);
-            check.type_id     = ce.ref_e;
-            expr              = std::move(check);
+            check.value        = ce.ref_a;
+            check.opaque_type  = compactType(ce.type_id);
+            check.type_id      = ce.ref_e;
+            check.canonical_id = ce.ints.size() >= 2U
+                                     ? types::TypeCanonicalId{ce.ints[0], ce.ints[1]}
+                                     : types::kInvalidCanonicalId;
+            expr               = std::move(check);
             break;
         }
         case cache::CompactExprKind::RuntimePanic: {
             hir::HirRuntimePanic panic;
             panic.code = static_cast<uint32_t>(ce.int_val);
             expr       = std::move(panic);
+            break;
+        }
+        case cache::CompactExprKind::CanonicalType: {
+            hir::HirCanonicalType canonical;
+            canonical.type         = compactType(ce.type_id);
+            canonical.canonical_id = ce.ints.size() >= 2U
+                                         ? types::TypeCanonicalId{ce.ints[0], ce.ints[1]}
+                                         : types::kInvalidCanonicalId;
+            expr                   = std::move(canonical);
             break;
         }
         }

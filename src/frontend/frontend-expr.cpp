@@ -199,7 +199,8 @@ ExprId AstLowerer::parsePrimary() {
                     else
                         snapshot_.diagnostics_.push_back(
                             {range(start, index_), "expected ')' after intrinsic arguments"});
-                } else if ((name == "offsetOf" || name == "alignOf" || name == "sizeOf") &&
+                } else if ((name == "offsetOf" || name == "alignOf" || name == "sizeOf" ||
+                            name == "canonicalType") &&
                            punctuation(index_, '(')) {
                     ++index_;
                     expr.cast_type = parseType();

@@ -2094,6 +2094,7 @@ The Rule of Three keeps code readable. Zith gives you many tools — you don't h
 |---|---|
 | `@fields T` | Iterate the fields of a type. |
 | `@sizeOf T` | Size of a type, in bytes. |
+| `@canonicalType T` | Stable canonical type identity, returned as `u128`. |
 | `@hasTrait T, Trait` | Check whether a type implements a trait. |
 | `@struct` / `@component` / `@union` / `@enum` | Type-kind checks, used with `is`. |
 | `@nullable` | Check whether a type is nullable (`?T`). |

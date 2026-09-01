@@ -420,6 +420,17 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
                 }
                 return llvm::ConstantInt::get(llvm::Type::getInt64Ty(builder_.getContext()), value);
             },
+            [&](const hir::HirCanonicalType &canonical) -> llvm::Value * {
+                if (canonical.type == types::kErrorType || canonical.type == types::kInvalidType)
+                    return nullptr;
+                const auto &type_data = types_.lookup(canonical.type);
+                const auto *int_type  = std::get_if<types::TypeInt>(&type_data);
+                if (int_type == nullptr || types::intWidthBits(int_type->width) != 128U)
+                    return nullptr;
+                const uint64_t words[] = {canonical.canonical_id.lo, canonical.canonical_id.hi};
+                auto value = llvm::ConstantInt::get(builder_.getContext(), llvm::APInt(128, words));
+                return builder_.CreateIntCast(value, typeGen_.lower(canonical.type), false);
+            },
         });
     if (emitted != nullptr)
         emittedValues_.insert(id, emitted);

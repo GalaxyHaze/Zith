@@ -110,6 +110,7 @@ void addCode(Artifact &art) {
     art.functions.push_back(fn);
     art.exprs.push_back(lit);
     art.exprs.push_back(ret);
+    art.canonical_mappings.push_back({0x1122334455667788ULL, 0x99AABBCCDDEEFF00ULL, 0xCAFEBABEu});
 }
 
 void addModernCode(Artifact &art) {
@@ -181,6 +182,12 @@ void addModernCode(Artifact &art) {
     tail.args      = {0};
     tail.arg_types = {0};
     art.exprs.push_back(tail);
+
+    CompactExpr canonical;
+    canonical.kind    = CompactExprKind::CanonicalType;
+    canonical.type_id = 0;
+    canonical.ints    = {0x1122334455667788ULL, 0x99AABBCCDDEEFF00ULL};
+    art.exprs.push_back(canonical);
 
     CompactBasicBlock blk;
     blk.terminator = 5;
@@ -317,6 +324,15 @@ static void test_code_section_round_trip() {
         CHECK(decoded.functions[0].is_variadic, "decodeCode preserves the variadic flag");
         CHECK(decoded.functions[0].name_id == 0, "decodeCode preserves the function name id");
     }
+    CHECK_EQ(decoded.canonical_mappings.size(), 1u, "decodeCode preserves canonical mappings");
+    if (decoded.canonical_mappings.size() == 1u) {
+        CHECK_EQ(decoded.canonical_mappings[0].hi, 0x1122334455667788ULL,
+                 "canonical mapping hi preserved");
+        CHECK_EQ(decoded.canonical_mappings[0].lo, 0x99AABBCCDDEEFF00ULL,
+                 "canonical mapping lo preserved");
+        CHECK_EQ(decoded.canonical_mappings[0].runtime_id, 0xCAFEBABEu,
+                 "canonical mapping runtime id preserved");
+    }
 }
 
 static void test_modern_code_section_round_trip() {
@@ -341,8 +357,8 @@ static void test_modern_code_section_round_trip() {
     if (!decoded.functions[0].param_slot_ids.empty())
         CHECK_EQ(decoded.functions[0].param_slot_ids[0], 1u,
                  "function parameter slot value preserved");
-    CHECK_EQ(decoded.exprs.size(), 6u, "modern expression pool preserved");
-    if (decoded.exprs.size() == 6u) {
+    CHECK_EQ(decoded.exprs.size(), 7u, "modern expression pool preserved");
+    if (decoded.exprs.size() == 7u) {
         CHECK(decoded.exprs[0].kind == CompactExprKind::Literal, "literal kind preserved");
         CHECK(decoded.exprs[1].kind == CompactExprKind::Cast, "cast kind preserved");
         CHECK_EQ(decoded.exprs[1].ref_e, 0u, "cast from-type preserved");
@@ -358,6 +374,14 @@ static void test_modern_code_section_round_trip() {
               "state tail call kind preserved");
         CHECK_EQ(decoded.exprs[5].ref_b, 9u, "state tail direct callee symbol preserved");
         CHECK_EQ(decoded.exprs[5].arg_types.size(), 1u, "state tail call arg types preserved");
+        CHECK(decoded.exprs[6].kind == CompactExprKind::CanonicalType,
+              "canonical type kind preserved");
+        CHECK_EQ(decoded.exprs[6].type_id, 0u, "canonical type id expression type preserved");
+        CHECK_EQ(decoded.exprs[6].ints.size(), 2u, "canonical type id words preserved");
+        CHECK_EQ(decoded.exprs[6].ints[0], 0x1122334455667788ULL,
+                 "canonical type id high word preserved");
+        CHECK_EQ(decoded.exprs[6].ints[1], 0x99AABBCCDDEEFF00ULL,
+                 "canonical type id low word preserved");
     }
 }
 

@@ -14,6 +14,10 @@
 #include <string_view>
 #include <vector>
 
+namespace zith::cache {
+class Store;
+}
+
 namespace zith::sema::modern {
 
 class HirLowerModern {
@@ -21,7 +25,7 @@ public:
     HirLowerModern(memory::Arena &arena, diagnostics::DiagnosticEngine &diags,
                    const session::CompilationSnapshot &snapshot, SemaPipeline &sema,
                    types::TypeIntern &types, memory::StringInterner &interner,
-                   const NraFacts *nra = nullptr);
+                   const NraFacts *nra = nullptr, cache::Store *cache_store = nullptr);
 
     bool run();
     hir::HirModule takeHir() {
@@ -97,6 +101,7 @@ private:
     /// deferred body can safely read a binding declared later in the block.
     std::vector<std::vector<frontend::StmtId>> pending_defers_;
     const session::ModuleArtifact *current_module_                   = nullptr;
+    cache::Store *cache_store_                                       = nullptr;
     const session::ModuleResolution *current_resolution_             = nullptr;
     const TypedMap *current_types_                                   = nullptr;
     const comptime::GenericInstantiationPass *current_instantiation_ = nullptr;
@@ -142,8 +147,8 @@ private:
     /// C runtime sees a well-defined success code.
     bool current_main_void_ = false;
 
-    uint32_t lowerTypeSize(types::TypeId type) noexcept;
-    uint32_t lowerTypeAlign(types::TypeId type) noexcept;
+    uint32_t lowerTypeSize(types::TypeId type) const noexcept;
+    uint32_t lowerTypeAlign(types::TypeId type) const noexcept;
     /// Number of payload bytes a tagged union needs to store its member index.
     static uint32_t tagByteCount(uint32_t member_count) noexcept;
     /// The integer HIR type used for a tagged union's member-index tag.
@@ -158,9 +163,13 @@ private:
                                       uint32_t member_index);
     static uint32_t alignUp(uint32_t value, uint32_t align) noexcept;
     /// Module-local deterministic id used for `opaque` tag checks and storage.
-    /// The id is stable for the same concrete HIR type inside one module, but is
-    /// not shared across modules in this first implementation.
-    uint32_t stableConcreteTypeId(types::TypeId type) const;
+    /// Canonical 128-bit type id used by `at-canonicalType(T)` and opaque
+    /// hydration. Derived from module namespace, ordered fields, and type name.
+    types::TypeCanonicalId canonicalTypeId(types::TypeId type) const;
+    /// Project-local runtime tag assigned by the persistent cache registry for
+    /// `canonical_id`. Falls back to a session-local TypeIntern tag when no
+    /// cache store is attached (unit tests and non-cached compilations).
+    uint32_t runtimeTagForCanonicalType(const types::TypeCanonicalId &canonical_id) const;
 
     types::TypeId lowerType(sema::modern::TypeId type);
     sema::modern::TypeId lowerTypeExprConcrete(frontend::TypeExprId id);

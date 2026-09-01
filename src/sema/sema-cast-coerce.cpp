@@ -411,6 +411,14 @@ TypeId PerModuleSema::inferLayoutIntrinsic(frontend::ExprId id) {
     if (!target)
         return error_type;
     const TypeId resolved = resolve(target);
+    if (expr.text == "canonicalType") {
+        if (type_table.kindOf(resolved) == TypeKind::Void) {
+            report(expr.span, "'@canonicalType' requires a complete type",
+                   diagnostics::err::TypeMismatch);
+            return error_type;
+        }
+        return type_table.lookupNamed("u128");
+    }
     // @sizeOf applies to any complete type (primitives and structs alike) and
     // reports its size in bytes as u64; offsetOf/alignOf stay struct-only.
     if (expr.text == "sizeOf") {

@@ -37,6 +37,26 @@ struct Workspace {
     }
 };
 
+struct IsolatedWorkspace {
+    fs::path root = fs::temp_directory_path() / "zith-hir-modern-canonical-persist-test";
+
+    IsolatedWorkspace() {
+        fs::remove_all(root);
+        fs::create_directories(root);
+    }
+
+    ~IsolatedWorkspace() {
+        fs::remove_all(root);
+    }
+
+    void writeFile(const fs::path &relative_path, std::string_view contents) const {
+        const auto destination = root / relative_path;
+        fs::create_directories(destination.parent_path());
+        std::ofstream output(destination, std::ios::binary | std::ios::trunc);
+        output << contents;
+    }
+};
+
 // HIR function names are qualified (`<namespace>.<Owner>.<name>(<params>)`) for everything
 // except `extern fn` and `main`, so match on the bare source name.
 std::string_view sourceName(std::string_view linkage_name) {
@@ -977,6 +997,18 @@ void test_opaque_casts_lower_to_hir_nodes() {
     CHECK(countExprKind(hir, hir::HirExprKind::OpaqueCast) > 0u,
           "extraction lowers to HirOpaqueCast");
 
+    bool saw_canonical_id = false;
+    for (size_t id = 0; id < hir.exprCount(); ++id) {
+        const auto &expr = hir.getExpr(static_cast<hir::HirExprId>(id));
+        const auto *make = std::get_if<hir::HirMakeOpaque>(&expr);
+        const auto *cast = std::get_if<hir::HirOpaqueCast>(&expr);
+        if (make != nullptr && make->canonical_id != types::kInvalidCanonicalId)
+            saw_canonical_id = true;
+        if (cast != nullptr && cast->canonical_id != types::kInvalidCanonicalId)
+            saw_canonical_id = true;
+    }
+    CHECK(saw_canonical_id, "opaque HIR nodes carry a canonical type id");
+
     const auto *raw_extracts = findFunction(hir, session.interner(), "raw_extracts");
     CHECK(raw_extracts != nullptr, "raw extraction function is present");
     if (raw_extracts != nullptr) {
@@ -1006,6 +1038,35 @@ void test_opaque_casts_lower_to_hir_nodes() {
         }
         CHECK(saw_ptr, "opaque as raw opaque lowers to a pointer-returning HirOpaqueCast");
         CHECK(correct_target, "the raw opaque cast targets pointer-to-void, not OpaqueTagged");
+    }
+}
+
+void test_canonical_type_lowers_to_hir_node() {
+    Workspace workspace;
+    workspace.writeFile("main.zith", "struct Pair { a: i64, b: i8 }\n"
+                                     "fn main(): u128 {\n"
+                                     "    @canonicalType(Pair)\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "'@canonicalType(T)' lowers to a dedicated HIR node");
+
+    const auto &hir = session.hirModule();
+    CHECK(countExprKind(hir, hir::HirExprKind::CanonicalType) >= 1u,
+          "'@canonicalType(T)' emits HirCanonicalType");
+
+    for (size_t id = 0; id < hir.exprCount(); ++id) {
+        const auto *canonical =
+            std::get_if<hir::HirCanonicalType>(&hir.getExpr(static_cast<hir::HirExprId>(id)));
+        if (canonical == nullptr)
+            continue;
+        CHECK(canonical->canonical_id != types::kInvalidCanonicalId,
+              "canonical type id is populated");
+        CHECK(canonical->type != types::kInvalidType, "canonical type expression has a HIR type");
     }
 }
 
@@ -1040,6 +1101,102 @@ void test_implicit_opaque_coercion_and_narrow_lowering() {
     }
     CHECK(saw_narrowed_cast,
           "reading an opaque local inside 'is T' lowers to an unchecked HirOpaqueCast");
+}
+
+void test_opaque_canonical_tags_persist_across_sessions() {
+    IsolatedWorkspace workspace;
+    const std::string source =
+        "fn make(): opaque { 42u32 }\n"
+        "fn checks(v: opaque): bool { v is u32 }\n"
+        "fn main(): ?u32 { let v = make(); if (checks(v)) { raw v as u32 } else { null } }\n";
+    workspace.writeFile("main.zith", source);
+
+    memory::Arena firstArena;
+    Options firstOptions(firstArena);
+    firstOptions.noCache     = false;
+    firstOptions.targetStage = session::Stage::Cached;
+    session::CompilationSession first(firstOptions, (workspace.root / "main.zith").string());
+    first.setBuffered(true);
+    const bool first_ok = first.run();
+    CHECK(first_ok, "first opaque session lowers and writes the persistent cache");
+    CHECK(first.hirModule().getFnCount() > 0u, "first session produced HIR");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.noCache = false;
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "second opaque session hydrates from the persistent artifact");
+    const auto &hir = session.hirModule();
+
+    bool sawMake      = false;
+    bool sawCheck     = false;
+    uint32_t makeTag  = 0;
+    uint32_t checkTag = 0;
+    for (size_t id = 0; id < hir.exprCount(); ++id) {
+        const auto &expr = hir.getExpr(static_cast<hir::HirExprId>(id));
+        if (const auto *make = std::get_if<hir::HirMakeOpaque>(&expr)) {
+            sawMake = true;
+            makeTag = make->type_id;
+        }
+        if (const auto *check = std::get_if<hir::HirOpaqueCheck>(&expr)) {
+            sawCheck = true;
+            checkTag = check->type_id;
+        }
+    }
+    CHECK(sawMake && sawCheck, "hydrated opaque HIR contains make and check nodes");
+    CHECK(makeTag != 0u && makeTag == checkTag,
+          "hydrated opaque nodes agree on the stable runtime tag");
+}
+
+void test_imported_type_canonical_id_persists_across_sessions() {
+    IsolatedWorkspace workspace;
+    workspace.writeFile("dep.zith", "pub struct Counter {\n"
+                                    "    pub n: i32,\n"
+                                    "    pub flag: bool,\n"
+                                    "}\n");
+    workspace.writeFile("main.zith", "from dep\n"
+                                     "\n"
+                                     "fn id(): u128 { @canonicalType(Counter) }\n"
+                                     "fn make(): opaque { Counter { n: 1, flag: false } }\n"
+                                     "fn main(): i32 { 0 }\n");
+
+    memory::Arena firstArena;
+    Options firstOptions(firstArena);
+    firstOptions.noCache     = false;
+    firstOptions.targetStage = session::Stage::Cached;
+    session::CompilationSession first(firstOptions, (workspace.root / "main.zith").string());
+    first.setBuffered(true);
+    const bool first_ok = first.run();
+    CHECK(first_ok, "imported opaque first session lowers and writes the cache");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.noCache = false;
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "imported opaque second session hydrates from the cache");
+
+    const auto &hir      = session.hirModule();
+    bool sawCanonical    = false;
+    bool sawMake         = false;
+    uint64_t canonicalHi = 0;
+    uint64_t canonicalLo = 0;
+    for (size_t id = 0; id < hir.exprCount(); ++id) {
+        const auto &expr = hir.getExpr(static_cast<hir::HirExprId>(id));
+        if (const auto *canonical = std::get_if<hir::HirCanonicalType>(&expr)) {
+            sawCanonical = true;
+            canonicalHi  = canonical->canonical_id.hi;
+            canonicalLo  = canonical->canonical_id.lo;
+        }
+        if (const auto *make = std::get_if<hir::HirMakeOpaque>(&expr))
+            sawMake = true;
+    }
+    CHECK(sawCanonical, "hydrated HIR keeps the imported canonical type intrinsic");
+    CHECK(sawMake, "hydrated HIR keeps the imported opaque make");
+    CHECK(canonicalHi != 0ull || canonicalLo != 0ull, "canonical type id is stable and non-zero");
 }
 
 void test_is_null_on_pointer_optional_uses_niche() {
@@ -2296,7 +2453,10 @@ static void test_hir_lower_modern() {
     test_ownership_hir_carries_residual_slot_attrs();
     test_free_borrow_parameter_lowers_to_pointer_and_call_addr();
     test_opaque_casts_lower_to_hir_nodes();
+    test_canonical_type_lowers_to_hir_node();
     test_implicit_opaque_coercion_and_narrow_lowering();
+    test_opaque_canonical_tags_persist_across_sessions();
+    test_imported_type_canonical_id_persists_across_sessions();
     test_extern_variadic_lower_to_hir();
     test_bindings_lower_to_slots();
     test_if_else_lowers_to_branch_and_merge();

@@ -590,6 +590,35 @@ const UnionDef *TypeIntern::lookupUnionDef(uint32_t def_id) const noexcept {
 
 // ── Query ─────────────────────────────────────────────────────────
 
+void TypeIntern::setCurrentModule(std::string_view module) {
+    current_module_ = module;
+}
+
+uint32_t TypeIntern::canonicalTag(TypeCanonicalId id, uint32_t tag) {
+    const auto existing = canonical_tags_.find({id.hi, id.lo});
+    if (existing != canonical_tags_.end())
+        return existing->second;
+    if (id.hi == 0U && id.lo == 0U)
+        return tag;
+    const uint32_t stored = tag != 0U ? tag : static_cast<uint32_t>(canonical_tags_.size()) + 1U;
+    canonical_tags_[{id.hi, id.lo}] = stored;
+    return stored;
+}
+
+void TypeIntern::setCanonicalTag(TypeCanonicalId id, uint32_t tag) {
+    if (id.hi != 0U || id.lo != 0U)
+        canonical_tags_[{id.hi, id.lo}] = tag;
+}
+
+std::vector<CanonicalTagMapping> TypeIntern::canonicalTagSnapshot() const {
+    std::vector<CanonicalTagMapping> snapshot;
+    snapshot.reserve(canonical_tags_.size());
+    for (const auto &[words, tag] : canonical_tags_) {
+        snapshot.push_back(CanonicalTagMapping{TypeCanonicalId{words.first, words.second}, tag});
+    }
+    return snapshot;
+}
+
 const TypeData &TypeIntern::lookup(TypeId id) const {
     return types_[id];
 }

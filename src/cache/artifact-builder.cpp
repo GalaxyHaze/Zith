@@ -490,6 +490,7 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                            out.ref_b   = internType(m.source_type);
                            out.type_id = internType(m.opaque_type);
                            out.ref_c   = m.type_id;
+                           out.ints    = {m.canonical_id.hi, m.canonical_id.lo};
                        },
                        [&](const hir::HirOpaqueCast &cast) {
                            out.kind    = CompactExprKind::OpaqueCast;
@@ -500,16 +501,23 @@ CompactExpr ArtifactBuilder::convertExpr(hir::HirExprId id) {
                            out.type_id = internType(cast.result_type);
                            out.ref_e   = cast.type_id;
                            out.flags   = (cast.checked ? 1U : 0U) | (cast.returns_ptr ? 2U : 0U);
+                           out.ints    = {cast.canonical_id.hi, cast.canonical_id.lo};
                        },
                        [&](const hir::HirOpaqueCheck &check) {
                            out.kind    = CompactExprKind::OpaqueCheck;
                            out.ref_a   = check.value;
                            out.type_id = internType(check.opaque_type);
                            out.ref_e   = check.type_id;
+                           out.ints    = {check.canonical_id.hi, check.canonical_id.lo};
                        },
                        [&](const hir::HirRuntimePanic &panic) {
                            out.kind    = CompactExprKind::RuntimePanic;
                            out.int_val = static_cast<int64_t>(panic.code);
+                       },
+                       [&](const hir::HirCanonicalType &canonical) {
+                           out.kind    = CompactExprKind::CanonicalType;
+                           out.type_id = internType(canonical.type);
+                           out.ints    = {canonical.canonical_id.hi, canonical.canonical_id.lo};
                        },
                    });
     return out;
@@ -539,6 +547,10 @@ Artifact ArtifactBuilder::build(std::string_view canonical_path, std::string_vie
     Artifact art;
     art.canonical_path = std::string(canonical_path);
     art.module_name    = std::string(module_name);
+    for (const auto &mapping : types_.canonicalTagSnapshot()) {
+        art.canonical_mappings.push_back(
+            CompactCanonicalMapping{mapping.id.hi, mapping.id.lo, mapping.tag});
+    }
     art.cache_key_hash = cache_key_hash_;
     art.source_fp_hi   = static_cast<uint32_t>(source_fp_.primary >> 32u);
     art.source_fp_lo   = static_cast<uint32_t>(source_fp_.primary & 0xFFFFFFFFu);

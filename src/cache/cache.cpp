@@ -5,9 +5,11 @@
 #include "zirl/zirl-reader.hpp"
 #include "zirl/zirl-writer.hpp"
 
+#include <charconv>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <sstream>
 
 namespace zith::cache {
@@ -21,6 +23,20 @@ uint32_t pathHash(std::string_view path) {
     return zith::zirl::fnv1a32(path);
 }
 
+bool parseHexU64(std::string_view text, uint64_t &out) {
+    const auto *begin = text.data();
+    const auto *end   = begin + text.size();
+    auto [ptr, ec]    = std::from_chars(begin, end, out, 16);
+    return ec == std::errc{} && ptr == end;
+}
+
+bool parseDecimalU32(std::string_view text, uint32_t &out) {
+    const auto *begin = text.data();
+    const auto *end   = begin + text.size();
+    auto [ptr, ec]    = std::from_chars(begin, end, out, 10);
+    return ec == std::errc{} && ptr == end;
+}
+
 } // namespace
 
 Store::Store(std::string cache_root, const session::CacheKey &cache_key)
@@ -29,12 +45,79 @@ Store::Store(std::string cache_root, const session::CacheKey &cache_key)
     std::error_code ec;
     fs::create_directories(root_ + "/modules", ec);
     manifest_.load();
+    loadCanonicalRegistry();
+}
+
+uint32_t Store::assignCanonicalId(const types::TypeCanonicalId &canonical_id) {
+    std::lock_guard<std::mutex> lock(canonical_mutex_);
+    if (const auto existing = canonical_registry_.find(canonical_id);
+        existing != canonical_registry_.end())
+        return existing->second;
+    const uint32_t tag = static_cast<uint32_t>(canonical_registry_.size()) + 1U;
+    if (tag == 0U || canonical_by_tag_.contains(tag))
+        return 0U;
+    canonical_registry_[canonical_id] = tag;
+    canonical_by_tag_[tag]            = canonical_id;
+    saveCanonicalRegistryLocked();
+    return tag;
 }
 
 std::string Store::artifactPath(std::string_view canonical_path) const {
     std::ostringstream oss;
     oss << root_ << "/modules/" << std::hex << pathHash(canonical_path) << ".zirl";
     return oss.str();
+}
+
+std::string Store::canonicalRegistryPath() const {
+    return root_ + "/canonical-any";
+}
+
+void Store::loadCanonicalRegistry() {
+    std::lock_guard<std::mutex> lock(canonical_mutex_);
+    canonical_registry_.clear();
+    canonical_by_tag_.clear();
+    const auto path = fs::path(canonicalRegistryPath());
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        return;
+    std::string line;
+    while (std::getline(input, line)) {
+        if (line.empty())
+            continue;
+        const auto first = line.find(':');
+        const auto last  = line.rfind(':');
+        if (first == std::string::npos || last == std::string::npos || first == last)
+            continue;
+        types::TypeCanonicalId canonical_id;
+        uint32_t tag = 0;
+        if (!parseHexU64(std::string_view(line).substr(0, first), canonical_id.hi) ||
+            !parseHexU64(std::string_view(line).substr(first + 1, last - first - 1),
+                         canonical_id.lo) ||
+            !parseDecimalU32(std::string_view(line).substr(last + 1), tag) || tag == 0U)
+            continue;
+        if (canonical_registry_.contains(canonical_id) || canonical_by_tag_.contains(tag))
+            continue;
+        canonical_registry_[canonical_id] = tag;
+        canonical_by_tag_[tag]            = canonical_id;
+    }
+}
+
+void Store::saveCanonicalRegistryLocked() {
+    std::error_code ec;
+    fs::create_directories(root_, ec);
+    const auto path = fs::path(canonicalRegistryPath());
+    const auto tmp  = fs::path(canonicalRegistryPath() + ".tmp");
+    std::ofstream output(tmp, std::ios::binary | std::ios::trunc);
+    if (!output)
+        return;
+    for (const auto &[canonical_id, tag] : canonical_registry_) {
+        output << std::hex << std::nouppercase << canonical_id.hi << ':' << canonical_id.lo << ':'
+               << std::dec << tag << '\n';
+    }
+    output.close();
+    if (!output)
+        return;
+    fs::rename(tmp, path, ec);
 }
 
 void Store::dropInvalid(std::string_view canonical_path) {

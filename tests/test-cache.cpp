@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 
 using namespace zith;
@@ -304,6 +305,50 @@ static void test_store_invalidation() {
     fs::remove_all(root);
 }
 
+static void test_canonical_registry_persists_stable_tags() {
+    auto root = fs::temp_directory_path() / "zith-cache-test-canonical";
+    fs::remove_all(root);
+    fs::create_directories(root);
+
+    session::CacheKey key_a;
+    key_a.compilerVersion = "a";
+    session::CacheKey key_b;
+    key_b.compilerVersion = "b";
+
+    types::TypeCanonicalId first{0x1111111122222222ULL, 0x3333333344444444ULL};
+    types::TypeCanonicalId second{0x5555555566666666ULL, 0x7777777788888888ULL};
+
+    uint32_t first_tag  = 0;
+    uint32_t second_tag = 0;
+    {
+        Store store(root.string(), key_a);
+        first_tag  = store.assignCanonicalId(first);
+        second_tag = store.assignCanonicalId(second);
+        CHECK(first_tag != 0u && first_tag != second_tag,
+              "registry assigns non-zero unique canonical tags");
+    }
+
+    Store reopened(root.string(), key_b);
+    CHECK_EQ(reopened.assignCanonicalId(first), first_tag,
+             "reopened registry returns the same tag for an existing canonical id");
+    CHECK_EQ(reopened.assignCanonicalId(second), second_tag,
+             "reopened registry returns stable tags across instances");
+
+    types::TypeCanonicalId third{0xAAAAAAAAAAAAAAAAULL, 0xBBBBBBBBBBBBBBBBULL};
+    const uint32_t third_tag = reopened.assignCanonicalId(third);
+    CHECK(third_tag != 0u && third_tag != first_tag && third_tag != second_tag,
+          "new canonical ids continue at the next stable tag");
+
+    std::ifstream input(root / "canonical-any", std::ios::binary);
+    CHECK(input.is_open(), "canonical registry file is written at the cache root");
+    std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    CHECK(contents.find("1111111122222222:3333333344444444:" + std::to_string(first_tag)) !=
+              std::string::npos,
+          "canonical registry stores the first mapping");
+
+    fs::remove_all(root);
+}
+
 static void test_variadic_slice_param_round_trip() {
     auto original                              = makeMinimalArtifact("/test/variadic.zith", "main");
     original.functions[0].is_variadic          = true;
@@ -437,12 +482,12 @@ static void test_format_version_bump() {
     (void)Writer::write(art, writer);
 
     std::string bytes(reinterpret_cast<const char *>(writer.ptr()), writer.size());
-    CHECK_EQ(kFormatVersion, 13u, "zirl format version is bumped");
+    CHECK_EQ(kFormatVersion, 15u, "zirl format version is bumped");
 
     // Simulate an old reader by treating the version field as v3.
     bytes[4]        = 3;
     auto old_reader = Reader::read(bytes);
-    CHECK(!old_reader.has_value(), "v13 artifact is rejected by a v3-only reader");
+    CHECK(!old_reader.has_value(), "v15 artifact is rejected by a v3-only reader");
 }
 
 static void test_artifact_builder() {
@@ -733,21 +778,23 @@ static void test_artifact_builder() {
     }
     {
         hir::HirMakeOpaque make;
-        make.value       = int_id;
-        make.source_type = i32;
-        make.opaque_type = opaque_type;
-        make.type_id     = 0xCAFEBABEu;
-        make_opaque_id   = hir.addExpr(std::move(make));
+        make.value        = int_id;
+        make.source_type  = i32;
+        make.opaque_type  = opaque_type;
+        make.type_id      = 0xCAFEBABEu;
+        make.canonical_id = types::TypeCanonicalId{0x1122334455667788ULL, 0x99AABBCCDDEEFF00ULL};
+        make_opaque_id    = hir.addExpr(std::move(make));
 
         hir::HirOpaqueCast cast;
-        cast.value       = make_opaque_id;
-        cast.from        = opaque_type;
-        cast.to          = i32;
-        cast.opaque_type = opaque_type;
-        cast.result_type = opaque_opt;
-        cast.type_id     = 0xCAFEBABEu;
-        cast.checked     = true;
-        opaque_cast_id   = hir.addExpr(std::move(cast));
+        cast.value        = make_opaque_id;
+        cast.from         = opaque_type;
+        cast.to           = i32;
+        cast.opaque_type  = opaque_type;
+        cast.result_type  = opaque_opt;
+        cast.type_id      = 0xCAFEBABEu;
+        cast.canonical_id = types::TypeCanonicalId{0x1122334455667788ULL, 0x99AABBCCDDEEFF00ULL};
+        cast.checked      = true;
+        opaque_cast_id    = hir.addExpr(std::move(cast));
 
         hir::HirOpaqueCast raw_ptr_cast;
         raw_ptr_cast.value       = make_opaque_id;
@@ -756,14 +803,17 @@ static void test_artifact_builder() {
         raw_ptr_cast.opaque_type = opaque_type;
         raw_ptr_cast.result_type = raw_ptr_cast.to;
         raw_ptr_cast.type_id     = 0xCAFEBABEu;
+        raw_ptr_cast.canonical_id =
+            types::TypeCanonicalId{0x1122334455667788ULL, 0x99AABBCCDDEEFF00ULL};
         raw_ptr_cast.returns_ptr = true;
         hir.addExpr(std::move(raw_ptr_cast));
 
         hir::HirOpaqueCheck check;
-        check.value       = make_opaque_id;
-        check.opaque_type = opaque_type;
-        check.type_id     = 0xCAFEBABEu;
-        opaque_check_id   = hir.addExpr(std::move(check));
+        check.value        = make_opaque_id;
+        check.opaque_type  = opaque_type;
+        check.type_id      = 0xCAFEBABEu;
+        check.canonical_id = types::TypeCanonicalId{0x1122334455667788ULL, 0x99AABBCCDDEEFF00ULL};
+        opaque_check_id    = hir.addExpr(std::move(check));
     }
 
     hir.attrs().slot(0).ownership = hir::HirOwnership::View;
@@ -980,6 +1030,14 @@ static void test_artifact_builder() {
               "MakeOpaque serializes the opaque type index");
         CHECK_EQ(make_opaque_compact->ref_c, 0xCAFEBABEu,
                  "MakeOpaque serializes the module-local type id");
+        CHECK_EQ(make_opaque_compact->ints.size(), 2u,
+                 "MakeOpaque serializes the canonical id words");
+        if (make_opaque_compact->ints.size() == 2u) {
+            CHECK_EQ(make_opaque_compact->ints[0], 0x1122334455667788ULL,
+                     "MakeOpaque serializes the canonical id hi word");
+            CHECK_EQ(make_opaque_compact->ints[1], 0x99AABBCCDDEEFF00ULL,
+                     "MakeOpaque serializes the canonical id lo word");
+        }
     }
     const auto opaque_cast_compact =
         std::find_if(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &expr) {
@@ -1006,6 +1064,14 @@ static void test_artifact_builder() {
         CHECK((opaque_cast_compact->flags & 1U) != 0, "OpaqueCast serializes the checked flag");
         CHECK((opaque_cast_compact->flags & 2U) == 0,
               "a checked OpaqueCast does not serialize the pointer-return flag");
+        CHECK_EQ(opaque_cast_compact->ints.size(), 2u,
+                 "OpaqueCast serializes the canonical id words");
+        if (opaque_cast_compact->ints.size() == 2u) {
+            CHECK_EQ(opaque_cast_compact->ints[0], 0x1122334455667788ULL,
+                     "OpaqueCast serializes the canonical id hi word");
+            CHECK_EQ(opaque_cast_compact->ints[1], 0x99AABBCCDDEEFF00ULL,
+                     "OpaqueCast serializes the canonical id lo word");
+        }
     }
     const auto raw_ptr_cast_compact =
         std::find_if(art.exprs.begin(), art.exprs.end(), [](const cache::CompactExpr &expr) {
@@ -1041,6 +1107,14 @@ static void test_artifact_builder() {
               "OpaqueCheck serializes the opaque type");
         CHECK_EQ(opaque_check_compact->ref_e, 0xCAFEBABEu,
                  "OpaqueCheck serializes the expected type id");
+        CHECK_EQ(opaque_check_compact->ints.size(), 2u,
+                 "OpaqueCheck serializes the canonical id words");
+        if (opaque_check_compact->ints.size() == 2u) {
+            CHECK_EQ(opaque_check_compact->ints[0], 0x1122334455667788ULL,
+                     "OpaqueCheck serializes the canonical id hi word");
+            CHECK_EQ(opaque_check_compact->ints[1], 0x99AABBCCDDEEFF00ULL,
+                     "OpaqueCheck serializes the canonical id lo word");
+        }
     }
 
     // Full zirl round-trip: the artifact from in-memory state must decode with
@@ -1152,6 +1226,8 @@ static void test_artifact_builder() {
                  "round-trip preserves MakeOpaque opaque type");
         CHECK_EQ(round_make_opaque->ref_c, make_opaque_compact->ref_c,
                  "round-trip preserves MakeOpaque type id");
+        CHECK(round_make_opaque->ints == make_opaque_compact->ints,
+              "round-trip preserves MakeOpaque canonical id");
     }
     const auto round_opaque_cast =
         std::find_if(round->exprs.begin(), round->exprs.end(), [](const cache::CompactExpr &expr) {
@@ -1173,6 +1249,8 @@ static void test_artifact_builder() {
                  "round-trip preserves OpaqueCast type id");
         CHECK_EQ(round_opaque_cast->flags, opaque_cast_compact->flags,
                  "round-trip preserves OpaqueCast checked flag");
+        CHECK(round_opaque_cast->ints == opaque_cast_compact->ints,
+              "round-trip preserves OpaqueCast canonical id");
     }
     const auto round_raw_ptr_cast =
         std::find_if(round->exprs.begin(), round->exprs.end(), [](const cache::CompactExpr &expr) {
@@ -1195,6 +1273,8 @@ static void test_artifact_builder() {
                  "round-trip preserves raw pointer OpaqueCast type id");
         CHECK_EQ(round_raw_ptr_cast->flags, raw_ptr_cast_compact->flags,
                  "round-trip preserves raw pointer OpaqueCast pointer-return flag");
+        CHECK(round_raw_ptr_cast->ints == raw_ptr_cast_compact->ints,
+              "round-trip preserves raw pointer OpaqueCast canonical id");
     }
     const auto round_opaque_check =
         std::find_if(round->exprs.begin(), round->exprs.end(), [](const cache::CompactExpr &expr) {
@@ -1208,6 +1288,8 @@ static void test_artifact_builder() {
                  "round-trip preserves OpaqueCheck opaque type");
         CHECK_EQ(round_opaque_check->ref_e, opaque_check_compact->ref_e,
                  "round-trip preserves OpaqueCheck type id");
+        CHECK(round_opaque_check->ints == opaque_check_compact->ints,
+              "round-trip preserves OpaqueCheck canonical id");
     }
 }
 
@@ -1222,6 +1304,7 @@ static void test_cache() {
     test_corrupted_header_size_rejected();
     test_store_hit_miss();
     test_store_invalidation();
+    test_canonical_registry_persists_stable_tags();
     test_zero_abi_dependency_skips_validation();
     test_dep_abi_validation();
     test_manifest_load_skips_malformed_record();

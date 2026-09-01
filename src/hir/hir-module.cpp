@@ -343,6 +343,14 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                            break;
                                        }
                                    },
+                                   [&](const HirCanonicalType &canonical) {
+                                       buffer += "canonical_type %t";
+                                       buffer += std::to_string(canonical.type);
+                                       buffer += " = ";
+                                       buffer += std::to_string(canonical.canonical_id.hi);
+                                       buffer += ":";
+                                       buffer += std::to_string(canonical.canonical_id.lo);
+                                   },
                                    [&](const HirStateTailCall &tail) {
                                        if (tail.call.resolved_fn != symbols::kInvalidSym)
                                            buffer += "state_tail_call <resolved>(";
@@ -412,6 +420,10 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                        buffer += std::to_string(m.opaque_type);
                                        buffer += " id ";
                                        buffer += std::to_string(m.type_id);
+                                       buffer += " canonical ";
+                                       buffer += std::to_string(m.canonical_id.hi);
+                                       buffer += ':';
+                                       buffer += std::to_string(m.canonical_id.lo);
                                    },
                                    [&](const HirOpaqueCast &c) {
                                        buffer += "opaque_cast %e";
@@ -422,6 +434,10 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                        buffer += std::to_string(c.to);
                                        buffer += " id ";
                                        buffer += std::to_string(c.type_id);
+                                       buffer += " canonical ";
+                                       buffer += std::to_string(c.canonical_id.hi);
+                                       buffer += ':';
+                                       buffer += std::to_string(c.canonical_id.lo);
                                        buffer += c.checked ? " checked" : " raw";
                                    },
                                    [&](const HirOpaqueCheck &c) {
@@ -431,6 +447,10 @@ std::string HirModule::toString(const memory::StringInterner &interner) const {
                                        buffer += std::to_string(c.opaque_type);
                                        buffer += " id ";
                                        buffer += std::to_string(c.type_id);
+                                       buffer += " canonical ";
+                                       buffer += std::to_string(c.canonical_id.hi);
+                                       buffer += ':';
+                                       buffer += std::to_string(c.canonical_id.lo);
                                    },
                                    [&](const HirRuntimePanic &p) {
                                        buffer += "runtime_panic R";

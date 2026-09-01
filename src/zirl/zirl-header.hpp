@@ -38,7 +38,11 @@ inline constexpr uint32_t kMagic = 0x5A49524Cu; // "ZIRL"
 /// machine return type alongside the machine id.
 /// Version 11: HIR functions persist the parameter-to-HIR-slot mapping so
 /// codegen can attach borrow attributes to the exact ABI argument.
-inline constexpr uint32_t kFormatVersion = 13;
+/// Version 14: code expressions persist the wide `CompactExpr::ints` payload
+/// used by `canonicalType`, so old caches become misses and are regenerated.
+/// Version 15: artifacts persist per-module `canonicalMappings` so cached bare
+/// opaque values can restore a stable project-local runtime tag.
+inline constexpr uint32_t kFormatVersion = 15;
 inline constexpr uint8_t kEndianLittle   = 1;
 
 enum class SectionId : uint8_t {

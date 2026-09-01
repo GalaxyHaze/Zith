@@ -21,9 +21,10 @@ namespace modern {
 HirLowerModern::HirLowerModern(memory::Arena &arena, diagnostics::DiagnosticEngine &diags,
                                const session::CompilationSnapshot &snapshot, SemaPipeline &sema,
                                types::TypeIntern &types, memory::StringInterner &interner,
-                               const NraFacts *nra)
+                               const NraFacts *nra, cache::Store *cache_store)
     : arena_(arena), diags_(diags), snapshot_(snapshot), sema_(sema), types_(types),
-      interner_(interner), nra_(nra), hir_(arena), lowered_types_(), function_index_by_key_() {}
+      interner_(interner), nra_(nra), hir_(arena), lowered_types_(), function_index_by_key_(),
+      cache_store_(cache_store) {}
 
 bool HirLowerModern::run() {
     return predeclareGlobalConsts() && predeclareFunctions() && lowerFunctionBodies() &&
@@ -118,10 +119,12 @@ bool HirLowerModern::predeclareGlobalConsts() {
                 current_module_     = &module;
                 current_resolution_ = snapshot_.findResolution(module.key);
                 current_types_      = sema_.findTypedMap(module.key);
+                types_.setCurrentModule(module.key);
                 global.init         = lowerExpr(decl.initializer);
                 current_module_     = nullptr;
                 current_resolution_ = nullptr;
                 current_types_      = nullptr;
+                types_.setCurrentModule({});
             }
             global_const_by_key_.insert(key, global.name);
         }
@@ -308,6 +311,7 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
     current_module_     = info.module;
     current_resolution_ = snapshot_.findResolution(info.module->key);
     current_types_      = sema_.findTypedMap(info.module->key);
+    types_.setCurrentModule(info.module->key);
     if (current_resolution_ == nullptr || current_types_ == nullptr) {
         diags_.report(diagnostics::Severity::Error, diagnostics::err::InvalidIR,
                       "missing semantic data for module '" + info.module->key + "'", {});
@@ -417,9 +421,10 @@ bool HirLowerModern::lowerFunctionBody(FunctionInfo &info) {
         current_fn_->blocks[current_block_].terminator = addExpr(std::move(ret));
     }
 
-    current_module_              = nullptr;
-    current_resolution_          = nullptr;
-    current_types_               = nullptr;
+    current_module_     = nullptr;
+    current_resolution_ = nullptr;
+    current_types_      = nullptr;
+    types_.setCurrentModule({});
     current_instantiation_       = nullptr;
     current_instance_            = nullptr;
     current_fn_return_sema_type_ = sema::modern::kInvalidTypeId;

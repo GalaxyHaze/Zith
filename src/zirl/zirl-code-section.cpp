@@ -25,6 +25,9 @@ void writeCompactExpr(const cache::CompactExpr &e, ByteWriter &w) {
     w.writeU32(static_cast<uint32_t>(e.arg_types.size()));
     for (auto t : e.arg_types)
         w.writeU32(t);
+    w.writeU32(static_cast<uint32_t>(e.ints.size()));
+    for (auto value : e.ints)
+        w.writeU64(value);
 }
 
 bool readCompactExpr(ByteReader &r, cache::CompactExpr &out) {
@@ -56,6 +59,14 @@ bool readCompactExpr(ByteReader &r, cache::CompactExpr &out) {
     out.arg_types.resize(n);
     for (auto &t : out.arg_types)
         if (!r.readU32(t))
+            return false;
+    if (!r.readU32(n))
+        return false;
+    if (!r.canReadU32Count(n))
+        return false;
+    out.ints.resize(n);
+    for (auto &value : out.ints)
+        if (!r.readU64(value))
             return false;
     return true;
 }
@@ -107,6 +118,12 @@ bool encodeCode(const cache::Artifact &artifact, ByteWriter &w) {
         w.writeU32(static_cast<uint32_t>(vtable.slot_sym_ids.size()));
         for (auto id : vtable.slot_sym_ids)
             w.writeU32(id);
+    }
+    w.writeU32(static_cast<uint32_t>(artifact.canonical_mappings.size()));
+    for (const auto &mapping : artifact.canonical_mappings) {
+        w.writeU64(mapping.hi);
+        w.writeU64(mapping.lo);
+        w.writeU32(mapping.runtime_id);
     }
     return true;
 }
@@ -209,6 +226,15 @@ bool decodeCode(ByteReader &r, cache::Artifact &out) {
         for (auto &id : vtable.slot_sym_ids)
             if (!r.readU32(id))
                 return false;
+    }
+    if (!r.readU32(n))
+        return false;
+    if (!r.canReadU32Count(n, 20))
+        return false;
+    out.canonical_mappings.resize(n);
+    for (auto &mapping : out.canonical_mappings) {
+        if (!r.readU64(mapping.hi) || !r.readU64(mapping.lo) || !r.readU32(mapping.runtime_id))
+            return false;
     }
     return true;
 }

@@ -29,12 +29,14 @@ hir::HirExprId HirLowerModern::lowerVisibleDefault(const session::ModuleArtifact
     current_module_                                       = &module;
     current_resolution_                                   = decl_resolution;
     current_types_                                        = decl_types;
+    types_.setCurrentModule(module.key);
     current_instantiation_ = instance != nullptr ? sema_.instantiations() : nullptr;
     current_instance_      = instance;
     const auto value       = lowerExpr(default_id);
     current_module_        = saved_module;
     current_resolution_    = saved_resolution;
     current_types_         = saved_types;
+    types_.setCurrentModule(saved_module != nullptr ? saved_module->key : std::string_view{});
     current_instantiation_ = saved_inst;
     current_instance_      = saved_instance;
     return value;
@@ -58,6 +60,7 @@ hir::HirExprId HirLowerModern::lowerDefaultWithTarget(
     current_module_                                       = &module;
     current_resolution_                                   = decl_resolution;
     current_types_                                        = decl_types;
+    types_.setCurrentModule(module.key);
     current_instantiation_ = instance != nullptr ? sema_.instantiations() : nullptr;
     current_instance_      = instance;
     const auto value       = current_types_ != nullptr
@@ -66,6 +69,7 @@ hir::HirExprId HirLowerModern::lowerDefaultWithTarget(
     current_module_        = saved_module;
     current_resolution_    = saved_resolution;
     current_types_         = saved_types;
+    types_.setCurrentModule(saved_module != nullptr ? saved_module->key : std::string_view{});
     current_instantiation_ = saved_inst;
     current_instance_      = saved_instance;
     return value;
@@ -251,13 +255,14 @@ hir::HirExprId HirLowerModern::lowerName(const frontend::Expression &expr) {
                     }
                     if (it->opaquePayload) {
                         hir::HirOpaqueCast cast;
-                        cast.value       = emitSlotLoad(slot, local_ty);
-                        cast.from        = local_ty;
-                        cast.to          = it->type;
-                        cast.opaque_type = local_ty;
-                        cast.result_type = it->type;
-                        cast.type_id     = stableConcreteTypeId(it->type);
-                        cast.checked     = false;
+                        cast.value        = emitSlotLoad(slot, local_ty);
+                        cast.from         = local_ty;
+                        cast.to           = it->type;
+                        cast.opaque_type  = local_ty;
+                        cast.result_type  = it->type;
+                        cast.canonical_id = canonicalTypeId(it->type);
+                        cast.type_id      = runtimeTagForCanonicalType(cast.canonical_id);
+                        cast.checked      = false;
                         return addExpr(std::move(cast));
                     }
                     const auto narrowed = emitSlotLoad(slot, it->type);
@@ -385,13 +390,14 @@ hir::HirExprId HirLowerModern::lowerLValueAddr(frontend::ExprId id) {
                     current_fn_->blocks[current_block_].insts.push(
                         emitSlotAlloca(temp_slot, it->type));
                     hir::HirOpaqueCast cast;
-                    cast.value       = emitSlotLoad(slot, local_ty);
-                    cast.from        = local_ty;
-                    cast.to          = it->type;
-                    cast.opaque_type = local_ty;
-                    cast.result_type = it->type;
-                    cast.type_id     = stableConcreteTypeId(it->type);
-                    cast.checked     = false;
+                    cast.value        = emitSlotLoad(slot, local_ty);
+                    cast.from         = local_ty;
+                    cast.to           = it->type;
+                    cast.opaque_type  = local_ty;
+                    cast.result_type  = it->type;
+                    cast.canonical_id = canonicalTypeId(it->type);
+                    cast.type_id      = runtimeTagForCanonicalType(cast.canonical_id);
+                    cast.checked      = false;
                     current_fn_->blocks[current_block_].insts.push(
                         emitSlotStore(temp_slot, addExpr(std::move(cast))));
                     return addExpr(hir::HirSlotAddr{temp_slot, it->type});
@@ -701,20 +707,12 @@ hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,
     // Bare `opaque` is handled before nominal/union casts: `T as opaque` must
     // erase the whole value, not treat a one-field aggregate as a wrapper.
     if (to_opaque) {
-        if (current_module_ == nullptr || current_module_->key != snapshot_.rootModuleKey()) {
-            diags_.report(diagnostics::Severity::Error, diagnostics::err::UnsupportedSyntax,
-                          "bare 'opaque' type ids are module-local; imported or cached "
-                          "'opaque' values are not supported in this version",
-                          current_module_ != nullptr ? memory::Span{current_module_->fileId,
-                                                                    expr.span.start, expr.span.end}
-                                                     : memory::Span{});
-            return hir::kInvalidHirExpr;
-        }
         hir::HirMakeOpaque make;
-        make.value       = value;
-        make.source_type = from;
-        make.opaque_type = type;
-        make.type_id     = stableConcreteTypeId(from);
+        make.value        = value;
+        make.source_type  = from;
+        make.opaque_type  = type;
+        make.canonical_id = canonicalTypeId(from);
+        make.type_id      = runtimeTagForCanonicalType(make.canonical_id);
         return addExpr(std::move(make));
     }
 
@@ -738,16 +736,6 @@ hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,
     // `opaque as T` lowers to a checked optional extraction. The HIR cast keeps
     // the type id so codegen can branch on it and emit Some/None payloads.
     if (from_opaque && !to_opaque) {
-        if (current_module_ == nullptr || current_module_->key != snapshot_.rootModuleKey()) {
-            diags_.report(diagnostics::Severity::Error, diagnostics::err::UnsupportedSyntax,
-                          "bare 'opaque' type ids are module-local; imported or cached "
-                          "'opaque' values are not supported in this version",
-                          current_module_ != nullptr ? memory::Span{current_module_->fileId,
-                                                                    expr.span.start, expr.span.end}
-                                                     : memory::Span{});
-            return hir::kInvalidHirExpr;
-        }
-
         // `opaque as raw opaque` is the explicit unchecked way to reinterpret a
         // bare opaque as the `void*` it stores: it is a pointer extraction, not a
         // load of a concrete T payload.
@@ -756,27 +744,29 @@ hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,
             if (ptr != nullptr && ptr->pointee != types::kInvalidType &&
                 types_.kindOf(ptr->pointee) == types::TypeKind::Void) {
                 hir::HirOpaqueCast cast;
-                cast.value       = value;
-                cast.from        = from;
-                cast.to          = type;
-                cast.checked     = false;
-                cast.type_id     = stableConcreteTypeId(from);
-                cast.opaque_type = from;
-                cast.result_type = type;
-                cast.returns_ptr = true;
+                cast.value        = value;
+                cast.from         = from;
+                cast.to           = type;
+                cast.checked      = false;
+                cast.canonical_id = canonicalTypeId(from);
+                cast.type_id      = runtimeTagForCanonicalType(cast.canonical_id);
+                cast.opaque_type  = from;
+                cast.result_type  = type;
+                cast.returns_ptr  = true;
                 return addExpr(std::move(cast));
             }
         }
 
         if (expr.is_raw) {
             hir::HirOpaqueCast cast;
-            cast.value       = value;
-            cast.from        = from;
-            cast.to          = type;
-            cast.checked     = false;
-            cast.type_id     = stableConcreteTypeId(type);
-            cast.opaque_type = from;
-            cast.result_type = type;
+            cast.value        = value;
+            cast.from         = from;
+            cast.to           = type;
+            cast.checked      = false;
+            cast.canonical_id = canonicalTypeId(type);
+            cast.type_id      = runtimeTagForCanonicalType(cast.canonical_id);
+            cast.opaque_type  = from;
+            cast.result_type  = type;
             return addExpr(std::move(cast));
         }
 
@@ -796,7 +786,8 @@ hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,
         hir::HirOpaqueCheck check;
         check.value         = emitSlotLoad(value_slot, from);
         check.opaque_type   = from;
-        check.type_id       = stableConcreteTypeId(payload_type);
+        check.canonical_id  = canonicalTypeId(payload_type);
+        check.type_id       = runtimeTagForCanonicalType(check.canonical_id);
         const auto check_id = addExpr(std::move(check));
 
         const auto some_block  = newBlock();
@@ -815,7 +806,8 @@ hir::HirExprId HirLowerModern::lowerCast(const frontend::Expression &expr,
         cast.from          = from;
         cast.to            = payload_type;
         cast.checked       = false;
-        cast.type_id       = stableConcreteTypeId(payload_type);
+        cast.canonical_id  = canonicalTypeId(payload_type);
+        cast.type_id       = runtimeTagForCanonicalType(cast.canonical_id);
         cast.opaque_type   = from;
         cast.result_type   = payload_type;
         const auto payload = addExpr(std::move(cast));
@@ -918,9 +910,10 @@ hir::HirExprId HirLowerModern::lowerIsType(const frontend::Expression &expr) {
         if (target == types::kErrorType || target == types::kInvalidType)
             return hir::kInvalidHirExpr;
         hir::HirOpaqueCheck check;
-        check.value       = operand;
-        check.opaque_type = operand_type;
-        check.type_id     = stableConcreteTypeId(target);
+        check.value        = operand;
+        check.opaque_type  = operand_type;
+        check.canonical_id = canonicalTypeId(target);
+        check.type_id      = runtimeTagForCanonicalType(check.canonical_id);
         return addExpr(std::move(check));
     }
     if (types_.kindOf(operand_type) != types::TypeKind::Union)
@@ -988,8 +981,26 @@ hir::HirExprId HirLowerModern::lowerLayoutIntrinsic(const frontend::Expression &
         intrinsic.which = hir::HirLayoutIntrinsic::Which::SizeOf;
     else if (expr.text == "alignOf")
         intrinsic.which = hir::HirLayoutIntrinsic::Which::AlignOf;
-    else
+    else if (expr.text == "offsetOf")
         intrinsic.which = hir::HirLayoutIntrinsic::Which::OffsetOf;
+    else if (expr.text == "canonicalType") {
+        if (current_module_ == nullptr || current_module_->frontend == nullptr || !expr.cast_type)
+            return hir::kInvalidHirExpr;
+        const sema::modern::TypeId sema_type = lowerTypeExprConcrete(expr.cast_type);
+        if (!sema_type)
+            return hir::kInvalidHirExpr;
+        const types::TypeId lower = lowerType(sema_type);
+        if (lower == types::kErrorType || lower == types::kInvalidType)
+            return hir::kInvalidHirExpr;
+        hir::HirCanonicalType canonical;
+        canonical.canonical_id = canonicalTypeId(lower);
+        canonical.type         = typeOfExpr(expr.id);
+        if (canonical.type == types::kInvalidType)
+            return hir::kInvalidHirExpr;
+        return addExpr(std::move(canonical));
+    } else {
+        return hir::kInvalidHirExpr;
+    }
     if (current_module_ == nullptr || current_module_->frontend == nullptr || !expr.cast_type)
         return hir::kInvalidHirExpr;
     const sema::modern::TypeId sema_type = lowerTypeExprConcrete(expr.cast_type);
@@ -1708,10 +1719,11 @@ hir::HirExprId HirLowerModern::lowerCoerceToOpaque(sema::modern::TypeId target,
         return value;
 
     hir::HirMakeOpaque make;
-    make.value       = value;
-    make.source_type = source_type;
-    make.opaque_type = target_hir;
-    make.type_id     = stableConcreteTypeId(source_type);
+    make.value        = value;
+    make.source_type  = source_type;
+    make.opaque_type  = target_hir;
+    make.canonical_id = canonicalTypeId(source_type);
+    make.type_id      = runtimeTagForCanonicalType(make.canonical_id);
     return addExpr(std::move(make));
 }
 

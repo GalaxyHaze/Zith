@@ -4,10 +4,13 @@
 #include "memory/dyn-array.hpp"
 #include "memory/flat-map.hpp"
 #include "memory/string-interner.hpp"
+#include "types/type-id.hpp"
 #include "types/type-kind.hpp"
 
+#include <map>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace zith::types {
 
@@ -38,6 +41,11 @@ struct UnionDef {
     memory::DynArray<TypeId> members;
 };
 
+struct CanonicalTagMapping {
+    TypeCanonicalId id;
+    uint32_t tag = 0;
+};
+
 class TypeIntern {
     memory::Arena &arena_;
     memory::StringInterner &interner_;
@@ -47,6 +55,8 @@ class TypeIntern {
     memory::DynArray<EnumDef> enum_defs_;
     memory::DynArray<UnionDef> union_defs_;
     memory::FlatMap<memory::InternedId, TypeId> named_types_;
+    std::string current_module_;
+    std::map<std::pair<uint64_t, uint64_t>, uint32_t> canonical_tags_;
 
     size_t computeHash(const TypeData &data);
 
@@ -88,6 +98,14 @@ public:
     TypeId internGenericParam(uint32_t decl_id, uint32_t param_index);
     TypeId internIncomplete(TypeId base, memory::DynArray<TypeId> &args);
     TypeId internIncomplete(TypeId base, std::span<const TypeId> args);
+
+    /// Canonical id lookup plus persistent tag for opaque runtime use.  The
+    /// caller normally calls this once per HIR opaque node; `tag` is the
+    /// project-local value from the cache registry when one already exists,
+    /// otherwise the in-memory registry assigns a stable tag for this session.
+    uint32_t canonicalTag(TypeCanonicalId id, uint32_t tag);
+    void setCanonicalTag(TypeCanonicalId id, uint32_t tag);
+    [[nodiscard]] std::vector<CanonicalTagMapping> canonicalTagSnapshot() const;
 
     // ── Struct definition helpers ─────────────────────────────────
     TypeId defineStruct(std::string_view name);
@@ -131,6 +149,10 @@ public:
     }
 
     // ── Query ────────────────────────────────────────────────────
+    void setCurrentModule(std::string_view module);
+    [[nodiscard]] const std::string &currentModule() const noexcept {
+        return current_module_;
+    }
     const TypeData &lookup(TypeId id) const;
     TypeKind kindOf(TypeId id) const;
     size_t count() const noexcept;

@@ -97,6 +97,13 @@ struct DependencyRecord {
     uint32_t public_abi_lo = 0;
 };
 
+// Canonical type id assigned to a project-local runtime opaque tag.
+struct CompactCanonicalMapping {
+    uint64_t hi         = 0;
+    uint64_t lo         = 0;
+    uint32_t runtime_id = 0;
+};
+
 enum class CompactSymKind : uint8_t {
     Fn,
     Struct,
@@ -199,6 +206,7 @@ enum class CompactExprKind : uint8_t {
     OpaqueCast,
     OpaqueCheck,
     RuntimePanic,
+    CanonicalType,
 };
 
 enum class CompactBinaryOp : uint8_t {
@@ -237,6 +245,7 @@ struct CompactExpr {
     uint32_t name_id     = 0;        // let/var name
     std::vector<uint32_t> args;      // call args / phi incoming / literal values
     std::vector<uint32_t> arg_types; // call argument types
+    std::vector<uint64_t> ints;      // wide value payloads (canonical type ids, i128)
 };
 
 struct CompactBasicBlock {
@@ -328,6 +337,8 @@ struct Artifact {
     std::vector<CompactExpr> exprs;           // sec5 module-level expression pool
     std::vector<CompactGlobalConst> globals;  // sec5
     std::vector<CompactVTable> vtables;       // sec5
+    // Canonical identities that have received a project-local opaque tag.
+    std::vector<CompactCanonicalMapping> canonical_mappings;
     // Definition tables used to restore composite types regardless of whether
     // they appear among exported DeclRecord entries.
     std::vector<CompactStructDef> struct_defs;
