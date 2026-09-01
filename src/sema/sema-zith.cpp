@@ -227,10 +227,18 @@ bool PerModuleSema::coercesTo(TypeId target, TypeId source) const noexcept {
         } else if (type_table.kindOf(resolved_target) == TypeKind::Dyn) {
             const auto *dyn = type_table.dyn_type(resolved_target);
             if (dyn != nullptr) {
-                const TypeKind source_kind = type_table.kindOf(resolved_source);
-                result = satisfiesConformance(resolved_source, resolve(dyn->target)) &&
-                         (type_table.struct_type(resolved_source) != nullptr ||
-                          source_kind == TypeKind::Enum || source_kind == TypeKind::Union);
+                if (type_table.kindOf(resolved_source) == TypeKind::Dyn) {
+                    result = sameType(resolved_target, resolved_source);
+                } else {
+                    const TypeKind source_kind = type_table.kindOf(resolved_source);
+                    result = satisfiesConformance(resolved_source, resolve(dyn->target)) &&
+                             (type_table.struct_type(resolved_source) != nullptr ||
+                              type_table.slice(resolved_source) != nullptr ||
+                              source_kind == TypeKind::Enum || source_kind == TypeKind::Union ||
+                              source_kind == TypeKind::Integer || source_kind == TypeKind::Float ||
+                              source_kind == TypeKind::Bool || source_kind == TypeKind::Char ||
+                              source_kind == TypeKind::Pointer);
+                }
             }
         } else if (type_table.kindOf(resolved_target) == TypeKind::Optional) {
             if (resolved_source == null_type) {
@@ -287,6 +295,36 @@ bool PerModuleSema::coercesTo(TypeId target, TypeId source) const noexcept {
     }
     return result;
 }
+bool PerModuleSema::variadicFinalArgIsExplicitSlice(TypeId slice_type,
+                                                    const std::vector<frontend::ExprId> &args,
+                                                    size_t fixed_explicit_args) const {
+    // `args` is the full call operand vector: `args[0]` is the callee or
+    // receiver expression, and the arguments that can be collected begin at
+    // `fixed_explicit_args + 1`.
+    if (args.size() != fixed_explicit_args + 2U)
+        return false;
+    // Prefer already-inferred types: `args.back()` may be a later expression
+    // in the same call, so re-inferring it here can regress typed_map state.
+    const TypeId last_type = typeOfExpr(args.back());
+    if (!last_type)
+        return false;
+    const TypeId last = resolve(last_type);
+    if (type_table.slice(last) == nullptr && type_table.array(last) == nullptr)
+        return false;
+    const auto *slice = type_table.slice(resolve(slice_type));
+    if (slice == nullptr)
+        return false;
+    const TypeId element = resolve(slice->element);
+    if (type_table.kindOf(element) == TypeKind::Dyn) {
+        // A homogeneous `[]dyn Trait` final argument remains explicit. A
+        // concrete final slice still must be erased, so it is auto-collected
+        // unless it is already a dyn slice.
+        const auto *last_slice = type_table.slice(last);
+        return last_slice != nullptr &&
+               type_table.kindOf(resolve(last_slice->element)) == TypeKind::Dyn;
+    }
+    return true;
+}
 bool PerModuleSema::unify(TypeId expected, TypeId actual) {
     return sameType(expected, actual);
 }
@@ -317,6 +355,12 @@ bool PerModuleSema::sameType(TypeId a, TypeId b) const noexcept {
         const auto *fa = type_table.float_kind(resolved_a);
         const auto *fb = type_table.float_kind(resolved_b);
         return fa && fb && fa->bits == fb->bits;
+    }
+    if (ka == TypeKind::Dyn) {
+        const auto *da = type_table.dyn_type(resolved_a);
+        const auto *db = type_table.dyn_type(resolved_b);
+        return da != nullptr && db != nullptr && da->method_count == db->method_count &&
+               sameType(da->target, db->target);
     }
     if (ka == TypeKind::Void || ka == TypeKind::Never || ka == TypeKind::Bool ||
         ka == TypeKind::Char || ka == TypeKind::String) {

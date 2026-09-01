@@ -66,11 +66,14 @@ struct TypedMap {
     /// the value expression id. HIR lowering uses this to materialise the
     /// `{ *void, typeId }` payload from the concrete value.
     memory::FlatMap<uint32_t, TypeId> opaqueSourceTypes;
+    /// Concrete type erased by an implicit `T -> dyn Trait` coercion whose
+    /// lowered payload differs from the dyn value itself.
+    memory::FlatMap<uint32_t, TypeId> dynSourceTypes;
 
     explicit TypedMap(memory::Arena &)
         : exprTypes(), declTypes(), localTypes(), forInNext(), forInElementIndex(), forInEndIndex(),
-          forInUnionType(), forInOptionalType(), traitQualifiedReceiverBase(), opaqueSourceTypes() {
-    }
+          forInUnionType(), forInOptionalType(), traitQualifiedReceiverBase(), opaqueSourceTypes(),
+          dynSourceTypes() {}
 };
 
 class SemaPipeline;
@@ -222,6 +225,15 @@ private:
     /// binding carries `isVariadicSlice`, otherwise `fn->params.size()`.
     [[nodiscard]] size_t variadicSliceParam(const session::ResolvedName *binding,
                                             const FunctionType *fn) const;
+
+    /// True when the final argument of a `[...]T` call is an explicit slice
+    /// that must be passed as the slice parameter rather than auto-collected
+    /// as one element. A concrete final slice still auto-collects when the
+    /// slice element is a `dyn Trait`, because the value must be erased before
+    /// it can be stored in the tail array.
+    [[nodiscard]] bool variadicFinalArgIsExplicitSlice(TypeId slice_type,
+                                                       const std::vector<frontend::ExprId> &args,
+                                                       size_t fixed_explicit_args) const;
 
     /// Validates and retypes the `[...]T` tail around the inferred element type.
     /// Returns the slice parameter type when all tail arguments fit. `span` is

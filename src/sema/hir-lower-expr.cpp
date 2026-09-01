@@ -1235,6 +1235,41 @@ hir::HirExprId HirLowerModern::lowerCoerceToTarget(types::TypeId target,
     return addExpr(std::move(slice));
 }
 
+hir::HirExprId HirLowerModern::lowerFormatMessage(frontend::ExprId expression,
+                                                  hir::HirExprId value) {
+    if (value == hir::kInvalidHirExpr || !expression || current_module_ == nullptr ||
+        expression.value > current_module_->frontend->expressions().size())
+        return hir::kInvalidHirExpr;
+    const auto &expr = current_module_->frontend->expressions()[expression.value - 1U];
+    if (expr.kind != frontend::ExprKind::Literal || expr.text.size() < 2U ||
+        expr.text.front() != '"' || expr.text.back() != '"')
+        return value;
+    std::string decoded;
+    if (!decodeEscapes(std::string_view(expr.text.data() + 1U, expr.text.size() - 2U), decoded,
+                       true))
+        return hir::kInvalidHirExpr;
+    const types::TypeId pointer_hir = types_.internPtr(types::kCharType);
+    hir::HirLiteral pointer_literal;
+    pointer_literal.type     = pointer_hir;
+    pointer_literal.str_val  = interner_.intern(std::string_view(decoded));
+    const auto pointer_value = addExpr(std::move(pointer_literal));
+    hir::HirMakeSlice slice;
+    slice.type        = types_.internSlice(types::kCharType);
+    slice.object      = pointer_value;
+    slice.object_type = pointer_hir;
+    slice.bound_type  = types_.internInt(types::IntWidth::I64);
+    slice.is_pointer  = true;
+    hir::HirLiteral lo;
+    lo.type = slice.bound_type;
+    lo.i    = 0;
+    hir::HirLiteral hi;
+    hi.type  = slice.bound_type;
+    hi.i     = static_cast<int64_t>(decoded.size());
+    slice.lo = addExpr(std::move(lo));
+    slice.hi = addExpr(std::move(hi));
+    return addExpr(std::move(slice));
+}
+
 hir::HirExprId
 
 HirLowerModern::lowerVariadicSliceTail(sema::modern::TypeId slice_sema_type,
@@ -1245,7 +1280,13 @@ HirLowerModern::lowerVariadicSliceTail(sema::modern::TypeId slice_sema_type,
         return hir::kInvalidHirExpr;
 
     const types::TypeId element_type = slice->elem;
-    const size_t tail_count          = tail_exprs.size();
+    const sema::modern::TypeId slice_sema_resolved =
+        sema_.typeTable().stripQualifiers(sema_.typeTable().canonical(slice_sema_type));
+    const auto *sema_slice = sema_.typeTable().slice(slice_sema_resolved);
+    const sema::modern::TypeId sema_element =
+        sema_slice != nullptr ? sema_.typeTable().stripQualifiers(sema_slice->element)
+                              : sema::modern::kInvalidTypeId;
+    const size_t tail_count = tail_exprs.size();
     const types::TypeId array_type =
         types_.internArray(element_type, static_cast<uint32_t>(tail_count));
 
@@ -1257,17 +1298,29 @@ HirLowerModern::lowerVariadicSliceTail(sema::modern::TypeId slice_sema_type,
         const bool annotated =
             arg_expr.kind == frontend::ExprKind::OwnershipCoerce && !arg_expr.operands.empty();
         const frontend::ExprId inner_id = annotated ? arg_expr.operands[0] : tail_exprs[index];
-        auto argument                   = lowerExpr(inner_id);
+        const bool inner_is_borrow_pointer =
+            annotated &&
+            current_module_->frontend->expressions()[inner_id.value - 1U].kind ==
+                frontend::ExprKind::Unary &&
+            current_module_->frontend->expressions()[inner_id.value - 1U].text == "&";
+        auto argument = lowerExpr(inner_id);
+        if (sema_element && sema_.typeTable().kindOf(sema_element) == sema::modern::TypeKind::Dyn)
+            argument = lowerCoerceToDyn(sema_element, inner_id, argument, sema_element);
         if (annotated) {
-            auto address = lowerLValueAddr(inner_id);
-            if (address == hir::kInvalidHirExpr) {
-                const auto inner_type = typeOfExpr(inner_id);
-                const auto slot       = next_slot_++;
-                current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, inner_type));
-                current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, argument));
-                address = addExpr(hir::HirSlotAddr{slot, inner_type});
+            if (inner_is_borrow_pointer) {
+                argument = lowerExpr(inner_id);
+            } else {
+                auto address = lowerLValueAddr(inner_id);
+                if (address == hir::kInvalidHirExpr) {
+                    const auto inner_type = typeOfExpr(inner_id);
+                    const auto slot       = next_slot_++;
+                    current_fn_->blocks[current_block_].insts.push(
+                        emitSlotAlloca(slot, inner_type));
+                    current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, argument));
+                    address = addExpr(hir::HirSlotAddr{slot, inner_type});
+                }
+                argument = address;
             }
-            argument = address;
         }
         if (argument == hir::kInvalidHirExpr)
             return hir::kInvalidHirExpr;
@@ -1310,12 +1363,24 @@ hir::HirExprId HirLowerModern::lowerCoerceToDyn(sema::modern::TypeId target,
         current_module_ == nullptr)
         return value;
 
-    const sema::modern::TypeId concrete_sema =
+    const sema::modern::TypeId coerced_sema =
         sema_.typeTable().stripQualifiers(semaTypeOfExpr(expression));
-    const auto *concrete_struct = sema_.typeTable().struct_type(concrete_sema);
-    const auto *concrete_enum   = sema_.typeTable().enum_type(concrete_sema);
-    const auto *concrete_union  = sema_.typeTable().union_type(concrete_sema);
-    if (concrete_struct == nullptr && concrete_enum == nullptr && concrete_union == nullptr)
+    const auto *dyn_source_ptr =
+        current_types_ != nullptr ? current_types_->dynSourceTypes.get(expression.value) : nullptr;
+    const sema::modern::TypeId concrete_sema =
+        dyn_source_ptr != nullptr ? sema_.typeTable().stripQualifiers(*dyn_source_ptr)
+                                  : coerced_sema;
+    const auto *concrete_struct  = sema_.typeTable().struct_type(concrete_sema);
+    const auto *concrete_enum    = sema_.typeTable().enum_type(concrete_sema);
+    const auto *concrete_union   = sema_.typeTable().union_type(concrete_sema);
+    const auto *concrete_slice   = sema_.typeTable().slice(concrete_sema);
+    const TypeKind concrete_kind = sema_.typeTable().kindOf(concrete_sema);
+    const bool concrete_primitive =
+        concrete_kind == TypeKind::Integer || concrete_kind == TypeKind::Float ||
+        concrete_kind == TypeKind::Bool || concrete_kind == TypeKind::Char ||
+        concrete_kind == TypeKind::Pointer;
+    if (concrete_struct == nullptr && concrete_enum == nullptr && concrete_union == nullptr &&
+        concrete_slice == nullptr && !concrete_primitive)
         return value;
 
     const sema::modern::TypeId target_ty = [&]() -> sema::modern::TypeId {
@@ -1432,13 +1497,16 @@ hir::HirExprId HirLowerModern::lowerCoerceToDyn(sema::modern::TypeId target,
     }
 
     std::string struct_name;
-    if (concrete_struct != nullptr)
+    if (concrete_primitive || concrete_slice != nullptr)
+        struct_name = sema_.typeTable().typeToString(concrete_sema);
+    else if (concrete_struct != nullptr)
         struct_name = concrete_struct->name;
     else if (concrete_enum != nullptr)
         struct_name = concrete_enum->name;
     else if (concrete_union != nullptr)
         struct_name = concrete_union->name;
-    if (const size_t angle = struct_name.find('<'); angle != std::string::npos)
+    if (const size_t angle = struct_name.find('<');
+        angle != std::string::npos && concrete_slice == nullptr)
         struct_name.resize(angle);
 
     const auto findMethod = [&](const session::ModuleArtifact &artifact, std::string_view name,
@@ -1587,8 +1655,34 @@ hir::HirExprId HirLowerModern::lowerCoerceToDyn(sema::modern::TypeId target,
     }
 
     hir::HirMakeDyn make;
-    make.value       = value;
-    make.source_type = lowerType(concrete_sema);
+    if (concrete_slice != nullptr) {
+        // A slice is a `{ *T, i64 }` aggregate. The dyn data slot must point
+        // at a spill holding the full slice, because the erased trait method
+        // receives the slice by value and needs both fields.
+        const auto source_type = lowerType(concrete_sema);
+        const auto slot        = next_slot_++;
+        current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, source_type));
+        current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, value));
+        make.value       = emitSlotLoad(slot, source_type);
+        make.source_type = lowerType(concrete_sema);
+    } else if (concrete_primitive) {
+        const auto *ptr = sema_.typeTable().pointer(concrete_sema);
+        if (ptr != nullptr) {
+            make.source_type = lowerType(concrete_sema);
+            make.value       = value;
+        } else {
+            // Spill primitive values so the dyn data slot has a stable address.
+            const auto source_type = lowerType(concrete_sema);
+            const auto slot        = next_slot_++;
+            current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, source_type));
+            current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, value));
+            make.value       = emitSlotLoad(slot, source_type);
+            make.source_type = source_type;
+        }
+    } else {
+        make.value       = value;
+        make.source_type = lowerType(concrete_sema);
+    }
     make.dyn_type    = target_hir;
     make.vtable_name = vtable_id;
     return addExpr(std::move(make));
@@ -1794,6 +1888,20 @@ memory::Optional<int64_t> HirLowerModern::enumVariantValue(frontend::ExprId oper
     const auto &op = current_module_->frontend->expressions()[operand.value - 1U];
     if (op.kind != frontend::ExprKind::Name)
         return {};
+
+    // Imported enums resolve through the sema type table even when the
+    // frontend declaration belongs to another module. Prefer that table here
+    // so `E.Ok` still produces a constant when `E` is not declared in the
+    // current frontend.
+    const auto sema_enum_type = sema_.typeTable().stripQualifiers(semaTypeOfExpr(operand));
+    const auto *et            = sema_.typeTable().enum_type(sema_enum_type);
+    if (et != nullptr) {
+        for (size_t i = 0; i < et->variant_names.size(); ++i) {
+            if (et->variant_names[i] == variant)
+                return et->discriminants[i];
+        }
+    }
+
     const auto *resolved = findResolvedExpr(operand);
     if (resolved == nullptr || !resolved->declaration)
         return {};
@@ -1803,13 +1911,13 @@ memory::Optional<int64_t> HirLowerModern::enumVariantValue(frontend::ExprId oper
     // Enum variants are constants, but generic enum templates lower through a
     // concrete instance. Resolve the discriminant from the expression's actual
     // sema type (`Status<i32>`) instead of the template declaration.
-    const auto sema_enum_type = sema_.typeTable().stripQualifiers(semaTypeOfExpr(operand));
-    const auto *et            = sema_.typeTable().enum_type(sema_enum_type);
-    if (et == nullptr)
+    const auto sema_enum_type2 = sema_.typeTable().stripQualifiers(semaTypeOfExpr(operand));
+    const auto *et2            = sema_.typeTable().enum_type(sema_enum_type2);
+    if (et2 == nullptr)
         return {};
-    for (size_t i = 0; i < et->variant_names.size(); ++i) {
-        if (et->variant_names[i] == variant)
-            return et->discriminants[i];
+    for (size_t i = 0; i < et2->variant_names.size(); ++i) {
+        if (et2->variant_names[i] == variant)
+            return et2->discriminants[i];
     }
     return {};
 }

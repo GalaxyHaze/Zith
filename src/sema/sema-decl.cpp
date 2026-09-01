@@ -111,6 +111,7 @@ void PerModuleSema::prepareImplementOwners() {
             owner_type = type_table.lookupNamed(record.owner);
         } else {
             owner_type = lowerTypeExpr(id);
+            type_table.registerNamed(record.owner, owner_type);
         }
         if (owner_type)
             implementOwnerTypes_[record.owner] = owner_type;
@@ -582,15 +583,10 @@ void PerModuleSema::checkImplementBlocks() {
         const uint64_t key =
             (static_cast<uint64_t>(std::hash<std::string_view>{}(record.owner)) << 32U) ^
             static_cast<uint32_t>(std::hash<std::string_view>{}(record.traitName));
-        const frontend::Declaration *trait = nullptr;
-        for (const auto &candidate : snapshot.declarations()) {
-            if (candidate.name == record.traitName &&
-                (candidate.kind == frontend::DeclKind::Trait ||
-                 candidate.kind == frontend::DeclKind::Interface)) {
-                trait = &candidate;
-                break;
-            }
-        }
+        const frontend::Declaration *trait =
+            findDeclNamed(record.traitName, frontend::DeclKind::Trait);
+        if (trait == nullptr)
+            trait = findDeclNamed(record.traitName, frontend::DeclKind::Interface);
         auto &group = groups[key];
         if (group.trait == nullptr) {
             group.span      = record.span;
@@ -602,8 +598,18 @@ void PerModuleSema::checkImplementBlocks() {
     }
     // Attach methods to the implementation group. A declaration's `traitName`
     // is non-empty only for methods lowered from an implement block.
+    std::unordered_set<std::string> local_implement_owners;
+    for (const auto &record : snapshot.implementRecords())
+        local_implement_owners.insert(record.owner);
     for (const auto &decl : snapshot.declarations()) {
         if (decl.kind != frontend::DeclKind::Function || decl.traitName.empty())
+            continue;
+        // Implement methods are attached to the module that declared them;
+        // imported methods are already validated by their defining module and
+        // have no local implement record to attach to.
+        if (!decl.ownerName.empty() &&
+            findDeclNamed(decl.ownerName, frontend::DeclKind::Trait) == nullptr &&
+            !local_implement_owners.contains(decl.ownerName))
             continue;
         const uint64_t key =
             (static_cast<uint64_t>(std::hash<std::string_view>{}(decl.ownerName)) << 32U) ^
@@ -615,6 +621,26 @@ void PerModuleSema::checkImplementBlocks() {
 
     for (auto &entry : groups) {
         auto &group = entry.second;
+        // Implement blocks belong to the module that declares them. Imported
+        // modules also re-list implement records through their own types; the
+        // defining module already validated the signatures, so revalidating
+        // them from a consumer would needlessly import-require the same trait
+        // and can reject a valid primitive/slice owner.
+        if (group.ownerName.empty())
+            continue;
+        bool local_trait_decl = false;
+        bool local_owner_decl = false;
+        for (const auto &decl : snapshot.declarations()) {
+            if (decl.kind == frontend::DeclKind::Trait && decl.name == group.trait->name)
+                local_trait_decl = true;
+            if (decl.kind == frontend::DeclKind::Struct || decl.kind == frontend::DeclKind::Enum ||
+                decl.kind == frontend::DeclKind::Union) {
+                if (decl.name == group.ownerName)
+                    local_owner_decl = true;
+            }
+        }
+        if (!local_trait_decl && !local_owner_decl)
+            continue;
         if (group.trait == nullptr) {
             report(group.span, "type after 'as'/'for' is not a declared trait or interface",
                    diagnostics::err::NotATrait);
@@ -666,25 +692,74 @@ void PerModuleSema::checkImplementBlocks() {
                 continue;
             }
 
-            const TypeId impl_fn  = typeOfDecl(impl->id);
+            PerModuleSema *impl_sema = nullptr;
+            if (owner != nullptr) {
+                for (const auto &artifact_ptr : owner->modules()) {
+                    const auto &artifact = *artifact_ptr;
+                    if (artifact.frontend == nullptr || artifact.key == module)
+                        continue;
+                    for (const auto &decl : artifact.frontend->declarations()) {
+                        if (decl.id == impl->id) {
+                            impl_sema = owner->findModuleSema(artifact.key);
+                            break;
+                        }
+                    }
+                    if (impl_sema != nullptr)
+                        break;
+                }
+            }
+            if (impl_sema == nullptr)
+                impl_sema = this;
+            const TypeId impl_fn =
+                impl_sema != nullptr ? impl_sema->typeOfDecl(impl->id) : typeOfDecl(impl->id);
             const TypeId req_fn   = typeOfDecl(requirement.id);
             const auto *impl_type = type_table.function(impl_fn);
             const auto *req_type  = type_table.function(req_fn);
             if (impl_type == nullptr || req_type == nullptr)
                 continue;
 
-            bool matched = impl_type->params.size() == req_type->params.size() &&
-                           sameType(substituteSelf(impl_type->result, owner_type, trait_type),
+            bool matched = sameType(substituteSelf(impl_type->result, owner_type, trait_type),
                                     substituteSelf(req_type->result, owner_type, trait_type));
             if (matched) {
-                for (size_t index = 0; index < impl_type->params.size(); ++index) {
+                // Trait requirements declare an implicit `*Self` receiver after
+                // lowering. Implement methods may spell that receiver either as
+                // an implicit `self` (which the type table turns into
+                // `*Owner`) or as the owner value/slice itself; for a primitive
+                // or slice owner both spellings are intentionally acceptable.
+                size_t impl_index = 0;
+                size_t req_index  = 0;
+                if (impl_index < impl_type->params.size() && req_index < req_type->params.size()) {
+                    const TypeId expected_first =
+                        substituteSelf(req_type->params[0], owner_type, trait_type);
+                    const auto *first_ptr = type_table.pointer(resolve(expected_first));
+                    const bool requirement_is_owner_ptr =
+                        first_ptr != nullptr && sameType(resolve(first_ptr->pointee), owner_type);
+                    const TypeId impl_first =
+                        substituteSelf(impl_type->params[0], owner_type, trait_type);
+                    const auto *impl_first_ptr = type_table.pointer(resolve(impl_first));
+                    const bool impl_first_is_owner =
+                        sameType(impl_first, owner_type) ||
+                        (impl_first_ptr != nullptr &&
+                         sameType(resolve(impl_first_ptr->pointee), owner_type));
+                    if (requirement_is_owner_ptr && impl_first_is_owner) {
+                        ++impl_index;
+                        ++req_index;
+                    } else if (requirement_is_owner_ptr) {
+                        ++req_index;
+                    }
+                }
+                for (; impl_index < impl_type->params.size() && req_index < req_type->params.size();
+                     ++impl_index, ++req_index) {
                     if (!sameType(
-                            substituteSelf(impl_type->params[index], owner_type, trait_type),
-                            substituteSelf(req_type->params[index], owner_type, trait_type))) {
+                            substituteSelf(impl_type->params[impl_index], owner_type, trait_type),
+                            substituteSelf(req_type->params[req_index], owner_type, trait_type))) {
                         matched = false;
                         break;
                     }
                 }
+                if (impl_index != impl_type->params.size() ||
+                    (req_index != req_type->params.size() && req_type->params.size() != 0U))
+                    matched = false;
             }
             if (!matched) {
                 report(impl->span,

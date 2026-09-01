@@ -117,12 +117,13 @@ bool SemaPipeline::run() {
             continue;
 
         auto &typed_map = typedMap(artifact.key);
-
         auto *sema =
             arena_.make<PerModuleSema>(artifact.key, *artifact.frontend, *resolution, type_table_,
                                        typed_map, arena_, artifact.fileId, this);
         sema->instantiations = instantiation_pass_;
         modules_.push(sema);
+    }
+    for (auto *sema : modules_) {
         if (!sema->prepareTypes())
             has_errors_ = true;
     }

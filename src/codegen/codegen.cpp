@@ -8,6 +8,7 @@
 #include <llvm/IR/CallingConv.h>
 #include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
@@ -282,21 +283,6 @@ void CodeGen::emitVtables(hir::HirModule &hirModule) {
         if (module_->getNamedGlobal(name) != nullptr)
             continue;
 
-        llvm::SmallVector<llvm::Type *, 8> slot_types;
-        slot_types.reserve(vtable.slots.size());
-        for (size_t slot = 0; slot < vtable.slots.size(); ++slot) {
-            llvm::Function *fn = nullptr;
-            for (size_t fn_index = 0; fn_index < hirModule.getFnCount(); ++fn_index) {
-                const auto &hir_fn = hirModule.getFn(fn_index);
-                if (hir_fn.sym_id != vtable.slots[slot])
-                    continue;
-                const auto fn_name = interner_.lookup(hir_fn.name);
-                fn = module_->getFunction(llvm::StringRef(fn_name.data(), fn_name.size()));
-                break;
-            }
-            slot_types.push_back(fn != nullptr ? fn->getType() : llvm::PointerType::get(*ctx_, 0));
-        }
-
         auto *array_type = llvm::ArrayType::get(llvm::PointerType::get(*ctx_, 0),
                                                 std::max<size_t>(vtable.slots.size(), 1U));
         auto *global =
@@ -308,27 +294,70 @@ void CodeGen::emitVtables(hir::HirModule &hirModule) {
         std::vector<llvm::Constant *> elements;
         elements.reserve(vtable.slots.size());
         for (size_t slot = 0; slot < vtable.slots.size(); ++slot) {
-            llvm::Function *fn = nullptr;
+            llvm::Function *fn             = nullptr;
+            const hir::HirFunction *hir_fn = nullptr;
             for (size_t fn_index = 0; fn_index < hirModule.getFnCount(); ++fn_index) {
-                const auto &hir_fn = hirModule.getFn(fn_index);
-                if (hir_fn.sym_id != vtable.slots[slot])
+                const auto &candidate = hirModule.getFn(fn_index);
+                if (candidate.sym_id != vtable.slots[slot])
                     continue;
-                const auto fn_name = interner_.lookup(hir_fn.name);
+                hir_fn             = &candidate;
+                const auto fn_name = interner_.lookup(candidate.name);
                 fn = module_->getFunction(llvm::StringRef(fn_name.data(), fn_name.size()));
                 break;
             }
             if (fn == nullptr) {
                 elements.push_back(
                     llvm::ConstantPointerNull::get(llvm::PointerType::get(*ctx_, 0)));
-            } else {
-                elements.push_back(
-                    llvm::ConstantExpr::getBitCast(fn, llvm::PointerType::get(*ctx_, 0)));
+                continue;
             }
+            const auto *original_type = fn->getFunctionType();
+            llvm::Type *data_type     = llvm::PointerType::get(*ctx_, 0);
+            llvm::Function *adapter   = nullptr;
+            if (original_type->getNumParams() > 0U &&
+                original_type->getParamType(0U) != data_type) {
+                const auto fn_name = interner_.lookup(hir_fn->name);
+                const std::string adapter_name =
+                    std::string(fn_name.data(), fn_name.size()) + ".dyn";
+                adapter = module_->getFunction(adapter_name);
+                if (adapter == nullptr) {
+                    llvm::SmallVector<llvm::Type *, 8> adapter_params;
+                    adapter_params.push_back(data_type);
+                    for (size_t pi = 1; pi < original_type->getNumParams(); ++pi)
+                        adapter_params.push_back(original_type->getParamType(pi));
+                    auto *adapter_type = llvm::FunctionType::get(original_type->getReturnType(),
+                                                                 adapter_params, false);
+                    adapter =
+                        llvm::Function::Create(adapter_type, llvm::GlobalValue::InternalLinkage,
+                                               adapter_name, module_.get());
+                    llvm::IRBuilder<> builder(llvm::BasicBlock::Create(*ctx_, "entry", adapter));
+                    llvm::SmallVector<llvm::Value *, 8> call_args;
+                    llvm::Value *receiver = nullptr;
+                    switch (types_.kindOf(hir_fn->params[0])) {
+                    case types::TypeKind::Slice:
+                    case types::TypeKind::Bool:
+                    case types::TypeKind::Int:
+                    case types::TypeKind::Float:
+                        receiver = builder.CreateLoad(original_type->getParamType(0U),
+                                                      adapter->arg_begin());
+                        break;
+                    default:
+                        receiver = adapter->arg_begin();
+                        break;
+                    }
+                    call_args.push_back(receiver);
+                    auto argIt = adapter->arg_begin();
+                    ++argIt;
+                    for (; argIt != adapter->arg_end(); ++argIt)
+                        call_args.push_back(&*argIt);
+                    builder.CreateRet(builder.CreateCall(fn, call_args));
+                }
+            }
+            elements.push_back(llvm::ConstantExpr::getBitCast(adapter != nullptr ? adapter : fn,
+                                                              llvm::PointerType::get(*ctx_, 0)));
         }
         while (elements.size() < std::max<size_t>(vtable.slots.size(), 1U))
             elements.push_back(llvm::ConstantPointerNull::get(llvm::PointerType::get(*ctx_, 0)));
         global->setInitializer(llvm::ConstantArray::get(array_type, elements));
-        (void)slot_types;
     }
 }
 

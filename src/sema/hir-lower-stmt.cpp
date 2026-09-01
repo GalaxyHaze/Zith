@@ -271,17 +271,25 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
             const frontend::ExprId inner_id =
                 annotated ? arg_expr.operands[0] : statement.arguments[lowered_fixed];
             auto argument = lowerExpr(inner_id);
+            const bool inner_is_borrow_pointer =
+                sema_.isBorrowParameter(current_module_->key, inner_id) ||
+                types_.kindOf(typeOfExpr(inner_id)) == types::TypeKind::Ptr;
             if (annotated) {
-                auto address = lowerLValueAddr(inner_id);
-                if (address == hir::kInvalidHirExpr) {
-                    const auto inner_type = typeOfExpr(inner_id);
-                    const auto slot       = next_slot_++;
-                    current_fn_->blocks[current_block_].insts.push(
-                        emitSlotAlloca(slot, inner_type));
-                    current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, argument));
-                    address = addExpr(hir::HirSlotAddr{slot, inner_type});
+                if (inner_is_borrow_pointer) {
+                    argument = lowerExpr(inner_id);
+                } else {
+                    auto address = lowerLValueAddr(inner_id);
+                    if (address == hir::kInvalidHirExpr) {
+                        const auto inner_type = typeOfExpr(inner_id);
+                        const auto slot       = next_slot_++;
+                        current_fn_->blocks[current_block_].insts.push(
+                            emitSlotAlloca(slot, inner_type));
+                        current_fn_->blocks[current_block_].insts.push(
+                            emitSlotStore(slot, argument));
+                        address = addExpr(hir::HirSlotAddr{slot, inner_type});
+                    }
+                    argument = address;
                 }
-                argument = address;
             }
             if (argument == hir::kInvalidHirExpr)
                 return false;

@@ -93,16 +93,19 @@ TypeId PerModuleSema::substituteSelf(TypeId type, TypeId self, TypeId trait) con
         return type_table.internNominal(nominal->name,
                                         substituteSelf(nominal->target, self, trait));
     const TypeId resolved = type_table.stripQualifiers(type);
-    // An implement over `*char` owns the pointer value itself. A trait
-    // requirement's implicit `self` lowers to `*Trait`, so substituting
-    // `*char` as `Self` must yield `*char`, not `**char`.
-    if (self && type_table.kindOf(resolve(self)) == TypeKind::Pointer) {
-        if (const auto *ptr = type_table.pointer(resolved);
-            ptr != nullptr && resolve(ptr->pointee) == resolve(trait))
-            return self;
-    }
-    if (const auto *ptr = type_table.pointer(resolved))
+    // A trait requirement's implicit `self` lowers to `*Trait`. Substituting
+    // that pointer as `Self` must yield the concrete owner type itself, so a
+    // `*Self` parameter becomes `*Owner`, not `*(*Owner)` or `*Trait`.
+    if (const auto *ptr = type_table.pointer(resolved); ptr != nullptr && trait) {
+        const TypeId pointee = type_table.stripQualifiers(ptr->pointee);
+        if (resolve(pointee) == resolve(trait) ||
+            (type_table.kindOf(pointee) == TypeKind::Trait &&
+             type_table.kindOf(resolve(trait)) == TypeKind::Trait &&
+             type_table.trait(pointee)->name == type_table.trait(resolve(trait))->name)) {
+            return type_table.internPointer(self);
+        }
         return type_table.internPointer(substituteSelf(ptr->pointee, self, trait));
+    }
     if (const auto *opt = type_table.optional(resolved))
         return type_table.internOptional(substituteSelf(opt->inner, self, trait));
     if (const auto *array = type_table.array(resolved))
@@ -680,10 +683,17 @@ TypeId PerModuleSema::lowerBareTypeExpr(const frontend::TypeExpression &type) {
                    diagnostics::err::GenericArity);
             return error_type;
         }
-        // Unknown type names are an error: inventing a placeholder here used to make every
-        // misspelled or unregistered type silently compatible with anything.
+        // Unknown type names are an error: inventing a placeholder here used to
+        // make every misspelled or unregistered type silently compatible with
+        // anything. Before giving up, resolve a bare `from` import so a
+        // consumer can name a struct, trait, or alias from the imported module.
         if (const TypeId named = type_table.lookupNamed(type.name))
             return named;
+        if (const auto *resolved = findResolvedBinding(type.name, currentScopeForType(type));
+            resolved != nullptr && resolved->kind == session::ResolutionKind::Import) {
+            if (const TypeId imported = typeOfResolvedBinding(*resolved))
+                return imported;
+        }
         report(type.span, "unknown type '" + type.name + "'", diagnostics::err::UndefinedIdent);
         return error_type;
     }

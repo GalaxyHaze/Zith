@@ -237,6 +237,9 @@ private:
     /// pointer from the slice via `HirLayoutIntrinsic::PtrOf`.
     hir::HirExprId lowerCoerceToTarget(types::TypeId target, frontend::ExprId expression,
                                        hir::HirExprId value);
+    /// Retypes a string-literal format message as `[]char` while preserving
+    /// the `\#` sentinel for the `print`/`println` runtime scanner.
+    hir::HirExprId lowerFormatMessage(frontend::ExprId expression, hir::HirExprId value);
     /// Applies only the missing outer optional layers when `source_sema` is
     /// one or more layers shallower than `target_sema`.
     hir::HirExprId lowerCoerceToOptionalDepth(types::TypeId target,

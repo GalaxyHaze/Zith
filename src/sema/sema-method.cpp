@@ -245,8 +245,9 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
             if (!target_is_slice || provided_args != fixed_explicit_args + 1U ||
                 call.operands.empty())
                 return false;
-            const TypeId last = resolve(inferExpr(call.operands.back()));
-            return type_table.slice(last) != nullptr || type_table.array(last) != nullptr;
+            (void)inferExpr(call.operands.back());
+            return variadicFinalArgIsExplicitSlice(sub_fn->params[slice_param_index], call.operands,
+                                                      fixed_explicit_args);
         }();
         const bool auto_collected_tail = target_is_slice && !explicit_slice_arg;
         const bool defaults_cover =
@@ -401,8 +402,9 @@ TypeId PerModuleSema::inferDynMethodCall(const frontend::Expression &call,
     const bool explicit_slice_arg    = [&]() {
         if (!target_is_slice || provided_args != fixed_explicit_args + 1U || call.operands.empty())
             return false;
-        const TypeId last = resolve(inferExpr(call.operands.back()));
-        return type_table.slice(last) != nullptr || type_table.array(last) != nullptr;
+        (void)inferExpr(call.operands.back());
+        return variadicFinalArgIsExplicitSlice(fn->params[slice_param_index], call.operands,
+                                                  fixed_explicit_args);
     }();
     const bool auto_collected_tail = target_is_slice && !explicit_slice_arg;
     const bool defaults_cover =
@@ -650,6 +652,10 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
     std::vector<const frontend::Declaration *> default_decls;
     std::vector<session::ModuleKey> default_modules;
     std::vector<std::string> default_trait_names;
+    const bool has_owner_local_method =
+        std::any_of(resolved_methods.begin(), resolved_methods.end(), [](const ResolvedMethod &m) {
+            return !m.isTraitMethod && m.decl != nullptr && m.decl->traitName.empty();
+        });
     for (const auto &method : resolved_methods) {
         const bool is_trait_decl = method.isTraitMethod;
         if (is_trait_decl) {
@@ -661,6 +667,12 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
             default_trait_names.push_back(method.traitName);
             continue;
         }
+        // An owner-local method shadows an impl method of the same owner when
+        // both are visible through an ordinary `obj.method()` call. Qualified
+        // trait calls still reach impl methods because they supply no
+        // owner-local candidate and keep the impl method in `resolved_methods`.
+        if (has_owner_local_method && !method.traitName.empty())
+            continue;
         method_decls.push_back(method.decl);
         method_modules.push_back(method.module);
         method_trait_names.push_back(method.traitName);
@@ -701,8 +713,10 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
             if (!generic_decl_is_slice || provided_args != generic_fixed_explicit + 1U ||
                 call.operands.empty())
                 return false;
-            const TypeId last = resolve(inferExpr(call.operands.back()));
-            return type_table.slice(last) != nullptr || type_table.array(last) != nullptr;
+            (void)inferExpr(call.operands.back());
+            return variadicFinalArgIsExplicitSlice(
+                generic_method_fn->params[generic_slice_param_index], call.operands,
+                generic_fixed_explicit);
         }();
         const bool generic_auto_collect = generic_decl_is_slice && !generic_explicit_slice;
         const bool defaults_cover =
@@ -1018,8 +1032,12 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
         if (!method_is_vslice || provided_args != method_fixed_explicit + 1U ||
             call.operands.empty())
             return false;
-        const TypeId last = resolve(inferExpr(call.operands.back()));
-        return type_table.slice(last) != nullptr || type_table.array(last) != nullptr;
+        (void)inferExpr(call.operands.back());
+        const TypeId method_slice_sema = method_sema != nullptr && method_fn_for_slice != nullptr
+                                               ? method_fn_for_slice->params[method_slice_param_index]
+                                               : kInvalidTypeId;
+        return variadicFinalArgIsExplicitSlice(method_slice_sema, call.operands,
+                                                 method_fixed_explicit);
     }();
     const bool method_auto_collect = method_is_vslice && !method_explicit_slice;
     const bool defaults_cover =
@@ -1091,19 +1109,36 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
     const bool implicit_self = has_receiver && !fn_params.front().type;
     const bool var_self =
         has_receiver && fn_params.front().bindingKind == frontend::BindingKind::Var;
+    const auto *receiver_fn         = type_table.function(method_type);
+    const bool explicit_borrow_self = has_receiver && receiver_fn != nullptr &&
+                                      !receiver_fn->params.empty() &&
+                                      isBorrowParamType(receiver_fn->params[0]);
     // A `*char` implementation owns the pointer value itself and passes it by
     // value, so calling a method on the receiver does not invalidate the local
     // pointer for subsequent `.method()` / `->method()` calls.
     const bool pointer_owner = is_pointer && type_table.kindOf(pointee) == TypeKind::Pointer;
-    if ((implicit_self || var_self) && !pointer_owner)
+    if ((implicit_self || var_self) && !pointer_owner && !explicit_borrow_self)
         invalidateReceiverRoot(callee.operands[0]);
+    if ((has_receiver && method_decl->parameters.front().type) && !implicit_self &&
+        !explicit_borrow_self && !is_pointer) {
+        // A `self: ?char` implementation method owns the optional aggregate and
+        // is called with the payload pointer. Keep the callee base expression
+        // typed as the aggregate so later `o.get()` calls see the same exact
+        // `?T` owner instead of the inner char.
+        const TypeId receiver_owner =
+            type_table.kindOf(pointee) == TypeKind::Optional &&
+                    type_table.kindOf(type_table.stripQualifiers(base_type)) == TypeKind::Optional
+                ? base_type
+                : self_type;
+        setExprType(callee.operands[0], receiver_owner);
+    }
     return result;
 }
 void PerModuleSema::invalidateReceiverRoot(frontend::ExprId base) {
     if (!base || base.value > snapshot.expressions().size())
         return;
     const auto *resolved = findResolvedExpr(base);
-    if (resolved == nullptr || !resolved->local)
+    if (resolved == nullptr || !resolved->local || isBorrowParameter(base))
         return;
     movedLocals_.insert(resolved->local.value);
 }

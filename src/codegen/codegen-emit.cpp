@@ -914,19 +914,32 @@ llvm::Value *CodeGenEmit::emitMakeDyn(const hir::HirMakeDyn &make, const hir::Hi
         llvm::cast<llvm::StructType>(dyn_type)->getNumElements() != 2U)
         return nullptr;
 
-    // Keep a stable address for the concrete aggregate. HIR uses memory slots
-    // for normal locals already, but literals and call/load expressions may be
-    // register values; spill them here so the data pointer outlives the call.
-    auto *storage = builder_.CreateAlloca(value->getType());
-    builder_.CreateStore(value, storage);
-    auto *data = builder_.CreateBitCast(storage, llvm::PointerType::get(builder_.getContext(), 0));
-
     const auto name = interner_.lookup(make.vtable_name);
     auto *global    = module_ != nullptr
                           ? module_->getNamedGlobal(llvm::StringRef(name.data(), name.size()))
                           : nullptr;
     if (global == nullptr)
         return nullptr;
+
+    // `*char` (and optional pointers) carry the address itself in the dyn
+    // data slot, so the trait callback receives the concrete pointer value
+    // rather than a pointer to a local slot holding it.
+    if (make.source_type != types::kInvalidType &&
+        types_.kindOf(make.source_type) == types::TypeKind::Ptr) {
+        auto *data_field = builder_.CreateInsertValue(llvm::UndefValue::get(dyn_type), value, {0U});
+        auto *vtable =
+            builder_.CreateBitCast(global, llvm::PointerType::get(builder_.getContext(), 0));
+        return builder_.CreateInsertValue(data_field, vtable, {1U});
+    }
+
+    // Keep a stable address for the concrete aggregate. HIR uses memory slots
+    // for normal locals already, but literals and call/load expressions may be
+    // register values; spill them here so the data pointer outlives the call.
+    auto *source_type = typeGen_.lower(make.source_type);
+    auto *storage     = builder_.CreateAlloca(source_type ? source_type : value->getType());
+    builder_.CreateStore(value, storage);
+    auto *data = builder_.CreateBitCast(storage, llvm::PointerType::get(builder_.getContext(), 0));
+
     auto *data_field = builder_.CreateInsertValue(llvm::UndefValue::get(dyn_type), data, {0U});
     auto *vtable = builder_.CreateBitCast(global, llvm::PointerType::get(builder_.getContext(), 0));
     return builder_.CreateInsertValue(data_field, vtable, {1U});
@@ -953,6 +966,9 @@ llvm::Value *CodeGenEmit::emitDynCall(const hir::HirDynCall &call, const hir::Hi
     if (fn_type == nullptr)
         return nullptr;
     llvm::SmallVector<llvm::Type *, 8> param_types;
+    // Vtable slots always use the uniform dyn entry `(data: ptr, args...)`.
+    // The vtable emitter wraps concrete methods whose self ABI is not `ptr`,
+    // so the data pointer can be passed unchanged here.
     if (call.has_receiver)
         param_types.push_back(llvm::PointerType::get(builder_.getContext(), 0));
     for (size_t index = 0; index < fn_type->param_count; ++index)

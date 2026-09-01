@@ -919,10 +919,11 @@ static void test_from_console_lowers_println_body() {
                                                 "    return 0;\n"
                                                 "}\n");
     CHECK(r.ok, "from std/io/console compiles and runs");
-    CHECK(r.output.find("define void @\"std.io.console.println(*char)\"") != std::string::npos,
+    CHECK(r.output.find("define i32 @\"std.io.console.println([]char,[...]dyn Formatable)\"") !=
+              std::string::npos,
           "Imported println body is emitted into LLVM IR");
-    CHECK(r.output.find("call i32 @puts") != std::string::npos,
-          "Imported println body calls puts in LLVM IR");
+    CHECK(r.output.find("call i32 @putchar") != std::string::npos,
+          "Imported println body calls putchar in LLVM IR");
 }
 
 static void test_console_alias_resolves_member_without_global_import() {
@@ -934,7 +935,8 @@ static void test_console_alias_resolves_member_without_global_import() {
                                                         "    return 0;\n"
                                                         "}\n");
     CHECK(ok.ok, "console.println resolves through an import alias");
-    CHECK(ok.output.find("call void @\"std.io.console.println(*char)\"") != std::string::npos,
+    CHECK(ok.output.find("call i32 @\"std.io.console.println([]char,[...]dyn Formatable)\"") !=
+              std::string::npos,
           "Alias import emits a call to the imported function");
 
     CodegenTest unqualified;
@@ -1115,6 +1117,31 @@ static void test_dyn_trait_method_dispatch_runtime() {
           "dyn Trait calls extract the concrete data pointer from the fat pointer");
     CHECK(r.output.find("getelementptr [1 x ptr], ptr %4, i32 0, i32 0") != std::string::npos,
           "dyn Trait calls index the vtable slot before indirect invocation");
+}
+
+static void test_dyn_trait_by_value_receiver_dispatch_runtime() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "trait Typed {\n"
+                         "    fn first(self): i32 { return 0; }\n"
+                         "}\n"
+                         "implement []char as Typed {\n"
+                         "    fn first(self: []char): i32 { return 4; }\n"
+                         "}\n"
+                         "fn total(a: dyn Typed): i32 { return a.first(); }\n"
+                         "fn main(): i32 {\n"
+                         "    let s: []char = \"four\";\n"
+                         "    return total(s);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.usedModern, "by-value slice trait receivers use the modern codegen pipeline");
+    CHECK(r.ok, "by-value slice trait receivers compile, link, dispatch and execute");
+    CHECK_EQ(r.exitCode, 4, "dyn Typed dispatches through a slice adapter into []char.first");
+    CHECK_EQ(r.errorCount, 0u, "the dyn slice adapter module passes LLVM verification");
+    CHECK(r.output.find("std.io.format.[]char") == std::string::npos ||
+              r.output.find(".dyn\"") != std::string::npos,
+          "the slice vtable emits an adapter for the by-value receiver");
 }
 
 static void test_dyn_interface_field_access_is_rejected() {
@@ -2733,6 +2760,8 @@ static void test_codegen() {
     test_dyn_interface_method_dispatch_runtime();
     printf("Running test_dyn_trait_method_dispatch_runtime\n");
     test_dyn_trait_method_dispatch_runtime();
+    printf("Running test_dyn_trait_by_value_receiver_dispatch_runtime\n");
+    test_dyn_trait_by_value_receiver_dispatch_runtime();
     printf("Running test_dyn_interface_field_access_is_rejected\n");
     test_dyn_interface_field_access_is_rejected();
     printf("Running test_duplicate_struct_field_names_do_not_collide_globally\n");

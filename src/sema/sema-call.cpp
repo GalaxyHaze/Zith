@@ -300,12 +300,10 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id) {
     size_t slice_index =
         is_variadic_slice ? variadicSliceParam(resolved_callee, fn) : fn->params.size();
     const bool explicit_slice_arg = [&]() {
-        if (!is_variadic_slice || arg_count != slice_index + 1U ||
-            slice_index + 1U >= expr.operands.size())
+        if (!is_variadic_slice || arg_count != slice_index + 1U || expr.operands.size() < 2U)
             return false;
-        const TypeId last_arg = inferExpr(expr.operands[slice_index + 1U]);
-        const TypeId last     = resolve(last_arg);
-        return type_table.slice(last) != nullptr || type_table.array(last) != nullptr;
+        (void)inferExpr(expr.operands.back());
+        return variadicFinalArgIsExplicitSlice(fn->params[slice_index], expr.operands, slice_index);
     }();
     const bool auto_collected_tail =
         is_variadic_slice &&
@@ -555,6 +553,18 @@ TypeId PerModuleSema::checkVariadicTailArgs(frontend::TextSpan span,
         TypeId arg_type            = inferExpr(arg);
         (void)checkOwnershipCoercion(arg, slice->element, seen_roots, span, true);
         if (!coerceValue(arg, slice->element, arg_type)) {
+            // A concrete value can erase to `dyn Trait` when the conformance
+            // table knows the edge. `coerceValue` handles named types through
+            // `satisfiesConformance`, but `checkVariadicTailArgs` must also
+            // prime instantiations for enum/union implementations.
+            if (type_table.kindOf(resolve(slice->element)) == TypeKind::Dyn &&
+                satisfiesConformance(arg_type,
+                                     resolve(type_table.dyn_type(slice->element)->target))) {
+                primeDynImplementations(slice->element, arg_type);
+                typed_map.dynSourceTypes.insert(arg.value, arg_type);
+                setExprType(arg, slice->element);
+                continue;
+            }
             if (!allow_literals || !adaptNumericLiteral(arg, slice->element))
                 reportCoercionFailure(span, slice->element, arg_type,
                                       "variadic slice argument type mismatch",

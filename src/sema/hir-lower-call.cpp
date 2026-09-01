@@ -14,6 +14,19 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
     const frontend::ExprId callee_id = expr.operands[0];
     const auto &callee_expr = current_module_->frontend->expressions()[callee_id.value - 1U];
 
+    const bool is_console_format = [&]() {
+        const auto *target = overloadTarget(callee_id);
+        if (target == nullptr)
+            return false;
+        const auto *target_module = snapshot_.findModule(target->module);
+        if (target_module == nullptr)
+            return false;
+        const auto *decl = findDecl(*target_module, target->decl);
+        return decl != nullptr && decl->kind == frontend::DeclKind::Function &&
+               (decl->name == "print" || decl->name == "println") &&
+               moduleNamespace(target_module->key, snapshot_.cacheKey()) == "std.io.console";
+    }();
+
     // A Field/Arrow callee is only a method call when a matching method
     // declaration actually exists on the receiver's struct type. Module
     // aliases and callable fields also parse as Field/Arrow, so resolve
@@ -424,8 +437,19 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
             if (last_call != slice_param)
                 return false;
             const auto last_type = typeOfExpr(expr.operands.back());
-            return types_.kindOf(last_type) == types::TypeKind::Slice ||
-                   types_.kindOf(last_type) == types::TypeKind::Array;
+            const bool is_concrete_last_slice =
+                types_.kindOf(last_type) == types::TypeKind::Slice ||
+                types_.kindOf(last_type) == types::TypeKind::Array;
+            const sema::modern::TypeId slice_sema = callee_fn->params[slice_param];
+            const auto *slice                     = sema_.typeTable().slice(
+                sema_.typeTable().stripQualifiers(sema_.typeTable().canonical(slice_sema)));
+            const bool slice_is_dyn =
+                slice != nullptr &&
+                sema_.typeTable().kindOf(slice->element) == sema::modern::TypeKind::Dyn;
+            const auto *last_slice = std::get_if<types::TypeSlice>(&types_.lookup(last_type));
+            const bool last_is_already_dyn =
+                last_slice != nullptr && types_.kindOf(last_slice->elem) == types::TypeKind::Dyn;
+            return is_concrete_last_slice && (!slice_is_dyn || last_is_already_dyn);
         }();
     const bool collect_tail = slice_param != ~static_cast<size_t>(0) && !explicit_slice_arg;
     bool tail_lowered       = false;
@@ -442,12 +466,10 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
             auto slice                            = lowerVariadicSliceTail(slice_sema, tail);
             if (slice == hir::kInvalidHirExpr)
                 return hir::kInvalidHirExpr;
-            if (sema_.typeTable().kindOf(slice_sema) == sema::modern::TypeKind::Dyn ||
-                sema_.typeTable().kindOf(sema_.typeTable().canonical(slice_sema)) ==
-                    sema::modern::TypeKind::Dyn)
-                slice = lowerCoerceToDyn(slice_sema, expr.operands[index], slice, slice_sema);
-            else
-                slice = lowerCoerceToOpaque(slice_sema, expr.operands[index], slice);
+            // `lowerVariadicSliceTail` already erases each tail element to the
+            // slice element type (`dyn Trait` or `opaque`). Do not erase the
+            // whole `[]dyn` slice again as if it were a single value.
+            slice = lowerCoerceToOpaque(slice_sema, expr.operands[index], slice);
             args.push(slice);
             arg_types.push(lowerType(slice_sema));
             tail_lowered = true;
@@ -459,16 +481,29 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
             arg_expr.kind == frontend::ExprKind::OwnershipCoerce && !arg_expr.operands.empty();
         const frontend::ExprId inner_id = annotated ? arg_expr.operands[0] : expr.operands[index];
         auto argument                   = lowerExpr(inner_id);
+        if (is_console_format && index == 1)
+            argument = lowerFormatMessage(inner_id, argument);
+        const bool inner_is_borrow_pointer =
+            sema_.isBorrowParameter(current_module_->key, inner_id) ||
+            types_.kindOf(typeOfExpr(inner_id)) == types::TypeKind::Ptr;
         if (annotated) {
-            auto address = lowerLValueAddr(inner_id);
-            if (address == hir::kInvalidHirExpr) {
-                const auto inner_type = typeOfExpr(inner_id);
-                const auto slot       = next_slot_++;
-                current_fn_->blocks[current_block_].insts.push(emitSlotAlloca(slot, inner_type));
-                current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, argument));
-                address = addExpr(hir::HirSlotAddr{slot, inner_type});
+            if (inner_is_borrow_pointer) {
+                // A borrow parameter already carries the ABI pointer; `lend
+                // self`/`lend p` reborrows the pointee and must pass that
+                // pointer value, not the address of the local slot.
+                argument = lowerExpr(inner_id);
+            } else {
+                auto address = lowerLValueAddr(inner_id);
+                if (address == hir::kInvalidHirExpr) {
+                    const auto inner_type = typeOfExpr(inner_id);
+                    const auto slot       = next_slot_++;
+                    current_fn_->blocks[current_block_].insts.push(
+                        emitSlotAlloca(slot, inner_type));
+                    current_fn_->blocks[current_block_].insts.push(emitSlotStore(slot, argument));
+                    address = addExpr(hir::HirSlotAddr{slot, inner_type});
+                }
+                argument = address;
             }
-            argument = address;
         }
         if (argument == hir::kInvalidHirExpr)
             return hir::kInvalidHirExpr;

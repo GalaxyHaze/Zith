@@ -114,10 +114,13 @@ TypeExprId AstLowerer::parseType() {
         ++index_;
         if (matchesToken(snapshot_, index_, "...")) {
             ++index_;
-            if (matchesToken(snapshot_, index_, "]")) {
+            // Accept the documented `[...]T` spelling and the legacy
+            // tokenized `[ ... ]T` with trivia between tokens. The old
+            // parsing path only accepted the second form.
+            type.kind            = TypeExprKind::Slice;
+            type.isVariadicSlice = true;
+            if (isPunctuation(snapshot_, index_, ']')) {
                 ++index_;
-                type.kind            = TypeExprKind::Slice;
-                type.isVariadicSlice = true;
             } else {
                 snapshot_.diagnostics_.push_back(
                     {range(start, index_), "expected ']' after variadic slice marker '...'"});
