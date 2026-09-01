@@ -31,11 +31,15 @@ bool readCompactType(ByteReader &r, cache::CompactType &out) {
     uint32_t n = 0;
     if (!r.readU32(n))
         return false;
+    if (!r.canReadU32Count(n))
+        return false;
     out.args.resize(n);
     for (auto &a : out.args)
         if (!r.readU32(a))
             return false;
     if (!r.readU32(n))
+        return false;
+    if (!r.canReadU32Count(n))
         return false;
     out.arg_names.resize(n);
     for (auto &a : out.arg_names)
@@ -106,11 +110,15 @@ bool decodeTypes(ByteReader &r, cache::Artifact &out) {
     uint32_t n = 0;
     if (!r.readU32(n))
         return false;
+    if (!r.canReadU32Count(n))
+        return false;
     out.strings.resize(n);
     for (auto &s : out.strings)
         if (!r.readBlob(s))
             return false;
     if (!r.readU32(n))
+        return false;
+    if (!r.canReadU32Count(n))
         return false;
     out.paths.resize(n);
     for (auto &s : out.paths)
@@ -118,11 +126,15 @@ bool decodeTypes(ByteReader &r, cache::Artifact &out) {
             return false;
     if (!r.readU32(n))
         return false;
+    if (!r.canReadU32Count(n))
+        return false;
     out.types.resize(n);
     for (auto &t : out.types)
         if (!readCompactType(r, t))
             return false;
     if (!r.readU32(n))
+        return false;
+    if (!r.canReadU32Count(n))
         return false;
     out.struct_defs.resize(n);
     for (auto &s : out.struct_defs) {
@@ -131,11 +143,15 @@ bool decodeTypes(ByteReader &r, cache::Artifact &out) {
         uint32_t k = 0;
         if (!r.readU32(s.name_id) || !r.readU32(k))
             return false;
+        if (!r.canReadU32Count(k))
+            return false;
         s.field_name_ids.resize(k);
         for (auto &id : s.field_name_ids)
             if (!r.readU32(id))
                 return false;
         if (!r.readU32(k))
+            return false;
+        if (!r.canReadU32Count(k))
             return false;
         s.field_type_ids.resize(k);
         for (auto &id : s.field_type_ids)
@@ -143,6 +159,8 @@ bool decodeTypes(ByteReader &r, cache::Artifact &out) {
                 return false;
     }
     if (!r.readU32(n))
+        return false;
+    if (!r.canReadU32Count(n))
         return false;
     out.enum_defs.resize(n);
     for (auto &e : out.enum_defs)
@@ -154,6 +172,8 @@ bool decodeTypes(ByteReader &r, cache::Artifact &out) {
             return false;
         if (!r.readU32(k))
             return false;
+        if (!r.canReadU32Count(k))
+            return false;
         e.variants.resize(k);
         for (auto &v : e.variants) {
             if (!r.readBlob(v.name) || !r.readU32(v.name_id) || !r.readI64(v.discriminant))
@@ -161,6 +181,8 @@ bool decodeTypes(ByteReader &r, cache::Artifact &out) {
         }
     }
     if (!r.readU32(n))
+        return false;
+    if (!r.canReadU32Count(n))
         return false;
     out.union_defs.resize(n);
     for (auto &u : out.union_defs)
@@ -170,6 +192,8 @@ bool decodeTypes(ByteReader &r, cache::Artifact &out) {
         uint8_t flags = 0;
         uint32_t k    = 0;
         if (!r.readU32(u.name_id) || !r.readU8(flags) || !r.readU32(k))
+            return false;
+        if (!r.canReadU32Count(k))
             return false;
         u.is_raw = flags != 0;
         u.member_type_ids.resize(k);

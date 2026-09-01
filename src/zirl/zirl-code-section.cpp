@@ -43,11 +43,15 @@ bool readCompactExpr(ByteReader &r, cache::CompactExpr &out) {
     uint32_t n = 0;
     if (!r.readU32(n))
         return false;
+    if (!r.canReadU32Count(n))
+        return false;
     out.args.resize(n);
     for (auto &a : out.args)
         if (!r.readU32(a))
             return false;
     if (!r.readU32(n))
+        return false;
+    if (!r.canReadU32Count(n))
         return false;
     out.arg_types.resize(n);
     for (auto &t : out.arg_types)
@@ -111,11 +115,15 @@ bool decodeCode(ByteReader &r, cache::Artifact &out) {
     uint32_t n = 0;
     if (!r.readU32(n))
         return false;
+    if (!r.canReadU32Count(n))
+        return false;
     out.exprs.resize(n);
     for (auto &e : out.exprs)
         if (!readCompactExpr(r, e))
             return false;
     if (!r.readU32(n))
+        return false;
+    if (!r.canReadU32Count(n))
         return false;
     out.functions.resize(n);
     for (auto &fn : out.functions) {
@@ -134,11 +142,15 @@ bool decodeCode(ByteReader &r, cache::Artifact &out) {
         uint32_t k     = 0;
         if (!r.readU32(k))
             return false;
+        if (!r.canReadU32Count(k))
+            return false;
         fn.param_type_ids.resize(k);
         for (auto &id : fn.param_type_ids)
             if (!r.readU32(id))
                 return false;
         if (!r.readU32(k))
+            return false;
+        if (!r.canReadU32Count(k))
             return false;
         fn.param_name_ids.resize(k);
         for (auto &id : fn.param_name_ids)
@@ -146,16 +158,22 @@ bool decodeCode(ByteReader &r, cache::Artifact &out) {
                 return false;
         if (!r.readU32(k))
             return false;
+        if (!r.canReadU32Count(k))
+            return false;
         fn.param_slot_ids.resize(k);
         for (auto &id : fn.param_slot_ids)
             if (!r.readU32(id))
                 return false;
         if (!r.readU32(k))
             return false;
+        if (!r.canReadU32Count(k))
+            return false;
         fn.blocks.resize(k);
         for (auto &blk : fn.blocks) {
             uint32_t m = 0;
             if (!r.readU32(m))
+                return false;
+            if (!r.canReadU32Count(m))
                 return false;
             blk.insts.resize(m);
             for (auto &id : blk.insts)
@@ -167,6 +185,8 @@ bool decodeCode(ByteReader &r, cache::Artifact &out) {
     }
     if (!r.readU32(n))
         return false;
+    if (!r.canReadU32Count(n))
+        return false;
     out.globals.resize(n);
     for (auto &global : out.globals)
         if (!r.readU32(global.name_id) || !r.readU32(global.type_id) ||
@@ -174,12 +194,16 @@ bool decodeCode(ByteReader &r, cache::Artifact &out) {
             return false;
     if (!r.readU32(n))
         return false;
+    if (!r.canReadU32Count(n))
+        return false;
     out.vtables.resize(n);
     for (auto &vtable : out.vtables) {
         if (!r.readU32(vtable.name_id))
             return false;
         uint32_t k = 0;
         if (!r.readU32(k))
+            return false;
+        if (!r.canReadU32Count(k))
             return false;
         vtable.slot_sym_ids.resize(k);
         for (auto &id : vtable.slot_sym_ids)

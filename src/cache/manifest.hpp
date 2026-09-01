@@ -1,12 +1,13 @@
 #pragma once
 
+#include "memory/flat-map.hpp"
+#include "memory/flat-set.hpp"
+
 #include <cstdint>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace zith::cache {
@@ -28,8 +29,8 @@ struct ManifestEntry {
 class Manifest {
     std::string root_;
     mutable std::mutex mutex_;
-    std::unordered_map<std::string, ManifestEntry> by_path_;
-    std::unordered_map<std::string, std::unordered_set<std::string>> reverse_deps_;
+    memory::FlatMap<std::string, ManifestEntry> by_path_;
+    memory::FlatMap<std::string, memory::FlatSet<std::string>> reverse_deps_;
 
 public:
     explicit Manifest(std::string root) : root_(std::move(root)) {}

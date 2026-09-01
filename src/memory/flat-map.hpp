@@ -33,9 +33,11 @@ template <typename Key, typename Value,
                                              TransparentStringHash, std::hash<Key>>,
           typename Eq   = std::equal_to<>>
 class FlatMap {
-    static_assert(std::is_same_v<Key, std::string> || std::is_same_v<Key, std::string_view> ||
-                      std::is_arithmetic_v<Key> || std::is_enum_v<Key> || std::is_pointer_v<Key>,
-                  "FlatMap supports string, string_view, arithmetic, enum, and pointer keys");
+    static_assert(
+        std::is_same_v<Key, std::string> || std::is_same_v<Key, std::string_view> ||
+            std::is_arithmetic_v<Key> || std::is_enum_v<Key> || std::is_pointer_v<Key> ||
+            std::is_class_v<Key>,
+        "FlatMap supports standard keys, custom class keys, arithmetic, enum, and pointer keys");
 
     std::vector<uint8_t> metadata_;
     std::vector<Key> keys_;

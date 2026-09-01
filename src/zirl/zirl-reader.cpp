@@ -59,6 +59,8 @@ std::optional<cache::Artifact> Reader::read(std::string_view bytes) {
     out.public_abi_hi  = abi_hi;
     out.public_abi_lo  = abi_lo;
 
+    if (!r.canReadU32Count(dep_count))
+        return std::nullopt;
     out.deps.resize(dep_count);
     for (auto &dep : out.deps) {
         if (!r.readBlob(dep.canonical_path) || !r.readBlob(dep.import_key) ||

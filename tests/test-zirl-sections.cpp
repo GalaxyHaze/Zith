@@ -486,6 +486,19 @@ static void test_reader_truncation() {
     CHECK(!empty.readU32(u32), "readU32 fails on empty reader");
 }
 
+// ── Corrupt count rejection ───────────────────────────────────────
+
+static void test_corrupt_count_rejected() {
+    // An absurd element count must be rejected before the decoder can resize
+    // the destination with an untrusted allocation.
+    ByteWriter w;
+    w.writeU32(0x7FFFFFFFu);
+    Artifact decoded;
+    ByteReader r(w.ptr(), w.size());
+    CHECK(!decodeDecls(r, decoded), "decodeDecls rejects an absurd count");
+    CHECK(decoded.decls.empty(), "decodeDecls does not resize for an absurd count");
+}
+
 // ── Checksum verification ─────────────────────────────────────────
 
 static void test_checksum_validation() {
@@ -536,6 +549,7 @@ static void test_zirl_sections() {
     test_full_artifact_round_trip();
     test_truncated_artifact_rejected();
     test_reader_truncation();
+    test_corrupt_count_rejected();
     test_checksum_validation();
     test_empty_artifact_round_trip();
 }

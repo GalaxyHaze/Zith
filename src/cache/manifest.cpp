@@ -1,5 +1,6 @@
 #include "manifest.hpp"
 
+#include "memory/flat-set.hpp"
 #include "zirl/zirl-header.hpp"
 
 #include <charconv>
@@ -51,47 +52,53 @@ bool parseHex32(std::string_view text, uint32_t &out) {
 
 void Manifest::upsert(ManifestEntry entry) {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto &slot = by_path_[entry.canonical_path];
+    const std::string canonical_path = entry.canonical_path;
+    auto *existing                   = by_path_.get(entry.canonical_path);
     // Update reverse deps for the previous dependency set.
-    for (const auto &dep : slot.dependencies)
-        reverse_deps_[dep].erase(entry.canonical_path);
-    slot = std::move(entry);
+    if (existing) {
+        for (const auto &dep : existing->dependencies)
+            reverse_deps_[dep].erase(canonical_path);
+        *existing = std::move(entry);
+    } else {
+        existing = &by_path_.insert(canonical_path, std::move(entry));
+    }
+    auto &slot = *existing;
     for (const auto &dep : slot.dependencies)
         reverse_deps_[dep].insert(slot.canonical_path);
 }
 
 void Manifest::remove(std::string_view canonical_path) {
     std::lock_guard<std::mutex> lock(mutex_);
-    const auto it = by_path_.find(std::string(canonical_path));
-    if (it == by_path_.end())
+    const auto *slot = by_path_.get(canonical_path);
+    if (!slot)
         return;
-    for (const auto &dep : it->second.dependencies)
-        reverse_deps_[dep].erase(it->first);
-    by_path_.erase(it);
+    for (const auto &dep : slot->dependencies)
+        reverse_deps_[dep].erase(std::string(canonical_path));
+    by_path_.erase(std::string(canonical_path));
 }
 
 std::optional<ManifestEntry> Manifest::find(std::string_view canonical_path) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    const auto it = by_path_.find(std::string(canonical_path));
-    if (it == by_path_.end())
+    const auto *entry = by_path_.get(canonical_path);
+    if (!entry)
         return std::nullopt;
-    return it->second;
+    return *entry;
 }
 
 std::vector<std::string> Manifest::dependentsOf(std::string_view canonical_path) const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> result;
-    std::unordered_set<std::string> visited;
+    memory::FlatSet<std::string> visited;
     std::vector<std::string> stack{std::string(canonical_path)};
     while (!stack.empty()) {
         auto cur = std::move(stack.back());
         stack.pop_back();
-        if (!visited.insert(cur).second)
+        if (!visited.insert(cur))
             continue;
-        const auto it = reverse_deps_.find(cur);
-        if (it == reverse_deps_.end())
+        const auto *dependents = reverse_deps_.get(cur);
+        if (!dependents)
             continue;
-        for (const auto &dep : it->second) {
+        for (const auto &dep : *dependents) {
             result.push_back(dep);
             stack.push_back(dep);
         }
@@ -107,7 +114,8 @@ void Manifest::save() const {
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output)
         return;
-    for (const auto &[key, entry] : by_path_) {
+    for (const auto item : by_path_) {
+        const auto &[key, entry] = item;
         output << escapeField(entry.canonical_path) << '\x1f' << escapeField(entry.artifact_path)
                << '\x1f' << std::hex << std::setfill('0') << std::setw(8) << entry.public_abi_hi
                << '\x1f' << std::setw(8) << entry.public_abi_lo << '\x1f' << std::setw(8)

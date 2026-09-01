@@ -5,17 +5,17 @@
 namespace zith::sema::modern {
 
 uint32_t PerModuleSema::stateMachineIdFor(const frontend::Declaration &decl) {
-    const auto existing = stateMachineByDecl_.find(decl.id.value);
-    if (existing != stateMachineByDecl_.end())
-        return existing->second;
+    const auto existing = stateMachineByDecl_.get(decl.id.value);
+    if (existing)
+        return *existing;
     if (decl.parentScope) {
-        const auto local = localStateMachineByParent_.find(decl.parentScope.value);
-        if (local != localStateMachineByParent_.end() && local->second != 0U) {
-            stateMachineByDecl_[decl.id.value] = local->second;
-            return local->second;
+        const auto local = localStateMachineByParent_.get(decl.parentScope.value);
+        if (local && *local != 0U) {
+            stateMachineByDecl_[decl.id.value] = *local;
+            return *local;
         }
         const uint32_t machine_id = nextStateMachineId_++;
-        localStateMachineByParent_.emplace(decl.parentScope.value, machine_id);
+        localStateMachineByParent_.insert(decl.parentScope.value, machine_id);
         stateMachineByDecl_[decl.id.value] = machine_id;
         return machine_id;
     }
@@ -31,8 +31,8 @@ uint32_t PerModuleSema::stateMachineIdFor(const frontend::Declaration &decl) {
     return machine_id;
 }
 uint32_t PerModuleSema::stateMachineIdOf(const frontend::Declaration &decl) const noexcept {
-    const auto existing = stateMachineByDecl_.find(decl.id.value);
-    return existing != stateMachineByDecl_.end() ? existing->second : 0U;
+    const auto existing = stateMachineByDecl_.get(decl.id.value);
+    return existing ? *existing : 0U;
 }
 
 const frontend::Declaration *

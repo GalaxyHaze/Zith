@@ -142,8 +142,8 @@ SourceCatalog::SourcePtr SourceCatalog::registerSource(std::string path, std::st
     SourceKey key{path, fingerprint};
 
     std::unique_lock<std::shared_mutex> lock(mutex_);
-    if (const auto existing = by_key_.find(key); existing != by_key_.end())
-        return existing->second;
+    if (const auto *existing = by_key_.get(key))
+        return *existing;
 
     if (by_id_.size() >= static_cast<size_t>(std::numeric_limits<memory::FileId>::max()))
         return {};
@@ -151,7 +151,7 @@ SourceCatalog::SourcePtr SourceCatalog::registerSource(std::string path, std::st
     const auto id = static_cast<memory::FileId>(by_id_.size());
     auto source   = std::make_shared<const SourceRecord>(
         SourceRecord{id, std::move(path), fingerprint, std::move(text)});
-    by_key_.emplace(std::move(key), source);
+    by_key_.insert(std::move(key), source);
     by_id_.push_back(source);
     return source;
 }
@@ -182,8 +182,8 @@ SourceCatalog::SourcePtr SourceCatalog::find(const std::string_view canonical_pa
                                              const ContentFingerprint fingerprint) const {
     const SourceKey key{canonicalPath(canonical_path), fingerprint};
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    if (const auto existing = by_key_.find(key); existing != by_key_.end())
-        return existing->second;
+    if (const auto *existing = by_key_.get(key))
+        return *existing;
     return {};
 }
 
@@ -292,9 +292,9 @@ std::vector<frontend::ImportedMacroRecord>
 FrontendContext::importedMacrosFor(const ModuleArtifact &module,
                                    const std::vector<ModuleArtifactPtr> &modules,
                                    const std::vector<ImportEdge> &import_graph) {
-    std::unordered_map<ModuleKey, const ModuleArtifact *> module_by_key;
+    memory::FlatMap<ModuleKey, const ModuleArtifact *> module_by_key;
     for (const auto &candidate : modules)
-        module_by_key.emplace(candidate->key, candidate.get());
+        module_by_key.insert(candidate->key, candidate.get());
 
     std::vector<frontend::ImportedMacroRecord> result;
 
@@ -343,24 +343,23 @@ FrontendContext::importedMacrosFor(const ModuleArtifact &module,
         }
 
         for (const auto &target_key : edge.targets) {
-            const auto target_it = module_by_key.find(target_key);
-            if (target_it == module_by_key.end())
+            const auto *target = module_by_key.get(target_key);
+            if (!target)
                 continue;
-            const auto *target = target_it->second;
-            if (target->frontend == nullptr)
+            if ((*target)->frontend == nullptr)
                 continue;
 
             if (!edge.request.selectors.empty()) {
                 for (const auto &selector : edge.request.selectors)
-                    appendMacros(target, edge.request, &selector, {});
+                    appendMacros(*target, edge.request, &selector, {});
                 continue;
             }
             if (edge.request.isFrom) {
-                appendMacros(target, edge.request, nullptr, {});
+                appendMacros(*target, edge.request, nullptr, {});
             } else if (!edge.request.alias.empty()) {
-                appendMacros(target, edge.request, nullptr, edge.request.alias);
+                appendMacros(*target, edge.request, nullptr, edge.request.alias);
             } else if (!edge.request.path.empty()) {
-                appendMacros(target, edge.request, nullptr, edge.request.path.back());
+                appendMacros(*target, edge.request, nullptr, edge.request.path.back());
             }
         }
     }
@@ -435,26 +434,26 @@ ModuleCache::getOrBuild(const CacheKey &cache_key, SourceCatalog::SourcePtr sour
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        const auto current = current_fingerprints_.find(source->canonicalPath);
-        if (current == current_fingerprints_.end() || current->second != source->fingerprint) {
+        const auto *current = current_fingerprints_.get(source->canonicalPath);
+        if (!current || *current != source->fingerprint) {
             current_fingerprints_[source->canonicalPath] = source->fingerprint;
             ++epochs_[source->canonicalPath];
             invalidateLocked(source->canonicalPath);
         }
-        if (const auto cached = artifacts_.find(bucket);
-            cached != artifacts_.end() && cached->second->fingerprint == source->fingerprint) {
+        if (const auto *cached = artifacts_.get(bucket);
+            cached && (*cached)->fingerprint == source->fingerprint) {
             ++metrics_.hits;
-            return readyFuture(cached->second);
+            return readyFuture(*cached);
         }
-        if (const auto active = in_flight_.find(in_flight); active != in_flight_.end()) {
+        if (const auto *active = in_flight_.get(in_flight)) {
             ++metrics_.hits;
-            return active->second.future;
+            return active->future;
         }
         ++metrics_.misses;
         epoch   = epochs_[source->canonicalPath];
         promise = std::make_shared<std::promise<ModuleArtifactPtr>>();
         shared  = promise->get_future().share();
-        in_flight_.emplace(in_flight, InFlight{shared, epoch});
+        in_flight_.insert(in_flight, InFlight{shared, epoch});
     }
 
     (void)executor.submit([this, bucket, in_flight, worker_source = source, epoch,
@@ -463,9 +462,7 @@ ModuleCache::getOrBuild(const CacheKey &cache_key, SourceCatalog::SourcePtr sour
         auto artifact = worker_build();
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            const auto active = in_flight_.find(in_flight);
-            if (active != in_flight_.end())
-                in_flight_.erase(active);
+            in_flight_.erase(in_flight);
 
             if (artifact && epochs_[worker_source->canonicalPath] == epoch &&
                 current_fingerprints_[worker_source->canonicalPath] == worker_source->fingerprint) {
@@ -480,8 +477,8 @@ ModuleCache::getOrBuild(const CacheKey &cache_key, SourceCatalog::SourcePtr sour
 
 void ModuleCache::noteSource(const SourceCatalog::SourcePtr &source) {
     std::lock_guard<std::mutex> lock(mutex_);
-    const auto current = current_fingerprints_.find(source->canonicalPath);
-    if (current != current_fingerprints_.end() && current->second == source->fingerprint)
+    const auto *current = current_fingerprints_.get(source->canonicalPath);
+    if (current && *current == source->fingerprint)
         return;
 
     current_fingerprints_[source->canonicalPath] = source->fingerprint;
@@ -494,8 +491,8 @@ void ModuleCache::updateDependencies(const ModuleKey &module, std::vector<Module
     dependencies.erase(std::unique(dependencies.begin(), dependencies.end()), dependencies.end());
 
     std::lock_guard<std::mutex> lock(mutex_);
-    if (const auto previous = dependencies_.find(module); previous != dependencies_.end()) {
-        for (const auto &dependency : previous->second)
+    if (const auto *previous = dependencies_.get(module)) {
+        for (const auto &dependency : *previous)
             reverse_dependencies_[dependency].erase(module);
     }
 
@@ -515,24 +512,25 @@ void ModuleCache::invalidate(const std::string_view canonical_path) {
 
 void ModuleCache::invalidateLocked(const ModuleKey &module) {
     std::vector<ModuleKey> pending{module};
-    std::unordered_set<ModuleKey> visited;
+    memory::FlatSet<ModuleKey> visited;
     while (!pending.empty()) {
         auto current = std::move(pending.back());
         pending.pop_back();
-        if (!visited.insert(current).second)
+        if (!visited.insert(current))
             continue;
 
-        for (auto iterator = artifacts_.begin(); iterator != artifacts_.end();) {
-            if (iterator->second->key == current) {
-                iterator = artifacts_.erase(iterator);
-                ++metrics_.invalidated;
-            } else {
-                ++iterator;
-            }
+        std::vector<std::string> evict_keys;
+        for (const auto item : artifacts_) {
+            const auto &[key, artifact] = item;
+            if (artifact->key == current)
+                evict_keys.push_back(key);
         }
-        if (const auto dependents = reverse_dependencies_.find(current);
-            dependents != reverse_dependencies_.end()) {
-            for (const auto &dependent : dependents->second) {
+        for (const auto &key : evict_keys) {
+            artifacts_.erase(key);
+            ++metrics_.invalidated;
+        }
+        if (const auto *dependents = reverse_dependencies_.get(current)) {
+            for (const auto &dependent : *dependents) {
                 ++epochs_[dependent];
                 pending.push_back(dependent);
             }
@@ -571,8 +569,8 @@ FrontendContext::sourceForPath(const std::string_view path) {
     const auto canonical = SourceCatalog::canonicalPath(path);
     {
         std::shared_lock<std::shared_mutex> lock(overlay_mutex_);
-        if (const auto overlay = overlays_.find(canonical); overlay != overlays_.end())
-            return catalog_->registerSource(canonical, overlay->second);
+        if (const auto *overlay = overlays_.get(canonical))
+            return catalog_->registerSource(canonical, *overlay);
     }
     return catalog_->loadFile(canonical);
 }
@@ -920,9 +918,9 @@ std::vector<ModuleResolution>
 FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                                   const std::vector<ImportEdge> &import_graph,
                                   std::vector<ModuleDiagnostic> &diagnostics) {
-    std::unordered_map<ModuleKey, const ModuleArtifact *> module_by_key;
+    memory::FlatMap<ModuleKey, const ModuleArtifact *> module_by_key;
     for (const auto &module : modules)
-        module_by_key.emplace(module->key, module.get());
+        module_by_key.insert(module->key, module.get());
 
     std::vector<ModuleResolution> result;
     result.reserve(modules.size());
@@ -934,11 +932,11 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
         // both its own imports and those forwarded by its direct dependencies.
         std::vector<const ImportEdge *> effective_edges;
         std::vector<ModuleKey> pending_export_roots{module->key};
-        std::unordered_set<ModuleKey> visited_export_roots;
+        memory::FlatSet<ModuleKey> visited_export_roots;
         while (!pending_export_roots.empty()) {
             const auto export_root = pending_export_roots.back();
             pending_export_roots.pop_back();
-            if (!visited_export_roots.insert(export_root).second)
+            if (!visited_export_roots.insert(export_root))
                 continue;
             for (const auto &edge : import_graph) {
                 if (edge.importer != export_root)
@@ -946,10 +944,11 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 if (export_root != module->key && !edge.request.isExport)
                     continue;
                 effective_edges.push_back(&edge);
-                const auto target_it =
-                    module_by_key.find(edge.targets.empty() ? ModuleKey{} : edge.targets.front());
-                if (target_it != module_by_key.end())
-                    pending_export_roots.push_back(target_it->first);
+                const auto *target_artifact =
+                    module_by_key.get(edge.targets.empty() ? ModuleKey{} : edge.targets.front());
+                if (target_artifact)
+                    pending_export_roots.push_back(edge.targets.empty() ? ModuleKey{}
+                                                                        : edge.targets.front());
             }
         }
 
@@ -1081,13 +1080,13 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
         }
         // Local bindings take the scope of the block that contains them; the
         // statement list itself carries no scope information.
-        std::unordered_map<uint32_t, frontend::ScopeId> statement_scopes;
+        memory::FlatMap<uint32_t, frontend::ScopeId> statement_scopes;
         for (const auto &expression : module->frontend->expressions()) {
             if (expression.kind != frontend::ExprKind::Block)
                 continue;
             for (const auto statement_id : expression.statements) {
                 if (statement_id)
-                    statement_scopes.emplace(statement_id.value, expression.scope);
+                    statement_scopes.insert(statement_id.value, expression.scope);
             }
         }
         for (const auto &statement : module->frontend->statements()) {
@@ -1096,9 +1095,8 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 continue;
             if (statement.kind == frontend::StmtKind::Binding && !statement.binding.name.empty()) {
                 frontend::ScopeId statement_scope;
-                if (const auto found = statement_scopes.find(statement.id.value);
-                    found != statement_scopes.end()) {
-                    statement_scope = found->second;
+                if (const auto *found = statement_scopes.get(statement.id.value)) {
+                    statement_scope = *found;
                 }
                 ResolvedName local_binding{statement.binding.name,
                                            ResolutionKind::Declaration,
@@ -1175,10 +1173,10 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                 for (const auto &selector : edge.request.selectors) {
                     bool found = false;
                     for (const auto &target : edge.targets) {
-                        const auto module_it = module_by_key.find(target);
-                        if (module_it == module_by_key.end())
+                        const auto *target_artifact = module_by_key.get(target);
+                        if (!target_artifact)
                             continue;
-                        for (const auto &symbol : module_it->second->publicSymbols) {
+                        for (const auto &symbol : (*target_artifact)->publicSymbols) {
                             if (symbol.name != selector.name)
                                 continue;
                             ResolvedName imported{selector.alias.empty() ? selector.name
@@ -1214,10 +1212,10 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
             }
             if (edge.request.isFrom) {
                 for (const auto &target : edge.targets) {
-                    const auto module_it = module_by_key.find(target);
-                    if (module_it == module_by_key.end())
+                    const auto *target_artifact = module_by_key.get(target);
+                    if (!target_artifact)
                         continue;
-                    for (const auto &symbol : module_it->second->publicSymbols) {
+                    for (const auto &symbol : (*target_artifact)->publicSymbols) {
                         ResolvedName imported{symbol.name,
                                               ResolutionKind::Import,
                                               edge.request.span,
@@ -1249,7 +1247,7 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
             }
         }
 
-        std::unordered_set<uint32_t> field_operand_ids;
+        memory::FlatSet<uint32_t> field_operand_ids;
         for (const auto &expression : module->frontend->expressions()) {
             if (expression.kind == frontend::ExprKind::Field && !expression.operands.empty())
                 field_operand_ids.insert(expression.operands[0].value);
@@ -1282,13 +1280,12 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                         break;
                     cursor = next + 1U;
                 }
-                const auto target      = alias->target.module;
-                const auto artifact_it = module_by_key.find(target);
-                if (artifact_it == module_by_key.end() || segments.size() < 2U)
+                const auto target    = alias->target.module;
+                const auto *artifact = module_by_key.get(target);
+                if (!artifact || segments.size() < 2U)
                     continue;
-                const auto &artifact = *artifact_it->second;
-                bool found           = false;
-                for (const auto &symbol : artifact.publicSymbols) {
+                bool found = false;
+                for (const auto &symbol : (*artifact)->publicSymbols) {
                     if (symbol.name != segments.back())
                         continue;
                     ResolvedName member;
@@ -1389,8 +1386,8 @@ FrontendContext::buildResolutions(const std::vector<ModuleArtifactPtr> &modules,
                     continue;
 
                 auto *target_artifact = [&]() -> const ModuleArtifact * {
-                    const auto member_module = module_by_key.find(target_module);
-                    return member_module == module_by_key.end() ? nullptr : member_module->second;
+                    const auto *member_module = module_by_key.get(target_module);
+                    return member_module ? *member_module : nullptr;
                 }();
                 if (target_artifact == nullptr)
                     continue;
@@ -1488,58 +1485,66 @@ void FrontendContext::appendCycleDiagnostics(
     const std::vector<ModuleArtifactPtr> &modules,
     const std::map<ModuleKey, std::vector<ModuleKey>> &dependencies,
     const std::vector<ImportEdge> &import_graph, std::vector<ModuleDiagnostic> &diagnostics) {
-    std::unordered_map<ModuleKey, const ModuleArtifact *> by_key;
-    std::unordered_map<ModuleKey, std::vector<ModuleKey>> edges;
+    memory::FlatMap<ModuleKey, const ModuleArtifact *> by_key;
+    memory::FlatMap<ModuleKey, std::vector<ModuleKey>> edges;
     for (const auto &module : modules)
-        by_key.emplace(module->key, module.get());
+        by_key.insert(module->key, module.get());
     for (const auto &[module, module_dependencies] : dependencies)
-        edges.emplace(module, module_dependencies);
+        edges.insert(module, module_dependencies);
 
     enum class Mark : uint8_t { None, Active, Done };
-    std::unordered_map<ModuleKey, Mark> marks;
+    memory::FlatMap<ModuleKey, Mark> marks;
     std::vector<ModuleKey> stack;
-    std::unordered_set<std::string> reported;
+    memory::FlatSet<std::string> reported;
     std::function<void(const ModuleKey &)> visit = [&](const ModuleKey &key) {
-        marks[key] = Mark::Active;
+        marks.insert(key, Mark::Active);
         stack.push_back(key);
-        for (const auto &next : edges[key]) {
-            if (marks[next] == Mark::None) {
-                visit(next);
-                continue;
-            }
-            if (marks[next] != Mark::Active)
-                continue;
-
-            const auto begin = std::find(stack.begin(), stack.end(), next);
-            std::vector<ModuleKey> cycle(begin, stack.end());
-            cycle.push_back(next);
-            std::ostringstream message;
-            message << "circular import detected: ";
-            for (size_t index = 0; index < cycle.size(); ++index) {
-                if (index != 0U)
-                    message << " -> ";
-                message << cycle[index];
-            }
-            if (!reported.insert(message.str()).second)
-                continue;
-            const auto *module = by_key[key];
-            frontend::TextSpan span{};
-            for (const auto &edge : import_graph) {
-                if (edge.importer == key && std::find(edge.targets.begin(), edge.targets.end(),
-                                                      next) != edge.targets.end()) {
-                    span = edge.request.span;
-                    break;
+        const auto *module_edges = edges.get(key);
+        if (module_edges) {
+            for (const auto &next : *module_edges) {
+                const auto *mark = marks.get(next);
+                if (!mark || *mark == Mark::None) {
+                    visit(next);
+                    continue;
                 }
+                if (*mark != Mark::Active)
+                    continue;
+
+                const auto begin = std::find(stack.begin(), stack.end(), next);
+                std::vector<ModuleKey> cycle(begin, stack.end());
+                cycle.push_back(next);
+                std::ostringstream message;
+                message << "circular import detected: ";
+                for (size_t index = 0; index < cycle.size(); ++index) {
+                    if (index != 0U)
+                        message << " -> ";
+                    message << cycle[index];
+                }
+                if (!reported.insert(message.str()))
+                    continue;
+                const auto *module = by_key.get(key);
+                if (!module)
+                    continue;
+                frontend::TextSpan span{};
+                for (const auto &edge : import_graph) {
+                    if (edge.importer == key && std::find(edge.targets.begin(), edge.targets.end(),
+                                                          next) != edge.targets.end()) {
+                        span = edge.request.span;
+                        break;
+                    }
+                }
+                diagnostics.push_back({diagnostics::Severity::Error, diagnostics::err::ImportError,
+                                       message.str(), (*module)->fileId, span.start, span.end});
             }
-            diagnostics.push_back({diagnostics::Severity::Error, diagnostics::err::ImportError,
-                                   message.str(), module->fileId, span.start, span.end});
         }
         stack.pop_back();
-        marks[key] = Mark::Done;
+        marks.insert(key, Mark::Done);
     };
-    for (const auto &module : modules)
-        if (marks[module->key] == Mark::None)
+    for (const auto &module : modules) {
+        const auto *mark = marks.get(module->key);
+        if (!mark || *mark == Mark::None)
             visit(module->key);
+    }
 }
 
 void FrontendContext::sortDiagnostics(std::vector<ModuleDiagnostic> &diagnostics,
@@ -1570,7 +1575,6 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
     std::map<ModuleKey, SourceCatalog::SourcePtr> pending;
     std::map<ModuleKey, ModuleArtifactPtr> modules;
     std::map<ModuleKey, std::vector<ModuleKey>> resolved_dependencies;
-    std::map<std::string, std::shared_ptr<const cinterop::CHeaderArtifact>> c_headers_by_path;
     std::vector<ImportEdge> import_graph;
     std::vector<ModuleDiagnostic> diagnostics;
     std::vector<ModuleDiagnostic> module_diagnostics;
@@ -1631,7 +1635,12 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
                 }
                 if (resolved.targetKind == ImportTargetKind::CHeader) {
                     const auto &header_path = resolved.modules.front();
-                    auto header             = c_headers_by_path[header_path];
+                    std::shared_ptr<const cinterop::CHeaderArtifact> header;
+                    {
+                        std::lock_guard<std::mutex> lock(c_headers_mutex_);
+                        if (auto *cached = c_headers_by_path_.get(header_path))
+                            header = *cached;
+                    }
                     if (!header) {
                         cinterop::ParseOptions options;
                         options.targetTriple = config_.targetTriple;
@@ -1641,7 +1650,12 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
                             options.includeDirs.push_back(root);
                         options.defines = config_.cDefines;
                         header          = cinterop::parseHeader(header_path, options);
-                        c_headers_by_path[header_path] = header;
+                        std::lock_guard<std::mutex> lock(c_headers_mutex_);
+                        auto *slot = c_headers_by_path_.get(header_path);
+                        if (slot)
+                            header = *slot;
+                        else
+                            c_headers_by_path_.insert(header_path, header);
                     }
                     edge.cHeader = header;
                     for (const auto &dependency : header->dependencies) {
@@ -1759,10 +1773,14 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
     sortDiagnostics(diagnostics, *catalog_);
     auto merged_symbols = mergeSymbols(ordered_modules);
     std::vector<std::shared_ptr<const cinterop::CHeaderArtifact>> c_headers;
-    c_headers.reserve(c_headers_by_path.size());
-    for (const auto &[path, header] : c_headers_by_path) {
-        (void)path;
-        c_headers.push_back(header);
+    {
+        std::lock_guard<std::mutex> lock(c_headers_mutex_);
+        c_headers.reserve(c_headers_by_path_.size());
+        for (const auto item : c_headers_by_path_) {
+            const auto &[path, header] = item;
+            (void)path;
+            c_headers.push_back(header);
+        }
     }
     return std::make_shared<const CompilationSnapshot>(
         catalog_, cache_key_, root_key, std::move(ordered_modules), std::move(merged_symbols),

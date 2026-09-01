@@ -12,7 +12,6 @@
 #include "types/type-intern.hpp"
 
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 namespace zith::sema::modern {

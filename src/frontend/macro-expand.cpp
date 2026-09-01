@@ -3,7 +3,6 @@
 
 #include <algorithm>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace zith::frontend {
@@ -310,7 +309,7 @@ void MacroExpander::expandExpr(ExprId id, const std::vector<MacroInfo> &macros,
         if (!macro->isRaw)
             collectHygieneNames(macro->body, hygieneNames, *source);
 
-        std::unordered_map<std::string, std::string> hygieneMap;
+        memory::FlatMap<std::string, std::string> hygieneMap;
         for (const auto &name : hygieneNames)
             hygieneMap[name] = hygieneName(name);
 
@@ -336,9 +335,8 @@ void MacroExpander::expandExpr(ExprId id, const std::vector<MacroInfo> &macros,
                 continue;
             auto &e = snapshot_.expressions_[ei];
             if (e.kind == ExprKind::Name) {
-                auto it = hygieneMap.find(e.text);
-                if (it != hygieneMap.end())
-                    e.text = it->second;
+                if (const auto *renamed = hygieneMap.get(e.text))
+                    e.text = *renamed;
             }
         }
         for (size_t si = origStmtCount; si < snapshot_.statements_.size(); ++si) {
@@ -346,9 +344,8 @@ void MacroExpander::expandExpr(ExprId id, const std::vector<MacroInfo> &macros,
                 continue;
             auto &s = snapshot_.statements_[si];
             if (s.kind == StmtKind::Binding) {
-                auto it = hygieneMap.find(s.binding.name);
-                if (it != hygieneMap.end())
-                    s.binding.name = it->second;
+                if (const auto *renamed = hygieneMap.get(s.binding.name))
+                    s.binding.name = *renamed;
             }
         }
 
@@ -660,8 +657,8 @@ ExprId MacroExpander::substituteAttribute(ExprId src, const MacroInfo *macro, Ex
 ScopeId MacroExpander::mappedScope(ScopeId templateScope, ScopeId callScope) const {
     if (!templateScope)
         return callScope;
-    const auto found = scopeMap_.find(templateScope.value);
-    return found == scopeMap_.end() ? callScope : found->second;
+    const auto *found = scopeMap_.get(templateScope.value);
+    return found ? *found : callScope;
 }
 
 void MacroExpander::markNonHygienic(size_t firstExprIndex, size_t firstStmtIndex) {

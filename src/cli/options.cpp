@@ -482,6 +482,12 @@ void Cli::parseArgs(int argc, char **argv) {
             continue;
         }
 
+        // --no-cache
+        if (std::strcmp(argv[i], "--no-cache") == 0) {
+            opts.noCache = true;
+            continue;
+        }
+
         // "-" is a positional arg meaning stdin, not a flag
         if (std::strcmp(argv[i], "-") == 0) {
             opts.inputFiles.push(std::string("-"));

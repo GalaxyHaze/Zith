@@ -651,8 +651,8 @@ TypeId PerModuleSema::lowerBareTypeExpr(const frontend::TypeExpression &type) {
         // A generic parameter name inside its own declaration resolves to an opaque
         // GenericParam type; the comptime solver rejects its use at instantiation.
         if (currentDeclId_ != 0U) {
-            if (const auto it = genericParams_.find(currentDeclId_); it != genericParams_.end()) {
-                for (const auto &binding : it->second) {
+            if (const auto *it = genericParams_.get(currentDeclId_)) {
+                for (const auto &binding : *it) {
                     if (binding.name == type.name)
                         return binding.type;
                 }
@@ -671,7 +671,7 @@ TypeId PerModuleSema::lowerBareTypeExpr(const frontend::TypeExpression &type) {
         // `activeTemplateArgs_`. The registered placeholder returned below
         // would otherwise accept `Status`/`Union<...>` and lose the arity.
         const bool inactive_template =
-            currentDeclId_ == 0U || genericParams_.find(currentDeclId_) == genericParams_.end();
+            currentDeclId_ == 0U || !genericParams_.contains(currentDeclId_);
         for (const auto &decl : snapshot.declarations()) {
             if (decl.name != type.name || decl.genericParams.empty())
                 continue;

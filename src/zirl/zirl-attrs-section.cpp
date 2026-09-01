@@ -40,6 +40,8 @@ bool decodeAttrs(ByteReader &r, cache::Artifact &out) {
     uint32_t n = 0;
     if (!r.readU32(n))
         return false;
+    if (!r.canReadU32Count(n))
+        return false;
     out.attrs_slots.resize(n);
     for (auto &slot : out.attrs_slots) {
         uint8_t a = 0, b = 0, c = 0, reserved = 0;
@@ -53,12 +55,16 @@ bool decodeAttrs(ByteReader &r, cache::Artifact &out) {
 
     if (!r.readU32(n))
         return false;
+    if (!r.canReadU32Count(n))
+        return false;
     out.attrs_calls.resize(n);
     for (auto &call : out.attrs_calls) {
         if (!r.readU32(call.expr_id) || !r.readU32(call.returns_arg))
             return false;
         uint32_t count = 0;
         if (!r.readU32(count))
+            return false;
+        if (!r.canReadU32Count(count))
             return false;
         call.arg_escapes.resize(count);
         for (auto &escape : call.arg_escapes)
@@ -67,6 +73,8 @@ bool decodeAttrs(ByteReader &r, cache::Artifact &out) {
     }
 
     if (!r.readU32(n))
+        return false;
+    if (!r.canReadU32Count(n))
         return false;
     out.attrs_fns.resize(n);
     for (auto &fn : out.attrs_fns) {

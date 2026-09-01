@@ -80,9 +80,8 @@ ArtifactBuilder::ArtifactBuilder(const symbols::SymbolTable &syms, const types::
 uint32_t ArtifactBuilder::internString(std::string_view s) {
     if (s.empty())
         return 0;
-    const auto it = string_index_.find(s);
-    if (it != string_index_.end())
-        return it->second;
+    if (const auto *existing = string_index_.get(s))
+        return *existing;
     const uint32_t id = static_cast<uint32_t>(strings_.size());
     strings_.emplace_back(s);
     string_index_[s] = id;
@@ -205,9 +204,8 @@ CompactType ArtifactBuilder::convertType(types::TypeId id) {
 uint32_t ArtifactBuilder::internType(types::TypeId id) {
     if (id == types::kInvalidType)
         return 0;
-    const auto it = type_index_.find(id);
-    if (it != type_index_.end())
-        return it->second;
+    if (const auto *existing = type_index_.get(id))
+        return *existing;
 
     // Intern dependencies first. convertType() emits plain CompactTypes whose
     // refs must point at already-written compact ids; deferring them until the
@@ -556,7 +554,7 @@ Artifact ArtifactBuilder::build(std::string_view canonical_path, std::string_vie
     art.deps = deps;
 
     // Collect exported/module-visible declarations.
-    std::unordered_map<symbols::SymId, size_t> sym_to_decl;
+    memory::FlatMap<symbols::SymId, size_t> sym_to_decl;
     std::vector<symbols::SymId> decl_sym_ids;
     decl_sym_ids.reserve(syms_.symbolCount());
     for (symbols::SymId id = 0; id < static_cast<symbols::SymId>(syms_.symbolCount()); ++id) {
@@ -635,9 +633,8 @@ Artifact ArtifactBuilder::build(std::string_view canonical_path, std::string_vie
             continue;
         auto &out_decl = art.decls[di];
         for (const auto member_id : syms_.get(id).members) {
-            const auto it = sym_to_decl.find(member_id);
-            if (it != sym_to_decl.end())
-                out_decl.method_decl_indices.push_back(static_cast<uint32_t>(it->second));
+            if (const auto *decl_index = sym_to_decl.get(member_id))
+                out_decl.method_decl_indices.push_back(static_cast<uint32_t>(*decl_index));
         }
     }
 

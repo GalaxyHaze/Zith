@@ -1,5 +1,7 @@
 #include "memory/arena.hpp"
 #include "memory/dyn-array.hpp"
+#include "memory/flat-map.hpp"
+#include "memory/flat-set.hpp"
 #include "memory/result.hpp"
 #include "test-common.hpp"
 
@@ -32,6 +34,19 @@ struct Tracked {
 
 struct alignas(64) Aligned {
     uint8_t data[64]{};
+};
+
+struct CustomKey {
+    uint32_t left  = 0;
+    uint32_t right = 0;
+
+    friend constexpr bool operator==(CustomKey, CustomKey) noexcept = default;
+};
+
+struct CustomKeyHash {
+    size_t operator()(CustomKey key) const noexcept {
+        return std::hash<uint32_t>{}(key.left) ^ (std::hash<uint32_t>{}(key.right) << 1U);
+    }
 };
 
 void test_arena_destroys_owned_objects() {
@@ -137,6 +152,51 @@ void test_result_void_and_movable_chains() {
     CHECK_EQ(propagated.error().msg, "io failure", "propagated error remains structured");
 }
 
+void test_flat_set_insert_contains_erase() {
+    memory::FlatSet<int> values;
+    CHECK(values.empty(), "FlatSet starts empty");
+    CHECK(values.insert(1), "FlatSet::insert reports a new element");
+    CHECK(!values.insert(1), "FlatSet::insert reports an existing element");
+    CHECK(values.insert(2), "FlatSet::insert another element");
+    CHECK_EQ(values.size(), 2u, "FlatSet keeps distinct elements");
+    CHECK(values.contains(1), "FlatSet::contains finds an inserted element");
+    CHECK(values.contains(2), "FlatSet::contains finds the second element");
+    values.erase(1);
+    CHECK(!values.contains(1), "FlatSet::erase removes an element");
+    CHECK(values.contains(2), "FlatSet::erase keeps other elements");
+    CHECK_EQ(values.size(), 1u, "FlatSet size tracks erasures");
+
+    values.clear();
+    CHECK(values.empty(), "FlatSet::clear removes all elements");
+    CHECK(!values.contains(2), "FlatSet::clear removes stored keys");
+}
+
+void test_flat_set_string_and_iteration() {
+    memory::FlatSet<std::string> names;
+    names.insert("a");
+    names.insert("b");
+    names.insert("a");
+    CHECK_EQ(names.size(), 2u, "FlatSet deduplicates string keys");
+    CHECK(names.contains("b"), "FlatSet lookup supports string_view keys");
+
+    size_t seen = 0;
+    for (const auto &name : names)
+        seen += name == "a" || name == "b";
+    CHECK_EQ(seen, 2u, "FlatSet iterates all stored keys");
+}
+
+void test_flat_map_custom_key_hash() {
+    memory::FlatMap<CustomKey, std::string, CustomKeyHash> values;
+    const CustomKey first{1, 2};
+    const CustomKey second{3, 4};
+    values[first]     = "one";
+    values[second]    = "two";
+    const auto *found = values.get(first);
+    CHECK(found != nullptr && *found == "one", "FlatMap stores custom-key values");
+    CHECK(values.contains(second), "FlatMap lookup supports custom hash keys");
+    CHECK(!values.contains(CustomKey{9, 9}), "FlatMap misses absent custom keys");
+}
+
 } // namespace
 
 static void test_memory() {
@@ -147,6 +207,9 @@ static void test_memory() {
     test_dynarray_resize_and_at();
     test_dynarray_append_range();
     test_result_void_and_movable_chains();
+    test_flat_set_insert_contains_erase();
+    test_flat_set_string_and_iteration();
+    test_flat_map_custom_key_hash();
 }
 
 TEST_MAIN(memory)

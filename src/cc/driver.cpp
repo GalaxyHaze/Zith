@@ -1,12 +1,13 @@
 #include "driver.hpp"
 
+#include "memory/flat-set.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <cerrno>
 #include <cstdio>
 #include <filesystem>
-#include <unordered_set>
 
 #ifdef ZITH_HAS_LLVM
 #include <llvm/ADT/ArrayRef.h>
@@ -384,7 +385,7 @@ DiscoveryResult discoverCSources(const std::vector<std::string> &roots) {
     DiscoveryResult result;
     namespace fs = std::filesystem;
 
-    std::unordered_set<std::string> seen;
+    memory::FlatSet<std::string> seen;
     for (const auto &root : roots) {
         std::error_code error;
         if (!fs::exists(root, error) || !fs::is_directory(root, error)) {
@@ -409,7 +410,7 @@ DiscoveryResult discoverCSources(const std::vector<std::string> &roots) {
             const auto current = *it;
             if (current.is_regular_file(error) && current.path().extension() == ".c") {
                 const std::string canonical = fs::weakly_canonical(current.path()).string();
-                if (seen.insert(canonical).second)
+                if (seen.insert(canonical))
                     result.sourcePaths.push_back(canonical);
             }
 

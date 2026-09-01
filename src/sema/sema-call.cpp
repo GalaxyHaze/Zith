@@ -7,8 +7,8 @@ namespace zith::sema::modern {
 
 const PerModuleSema::CallTarget *
 PerModuleSema::resolvedCallTarget(frontend::ExprId callee) const noexcept {
-    const auto found = call_targets_.find(callee.value);
-    return found == call_targets_.end() ? nullptr : &found->second;
+    const auto *found = call_targets_.get(callee.value);
+    return found ? found : nullptr;
 }
 void PerModuleSema::setResolvedCallTarget(frontend::ExprId callee, session::ModuleKey target_module,
                                           frontend::DeclId decl) {

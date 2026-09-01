@@ -1,9 +1,9 @@
 #pragma once
 
 #include "frontend/frontend.hpp"
+#include "memory/flat-map.hpp"
 
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace zith::frontend {
@@ -70,7 +70,7 @@ private:
     std::vector<bool> nonHygienicExprs_;
     std::vector<bool> nonHygienicStmts_;
     /// Template scope id -> cloned scope id, rebuilt for every expansion.
-    std::unordered_map<uint32_t, ScopeId> scopeMap_;
+    memory::FlatMap<uint32_t, ScopeId> scopeMap_;
 
     /// Attribute names/expressions of the call site being expanded.
     const std::vector<std::string> *callAttrNames_ = nullptr;

@@ -41,6 +41,10 @@ public:
     [[nodiscard]] std::optional<CacheEntry> loadEntry(std::string_view canonical_path,
                                                       const session::ContentFingerprint &fp);
 
+    // Remove an artifact that failed validation so later loads do not repeat
+    // the same parse/check work. Best-effort and reflected in metrics.
+    void dropInvalid(std::string_view canonical_path);
+
     // Persist `artifact` to disk and update the manifest.  Best-effort: disk
     // write failures are swallowed and only reflected in metrics.
     void store(const Artifact &artifact);

@@ -1,6 +1,7 @@
 #include "cache.hpp"
 
 #include "cache/cache-entry.hpp"
+#include "memory/flat-set.hpp"
 #include "zirl/zirl-reader.hpp"
 #include "zirl/zirl-writer.hpp"
 
@@ -8,7 +9,6 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
-#include <unordered_set>
 
 namespace zith::cache {
 
@@ -37,6 +37,13 @@ std::string Store::artifactPath(std::string_view canonical_path) const {
     return oss.str();
 }
 
+void Store::dropInvalid(std::string_view canonical_path) {
+    std::error_code ec;
+    fs::remove(artifactPath(canonical_path), ec);
+    manifest_.remove(canonical_path);
+    bumpInvalid();
+}
+
 std::optional<Artifact> Store::load(std::string_view canonical_path,
                                     const session::ContentFingerprint &fp) {
     const auto path = artifactPath(canonical_path);
@@ -48,25 +55,25 @@ std::optional<Artifact> Store::load(std::string_view canonical_path,
     std::string bytes{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
     auto artifact = zith::zirl::Reader::read(bytes);
     if (!artifact) {
-        bumpInvalid();
+        dropInvalid(canonical_path);
         return std::nullopt;
     }
     if (!validateArtifact(*artifact, cache_key_hash_, fp)) {
-        bumpInvalid();
+        dropInvalid(canonical_path);
         return std::nullopt;
     }
     // Validate dependencies against the manifest.
     for (const auto &dep : artifact->deps) {
         const auto dep_entry = manifest_.find(dep.canonical_path);
         if (!dep_entry) {
-            bumpInvalid();
+            dropInvalid(canonical_path);
             return std::nullopt;
         }
         if (dep.public_abi_hi == 0 && dep.public_abi_lo == 0)
             continue;
         if (dep_entry->public_abi_hi != dep.public_abi_hi ||
             dep_entry->public_abi_lo != dep.public_abi_lo) {
-            bumpInvalid();
+            dropInvalid(canonical_path);
             return std::nullopt;
         }
     }
@@ -127,10 +134,10 @@ void Store::invalidate(std::string_view canonical_path) {
     // Collect all paths to evict: original + transitive dependents, deduplicated.
     // Deduplication guards against any overlap between dependentsOf output and
     // the input path, and ensures idempotency over dependency cycles.
-    std::unordered_set<std::string> to_evict;
-    to_evict.emplace(canonical_path);
+    memory::FlatSet<std::string> to_evict;
+    to_evict.insert(canonical_path);
     for (const auto &dep : deps)
-        to_evict.emplace(dep);
+        to_evict.insert(dep);
     for (const auto &p : to_evict) {
         std::error_code ec;
         fs::remove(artifactPath(p), ec);

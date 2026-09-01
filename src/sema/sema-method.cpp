@@ -551,11 +551,11 @@ bool PerModuleSema::satisfiesConformance(TypeId type, TypeId trait_or_interface)
 void PerModuleSema::checkGenericConstraints(const frontend::Declaration &generic_decl,
                                             const std::vector<TypeId> &args,
                                             frontend::TextSpan span) {
-    const auto found = genericParams_.find(generic_decl.id.value);
-    if (found == genericParams_.end())
+    const auto *found = genericParams_.get(generic_decl.id.value);
+    if (!found)
         return;
-    for (size_t index = 0; index < args.size() && index < found->second.size(); ++index) {
-        for (const TypeId bound : found->second[index].bounds) {
+    for (size_t index = 0; index < args.size() && index < found->size(); ++index) {
+        for (const TypeId bound : (*found)[index].bounds) {
             if (!satisfiesConformance(args[index], bound)) {
                 const diagnostics::ErrCode code = isInterfaceType(bound)
                                                       ? diagnostics::err::InterfaceNotSatisfied
@@ -572,10 +572,10 @@ std::vector<TypeId> PerModuleSema::boundsForGenericParam(TypeId generic_type) co
     uint32_t decl_id   = 0;
     uint32_t param_idx = 0;
     type_table.genericParamOrigin(generic_type, &decl_id, &param_idx);
-    const auto found = genericParams_.find(decl_id);
-    if (found == genericParams_.end() || param_idx >= found->second.size())
+    const auto *found = genericParams_.get(decl_id);
+    if (!found || param_idx >= found->size())
         return {};
-    return found->second[param_idx].bounds;
+    return (*found)[param_idx].bounds;
 }
 
 /// Try to resolve `expr` (a Call whose callee is a Field/Arrow) as a
@@ -608,10 +608,10 @@ std::string PerModuleSema::ownerNameOf(TypeId pointee) const {
 bool PerModuleSema::isGenericTypeParamName(std::string_view name, uint32_t decl_id) const noexcept {
     if (name.empty() || decl_id == 0U)
         return false;
-    const auto found = genericParams_.find(decl_id);
-    if (found == genericParams_.end())
+    const auto *found = genericParams_.get(decl_id);
+    if (!found)
         return false;
-    for (const auto &binding : found->second) {
+    for (const auto &binding : *found) {
         if (binding.name == name)
             return true;
     }
@@ -635,9 +635,8 @@ TypeId PerModuleSema::ownerTypeFromName(std::string_view owner_name) const {
     // the method signatures are lowered.
     if (const TypeId named = type_table.lookupNamed(owner_name))
         return named;
-    if (const auto found = implementOwnerTypes_.find(std::string(owner_name));
-        found != implementOwnerTypes_.end())
-        return found->second;
+    if (const auto *found = implementOwnerTypes_.get(owner_name))
+        return *found;
     return type_table.lookupNamed(owner_name);
 }
 TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,

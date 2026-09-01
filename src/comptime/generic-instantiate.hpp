@@ -2,13 +2,13 @@
 
 #include "frontend/frontend.hpp"
 #include "memory/arena.hpp"
+#include "memory/flat-map.hpp"
 #include "sema/modern-types.hpp"
 #include "session/frontend-context.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace zith::comptime {
@@ -97,7 +97,7 @@ private:
     const session::CompilationSnapshot &snapshot_;
     sema::modern::TypeTable &type_table_;
     bool has_errors_ = false;
-    std::unordered_map<uint64_t, GenericCallBinding> calls_;
+    memory::FlatMap<uint64_t, GenericCallBinding> calls_;
     std::vector<InstantiationInstance> instances_;
 };
 

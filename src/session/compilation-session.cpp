@@ -8,6 +8,7 @@
 #include "comptime/solver.hpp"
 #include "diagnostics/error-codes.hpp"
 #include "formatter/fmt-visitor.hpp"
+#include "memory/flat-set.hpp"
 #include "memory/source-map.hpp"
 #include "sema/heuristic-engine.hpp"
 #include "sema/hir-lower-modern.hpp"
@@ -31,7 +32,6 @@
 #include <filesystem>
 #include <fstream>
 #include <toml++/toml.hpp>
-#include <unordered_set>
 #include <vector>
 #ifdef _WIN32
 #include <Windows.h>
@@ -495,12 +495,13 @@ bool CompilationSession::lexStage() {
     mCanonicalPath = SourceCatalog::canonicalPath(mFilePath);
 
 #ifndef ZITH_IS_WASM
-    if (!mCacheStore) {
+    if (!mCacheStore && !mOpts.get().noCache) {
         const auto cache_root = (fs::path(mProjectRoot) / cache::kPersistentCacheDirName).string();
         mCacheStore =
             std::make_unique<cache::Store>(cache_root, mFrontendContext->config().cacheKey());
     }
-    (void)tryLoadPersistentCache();
+    if (!mOpts.get().noCache)
+        (void)tryLoadPersistentCache();
 
     if (mOpts.get().flags.verbose()) {
         std::error_code ec;
@@ -694,9 +695,8 @@ void CompilationSession::forwardSnapshotDiagnostics() {
     mSnapshotDiagsForwarded = true;
     for (const auto &diagnostic : mSnapshot->diagnostics()) {
         memory::FileId report_file = diagnostic.file;
-        if (const auto mapped = mSnapshotDiagnosticFiles.find(diagnostic.file);
-            mapped != mSnapshotDiagnosticFiles.end()) {
-            report_file = mapped->second;
+        if (const auto *mapped = mSnapshotDiagnosticFiles.get(diagnostic.file)) {
+            report_file = *mapped;
         }
         mDiags.report(diagnostic.severity, diagnostic.code, diagnostic.message,
                       memory::Span{report_file, diagnostic.start, diagnostic.end});
@@ -964,7 +964,7 @@ bool CompilationSession::prepareNativeLinkInputs() {
         return true;
 
     std::vector<std::string> resolvedRoots;
-    std::unordered_set<std::string> seenRoots;
+    memory::FlatSet<std::string> seenRoots;
     for (const auto &root : configuredRoots) {
         fs::path path(root);
         if (path.is_relative())
@@ -978,7 +978,7 @@ bool CompilationSession::prepareNativeLinkInputs() {
         }
 
         const std::string canonical = fs::weakly_canonical(path).string();
-        if (seenRoots.insert(canonical).second)
+        if (seenRoots.insert(canonical))
             resolvedRoots.push_back(canonical);
     }
 
@@ -1342,6 +1342,8 @@ bool CompilationSession::tryLoadPersistentCache() {
 }
 
 void CompilationSession::writePersistentCache() {
+    if (mOpts.get().noCache)
+        return;
     if (mCacheStore == nullptr || mCacheHydrated)
         return;
     if (mDiags.hasErrors())
@@ -1359,9 +1361,9 @@ void CompilationSession::writePersistentCache() {
                                    mFrontendContext ? mFrontendContext->config().cacheKey()
                                                     : session::CacheKey{});
     std::vector<cache::DependencyRecord> deps;
-    std::unordered_set<std::string> seen_deps;
+    memory::FlatSet<std::string> seen_deps;
     auto append_dep = [&](std::string canonical_path, std::string import_key) {
-        if (canonical_path.empty() || !seen_deps.insert(canonical_path).second)
+        if (canonical_path.empty() || !seen_deps.insert(canonical_path))
             return;
         cache::DependencyRecord dep;
         dep.canonical_path = std::move(canonical_path);

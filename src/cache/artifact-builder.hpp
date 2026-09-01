@@ -2,6 +2,7 @@
 
 #include "cache/cache-types.hpp"
 #include "hir/hir-module.hpp"
+#include "memory/flat-map.hpp"
 #include "memory/string-interner.hpp"
 #include "session/frontend-context.hpp"
 #include "symbols/symbol-id.hpp"
@@ -11,7 +12,6 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 namespace zith::cache {
@@ -40,12 +40,12 @@ private:
 
     // String interning into the artifact's own string table.
     std::vector<std::string> strings_;
-    std::unordered_map<std::string_view, uint32_t> string_index_;
+    memory::FlatMap<std::string_view, uint32_t> string_index_;
     [[nodiscard]] uint32_t internString(std::string_view s);
 
     // Type interning into the artifact's compact type table.
     std::vector<CompactType> compact_types_;
-    std::unordered_map<types::TypeId, uint32_t> type_index_;
+    memory::FlatMap<types::TypeId, uint32_t> type_index_;
     [[nodiscard]] uint32_t internType(types::TypeId id);
     [[nodiscard]] CompactType convertType(types::TypeId id);
     [[nodiscard]] CompactExpr convertExpr(hir::HirExprId id);

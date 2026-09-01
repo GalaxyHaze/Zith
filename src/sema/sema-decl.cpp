@@ -577,7 +577,7 @@ void PerModuleSema::checkImplementBlocks() {
         frontend::TextSpan span;
         std::vector<frontend::TextSpan> spans;
     };
-    std::unordered_map<uint64_t, ImplGroup> groups;
+    memory::FlatMap<uint64_t, ImplGroup> groups;
 
     for (const auto &record : snapshot.implementRecords()) {
         const uint64_t key =
@@ -598,7 +598,7 @@ void PerModuleSema::checkImplementBlocks() {
     }
     // Attach methods to the implementation group. A declaration's `traitName`
     // is non-empty only for methods lowered from an implement block.
-    std::unordered_set<std::string> local_implement_owners;
+    memory::FlatSet<std::string> local_implement_owners;
     for (const auto &record : snapshot.implementRecords())
         local_implement_owners.insert(record.owner);
     for (const auto &decl : snapshot.declarations()) {
@@ -614,12 +614,12 @@ void PerModuleSema::checkImplementBlocks() {
         const uint64_t key =
             (static_cast<uint64_t>(std::hash<std::string_view>{}(decl.ownerName)) << 32U) ^
             static_cast<uint32_t>(std::hash<std::string_view>{}(decl.traitName));
-        auto found = groups.find(key);
-        if (found != groups.end())
-            found->second.methods.push_back(&decl);
+        auto *found = groups.get(key);
+        if (found)
+            found->methods.push_back(&decl);
     }
 
-    for (auto &entry : groups) {
+    for (auto entry : groups) {
         auto &group = entry.second;
         // Implement blocks belong to the module that declares them. Imported
         // modules also re-list implement records through their own types; the

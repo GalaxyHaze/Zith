@@ -20,6 +20,8 @@ bool decodeInstantiations(ByteReader &r, cache::Artifact &out) {
     uint32_t n = 0;
     if (!r.readU32(n))
         return false;
+    if (!r.canReadU32Count(n))
+        return false;
     out.instantiations.resize(n);
     for (auto &instance : out.instantiations) {
         if (!r.readBlob(instance.module) || !r.readBlob(instance.mangled) ||
@@ -27,6 +29,8 @@ bool decodeInstantiations(ByteReader &r, cache::Artifact &out) {
             return false;
         uint32_t count = 0;
         if (!r.readU32(count))
+            return false;
+        if (!r.canReadU32Count(count))
             return false;
         instance.arg_types.resize(count);
         for (auto &arg : instance.arg_types)

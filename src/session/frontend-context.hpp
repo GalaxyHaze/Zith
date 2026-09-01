@@ -4,6 +4,8 @@
 #include "diagnostics/diagnostic-engine.hpp"
 #include "diagnostics/diagnostic.hpp"
 #include "frontend/frontend.hpp"
+#include "memory/flat-map.hpp"
+#include "memory/flat-set.hpp"
 #include "memory/result.hpp"
 
 #include <condition_variable>
@@ -21,8 +23,6 @@
 #include <string_view>
 #include <thread>
 #include <type_traits>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -81,7 +81,7 @@ private:
     };
 
     mutable std::shared_mutex mutex_;
-    std::unordered_map<SourceKey, SourcePtr, SourceKeyHash> by_key_;
+    memory::FlatMap<SourceKey, SourcePtr, SourceKeyHash> by_key_;
     std::vector<SourcePtr> by_id_;
 };
 
@@ -470,12 +470,12 @@ private:
     void invalidateLocked(const ModuleKey &module);
 
     mutable std::mutex mutex_;
-    std::unordered_map<std::string, ModuleArtifactPtr> artifacts_;
-    std::unordered_map<std::string, InFlight> in_flight_;
-    std::unordered_map<ModuleKey, ContentFingerprint> current_fingerprints_;
-    std::unordered_map<ModuleKey, uint64_t> epochs_;
-    std::unordered_map<ModuleKey, std::unordered_set<ModuleKey>> dependencies_;
-    std::unordered_map<ModuleKey, std::unordered_set<ModuleKey>> reverse_dependencies_;
+    memory::FlatMap<std::string, ModuleArtifactPtr> artifacts_;
+    memory::FlatMap<std::string, InFlight> in_flight_;
+    memory::FlatMap<ModuleKey, ContentFingerprint> current_fingerprints_;
+    memory::FlatMap<ModuleKey, uint64_t> epochs_;
+    memory::FlatMap<ModuleKey, memory::FlatSet<ModuleKey>> dependencies_;
+    memory::FlatMap<ModuleKey, memory::FlatSet<ModuleKey>> reverse_dependencies_;
     ModuleCacheMetrics metrics_;
 };
 
@@ -568,7 +568,10 @@ private:
     ModuleCache cache_;
     ModuleExecutor executor_;
     mutable std::shared_mutex overlay_mutex_;
-    std::unordered_map<std::string, std::string> overlays_;
+    memory::FlatMap<std::string, std::string> overlays_;
+    memory::FlatMap<std::string, std::shared_ptr<const cinterop::CHeaderArtifact>>
+        c_headers_by_path_;
+    mutable std::mutex c_headers_mutex_;
     std::mutex stdlib_mutex_;
     bool stdlib_initialized_ = false;
 };

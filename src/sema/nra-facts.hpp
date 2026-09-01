@@ -12,7 +12,6 @@
 
 #include <cstdint>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace zith::sema::modern {
@@ -94,8 +93,8 @@ public:
         return function_facts_.get(internFunctionKey(*interner_, module, id));
     }
     [[nodiscard]] const NraNarrowingFact *narrowingFact(frontend::LocalId id) const noexcept {
-        const auto found = narrowing_facts_.find(id.value);
-        return found == narrowing_facts_.end() ? nullptr : &found->second;
+        const auto *found = narrowing_facts_.get(id.value);
+        return found;
     }
     [[nodiscard]] size_t localCount() const noexcept {
         return local_facts_.size();
@@ -143,7 +142,7 @@ private:
     memory::StringInterner *interner_;
     memory::FlatMap<uint32_t, NraLocalFact> local_facts_;
     memory::FlatMap<uint32_t, NraCallFact> call_facts_;
-    std::unordered_map<uint32_t, NraNarrowingFact> narrowing_facts_;
+    memory::FlatMap<uint32_t, NraNarrowingFact> narrowing_facts_;
     memory::FlatMap<uint64_t, NraFunctionFact> function_facts_;
 
     const session::ModuleArtifact *current_module_ = nullptr;

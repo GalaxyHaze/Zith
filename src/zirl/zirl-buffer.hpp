@@ -87,6 +87,13 @@ public:
     [[nodiscard]] size_t position() const noexcept {
         return pos_;
     }
+    // A u32 count that will back a container resize is only safe to use when
+    // the section has room for at least `minBytesPerItem` per item. The item
+    // decoders still validate full reads, but this check prevents a corrupt
+    // artifact from requesting an absurd allocation up front.
+    [[nodiscard]] bool canReadU32Count(uint32_t count, size_t minBytesPerItem = 4) const noexcept {
+        return minBytesPerItem != 0 && static_cast<size_t>(count) <= remaining() / minBytesPerItem;
+    }
 
     bool readU8(uint8_t &out) {
         if (pos_ + 1 > size_)

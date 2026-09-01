@@ -116,16 +116,18 @@ void NraFacts::walkExpr(frontend::ExprId id) {
         if (expression->operands.size() >= 3U)
             walkExpr(expression->operands[2]);
         current_condition_ = saved_condition;
-        for (const auto &entry : then_facts) {
-            const auto current = narrowing_facts_.find(entry.first);
-            if (current == narrowing_facts_.end() || !current->second.nonNull)
+        for (const auto entry : then_facts) {
+            const auto &fact    = entry.second;
+            const auto *current = narrowing_facts_.get(entry.first);
+            if (!current || !current->nonNull)
                 continue;
-            narrowing_facts_[entry.first].nonNull = entry.second.nonNull;
+            narrowing_facts_[entry.first].nonNull = fact.nonNull;
             narrowing_facts_[entry.first].isNullChecked =
-                narrowing_facts_[entry.first].isNullChecked || entry.second.isNullChecked;
+                narrowing_facts_[entry.first].isNullChecked || fact.isNullChecked;
         }
-        narrowing_facts_[0].nonNull = false;
-        narrowing_facts_.erase(0);
+        const uint32_t merge_sentinel            = 0;
+        narrowing_facts_[merge_sentinel].nonNull = false;
+        narrowing_facts_.erase(merge_sentinel);
         if (expression->statements.empty() && expression->operands.empty() == false)
             return;
         // The operand walk below handles any merged value expression.

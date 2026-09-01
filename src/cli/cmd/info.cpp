@@ -92,6 +92,7 @@ int help(FILE *dest) {
     p.flag("    --target <TRIPLE>", "Target triple for cross-compilation");
     p.flag("    --sysroot <DIR>", "Sysroot for cross-compilation linking");
     p.flag("    --no-system-includes", "Do not resolve imports from system C header dirs");
+    p.flag("    --no-cache", "Do not read or write the persistent .zith-cache");
     p.flag("    --emit-tokens", "Print and emit tokens");
     p.flag("    --emit-ast", "Emit AST");
     p.flag("    --emit-hir", "Emit HIR");

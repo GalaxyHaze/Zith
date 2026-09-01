@@ -2,8 +2,6 @@
 #include "sema/sema-modern.hpp"
 #include <algorithm>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 
 namespace zith::sema::modern {
 
@@ -31,11 +29,10 @@ void PerModuleSema::inferExpressionTypesForDecls() {
             decl.functionKind == frontend::FunctionKind::State) {
             // Local states form one machine per parent body, independent of the
             // top-level return-type grouping.
-            const auto [it, inserted] =
-                localStateMachineByParent_.emplace(decl.parentScope.value, 0U);
-            if (inserted)
-                it->second = nextStateMachineId_++;
-            stateMachineByDecl_[decl.id.value] = it->second;
+            auto &existing = localStateMachineByParent_[decl.parentScope.value];
+            if (existing == 0U)
+                existing = nextStateMachineId_++;
+            stateMachineByDecl_[decl.id.value] = existing;
         }
         currentDeclId_       = decl.id.value;
         currentFunctionKind_ = decl.kind == frontend::DeclKind::Function
@@ -511,7 +508,7 @@ void PerModuleSema::checkDeferCaptures(const frontend::Statement &stmt,
         bool has_init = false;
         std::string name;
     };
-    std::unordered_map<uint32_t, DirectBinding> direct;
+    memory::FlatMap<uint32_t, DirectBinding> direct;
     size_t defer_index = 0;
     bool saw_defer     = false;
     for (size_t index = 0; index < block.statements.size(); ++index) {
@@ -559,11 +556,11 @@ void PerModuleSema::checkDeferCaptures(const frontend::Statement &stmt,
         if (expr.kind == frontend::ExprKind::Name) {
             const auto *resolved = findResolvedExpr(expr_id);
             if (resolved != nullptr && resolved->local) {
-                const auto found = direct.find(resolved->local.value);
-                if (found != direct.end() && found->second.index > defer_index) {
-                    if (!found->second.has_init || hasEarlyExit(found->second.index)) {
+                const auto *found = direct.get(resolved->local.value);
+                if (found && found->index > defer_index) {
+                    if (!found->has_init || hasEarlyExit(found->index)) {
                         report(expr.span,
-                               "defer may run before captured binding '" + found->second.name +
+                               "defer may run before captured binding '" + found->name +
                                    "' is initialized",
                                diagnostics::err::UnsupportedSyntax);
                     }

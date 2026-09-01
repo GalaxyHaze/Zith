@@ -45,6 +45,10 @@ struct Options {
     // include directories. Cleared by --no-system-includes.
     bool systemIncludes = true;
 
+    // Disable the persistent `.zith-cache` artifact store for this invocation.
+    // Frontend in-memory memoization still applies within the session.
+    bool noCache = false;
+
     // Bit-packed flags (std::bitset<24>):
     //  0-1:  optLevel      (2 bits, values 0-3)
     //  2-3:  debugLevel    (2 bits, values 0-3)

@@ -30,6 +30,8 @@ bool decodeDecls(ByteReader &r, cache::Artifact &out) {
     uint32_t n = 0;
     if (!r.readU32(n))
         return false;
+    if (!r.canReadU32Count(n))
+        return false;
     out.decls.resize(n);
     for (auto &d : out.decls) {
         uint8_t kind = 0, vis = 0, ext = 0, reserved = 0;
@@ -48,6 +50,8 @@ bool decodeDecls(ByteReader &r, cache::Artifact &out) {
         uint32_t c = 0;
         if (!r.readU32(c))
             return false;
+        if (!r.canReadU32Count(c))
+            return false;
         d.field_name_ids.resize(c);
         for (auto &id : d.field_name_ids)
             if (!r.readU32(id))
@@ -57,6 +61,8 @@ bool decodeDecls(ByteReader &r, cache::Artifact &out) {
             if (!r.readU32(id))
                 return false;
         if (!r.readU32(c))
+            return false;
+        if (!r.canReadU32Count(c))
             return false;
         d.method_decl_indices.resize(c);
         for (auto &id : d.method_decl_indices)
@@ -111,6 +117,8 @@ bool decodeTemplates(ByteReader &r, cache::Artifact &out) {
     uint32_t n = 0;
     if (!r.readU32(n))
         return false;
+    if (!r.canReadU32Count(n))
+        return false;
     out.templates.resize(n);
     for (auto &t : out.templates) {
         uint8_t kind = 0, ext = 0, a = 0, b = 0;
@@ -123,12 +131,16 @@ bool decodeTemplates(ByteReader &r, cache::Artifact &out) {
         uint32_t c = 0;
         if (!r.readU32(c))
             return false;
+        if (!r.canReadU32Count(c))
+            return false;
         t.params.resize(c);
         for (auto &p : t.params) {
             if (!r.readU32(p.name_id))
                 return false;
             uint32_t bc = 0;
             if (!r.readU32(bc))
+                return false;
+            if (!r.canReadU32Count(bc))
                 return false;
             p.bound_type_ids.resize(bc);
             for (auto &bid : p.bound_type_ids)
@@ -138,6 +150,8 @@ bool decodeTemplates(ByteReader &r, cache::Artifact &out) {
         auto readIds = [&](std::vector<uint32_t> &dst) {
             uint32_t k = 0;
             if (!r.readU32(k))
+                return false;
+            if (!r.canReadU32Count(k))
                 return false;
             dst.resize(k);
             for (auto &id : dst)

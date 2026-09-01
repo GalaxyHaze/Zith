@@ -100,8 +100,7 @@ GenericInstantiationPass::GenericInstantiationPass(const session::CompilationSna
 const GenericCallBinding *
 GenericInstantiationPass::callBinding(const session::ModuleKey &module,
                                       frontend::ExprId call) const noexcept {
-    const auto found = calls_.find(callKey(module, call));
-    return found == calls_.end() ? nullptr : &found->second;
+    return calls_.get(callKey(module, call));
 }
 
 const InstantiationInstance *GenericInstantiationPass::at(size_t index) const noexcept {
@@ -520,7 +519,7 @@ size_t GenericInstantiationPass::bindCall(const session::ModuleKey &module, fron
     for (size_t i = 0; i < instances_.size(); ++i) {
         const auto &existing = instances_[i];
         if (existing.module == target_module && existing.decl == decl && existing.args == args) {
-            calls_[callKey(module, callee)] = GenericCallBinding{module, callee, i};
+            calls_.insert(callKey(module, callee), GenericCallBinding{module, callee, i});
             return i;
         }
     }
@@ -532,7 +531,8 @@ size_t GenericInstantiationPass::bindCall(const session::ModuleKey &module, fron
     instance.args    = std::move(args);
     instance.mangled = mangledName(target_module, decl, instance.args);
     instances_.push_back(std::move(instance));
-    calls_[callKey(module, callee)] = GenericCallBinding{module, callee, instances_.size() - 1U};
+    calls_.insert(callKey(module, callee),
+                  GenericCallBinding{module, callee, instances_.size() - 1U});
     return instances_.size() - 1U;
 }
 

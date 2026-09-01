@@ -7,6 +7,7 @@
 #include "memory/arena.hpp"
 #include "memory/dyn-array.hpp"
 #include "memory/flat-map.hpp"
+#include "memory/flat-set.hpp"
 #include "memory/optional.hpp"
 #include "memory/span.hpp"
 #include "sema/modern-types.hpp"
@@ -15,8 +16,6 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace zith::sema::modern {
@@ -154,22 +153,22 @@ private:
     /// invalidates reads and field writes, while a direct assignment to the
     /// binding revives it. No real SSA versions or phi nodes are created; this
     /// is a per-body dead-state only.
-    std::unordered_set<uint32_t> movedLocals_;
+    memory::FlatSet<uint32_t> movedLocals_;
     /// Pointer-valued expressions that are tied to a local binding. A pointer
     /// produced by address-of or ptrOf may not escape this function body
     /// through returns, persistent aggregates, globals, or deferred storage.
-    std::unordered_set<uint32_t> escapingPointerExprs_;
+    memory::FlatSet<uint32_t> escapingPointerExprs_;
     /// Local bindings initialized directly from an escaping pointer. These are
     /// tracked so returning or storing an alias reports the same E4008.
-    std::unordered_set<uint32_t> escapingPointerLocals_;
+    memory::FlatSet<uint32_t> escapingPointerLocals_;
     /// Bindings declared without an initializer in the current body. The set
     /// is cleared after the first direct assignment, and reads through `raw`
     /// are the explicit escape hatch.
-    std::unordered_set<uint32_t> uninitializedLocals_;
+    memory::FlatSet<uint32_t> uninitializedLocals_;
     /// Locals that are logically initialized before their body statement runs.
     /// The for-in element binding is created without an initializer and typed
     /// by `inferForIn` before the loop body is visited.
-    std::unordered_set<uint32_t> preinitializedLocals_;
+    memory::FlatSet<uint32_t> preinitializedLocals_;
 
     /// True when the callee's signature mentions a generic parameter.
     [[nodiscard]] bool typeContainsGeneric(const FunctionType *fn) const noexcept;
@@ -183,12 +182,12 @@ private:
     /// Scope of the body currently being inferred, used to resolve local states.
     frontend::ScopeId currentBodyScope_;
     /// Machine ids assigned to state declarations.
-    std::unordered_map<uint32_t, uint32_t> stateMachineByDecl_;
+    memory::FlatMap<uint32_t, uint32_t> stateMachineByDecl_;
     /// Machine id per local (parent-body) scope; local states never take part
     /// in the module-level return-type grouping.
-    std::unordered_map<uint32_t, uint32_t> localStateMachineByParent_;
+    memory::FlatMap<uint32_t, uint32_t> localStateMachineByParent_;
     /// Canonical return type -> machine id for the current module.
-    std::unordered_map<uint32_t, uint32_t> stateMachineByReturn_;
+    memory::FlatMap<uint32_t, uint32_t> stateMachineByReturn_;
     /// Next state machine id for the current module.
     uint32_t nextStateMachineId_ = 1;
 
@@ -200,12 +199,12 @@ private:
         TypeId type;
         std::vector<TypeId> bounds;
     };
-    std::unordered_map<uint32_t, std::vector<GenericBinding>> genericParams_;
+    memory::FlatMap<uint32_t, std::vector<GenericBinding>> genericParams_;
     /// Canonical implement owner spelling -> interned owner type. Filled from
     /// `ImplementRecord::ownerType` before method signatures are lowered so an
     /// implicit `self` on `?char`/`[]u8` resolves even though those composite
     /// types have no named declaration.
-    std::unordered_map<std::string, TypeId> implementOwnerTypes_;
+    memory::FlatMap<std::string, TypeId> implementOwnerTypes_;
     /// Overrides for the generic parameters of the template currently being
     /// instantiated in a type expression. `lowerTypeExpr` checks these before
     /// the declaration bindings so `Pair<i32,f64>` fields see `i32`/`f64`.
@@ -609,7 +608,7 @@ public:
 private:
     /// Generic call resolution results, shared with HIR lowering.
     comptime::GenericInstantiationPass *instantiations = nullptr;
-    std::unordered_map<uint32_t, CallTarget> call_targets_;
+    memory::FlatMap<uint32_t, CallTarget> call_targets_;
 };
 
 class SemaPipeline {
