@@ -42,6 +42,7 @@ Implementation work that is incomplete or needs review is tracked in
 | HIR lowering | **Working** | Covers all working features; residual ownership facts attach to side tables without introducing ownership HIR nodes |
 | LLVM codegen | **Working** | x86-64 and WebAssembly targets |
 | Cache | Partial | Object caching works; `.zirl` format not yet used |
+| Stdlib I/O | **Working** | `print`/`println`/`input`, `Formatable`, `ParseInput`, and `InputLine.cast<T>` type-check and lower; runtime parsing verification is manual for now |
 
 ---
 

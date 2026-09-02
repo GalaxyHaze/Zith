@@ -103,16 +103,13 @@ manter o diff focado.
 
 ### 8. `ParseInput` / `InputLine.cast<T>` ficou adiado
 
-- Estado: o contrato stdlib documenta `ParseInput` e `input().cast<T>` para
-  `bool`, `f32`, `f64`, `u32` e `*char`, mas o subset actual não suporta traits
-  com `Self` como retorno nem chamadas estáticas a um tipo genérico
-  (`T.parse(self)`); `line.cast<T>()` também não resolve como método genérico.
-- Dívida real: falta suporte a trait assinaturas polimórficas com `Self` no
-  retorno (`?Self`) para primitivos, ou uma solução de parsing sem trait
-  genérica (por exemplo métodos sobrecarregados por tipo no `InputLine`).
-- Decisão durante esta iteração: não bloquear `print`/`println`/`input` por esse
-  suporte; o `InputLine` actual devolve buffer e o parsing será adicionado num
-  passo posterior.
+- Estado: `ParseInput` e `InputLine.cast<T>` estão implementados em
+  `std/io/console` para `bool`, `f32`, `f64`, `i32` e `u32`. A chamada
+  `T.parse(self)` resolve através do bound da trait após monomorfização e
+  `line.cast<NonParsable>()` reporta `E3009`.
+- Dívida residual: `*char` não é implementado; parsing de outros primitivos
+  pode ser adicionado aos mesmos `implement ... as ParseInput` quando for
+  necessário.
 
 ---
 

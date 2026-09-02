@@ -28,11 +28,11 @@ implement Point as Formatable {
 
 fn main(): i32 {
     println("point: #  hash: \#", Point { x: 3, y: 4 });
-    print("insert input: ");
+    print("insert number: ");
     let line = input();
-    defer line.destroy();
-    if (line.good()) {
-        println("read: #", line.text());
+    let num = line.cast<i32>();
+    if not(num is null) {
+        println("read: #", num);
     }
     return 0;
 }

@@ -44,7 +44,11 @@ primitive implementations.
 
 ## Design Contract
 
-1. Define `ParseInput` in `std/io/format` next to `Formatable`:
+1. Define `ParseInput` in `std/io/console` next to `InputLine`:
+
+   Keeping the parsing contract beside the line type avoids a
+   `format -> console -> format` circular import because `console.zith`
+   already imports `std/io/format` for `Formatable`.
 
    ```zith
    pub trait ParseInput {
@@ -52,7 +56,7 @@ primitive implementations.
    }
    ```
 
-2. Implement `ParseInput` in `std/io/format` for `i32`, `bool`, `f32`, `f64` and
+2. Implement `ParseInput` in `std/io/console` for `i32`, `bool`, `f32`, `f64` and
    `u32`. `*char` is intentionally not implemented by this step.
 3. Add `i32` as a `Formatable` primitive with signed numeric formatting.
 4. Add `cast` to `InputLine` in `std/io/console`:
@@ -63,8 +67,9 @@ primitive implementations.
    }
    ```
 
-5. `cast<T>` is a view method and does not consume `InputLine`; the caller still
-   owns the line and must call `destroy` when finished.
+5. `cast<T>` reads through `InputLine` without destroying it; a caller that
+   needs to use the line again after `cast<T>` passes `view line` into the
+   call or helper. The owner still must call `destroy` when finished.
 6. Failed parsing returns `null` through the optional return. There is no extra
    error diagnostic, abort, or checked cast variant in this step.
 7. `T.parse(self)` resolves through the `ParseInput` bound, not through a
@@ -91,7 +96,7 @@ primitive implementations.
 
 ### stdlib changes
 
-1. In `format.zith`, add:
+1. In `console.zith`, add `ParseInput` next to `InputLine`:
 
    ```zith
    pub trait ParseInput {
@@ -99,20 +104,21 @@ primitive implementations.
    }
    ```
 
-2. Add parse helpers for `i32`, `bool`, `f32`, `f64` and `u32`, implemented in
-   terms of C library functions already available to the module. Follow the
-   existing `format*` helper pattern and avoid adding raw debug prints.
+2. Add parse helpers and `ParseInput` implementations in `console.zith` for
+   `i32`, `bool`, `f32`, `f64` and `u32`, implemented in terms of C library
+   functions already available to the module. Follow the existing `format*`
+   helper pattern and avoid adding raw debug prints.
 3. Add `implement i32 as ParseInput`, `implement bool as ParseInput`,
    `implement f32 as ParseInput`, `implement f64 as ParseInput` and
-   `implement u32 as ParseInput`.
+   `implement u32 as ParseInput` in `console.zith`.
 4. Add `implement i32 as Formatable` and a `formatI32` helper with signed
    formatting.
-5. In `console.zith`, add `cast<T: ParseInput>` to `InputLine`.
+5. Add `cast<T: ParseInput>` to `InputLine` in the same `console.zith` module.
 
 ### Cache/import concerns
 
-1. `ParseInput` lives in `format` and is visible to `console` through the
-   existing `from std/io/format` import.
+1. `ParseInput` lives in `console`, where `InputLine` is defined, so users can
+   import the complete input parsing surface with `from std/io/console`.
 2. `Primitive implements` for `ParseInput` must be persisted by the same
    mechanism used for `Formatable` so cached artifacts agree with cold builds.
 3. Generic method bounds must be serialized if `InputLine.cast` participates in
@@ -138,7 +144,7 @@ fn parseDemo(line: view InputLine): i32 {
     if (n is null) {
         return 1;
     }
-    return n?;
+    return raw n;
 }
 
 fn main(): i32 {
@@ -151,9 +157,13 @@ Assertions:
 - `cast<i32>` returns `?i32` and does not consume the line.
 - `cast<bool>`, `cast<f32>`, `cast<f64>` and `cast<u32>` type-check.
 - A type without `ParseInput` passed to `cast<T>` reports `E3009`.
-- `i32` can be passed to `println` and lowers as `dyn Formatable`.
+- `i32` can be passed to `println`; the lowered HIR contains a
+  `Formatable` vtable for `i32`.
 - An invalid numeric parse returns `null` at runtime.
 - The stdlib module builds and imports cleanly.
+
+Runtime parsing itself is intentionally left for user-side verification; the
+automatable acceptance checks cover type-check and HIR lowering only.
 
 Commands:
 

@@ -1,6 +1,13 @@
 import "stdio.h"
 import "stdlib.h"
+import "string.h"
 from std/io/format
+
+/// Parsing contract used by `InputLine.cast<T>`. Implementations parse one
+/// whole primitive value from a view of the line and return `null` on failure.
+pub trait ParseInput {
+    fn parse(self: view InputLine): ?Self;
+}
 
 /// Owned single-line input. `ok` is false only when the stream ended or a
 /// read failed; `text` is then empty.
@@ -21,6 +28,10 @@ pub struct InputLine {
         return self.ok;
     }
 
+    fn cast<T: ParseInput>(self: view InputLine): ?T {
+        return T.parse(view self);
+    }
+
     fn destroy(var self) {
         free(self.data);
         self.data = null;
@@ -31,6 +42,151 @@ pub struct InputLine {
 
 fn inputLineAllocate(): ?*char {
     return malloc(256) as ?*char;
+}
+
+fn parseSliceCopy(src: ?*char, len: u64, dest: ?*char, capacity: u64): u64 {
+    if (len >= capacity) {
+        return 0;
+    }
+    var bytes: []char = raw dest[0u64..capacity];
+    var index: u64 = 0;
+    var chars: []char = raw src[0u64..len];
+    for (index < len) {
+        bytes[index] = raw chars[index];
+        index = index + 1;
+    }
+    bytes[len] = 0 as char;
+    return len;
+}
+
+fn parseI32(self: view InputLine): ?i32 {
+    var scratch: ?*char = malloc(64) as ?*char;
+    if (scratch is null) {
+        return null;
+    }
+    if (self.data is null) {
+        free(scratch);
+        return null;
+    }
+    let len = parseSliceCopy(self.data, self.length, scratch, 64);
+    if (len == 0) {
+        free(scratch);
+        return null;
+    }
+    var value: i32 = 0;
+    var count: i32 = 0;
+    let status = sscanf(scratch, "%d%n", lend value, lend count);
+    free(scratch);
+    if (status == 1 and count == len as i32) {
+        return value;
+    }
+    return null;
+}
+
+fn parseBool(self: view InputLine): ?bool {
+    if (self.data is null) {
+        return null;
+    }
+    if (self.length == 4 and strncmp(self.data, "true", 4) == 0) {
+        return true;
+    }
+    if (self.length == 5 and strncmp(self.data, "false", 5) == 0) {
+        return false;
+    }
+    return null;
+}
+
+fn parseDouble(self: view InputLine): ?f64 {
+    var scratch: ?*char = malloc(64) as ?*char;
+    if (scratch is null) {
+        return null;
+    }
+    if (self.data is null) {
+        free(scratch);
+        return null;
+    }
+    let len = parseSliceCopy(self.data, self.length, scratch, 64);
+    if (len == 0) {
+        free(scratch);
+        return null;
+    }
+    var value: f64 = 0;
+    var count: i32 = 0;
+    let status = sscanf(scratch, "%lf%n", lend value, lend count);
+    free(scratch);
+    if (status == 1 and count == len as i32) {
+        return value;
+    }
+    return null;
+}
+
+fn parseF32(self: view InputLine): ?f32 {
+    let value = parseDouble(view self);
+    let n = value;
+    if (n is null) {
+        return null;
+    }
+    var ok = n;
+    let f = ok?;
+    return f as f32;
+}
+
+fn parseU32(self: view InputLine): ?u32 {
+    var scratch: ?*char = malloc(64) as ?*char;
+    if (scratch is null) {
+        return null;
+    }
+    if (self.data is null) {
+        free(scratch);
+        return null;
+    }
+    let len = parseSliceCopy(self.data, self.length, scratch, 64);
+    if (len == 0) {
+        free(scratch);
+        return null;
+    }
+    var value: u32 = 0;
+    var count: i32 = 0;
+    let status = sscanf(scratch, "%u%n", lend value, lend count);
+    free(scratch);
+    if (status == 1 and count == len as i32) {
+        return value as u32;
+    }
+    return null;
+}
+
+fn parseF64(self: view InputLine): ?f64 {
+    return parseDouble(view self);
+}
+
+implement i32 as ParseInput {
+    fn parse(self: view InputLine): ?i32 {
+        return parseI32(view self);
+    }
+}
+
+implement bool as ParseInput {
+    fn parse(self: view InputLine): ?bool {
+        return parseBool(view self);
+    }
+}
+
+implement f32 as ParseInput {
+    fn parse(self: view InputLine): ?f32 {
+        return parseF32(view self);
+    }
+}
+
+implement f64 as ParseInput {
+    fn parse(self: view InputLine): ?f64 {
+        return parseF64(view self);
+    }
+}
+
+implement u32 as ParseInput {
+    fn parse(self: view InputLine): ?u32 {
+        return parseU32(view self);
+    }
 }
 
 pub fn input(): InputLine {

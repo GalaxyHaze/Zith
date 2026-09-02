@@ -698,24 +698,11 @@ void PerModuleSema::checkImplementBlocks() {
                 continue;
             }
 
-            PerModuleSema *impl_sema = nullptr;
-            if (owner != nullptr) {
-                for (const auto &artifact_ptr : owner->modules()) {
-                    const auto &artifact = *artifact_ptr;
-                    if (artifact.frontend == nullptr || artifact.key == module)
-                        continue;
-                    for (const auto &decl : artifact.frontend->declarations()) {
-                        if (decl.id == impl->id) {
-                            impl_sema = owner->findModuleSema(artifact.key);
-                            break;
-                        }
-                    }
-                    if (impl_sema != nullptr)
-                        break;
-                }
-            }
-            if (impl_sema == nullptr)
-                impl_sema = this;
+            // `impl` comes from this module's implement statement, so its
+            // lowered signature lives in this module's typed map. Searching
+            // other modules by declaration id is unsafe: ids restart per
+            // module and can resolve to an unrelated method with the same id.
+            PerModuleSema *impl_sema = this;
             const TypeId impl_fn =
                 impl_sema != nullptr ? impl_sema->typeOfDecl(impl->id) : typeOfDecl(impl->id);
             const TypeId req_fn   = typeOfDecl(requirement.id);

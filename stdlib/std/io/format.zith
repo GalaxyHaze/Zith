@@ -185,6 +185,21 @@ pub fn formatU32(self: u32, dest: lend FormatBuffer): IoError {
     return appendNumberBuffer(lend dest, self);
 }
 
+pub fn formatI32(self: i32, dest: lend FormatBuffer): IoError {
+    var scratch: ?*char = malloc(64) as ?*char;
+    if (scratch is null) {
+        return IoError.fAllocation;
+    }
+    let written = snprintf(scratch, 64, "%d", self);
+    if (written < 0) {
+        free(scratch);
+        return IoError.fWrite;
+    }
+    let status = appendRawBuffer(lend dest, scratch, written as u64);
+    free(scratch);
+    return status;
+}
+
 pub fn formatPtr(self: *char, dest: lend FormatBuffer): IoError {
     let length = strlen(self);
     return appendRawBuffer(lend dest, self, length);
@@ -217,6 +232,12 @@ implement f64 as Formatable {
 implement u32 as Formatable {
     fn format(self: u32, dest: lend FormatBuffer): IoError {
         return formatU32(self, lend dest);
+    }
+}
+
+implement i32 as Formatable {
+    fn format(self: i32, dest: lend FormatBuffer): IoError {
+        return formatI32(self, lend dest);
     }
 }
 

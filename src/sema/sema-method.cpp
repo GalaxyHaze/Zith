@@ -226,14 +226,43 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         if (fn == nullptr)
             return kInvalidTypeId;
 
-        const TypeId substituted = substituteSelf(fn_type, pointee, bound_traits.front());
-        const auto *sub_fn       = type_table.function(substituted);
-        if (sub_fn == nullptr)
-            return kInvalidTypeId;
-
+        // `T.parse(...)` reaches this receiver path for trait methods whose
+        // first parameter is an explicit self. The base of the Field callee
+        // is the generic type parameter itself, and the provided call arity
+        // matches the raw trait signature: one receiver parameter plus any
+        // explicit args. Ordinary `v.parse(...)` field calls still substitute
+        // the concrete owner and add an implicit receiver, so they must keep
+        // the old path.
+        const bool static_bound_base = [&]() {
+            if (callee.operands.empty())
+                return false;
+            const auto &base = snapshot.expressions()[callee.operands[0].value - 1U];
+            return base.kind == frontend::ExprKind::Name &&
+                   sameType(genericParamTypeByName(base.text), pointee);
+        }();
+        bool static_bound_call =
+            static_bound_base && !isInterfaceType(resolve(bound_traits.front()));
+        const bool trait_requirement = method_decl->traitName == method_decl->ownerName;
         const bool has_receiver =
             !method_decl->parameters.empty() && method_decl->parameters.front().name == "self";
         const size_t provided_args = call.operands.size() - 1U;
+        static_bound_call = static_bound_call && trait_requirement && has_receiver && fn != nullptr &&
+                            provided_args >= 1U &&
+                            type_table.kindOf(pointee) == TypeKind::GenericParam;
+        const TypeId substituted = [&]() {
+            if (!static_bound_call)
+                return substituteSelf(fn_type, pointee, bound_traits.front());
+            auto &params = type_table.makeTypeStorage();
+            for (const TypeId param : fn->params)
+                params.push(param);
+            return type_table.internFunction(
+                params, substituteSelf(fn->result, pointee, bound_traits.front()));
+        }();
+        const auto *sub_fn = type_table.function(substituted);
+        if (sub_fn == nullptr)
+            return kInvalidTypeId;
+
+        const bool explicit_receiver_arg = static_bound_call && has_receiver;
         const bool target_is_slice =
             !method_decl->parameters.empty() && method_decl->parameters.back().isVariadicSlice;
         const size_t slice_param_index =
@@ -241,13 +270,15 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         const size_t fixed_explicit_args = target_is_slice
                                                ? slice_param_index - (has_receiver ? 1U : 0U)
                                                : sub_fn->params.size() - (has_receiver ? 1U : 0U);
-        const bool explicit_slice_arg    = [&]() {
+        const size_t checked_explicit_args =
+            explicit_receiver_arg ? provided_args - 1U : provided_args;
+        const bool explicit_slice_arg = [&]() {
             if (!target_is_slice || provided_args != fixed_explicit_args + 1U ||
                 call.operands.empty())
                 return false;
             (void)inferExpr(call.operands.back());
             return variadicFinalArgIsExplicitSlice(sub_fn->params[slice_param_index], call.operands,
-                                                      fixed_explicit_args);
+                                                   fixed_explicit_args);
         }();
         const bool auto_collected_tail = target_is_slice && !explicit_slice_arg;
         const bool defaults_cover =
@@ -256,17 +287,30 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
                                     target_is_slice ? slice_param_index : ~static_cast<size_t>(0));
         if (defaults_cover) {
             // Missing trailing fixed arguments are supplied from defaults.
-        } else if (provided_args < fixed_explicit_args ||
-                   (!target_is_slice && provided_args != fixed_explicit_args) ||
+        } else if (checked_explicit_args < fixed_explicit_args ||
+                   (!target_is_slice && checked_explicit_args != fixed_explicit_args) ||
                    (target_is_slice && !auto_collected_tail && !explicit_slice_arg &&
-                    provided_args != fixed_explicit_args)) {
+                    checked_explicit_args != fixed_explicit_args)) {
             report(call.span, "method call arity mismatch", diagnostics::err::NoMatchingFn);
             return error_type;
         }
         std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
+        if (explicit_receiver_arg) {
+            // `T.parse(self)` calls the trait requirement with an explicit
+            // receiver argument. The trait's first parameter is checked
+            // against the calling expression like any ordinary argument.
+            const TypeId arg_type = inferExpr(call.operands[1]);
+            (void)checkOwnershipCoercion(call.operands[1], fn->params[0], seen_roots, call.span,
+                                         true);
+            if (!coerceValue(call.operands[1], fn->params[0], arg_type))
+                reportCoercionFailure(call.span, fn->params[0], arg_type,
+                                      "method call argument type mismatch",
+                                      diagnostics::err::NoMatchingFn);
+        }
         for (size_t explicit_index = 0U; explicit_index < fixed_explicit_args; ++explicit_index) {
             const size_t param_index = has_receiver ? explicit_index + 1U : explicit_index;
-            const size_t arg_index   = explicit_index + 1U;
+            const size_t arg_index =
+                explicit_receiver_arg ? explicit_index + 2U : explicit_index + 1U;
             if (arg_index < call.operands.size()) {
                 const TypeId arg_type = inferExpr(call.operands[arg_index]);
                 (void)checkOwnershipCoercion(call.operands[arg_index], sub_fn->params[param_index],
@@ -280,9 +324,14 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         if (auto_collected_tail && target_is_slice)
             (void)checkVariadicTailArgs(call.span, call.operands, sub_fn->params[slice_param_index],
                                         fixed_explicit_args + 1U, true);
-        setExprType(callee.id, substituted);
+        setExprType(callee.id, static_bound_call
+                                   ? substituteSelf(fn_type, pointee, bound_traits.front())
+                                   : substituted);
         setResolvedCallTarget(callee.id, method_module, method_decl->id);
-        return sub_fn->result;
+        const TypeId result_type =
+            static_bound_call ? substituteSelf(sub_fn->result, pointee, bound_traits.front())
+                              : sub_fn->result;
+        return result_type;
     }
     const TypeKind pointee_kind = type_table.kindOf(pointee);
     if (st == nullptr && pointee_kind != TypeKind::Enum && pointee_kind != TypeKind::Union) {
@@ -605,6 +654,18 @@ std::string PerModuleSema::ownerNameOf(TypeId pointee) const {
         owner_name.resize(angle);
     return owner_name;
 }
+TypeId PerModuleSema::genericParamTypeByName(std::string_view name) const {
+    if (currentDeclId_ == 0U)
+        return kInvalidTypeId;
+    const auto *found = genericParams_.get(currentDeclId_);
+    if (found == nullptr)
+        return kInvalidTypeId;
+    for (const auto &binding : *found) {
+        if (binding.name == name)
+            return binding.type;
+    }
+    return kInvalidTypeId;
+}
 bool PerModuleSema::isGenericTypeParamName(std::string_view name, uint32_t decl_id) const noexcept {
     if (name.empty() || decl_id == 0U)
         return false;
@@ -896,6 +957,31 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
             return error_type;
         case comptime::GenericResolveStatus::Ok:
             break;
+        }
+        if (method_fn != nullptr && !inherited_resolved) {
+            // `checkGenericConstraints` reads generic metadata bound only to
+            // the module that owns the declaration. For an imported method
+            // its bounds must still be reported at the real call site, so use
+            // that module only for metadata lookup.
+            const auto *bound_sema = method_sema != nullptr ? method_sema : this;
+            const auto *found      = bound_sema->genericParams_.get(method_decl->id.value);
+            if (found != nullptr) {
+                for (size_t index = 0; index < inferred_args.size() && index < found->size();
+                     ++index) {
+                    for (const TypeId bound : (*found)[index].bounds) {
+                        if (!satisfiesConformance(inferred_args[index], bound)) {
+                            const diagnostics::ErrCode code =
+                                isInterfaceType(bound) ? diagnostics::err::InterfaceNotSatisfied
+                                                       : diagnostics::err::ConstraintNotSatisfied;
+                            report(call.span,
+                                   "type '" + type_table.typeToString(inferred_args[index]) +
+                                       "' does not satisfy constraint '" +
+                                       type_table.typeToString(bound) + "'",
+                                   code);
+                        }
+                    }
+                }
+            }
         }
 
         if (method_fn != nullptr) {

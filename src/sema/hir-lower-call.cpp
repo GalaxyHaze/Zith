@@ -12,7 +12,8 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
         return hir::kInvalidHirExpr;
 
     const frontend::ExprId callee_id = expr.operands[0];
-    const auto &callee_expr = current_module_->frontend->expressions()[callee_id.value - 1U];
+    const frontend::Expression &callee_expr =
+        current_module_->frontend->expressions()[callee_id.value - 1U];
 
     const bool is_console_format = [&]() {
         const auto *target = overloadTarget(callee_id);
@@ -88,10 +89,108 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
     // it so overload selection and generic instantiation use the same decl
     // (and module) that type-checked the call. This is also the only path that
     // accepts trait methods, which sema has already filtered by conformance.
+    bool static_generic_bound_call = false;
     if (const auto *decl = methodDeclFromTarget(callee_id, &owner_artifact); decl != nullptr) {
-        method_decl = decl;
-        if (!method_decl->body && callee_expr.kind == frontend::ExprKind::Field &&
+        method_decl                        = decl;
+        const std::string bound_trait_name = decl->traitName;
+        const bool is_trait_requirement =
+            !decl->body && !decl->traitName.empty() && decl->ownerName == decl->traitName;
+        // Sema records the trait requirement for `T.parse(...)`. During
+        // lowering of an instantiated body the base is no longer a generic
+        // parameter, so derive the concrete owner from the generic argument.
+        std::string concrete_owner;
+        if (callee_expr.kind == frontend::ExprKind::Field &&
             !callee_expr.operands.empty()) {
+            const auto &base =
+                current_module_->frontend->expressions()[callee_expr.operands[0].value - 1U];
+            if (base.kind == frontend::ExprKind::Name && current_instance_ != nullptr &&
+                current_fn_decl_ != nullptr) {
+                for (size_t index = 0; index < current_fn_decl_->genericParams.size(); ++index) {
+                    if (current_fn_decl_->genericParams[index].name == base.text &&
+                        index < current_instance_->args.size()) {
+                        concrete_owner = sema_.typeTable().typeToString(
+                            sema_.typeTable().stripQualifiers(current_instance_->args[index]));
+                        break;
+                    }
+                }
+            }
+        }
+        if (concrete_owner.empty())
+            concrete_owner = decl->traitName;
+        const bool nominal_trait = [&]() {
+            if (owner_artifact == nullptr)
+                return false;
+            const auto *module_sema = sema_.findModuleSema(owner_artifact->key);
+            const TypeId trait_type = sema_.typeTable().lookupNamed(decl->traitName);
+            return module_sema != nullptr && trait_type &&
+                   !module_sema->isInterfaceType(trait_type);
+        }();
+        // A nominal trait requirement reached through `T.parse(...)` lowers to
+        // the concrete `implement Owner as Trait` declaration. Interface bounds
+        // keep their existing concrete-struct rewrite path below.
+        const bool generic_bound_call =
+            is_trait_requirement && callee_expr.kind == frontend::ExprKind::Field &&
+            nominal_trait && current_instance_ != nullptr && concrete_owner != decl->traitName;
+        if (generic_bound_call) {
+            // `T.parse(arg)` inside a generic body lowers only after
+            // monomorphization. Sema resolved the callee to the trait
+            // requirement, but the executable target is the concrete
+            // `implement Owner as Trait` method for the instantiated `T`.
+            const std::string owner_name = concrete_owner;
+            const auto findConcrete = [&](const session::ModuleArtifact &module,
+                                          const frontend::Declaration **out) {
+                for (const auto &candidate : module.frontend->declarations()) {
+                    if (candidate.kind != frontend::DeclKind::Function ||
+                        candidate.ownerName != owner_name || candidate.name != callee_expr.text ||
+                        !candidate.body)
+                        continue;
+                    if (!bound_trait_name.empty() && candidate.traitName != bound_trait_name)
+                        continue;
+                    const bool candidate_has_receiver = !candidate.parameters.empty() &&
+                                                        candidate.parameters.front().name == "self";
+                    const size_t declared_fixed = candidate.parameters.size();
+                    const size_t min_fixed      = candidate.parameters.empty() ? 0U : [&]() {
+                        size_t count = candidate_has_receiver ? candidate.parameters.size() - 1U
+                                                                   : candidate.parameters.size();
+                        for (size_t index = candidate.parameters.size(); index > 0U; --index) {
+                            const auto &parameter = candidate.parameters[index - 1U];
+                            if (!parameter.defaultValue)
+                                break;
+                            if (candidate_has_receiver && index == 1U)
+                                break;
+                            --count;
+                        }
+                        return count;
+                    }();
+                    const size_t provided_args  = expr.operands.size() - 1U;
+                    if (provided_args < min_fixed || provided_args > declared_fixed)
+                        continue;
+                    *out = &candidate;
+                    return true;
+                }
+                return false;
+            };
+            const frontend::Declaration *concrete = nullptr;
+            if (findConcrete(*current_module_, &concrete)) {
+                method_decl    = concrete;
+                owner_artifact = current_module_;
+            } else {
+                for (const auto &module_ptr : snapshot_.modules()) {
+                    const auto &module = *module_ptr;
+                    if (module.key == current_module_->key || module.frontend == nullptr)
+                        continue;
+                    if (findConcrete(module, &concrete)) {
+                        method_decl    = concrete;
+                        owner_artifact = &module;
+                        break;
+                    }
+                }
+            }
+            static_generic_bound_call = concrete != nullptr;
+            if (!static_generic_bound_call)
+                return hir::kInvalidHirExpr;
+        } else if (!method_decl->body && callee_expr.kind == frontend::ExprKind::Field &&
+                   !callee_expr.operands.empty()) {
             // Interface requirements are declaration-only. After monomorphization
             // of the generic body, resolve the call to the concrete struct method
             // that satisfies the structural interface bound.
@@ -304,8 +403,11 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
     }
 
     // A method with a `self` receiver receives an implicit owner pointer
-    // argument. Methods without self are static in this compiler.
-    const bool is_receiver_method = method_decl != nullptr && !method_decl->parameters.empty() &&
+    // argument. Methods without self are static in this compiler. A bound
+    // trait call through a generic parameter supplies its receiver as an
+    // ordinary explicit argument, so it must not gain another implicit self.
+    const bool is_receiver_method = !static_generic_bound_call && method_decl != nullptr &&
+                                    !method_decl->parameters.empty() &&
                                     method_decl->parameters.front().name == "self";
     const bool is_method_call = is_receiver_method;
 
@@ -390,6 +492,11 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
     // Resolve the callee signature once so variadic-slice auto-collection can
     // be computed from the same declaration used by sema/overload selection.
     sema::modern::TypeId callee_sema_type = semaTypeOfExpr(callee_id);
+    if (static_generic_bound_call && owner_artifact != nullptr) {
+        const auto *concrete_sema = sema_.findModuleSema(owner_artifact->key);
+        if (concrete_sema != nullptr)
+            callee_sema_type = concrete_sema->typeOfDecl(method_decl->id);
+    }
     if (callee_sema_type == sema::modern::kInvalidTypeId) {
         if (const auto *target = overloadTarget(callee_id)) {
             const auto *target_sema = sema_.findModuleSema(target->module);

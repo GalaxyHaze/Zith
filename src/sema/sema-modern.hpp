@@ -307,6 +307,10 @@ private:
     TypeId inferUnary(frontend::ExprId id);
     TypeId inferBinary(frontend::ExprId id);
     TypeId inferCall(frontend::ExprId id);
+    /// Resolves a generic parameter name bound in the current declaration.
+    /// Used to identify `T.method(...)` static trait calls over a generic
+    /// parameter during method-call inferencing.
+    [[nodiscard]] TypeId genericParamTypeByName(std::string_view name) const;
     /// Try to resolve a Field/Arrow callee as a method call.
     /// Returns the result type, or kInvalidTypeId (with a diagnostic)
     /// when the field is not a method.

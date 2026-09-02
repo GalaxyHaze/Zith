@@ -262,6 +262,11 @@ TypeId PerModuleSema::inferName(frontend::ExprId id, std::string_view text) {
         if (local)
             return local;
     }
+    if (const TypeId generic_param = genericParamTypeByName(text)) {
+        const TypeId generic_resolved = resolve(generic_param);
+        if (type_table.kindOf(generic_resolved) == TypeKind::GenericParam)
+            return generic_param;
+    }
     // No resolution available — diagnose the unbound name.
     report(expr.span, "unknown identifier '" + std::string(text) + "'",
            diagnostics::err::UndefinedIdent);

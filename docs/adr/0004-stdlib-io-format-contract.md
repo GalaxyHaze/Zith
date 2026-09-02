@@ -15,11 +15,10 @@ Consequences:
 
 - `Formatable`, `FormatBuffer`, `ParseInput`, `IoError`, and `InputLine` become public stdlib contracts documented in `CONTEXT.md` and `docs/20-standard-library.md`.
 - `print`/`println` own a reusable `FormatBuffer` per call, append chunks, then write once (with `\n` added by `println`).
-- `InputLine` owns its allocated buffer and requires `destroy(self: lend InputLine)`; parsing is delegated to primitive `ParseInput` implementations.
-- `ParseInput` is documented as the future parsing contract, but is not shipped
-  yet: Zith-- does not yet type-check generic trait methods such as
-  `T.parse(self): ?Self`, so `InputLine.cast<T>` is recorded as implementation
-  debt alongside this ADR.
+- `InputLine` owns its allocated buffer and requires `destroy(var self)`; parsing is delegated to primitive `ParseInput` implementations.
+- `ParseInput`, `InputLine.cast<T>`, and the primitive implementations for
+  `i32`, `bool`, `f32`, `f64`, and `u32` are shipped in `std/io/console`;
+  `*char` parsing remains out of scope.
 - A compiler change is required so primitives can be erased to `dyn Formatable`; without it the variadic signature cannot accept primitive values.
 - Missing placeholder arguments are not fatal: a placeholder with no value renders `{absent}` and the call returns `IoError.Ok`.
 - Error variants use the `f` prefix convention (`fAllocation`, `fWrite`) for the standard library.

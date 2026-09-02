@@ -32,6 +32,29 @@ fn print(msg: []char): void;
 fn eprint(msg: []char): void;
 ```
 
+The console module also provides `input()` as the owning line-input
+constructor. `InputLine` owns its buffer and exposes `text`, `len`, `good`,
+`cast<T>`, and `destroy`; callers must destroy the line after use.
+
+`ParseInput` is the parsing contract implemented by the primitive numeric and
+boolean types shipped with the standard library:
+
+```zith
+pub trait ParseInput {
+    fn parse(self: view InputLine): ?Self;
+}
+```
+
+`InputLine.cast<T: ParseInput>` returns `?T` without destroying the line.
+Passing `view line` preserves the owner for later use:
+
+```zith
+let n = line.cast<i32>();
+```
+
+`i32`, `bool`, `f32`, `f64`, and `u32` implement `ParseInput` in the current
+stdlib surface; `*char` parsing remains out of scope.
+
 ```zith
 @println("hello");
 ```
