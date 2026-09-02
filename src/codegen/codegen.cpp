@@ -322,7 +322,7 @@ void CodeGen::emitVtables(hir::HirModule &hirModule) {
                 if (adapter == nullptr) {
                     llvm::SmallVector<llvm::Type *, 8> adapter_params;
                     adapter_params.push_back(data_type);
-                    for (size_t pi = 1; pi < original_type->getNumParams(); ++pi)
+                    for (unsigned pi = 1; pi < original_type->getNumParams(); ++pi)
                         adapter_params.push_back(original_type->getParamType(pi));
                     auto *adapter_type = llvm::FunctionType::get(original_type->getReturnType(),
                                                                  adapter_params, false);

@@ -1199,6 +1199,51 @@ void test_imported_type_canonical_id_persists_across_sessions() {
     CHECK(canonicalHi != 0ull || canonicalLo != 0ull, "canonical type id is stable and non-zero");
 }
 
+void test_imported_type_canonical_id_uses_defining_module() {
+    Workspace workspace;
+    workspace.writeFile("dep.zith", "pub struct Counter {\n"
+                                    "    pub n: i32,\n"
+                                    "    pub flag: bool,\n"
+                                    "}\n"
+                                    "pub fn dep_id(): u128 { @canonicalType(Counter) }\n");
+    workspace.writeFile("main.zith", "from dep\n"
+                                     "\n"
+                                     "pub fn main_id(): u128 { @canonicalType(Counter) }\n"
+                                     "fn main(): i32 { 0 }\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zith");
+
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "defining-module canonical type id session lowers successfully");
+
+    const auto &hir = session.hirModule();
+    bool sawDepId   = false;
+    bool sawMainId  = false;
+    uint64_t depHi  = 0;
+    uint64_t depLo  = 0;
+    for (size_t id = 0; id < hir.exprCount(); ++id) {
+        const auto *canonical =
+            std::get_if<hir::HirCanonicalType>(&hir.getExpr(static_cast<hir::HirExprId>(id)));
+        if (canonical == nullptr)
+            continue;
+        if (!sawDepId) {
+            sawDepId = true;
+            depHi    = canonical->canonical_id.hi;
+            depLo    = canonical->canonical_id.lo;
+            continue;
+        }
+        sawMainId = true;
+        CHECK(canonical->canonical_id.hi == depHi && canonical->canonical_id.lo == depLo,
+              "canonical type id is identical in defining and consumer modules");
+        CHECK(canonical->canonical_id != types::kInvalidCanonicalId,
+              "canonical type id is populated for the consumer");
+        break;
+    }
+    CHECK(sawDepId && sawMainId, "canonical type intrinsic is lowered from both modules");
+}
+
 void test_is_null_on_pointer_optional_uses_niche() {
     Workspace workspace;
     workspace.writeFile("main.zith", "fn empty(p: ?*i32): bool { p is null }\n"
@@ -2457,6 +2502,7 @@ static void test_hir_lower_modern() {
     test_implicit_opaque_coercion_and_narrow_lowering();
     test_opaque_canonical_tags_persist_across_sessions();
     test_imported_type_canonical_id_persists_across_sessions();
+    test_imported_type_canonical_id_uses_defining_module();
     test_extern_variadic_lower_to_hir();
     test_bindings_lower_to_slots();
     test_if_else_lowers_to_branch_and_merge();

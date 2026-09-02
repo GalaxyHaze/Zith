@@ -28,6 +28,7 @@ implement Point as Formatable {
 
 fn main(): i32 {
     println("point: #  hash: \#", Point { x: 3, y: 4 });
+    print("insert input: ");
     let line = input();
     defer line.destroy();
     if (line.good()) {

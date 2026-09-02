@@ -466,6 +466,7 @@ TypeId PerModuleSema::instantiateTypeExpr(frontend::TextSpan span, std::string_v
         }
         activeTemplateArgs_ = std::move(saved_active);
         TypeId st = type_table.internStruct(concrete_name, fields, &fld_names, &field_meta);
+        type_table.setDefiningModule(st, type_table.definingModule(type_table.lookupNamed(name)));
         type_table.registerNamed(concrete_name, st);
         return st;
     }
@@ -493,6 +494,7 @@ TypeId PerModuleSema::instantiateTypeExpr(frontend::TextSpan span, std::string_v
         if (type_table.kindOf(resolve(underlying)) != TypeKind::Integer)
             underlying = i32_type;
         TypeId et = type_table.internEnum(concrete_name, underlying, variant_names, discs);
+        type_table.setDefiningModule(et, type_table.definingModule(type_table.lookupNamed(name)));
         type_table.registerNamed(concrete_name, et);
         return et;
     }
@@ -512,6 +514,7 @@ TypeId PerModuleSema::instantiateTypeExpr(frontend::TextSpan span, std::string_v
         }
         activeTemplateArgs_ = std::move(saved_active);
         TypeId ut = type_table.internUnion(concrete_name, members, !template_decl->isRawUnion);
+        type_table.setDefiningModule(ut, type_table.definingModule(type_table.lookupNamed(name)));
         type_table.registerNamed(concrete_name, ut);
         return ut;
     }
@@ -588,6 +591,9 @@ TypeId PerModuleSema::instantiateStructFromArgs(frontend::TextSpan span,
     activeTemplateArgs_ = saved_active;
 
     const TypeId st = type_table.internStruct(concrete_name, fields, &field_names, &field_meta);
+    const std::string_view defining_module =
+        type_table.definingModule(type_table.lookupNamed(template_decl.name));
+    type_table.setDefiningModule(st, defining_module);
     type_table.registerNamed(concrete_name, st);
     return st;
 }

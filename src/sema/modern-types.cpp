@@ -687,7 +687,26 @@ TypeId TypeTable::findOrCreateNamed(std::string_view name, TypeKind kind) {
 }
 
 void TypeTable::registerNamed(std::string_view name, TypeId id) {
+    const auto *existing = named_registry_.get(name);
+    if (existing != nullptr && *existing != id) {
+        if (const auto *entry = findEntry(*existing); entry != nullptr)
+            setDefiningModule(id, entry->defining_module);
+    }
     named_registry_.insert(persistString(name), id);
+}
+
+void TypeTable::setDefiningModule(TypeId id, std::string_view module) {
+    if (id.intern_seq == 0 || id.intern_seq > entries_.size() || module.empty())
+        return;
+    auto &entry = entries_[id.intern_seq - 1U];
+    if (!entry.defining_module.empty())
+        return;
+    entry.defining_module = persistString(module);
+}
+
+std::string_view TypeTable::definingModule(TypeId id) const noexcept {
+    const auto *entry = findEntry(id);
+    return entry != nullptr ? entry->defining_module : std::string_view{};
 }
 
 std::string_view TypeTable::persistString(std::string_view name) {

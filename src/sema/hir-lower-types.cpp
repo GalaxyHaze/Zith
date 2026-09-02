@@ -350,6 +350,7 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
         }
         // Register the name (done by the named-type not found path).
         lowered = types_.registerNamedType(structure->name, types::TypeKind::Struct);
+        types_.setDefiningModule(lowered, sema_.typeTable().definingModule(type));
         // Register the name (done above) before lowering field types so self-referential
         // structs (`next: *Node`) terminate. Fields are copied once, on first lowering.
         if (types_.fieldCount(lowered) == 0U && structure->fields.size() != 0U) {
@@ -373,6 +374,7 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
         // lower it to the underlying integer instead of `void` (a plain registerNamedType
         // would leave the underlying as kErrorType).
         lowered = types_.defineEnum(enumeration->name, lowerType(enumeration->underlying));
+        types_.setDefiningModule(lowered, sema_.typeTable().definingModule(type));
         for (size_t i = 0; i < enumeration->variant_names.size(); ++i)
             types_.addEnumVariant(lowered, enumeration->variant_names[i],
                                   enumeration->discriminants[i]);
@@ -384,7 +386,8 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
             lowered = types::kErrorType;
             break;
         }
-        lowered                   = types_.defineUnion(union_type->name, union_type->is_tagged);
+        lowered = types_.defineUnion(union_type->name, union_type->is_tagged);
+        types_.setDefiningModule(lowered, sema_.typeTable().definingModule(type));
         const auto *lowered_union = std::get_if<types::TypeUnion>(&types_.lookup(lowered));
         const auto *def =
             lowered_union != nullptr ? types_.lookupUnionDef(lowered_union->def_id) : nullptr;
@@ -484,6 +487,7 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
             break;
         }
         lowered = types_.defineStruct(nom->name);
+        types_.setDefiningModule(lowered, sema_.typeTable().definingModule(type));
         if (types_.fieldCount(lowered) == 0U) {
             lowered_types_.insert(type.intern_seq, lowered);
             types_.addField(lowered, "", lowerType(nom->target));
@@ -636,13 +640,14 @@ types::TypeCanonicalId HirLowerModern::canonicalTypeId(types::TypeId type) const
         append(reinterpret_cast<const uint8_t *>(text.data()), text.size());
     };
 
-    const auto namespace_text =
-        moduleNamespace(current_module_ != nullptr ? current_module_->key : std::string_view{},
-                        snapshot_.cacheKey());
-    append(reinterpret_cast<const uint8_t *>(namespace_text.data()), namespace_text.size());
     appendU64(static_cast<uint64_t>(static_cast<TypeKind>(types_.kindOf(type))));
 
     auto appendType = [&](const auto &self, types::TypeId current) -> void {
+        const auto appendDefiningModule = [&]() {
+            const auto namespace_text =
+                moduleNamespace(types_.definingModuleOf(current), snapshot_.cacheKey());
+            append(reinterpret_cast<const uint8_t *>(namespace_text.data()), namespace_text.size());
+        };
         const auto &data = types_.lookup(current);
         std::visit(common::overloaded{
                        [&](const types::TypeError &) { appendU64(1); },
@@ -671,6 +676,7 @@ types::TypeCanonicalId HirLowerModern::canonicalTypeId(types::TypeId type) const
                        },
                        [&](const types::TypeStruct &) {
                            appendU64(10);
+                           appendDefiningModule();
                            const auto &def = types_.getStructDef(current);
                            appendName(def.name);
                            // Canonical field order is size-stable for opaque
@@ -744,6 +750,7 @@ types::TypeCanonicalId HirLowerModern::canonicalTypeId(types::TypeId type) const
                        },
                        [&](const types::TypeEnum &) {
                            appendU64(24);
+                           appendDefiningModule();
                            const auto &def = types_.getEnumDef(current);
                            appendName(def.name);
                            self(self, def.underlying);
@@ -754,6 +761,7 @@ types::TypeCanonicalId HirLowerModern::canonicalTypeId(types::TypeId type) const
                        },
                        [&](const types::TypeUnion &) {
                            appendU64(25);
+                           appendDefiningModule();
                            const auto &def = types_.getUnionDef(current);
                            appendU64(static_cast<uint64_t>(def.is_tagged));
                            appendName(def.name);
@@ -788,11 +796,6 @@ types::TypeCanonicalId HirLowerModern::canonicalTypeId(types::TypeId type) const
                    data);
     };
     appendType(appendType, type);
-
-    const auto domain =
-        moduleNamespace(current_module_ != nullptr ? current_module_->key : std::string_view{},
-                        snapshot_.cacheKey());
-    append(reinterpret_cast<const uint8_t *>(domain.data()), domain.size());
 
     types::TypeCanonicalId result;
     result.hi = hi_hash;

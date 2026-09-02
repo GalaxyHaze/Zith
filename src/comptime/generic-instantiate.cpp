@@ -556,6 +556,7 @@ GenericInstantiationPass::substituteType(const sema::modern::TypeId type,
             if (existing)
                 return sema::modern::TypeId{existing};
             const sema::modern::TypeId reified = type_table_.internAlias(concrete, substituted);
+            type_table_.setDefiningModule(reified, type_table_.definingModule(type));
             type_table_.registerNamed(concrete, reified);
             return reified;
         }
@@ -569,6 +570,7 @@ GenericInstantiationPass::substituteType(const sema::modern::TypeId type,
             if (existing)
                 return sema::modern::TypeId{existing};
             const sema::modern::TypeId reified = type_table_.internNominal(concrete, substituted);
+            type_table_.setDefiningModule(reified, type_table_.definingModule(type));
             type_table_.registerNamed(concrete, reified);
             return reified;
         }
@@ -636,6 +638,7 @@ GenericInstantiationPass::substituteType(const sema::modern::TypeId type,
             }
             const sema::modern::TypeId reified =
                 type_table_.internStruct(concrete, fields, &st->field_names, &meta);
+            type_table_.setDefiningModule(reified, type_table_.definingModule(resolved));
             type_table_.registerNamed(concrete, reified);
             return reified;
         }
@@ -655,6 +658,7 @@ GenericInstantiationPass::substituteType(const sema::modern::TypeId type,
                 discs.push(disc);
             const sema::modern::TypeId reified = type_table_.internEnum(
                 concrete, substituteType(et->underlying, args), variant_names, discs);
+            type_table_.setDefiningModule(reified, type_table_.definingModule(resolved));
             type_table_.registerNamed(concrete, reified);
             return reified;
         }
@@ -671,6 +675,7 @@ GenericInstantiationPass::substituteType(const sema::modern::TypeId type,
                 members.push(substituteType(member, args));
             const sema::modern::TypeId reified =
                 type_table_.internUnion(concrete, members, ut->is_tagged);
+            type_table_.setDefiningModule(reified, type_table_.definingModule(resolved));
             type_table_.registerNamed(concrete, reified);
             return reified;
         }

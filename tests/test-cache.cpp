@@ -482,12 +482,12 @@ static void test_format_version_bump() {
     (void)Writer::write(art, writer);
 
     std::string bytes(reinterpret_cast<const char *>(writer.ptr()), writer.size());
-    CHECK_EQ(kFormatVersion, 15u, "zirl format version is bumped");
+    CHECK_EQ(kFormatVersion, 16u, "zirl format version is bumped");
 
     // Simulate an old reader by treating the version field as v3.
     bytes[4]        = 3;
     auto old_reader = Reader::read(bytes);
-    CHECK(!old_reader.has_value(), "v15 artifact is rejected by a v3-only reader");
+    CHECK(!old_reader.has_value(), "v16 artifact is rejected by a v3-only reader");
 }
 
 static void test_artifact_builder() {

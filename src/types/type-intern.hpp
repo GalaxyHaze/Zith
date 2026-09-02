@@ -22,6 +22,7 @@ struct StructField {
 struct StructDef {
     memory::InternedId name;
     memory::DynArray<StructField> fields;
+    std::string_view defining_module;
 };
 
 struct EnumVariantDef {
@@ -33,12 +34,14 @@ struct EnumDef {
     memory::InternedId name;
     TypeId underlying;
     memory::DynArray<EnumVariantDef> variants;
+    std::string_view defining_module;
 };
 
 struct UnionDef {
     memory::InternedId name;
     bool is_tagged;
     memory::DynArray<TypeId> members;
+    std::string_view defining_module;
 };
 
 struct CanonicalTagMapping {
@@ -110,6 +113,9 @@ public:
     // ── Struct definition helpers ─────────────────────────────────
     TypeId defineStruct(std::string_view name);
     void addField(TypeId struct_type, std::string_view field_name, TypeId field_type);
+    /// Records the module that declares a named type. Non-empty first write wins.
+    void setDefiningModule(TypeId type, std::string_view module);
+    [[nodiscard]] std::string_view definingModuleOf(TypeId type) const;
 
     const StructDef &getStructDef(TypeId struct_type) const;
     StructDef &getStructDef(TypeId struct_type);
@@ -168,7 +174,7 @@ public:
 inline const UnionDef &emptyUnionDef() {
     static memory::Arena *arena = new memory::Arena;
     static const UnionDef *def =
-        new UnionDef{memory::InternedId{0}, false, memory::DynArray<TypeId>(*arena)};
+        new UnionDef{memory::InternedId{0}, false, memory::DynArray<TypeId>(*arena), {}};
     return *def;
 }
 

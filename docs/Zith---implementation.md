@@ -143,9 +143,9 @@ equivale a `@ptrOf` e é marcada como escaping por `E4008` quando escapa ao stor
 
 `@canonicalType(T)` segue o caminho de `LayoutIntrinsic` no frontend, mas o sema tipa a
 expressão como `u128`. `HirLowerModern::canonicalTypeId` deriva o id estável a partir do
-namespace do módulo, tipo e campos ordenados por tamanho; `lowerLayoutIntrinsic` materializa
-`HirCanonicalType`. Codegen emite o valor como constante `i128` e o cache persiste os dois
-`uint64_t` do id.
+namespace do módulo que define o tipo, do tipo e dos campos ordenados por tamanho;
+`lowerLayoutIntrinsic` materializa `HirCanonicalType`. Codegen emite o valor como constante
+`i128` e o cache persiste os dois `uint64_t` do id.
 
 `inferMethodCall` reconhece `p.Trait.method()` (AST `Call(Field(Field(p, Trait), method))`)
 antes da lookup normal. Quando o receiver é um struct que satisfaz a trait/interface nomeada,

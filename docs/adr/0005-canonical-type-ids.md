@@ -8,6 +8,11 @@ runtime `u32` through a persistent project registry.
 
 Status: accepted
 
+Update: `canonicalTypeId` agora usa o módulo definidor de cada tipo nomeado em vez do
+módulo onde o lowering decorre. Structs, enums, unions, aliases nominais e reificações
+genéricas propagam esse owner a partir da `TypeTable` partilhada do sema, tornando
+`at-canonicalType(T)` estável entre módulos e sessões.
+
 Considered Options:
 
 - Use the 128-bit canonical id directly in the opaque runtime tag. That would

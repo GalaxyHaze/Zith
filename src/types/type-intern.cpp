@@ -408,7 +408,7 @@ TypeId TypeIntern::defineStruct(std::string_view name) {
         return *existing;
 
     TypeId def_id = static_cast<TypeId>(struct_defs_.size());
-    struct_defs_.push(StructDef{id, memory::DynArray<StructField>(arena_)});
+    struct_defs_.push(StructDef{id, memory::DynArray<StructField>(arena_), {}});
     auto type = intern(TypeStruct{def_id});
     named_types_.insert(id, type);
     return type;
@@ -417,6 +417,61 @@ TypeId TypeIntern::defineStruct(std::string_view name) {
 void TypeIntern::addField(TypeId struct_type, std::string_view field_name, TypeId field_type) {
     auto &def = getStructDef(struct_type);
     def.fields.push(StructField{interner_.intern(field_name), field_type});
+}
+
+void TypeIntern::setDefiningModule(TypeId type, std::string_view module) {
+    if (module.empty())
+        return;
+    switch (kindOf(type)) {
+    case TypeKind::Struct: {
+        auto *td = std::get_if<TypeStruct>(&types_[type]);
+        if (td != nullptr && td->def_id < struct_defs_.size() &&
+            struct_defs_[td->def_id].defining_module.empty())
+            struct_defs_[td->def_id].defining_module = module;
+        break;
+    }
+    case TypeKind::Enum: {
+        auto *td = std::get_if<TypeEnum>(&types_[type]);
+        if (td != nullptr && td->def_id < enum_defs_.size() &&
+            enum_defs_[td->def_id].defining_module.empty())
+            enum_defs_[td->def_id].defining_module = module;
+        break;
+    }
+    case TypeKind::Union: {
+        auto *td = std::get_if<TypeUnion>(&types_[type]);
+        if (td != nullptr && td->def_id < union_defs_.size() &&
+            union_defs_[td->def_id].defining_module.empty())
+            union_defs_[td->def_id].defining_module = module;
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+std::string_view TypeIntern::definingModuleOf(TypeId type) const {
+    switch (kindOf(type)) {
+    case TypeKind::Struct: {
+        const auto *td = std::get_if<TypeStruct>(&types_[type]);
+        return td != nullptr && td->def_id < struct_defs_.size()
+                   ? struct_defs_[td->def_id].defining_module
+                   : std::string_view{};
+    }
+    case TypeKind::Enum: {
+        const auto *td = std::get_if<TypeEnum>(&types_[type]);
+        return td != nullptr && td->def_id < enum_defs_.size()
+                   ? enum_defs_[td->def_id].defining_module
+                   : std::string_view{};
+    }
+    case TypeKind::Union: {
+        const auto *td = std::get_if<TypeUnion>(&types_[type]);
+        return td != nullptr && td->def_id < union_defs_.size()
+                   ? union_defs_[td->def_id].defining_module
+                   : std::string_view{};
+    }
+    default:
+        return {};
+    }
 }
 
 const StructDef &TypeIntern::getStructDef(TypeId struct_type) const {
@@ -506,7 +561,7 @@ TypeId TypeIntern::defineEnum(std::string_view name, TypeId underlying) {
         return *existing;
 
     TypeId def_id = static_cast<TypeId>(enum_defs_.size());
-    enum_defs_.push(EnumDef{id, underlying, memory::DynArray<EnumVariantDef>(arena_)});
+    enum_defs_.push(EnumDef{id, underlying, memory::DynArray<EnumVariantDef>(arena_), {}});
     auto type = intern(TypeEnum{def_id});
     named_types_.insert(id, type);
     return type;
@@ -561,7 +616,7 @@ TypeId TypeIntern::defineUnion(std::string_view name, bool is_tagged) {
     }
 
     TypeId def_id = static_cast<TypeId>(union_defs_.size());
-    union_defs_.push(UnionDef{id, is_tagged, memory::DynArray<TypeId>(arena_)});
+    union_defs_.push(UnionDef{id, is_tagged, memory::DynArray<TypeId>(arena_), {}});
     auto type = intern(TypeUnion{def_id});
     named_types_.insert(id, type);
     return type;

@@ -76,22 +76,28 @@ void PerModuleSema::registerNamedTypes() {
     for (const auto &decl : snapshot.declarations()) {
         switch (decl.kind) {
         case frontend::DeclKind::Struct:
-            (void)type_table.findOrCreateNamed(decl.name, TypeKind::Struct);
+            type_table.setDefiningModule(type_table.findOrCreateNamed(decl.name, TypeKind::Struct),
+                                         module);
             break;
         case frontend::DeclKind::Enum:
-            (void)type_table.findOrCreateNamed(decl.name, TypeKind::Enum);
+            type_table.setDefiningModule(type_table.findOrCreateNamed(decl.name, TypeKind::Enum),
+                                         module);
             break;
         case frontend::DeclKind::Union:
-            (void)type_table.findOrCreateNamed(decl.name, TypeKind::Union);
+            type_table.setDefiningModule(type_table.findOrCreateNamed(decl.name, TypeKind::Union),
+                                         module);
             break;
         case frontend::DeclKind::Trait:
-            (void)type_table.findOrCreateNamed(decl.name, TypeKind::Trait);
+            type_table.setDefiningModule(type_table.findOrCreateNamed(decl.name, TypeKind::Trait),
+                                         module);
             break;
         case frontend::DeclKind::Interface:
-            (void)type_table.findOrCreateNamed(decl.name, TypeKind::Trait);
+            type_table.setDefiningModule(type_table.findOrCreateNamed(decl.name, TypeKind::Trait),
+                                         module);
             break;
         case frontend::DeclKind::TypeAlias:
-            (void)type_table.findOrCreateNamed(decl.name, TypeKind::Alias);
+            type_table.setDefiningModule(type_table.findOrCreateNamed(decl.name, TypeKind::Alias),
+                                         module);
             break;
         default:
             break;

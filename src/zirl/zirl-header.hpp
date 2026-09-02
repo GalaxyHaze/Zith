@@ -42,7 +42,9 @@ inline constexpr uint32_t kMagic = 0x5A49524Cu; // "ZIRL"
 /// used by `canonicalType`, so old caches become misses and are regenerated.
 /// Version 15: artifacts persist per-module `canonicalMappings` so cached bare
 /// opaque values can restore a stable project-local runtime tag.
-inline constexpr uint32_t kFormatVersion = 15;
+/// Version 16: canonical type ids use the defining module, not the consumer
+/// module, so `at-canonicalType(T)` agrees across module boundaries.
+inline constexpr uint32_t kFormatVersion = 16;
 inline constexpr uint8_t kEndianLittle   = 1;
 
 enum class SectionId : uint8_t {

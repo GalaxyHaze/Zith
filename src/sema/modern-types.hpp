@@ -274,6 +274,11 @@ public:
     [[nodiscard]] std::string_view namedTypeName(TypeId id) const noexcept;
     [[nodiscard]] TypeId findOrCreateNamed(std::string_view name, TypeKind kind);
     void registerNamed(std::string_view name, TypeId id);
+    /// Records the module that declared `id` when `id` is a named composite,
+    /// alias or nominal type. The first non-empty registration wins so an
+    /// imported type is not re-labelled by a consumer module.
+    void setDefiningModule(TypeId id, std::string_view module);
+    [[nodiscard]] std::string_view definingModule(TypeId id) const noexcept;
 
     [[nodiscard]] TypeId lowerTypeExpr(const frontend::FrontendSnapshot &snapshot,
                                        frontend::TypeExprId id) noexcept;
@@ -348,6 +353,7 @@ private:
         memory::DynArray<FieldMeta> *meta_storage        = nullptr;
         memory::DynArray<int64_t> *disc_storage          = nullptr;
         TypeId underlying                                = kInvalidTypeId;
+        std::string_view defining_module;
     };
 
     memory::DynArray<Entry> entries_;
