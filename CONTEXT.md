@@ -97,3 +97,37 @@ _Avoid_: global registry, runtime type table, tag table
 **Canonical opaque mapping**:
 The serialized per-artifact pair `{ canonical type id, runtime opaque tag }` that lets a cached opaque value be hydrated with its original tag.
 _Avoid_: opaque metadata, tag recovery record, cache typehash
+
+## Toolchain & C Interop
+
+**Standalone toolchain**:
+The packaging model where `zithc` carries the tools it needs to build native programs, so an end user installs only the compiler artifact instead of a separate host compiler toolchain.
+_Avoid_: bundled compilers, host toolchain, toolchain folder
+
+**Embedded LLD**:
+The LLD linker linked into `zithcLib` and invoked through the LLD API in-process instead of executing `ld.lld` from the host.
+_Avoid_: system linker, external LLD, ld.lld driver
+
+**Host C driver**:
+The external C compiler used as a temporary fallback for `*.c` compilation until Zith ships its own lightweight C backend.
+_Avoid_: system compiler, user compiler, C toolchain
+
+**Zith C binder**:
+The future embedded, Zith-owned parser that consumes C headers and produces the same `cinterop` binding surface libclang produces today, without requiring LLVM/libclang.
+_Avoid_: C parser, libclang replacement, mini-clang
+
+**Tiny C backend**:
+The long-term lightweight C compiler/object emitter owned by Zith for companion C sources and for standalone C system-header support. It prioritizes small footprint, stability, and correct simple C over optimization.
+_Avoid_: TinyCC backend, tinyc clone, mini C compiler
+
+**Validated C ABI surface**:
+The exact set of C declarations Zith promises to bind with correct ABI. Declarations outside this surface are rejected with a clear diagnostic, not imported with unverified semantics.
+_Avoid_: arbitrary C interop, experimental C import, best-effort ABI
+
+**WASI header bundle**:
+The small set of C library headers shipped with the WASM build so `import "foo.h"` works in the browser without relying on host system headers.
+_Avoid_: system headers for WASM, browser libc headers, precompiled headers
+
+**Bundle provider**:
+The configurable source of embedded/locally installed compiler resources (LLD, header resource dirs, Zith-owned C backend, WASI headers) resolved relative to the `zithc` binary.
+_Avoid_: toolchain root, LLVM_DIR, compiler path
