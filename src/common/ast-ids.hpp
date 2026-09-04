@@ -22,6 +22,7 @@ enum class ExprKind : uint8_t {
     MacroCall,
     Sequence,
     WordCall,
+    WhenGuard,
     StructLiteral,
     ArrayLiteral,
     EnumValue,

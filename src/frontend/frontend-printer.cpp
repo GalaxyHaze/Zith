@@ -121,6 +121,8 @@ namespace {
         return "OwnershipCoerce";
     case ExprKind::MacroCall:
         return "MacroCall";
+    case ExprKind::WhenGuard:
+        return "WhenGuard";
     case ExprKind::Error:
         return "Error";
     }

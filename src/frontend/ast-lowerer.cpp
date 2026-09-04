@@ -196,8 +196,8 @@ void lex(FrontendSnapshot &snapshot) {
         if (isOperator(source[start])) {
             static constexpr std::string_view kThreeChar[] = {"<<=", ">>="};
             static constexpr std::string_view kTwoChar[]   = {
-                "==", "!=", "<=", ">=", "->", "<<", ">>", "+=", "-=", "*=", "/=",
-                "%=", "&=", "|=", "^=", "&.", "|.", "^.", "&&", "||", "??"};
+                "==", "!=", "<=", ">=", "->", "~>", "<<", ">>", "+=", "-=", "*=",
+                "/=", "%=", "&=", "|=", "^=", "&.", "|.", "^.", "&&", "||", "??"};
             bool munched = false;
             if (start + 3U <= source.size()) {
                 const std::string_view triple = source.substr(start, 3);

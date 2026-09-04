@@ -465,6 +465,35 @@ static void test_formatter_else_condition_spelling_round_trip() {
              "formatted output preserves only the original deprecation warning");
 }
 
+static void test_formatter_when_no_arrow_round_trip() {
+    const std::string source = "fn pick(n: i32, status: ?i32): i32 {\n"
+                               "    return when (n) {\n"
+                               "        (0) and (status) 10,\n"
+                               "        (1 or 3) 20,\n"
+                               "        (n > 10) 30,\n"
+                               "        (_) 40\n"
+                               "    };\n"
+                               "}\n";
+    auto snapshot            = frontend::parse(source);
+    CHECK(snapshot.diagnostics().empty(), "no-arrow when formatter source parses cleanly");
+
+    formatter::FmtVisitor formatter(snapshot);
+    formatter.format();
+
+    const std::string &output = formatter.result();
+    CHECK(output.find("(0) and (status) 10") != std::string::npos,
+          "guard islands round-trip through fmt");
+    CHECK(output.find("(1 or 3) 20") != std::string::npos,
+          "inline pattern alternatives round-trip through fmt");
+    CHECK(output.find("(n > 10) 30") != std::string::npos,
+          "boolean pattern islands round-trip through fmt");
+    CHECK(output.find("(_) 40") != std::string::npos,
+          "default when arm round-trips without the legacy arrow");
+
+    auto reparsed = frontend::parse(output);
+    CHECK(reparsed.diagnostics().empty(), "formatted no-arrow when source re-parses cleanly");
+}
+
 static void test_formatter_raw_opaque_round_trip() {
     const std::string source = "fn thru(p: raw opaque): raw opaque {\n"
                                "    return p;\n"
@@ -539,6 +568,7 @@ static void test_formatter() {
     test_formatter_logical_operator_round_trip();
     test_formatter_condition_keywords_round_trip();
     test_formatter_else_condition_spelling_round_trip();
+    test_formatter_when_no_arrow_round_trip();
     test_formatter_raw_opaque_round_trip();
     test_formatter_bare_opaque_round_trip();
     test_compilation_session_fmt_uses_frontend_snapshot();

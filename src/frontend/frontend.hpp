@@ -169,6 +169,10 @@ enum class ExprKind : uint8_t {
     Range,
     /// `_` as a struct-literal field value: `Pair{left: _, right: 2}`.
     Placeholder,
+    /// A parsed `when` case guard: condition islands joined by top-level
+    /// `and`/`or`/`xor`. The AST keeps this wrapper so sema can distinguish the
+    /// first pattern island from later boolean guards.
+    WhenGuard,
     /// Layout and value intrinsics. Layout intrinsics parse a type argument;
     /// lengthOf/ptrOf parse a normal expression.
     LayoutIntrinsic,
@@ -289,8 +293,12 @@ struct Expression {
     // Used by ExprKind::StructLiteral: parallel field name per operand
     std::vector<std::string> field_names;
     // Used by ExprKind::When: parallel case condition per operand (operand[0] is
-    // the subject; operands[1..] are case bodies). An empty id marks the default case.
+    // the subject; operands[1..] are case bodies). The condition id is either an
+    // ExprKind::WhenGuard or empty for the default case.
     std::vector<ExprId> conditions;
+    /// Used by ExprKind::WhenGuard: top-level keyword operator between islands,
+    /// one entry per island after the first.
+    std::vector<std::string> whenIslandOps;
     // Used by ExprKind::Cast: the target type written after `as`
     TypeExprId cast_type;
     /// Used by ExprKind::ForIn: the local binding that receives the union

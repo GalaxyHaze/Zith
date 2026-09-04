@@ -6,10 +6,12 @@
 > loop bodies can lower to the same CFG machinery as the
 > old `while`. `while` still works but emits a deprecation warning (`W1008`) pointing at
 > `for (cond) { }`. The literal range forms (`0..4`) are not implemented yet. `when` pattern
-> matching is **working**, including equality, boolean, range, and tagged-union type-narrowing
-> arms. `state` declarations, `dock` calls, and `jump` terminating transfers are **working**
-> and compile to direct LLVM `musttail` calls; the old `flow fn`/`marker`/TLS-blob model is
-> removed. See [impl-status.md](impl-status.md).
+> matching is **working**, including equality, boolean, guard islands, range, pattern
+> alternatives, and tagged-union type-narrowing arms. Cases are comma-separated and the
+> canonical form writes the body immediately after the condition islands; the legacy `~>`
+> marker still compiles but emits `W1008`. `state` declarations, `dock` calls, and `jump`
+> terminating transfers are **working** and compile to direct LLVM `musttail` calls; the old
+> `flow fn`/`marker`/TLS-blob model is removed. See [impl-status.md](impl-status.md).
 
 ### 9.1 Syntax Rules
 

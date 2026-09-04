@@ -16,8 +16,8 @@ fn handle(v: Value): i32 {
 
     var total: i32 = 1;
     when (v) {
-        (v is i32) ~> { total = total + 5; },
-        (_) ~> { total = 0; },
+        (v is i32) { total = total + 5; },
+        (_) { total = 0; },
     }
 
     if (v is bool) {

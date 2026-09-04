@@ -187,36 +187,65 @@ ExprId AstLowerer::parseWhen() {
             continue;
         }
         const uint32_t case_start = index_;
-        ExprId condition;
         if (punctuation(index_, '(')) {
-            ++index_;
+            ++index_; // consume the case '('
             if (text(index_) == "_" && punctuation(index_ + 1U, ')')) {
                 ++index_; // '_'
                 ++index_; // ')'
                 expression.conditions.push_back(ExprId{});
             } else {
-                range_mode_ = true;
-                condition   = parseExpression();
-                range_mode_ = false;
-                // Range pattern `lo..hi`: only recognized inside a when case.
-                if (punctuation(index_, '.') && punctuation(index_ + 1U, '.')) {
-                    const auto &cond_node = snapshot_.expressions_[condition.value - 1U];
-                    index_ += 2;
-                    Expression range;
-                    range.kind  = ExprKind::Range;
-                    range.text  = "..";
-                    range.scope = current_scope_;
-                    range.operands.push_back(condition);
-                    range.operands.push_back(parseExpression());
-                    range.span = {cond_node.span.start, snapshot_.tokens_[index_ - 1U].span.end};
-                    condition  = addExpression(std::move(range));
+                Expression guard_expr;
+                guard_expr.kind            = ExprKind::WhenGuard;
+                guard_expr.scope           = current_scope_;
+                const uint32_t guard_start = index_;
+
+                // The first island is the body of the case paren; later islands
+                // are ordinary boolean conditions joined by and/or/xor.
+                const uint32_t saved_range_mode = range_mode_;
+                range_mode_                     = true;
+                for (;;) {
+                    if (!guard_expr.operands.empty() && punctuation(index_, '('))
+                        ++index_; // consume the island '('
+                    else if (!guard_expr.operands.empty())
+                        snapshot_.diagnostics_.push_back(
+                            {range(index_, index_ + 1U),
+                             "expected '(' before when case condition island"});
+                    ExprId island = parseExpression();
+                    if (!punctuation(index_, ')') && punctuation(index_, '.') &&
+                        punctuation(index_ + 1U, '.')) {
+                        const auto lower_span = snapshot_.expressions_[island.value - 1U].span;
+                        index_ += 2; // `..`
+                        Expression range;
+                        range.kind  = ExprKind::Range;
+                        range.text  = "..";
+                        range.scope = current_scope_;
+                        range.operands.push_back(island);
+                        range.operands.push_back(parseExpression());
+                        range.span = {lower_span.start, snapshot_.tokens_[index_ - 1U].span.end};
+                        island     = addExpression(std::move(range));
+                    }
+                    guard_expr.operands.push_back(island);
+                    if (punctuation(index_, ')')) {
+                        ++index_; // ')' (range patterns are parsed above by parseExpression)
+                    } else {
+                        snapshot_.diagnostics_.push_back(
+                            {range(case_start, index_), "expected ')' after when case condition"});
+                    }
+
+                    if (index_ < token_count_ &&
+                        snapshot_.tokens_[index_].kind == TokenKind::Keyword &&
+                        (text(index_) == "and" || text(index_) == "or" || text(index_) == "xor")) {
+                        guard_expr.whenIslandOps.push_back(std::string(text(index_++)));
+                        continue;
+                    }
+                    break;
                 }
-                if (punctuation(index_, ')'))
-                    ++index_;
-                else
-                    snapshot_.diagnostics_.push_back(
-                        {range(case_start, index_), "expected ')' after when case condition"});
-                expression.conditions.push_back(condition);
+
+                if (!guard_expr.operands.empty()) {
+                    guard_expr.span = range(guard_start, index_);
+                    expression.conditions.push_back(addExpression(std::move(guard_expr)));
+                }
+                range_mode_ = saved_range_mode;
             }
         } else {
             snapshot_.diagnostics_.push_back(
@@ -225,17 +254,29 @@ ExprId AstLowerer::parseWhen() {
                 ++index_;
             expression.conditions.push_back(ExprId{});
         }
-        if (isOperatorToken("~") && index_ + 1U < token_count_ &&
-            snapshot_.tokens_[index_ + 1U].kind == TokenKind::Operator &&
-            text(index_ + 1U) == ">") {
-            index_ += 2;
+        if (isOperatorToken("~>")) {
+            snapshot_.diagnostics_.push_back({range(case_start, index_ + 2U),
+                                              "'~>' in when cases is deprecated; write the case "
+                                              "body after the condition islands",
+                                              true, diagnostics::err::DeprecatedSyntax});
+            ++index_;
         } else {
-            snapshot_.diagnostics_.push_back(
-                {range(case_start, index_), "expected '~>' after when case condition"});
+            // No-arrow form: after the condition islands, the next token starts
+            // the body. A comma before the body is a syntax error (cases are
+            // separated by a mandatory comma only after the body).
+            if (punctuation(index_, ',')) {
+                snapshot_.diagnostics_.push_back(
+                    {range(case_start, index_),
+                     "expected a when case body after the condition islands"});
+            }
         }
         expression.operands.push_back(parseExpression()); // case body
-        if (punctuation(index_, ','))
+        if (punctuation(index_, ',')) {
             ++index_;
+        } else if (!punctuation(index_, '}')) {
+            snapshot_.diagnostics_.push_back(
+                {range(case_start, index_), "expected ',' between when cases"});
+        }
     }
     if (punctuation(index_, '}'))
         ++index_;
@@ -923,17 +964,14 @@ std::vector<StmtId> AstLowerer::parseStatements() {
         statement.kind = StmtKind::Return;
         ++index_;
         if (index_ < token_count_ && !punctuation(index_, ';') && !punctuation(index_, '}')) {
-            statement.expression = parseExpression();
+            statement.expression   = parseExpression();
             bool closed_when_block = false;
             if (statement.expression &&
                 statement.expression.value <= snapshot_.expressions_.size()) {
-                const auto &parsed =
-                    snapshot_.expressions_[statement.expression.value - 1U];
-                closed_when_block = parsed.kind == ExprKind::When &&
-                                    punctuation(index_, '}');
+                const auto &parsed = snapshot_.expressions_[statement.expression.value - 1U];
+                closed_when_block  = parsed.kind == ExprKind::When && punctuation(index_, '}');
             }
-            if (index_ < token_count_ && !punctuation(index_, ';') &&
-                !closed_when_block)
+            if (index_ < token_count_ && !punctuation(index_, ';') && !closed_when_block)
                 snapshot_.diagnostics_.push_back({tokenSpan(index_),
                                                   "a return expression must be terminated with ';'",
                                                   false, diagnostics::err::ExpectedSemicolon});

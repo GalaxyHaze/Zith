@@ -196,6 +196,7 @@ int FmtVisitor::exprPrecedence(const frontend::Expression &expr) const noexcept 
         return binaryPrecedence(expr.text);
     case frontend::ExprKind::Unary:
         return 12;
+    case frontend::ExprKind::WhenGuard:
     case frontend::ExprKind::IsNull:
     case frontend::ExprKind::IsType:
         return 5;
@@ -1043,16 +1044,49 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
             if (i != 0U)
                 emit(", ");
             if (i < expr->conditions.size() && expr->conditions[i]) {
-                emit("(");
-                visitExpr(expr->conditions[i]);
-                emit(")");
+                const auto *guard = expression(expr->conditions[i]);
+                if (guard != nullptr && guard->kind == frontend::ExprKind::WhenGuard) {
+                    for (std::size_t island = 0; island < guard->operands.size(); ++island) {
+                        if (island != 0U) {
+                            emit(" ");
+                            if (island - 1U < guard->whenIslandOps.size())
+                                emit(guard->whenIslandOps[island - 1U]);
+                            emit(" ");
+                        }
+                        emit("(");
+                        visitExpr(guard->operands[island]);
+                        emit(")");
+                    }
+                } else {
+                    emit("(");
+                    visitExpr(expr->conditions[i]);
+                    emit(")");
+                }
             } else {
                 emit("(_)");
             }
-            emit(" ~> ");
+            emit(" ");
             visitExpr(expr->operands[i + 1U]);
         }
         emit(" }");
+        break;
+    case frontend::ExprKind::WhenGuard:
+        if (expr->operands.empty()) {
+            emitOriginal(expr->span);
+            break;
+        }
+        emit("(");
+        visitExpr(expr->operands[0]);
+        emit(")");
+        for (std::size_t island = 1; island < expr->operands.size(); ++island) {
+            emit(" ");
+            if (island - 1U < expr->whenIslandOps.size())
+                emit(expr->whenIslandOps[island - 1U]);
+            emit(" ");
+            emit("(");
+            visitExpr(expr->operands[island]);
+            emit(")");
+        }
         break;
     case frontend::ExprKind::Range:
         if (expr->operands.size() < 2U) {

@@ -431,6 +431,8 @@ private:
     TypeId inferIsType(frontend::ExprId id);
     TypeId inferWhen(frontend::ExprId id);
     TypeId inferRange(frontend::ExprId id);
+    void validateWhenPatternIsland(frontend::ExprId island, TypeId subject,
+                                   const frontend::Expression *&narrow_cond);
     TypeId inferLayoutIntrinsic(frontend::ExprId id);
     /// Resolves a method call on a `dyn Trait` / `dyn Interface` receiver.
     TypeId inferDynMethodCall(const frontend::Expression &call, const frontend::Expression &callee,

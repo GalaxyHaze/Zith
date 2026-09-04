@@ -283,6 +283,42 @@ TypeId PerModuleSema::inferRange(frontend::ExprId id) {
     }
     return bool_type;
 }
+void PerModuleSema::validateWhenPatternIsland(frontend::ExprId island, TypeId subject,
+                                              const frontend::Expression *&narrow_cond) {
+    if (!island || island.value > snapshot.expressions().size())
+        return;
+    const auto &node = snapshot.expressions()[island.value - 1U];
+    if (node.kind == frontend::ExprKind::Range) {
+        // Range pattern `lo..hi`: the subject must be comparable with the bounds.
+        const auto &lo_node = snapshot.expressions()[node.operands[0].value - 1U];
+        const TypeId bound  = inferExpr(node.operands[0]);
+        if (!sameType(subject, bound)) {
+            report(lo_node.span, "when range pattern must match the subject type",
+                   diagnostics::err::TypeMismatch);
+        }
+        return;
+    }
+    if (node.kind == frontend::ExprKind::Binary &&
+        (node.text == "and" || node.text == "or" || node.text == "xor")) {
+        for (const auto operand : node.operands)
+            validateWhenPatternIsland(operand, subject, narrow_cond);
+        setExprType(island, bool_type);
+        return;
+    }
+    if (node.kind == frontend::ExprKind::IsType && !node.operands.empty() && node.cast_type &&
+        narrow_cond == nullptr)
+        narrow_cond = &node;
+    const TypeId operand_type = inferExpr(island);
+    if (operand_type == error_type || sameType(operand_type, bool_type) ||
+        type_table.optional(resolve(operand_type)) != nullptr)
+        return;
+    if (!sameType(subject, operand_type) && !adaptNumericLiteral(island, subject)) {
+        report(node.span,
+               "when case condition must be a boolean expression or match the subject type",
+               diagnostics::err::TypeMismatch);
+    }
+}
+
 TypeId PerModuleSema::inferWhen(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     if (expr.operands.empty())
@@ -305,38 +341,58 @@ TypeId PerModuleSema::inferWhen(frontend::ExprId id) {
             }
             continue;
         }
-        const auto &cond_node  = snapshot.expressions()[condition.value - 1U];
-        const TypeId cond_type = inferExpr(condition);
-        if (cond_node.kind == frontend::ExprKind::Range) {
-            // Range pattern `lo..hi`: the subject must be comparable with the bounds.
-            const auto &lo_node = snapshot.expressions()[cond_node.operands[0].value - 1U];
-            const TypeId bound  = inferExpr(cond_node.operands[0]);
-            if (!sameType(subject, bound)) {
-                report(lo_node.span, "when range pattern must match the subject type",
-                       diagnostics::err::TypeMismatch);
+        const auto &cond_node                   = snapshot.expressions()[condition.value - 1U];
+        const frontend::Expression *narrow_cond = nullptr;
+        if (cond_node.kind == frontend::ExprKind::WhenGuard) {
+            if (cond_node.operands.empty())
+                continue;
+            validateWhenPatternIsland(cond_node.operands[0], subject, narrow_cond);
+            for (size_t island = 1; island < cond_node.operands.size(); ++island) {
+                const frontend::ExprId guard_expr = cond_node.operands[island];
+                const auto &guard_node            = snapshot.expressions()[guard_expr.value - 1U];
+                const TypeId guard_type           = inferExpr(guard_expr);
+                if (guard_type != error_type && !sameType(guard_type, bool_type) &&
+                    type_table.optional(resolve(guard_type)) == nullptr) {
+                    report(guard_node.span,
+                           "when case guards after the first island must be boolean "
+                           "expressions",
+                           diagnostics::err::TypeMismatch);
+                }
             }
-        } else if (cond_type != bool_type && cond_type != error_type &&
-                   type_table.optional(resolve(cond_type)) == nullptr) {
-            // A non-boolean condition is an equality pattern: `(0)` means `subject == 0`.
-            if (!sameType(subject, cond_type) && !adaptNumericLiteral(condition, subject)) {
-                report(expr.span,
-                       "when case condition must be a boolean expression or match the subject "
-                       "type",
-                       diagnostics::err::TypeMismatch);
+        } else {
+            const TypeId cond_type = inferExpr(condition);
+            if (cond_node.kind == frontend::ExprKind::Range) {
+                const auto &lo_node = snapshot.expressions()[cond_node.operands[0].value - 1U];
+                const TypeId bound  = inferExpr(cond_node.operands[0]);
+                if (!sameType(subject, bound)) {
+                    report(lo_node.span, "when range pattern must match the subject type",
+                           diagnostics::err::TypeMismatch);
+                }
+            } else if (cond_type != bool_type && cond_type != error_type &&
+                       type_table.optional(resolve(cond_type)) == nullptr) {
+                if (!sameType(subject, cond_type) && !adaptNumericLiteral(condition, subject)) {
+                    report(expr.span,
+                           "when case condition must be a boolean expression or match the subject "
+                           "type",
+                           diagnostics::err::TypeMismatch);
+                }
             }
+            if (cond_node.kind == frontend::ExprKind::IsType && !cond_node.operands.empty() &&
+                cond_node.cast_type)
+                narrow_cond = &cond_node;
         }
+
         // An `(f is Member)` case narrows `f` to the member type for the body,
         // matching the existing `if` flow-typing rule.
         frontend::LocalId narrowed_local;
         TypeId original_local_type = kInvalidTypeId;
         TypeId narrowed_type       = kInvalidTypeId;
-        if (cond_node.kind == frontend::ExprKind::IsType && !cond_node.operands.empty() &&
-            cond_node.cast_type) {
-            if (const auto *resolved = findResolvedExpr(cond_node.operands[0]);
+        if (narrow_cond != nullptr && !narrow_cond->operands.empty() && narrow_cond->cast_type) {
+            if (const auto *resolved = findResolvedExpr(narrow_cond->operands[0]);
                 resolved != nullptr && resolved->local) {
                 narrowed_local      = resolved->local;
                 original_local_type = typeOfLocal(narrowed_local);
-                narrowed_type       = lowerTypeExpr(cond_node.cast_type);
+                narrowed_type       = lowerTypeExpr(narrow_cond->cast_type);
                 const TypeKind local_kind =
                     type_table.kindOf(resolve(type_table.stripQualifiers(original_local_type)));
                 if (narrowed_type &&
@@ -358,7 +414,7 @@ TypeId PerModuleSema::inferWhen(frontend::ExprId id) {
     // exhausted (the legacy result was an optional, which the modern pipeline does not
     // synthesize for when).
     if (body_type != void_type && !has_default) {
-        report(expr.span, "non-exhaustive when; add a default case '(_) ~> ...'",
+        report(expr.span, "non-exhaustive when; add a default case '(_) ...'",
                diagnostics::err::TypeMismatch);
     }
     return body_type;

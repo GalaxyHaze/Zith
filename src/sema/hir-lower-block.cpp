@@ -2,7 +2,12 @@
 
 #include "diagnostics/error-codes.hpp"
 #include "sema/hir-lower-utils.hpp"
+#include "sema/op-mapping.hpp"
 #include "types/type-kind.hpp"
+
+#include <functional>
+#include <string_view>
+#include <vector>
 
 namespace zith::sema {
 namespace modern {
@@ -208,8 +213,7 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
         // the text so both spellings receive payload narrowing.
         frontend::ExprId inner_id = condition.operands[0];
         if (inner_id && inner_id.value <= current_module_->frontend->expressions().size()) {
-            const auto &inner =
-                current_module_->frontend->expressions()[inner_id.value - 1U];
+            const auto &inner = current_module_->frontend->expressions()[inner_id.value - 1U];
             if (inner.kind == frontend::ExprKind::IsNull && !inner.operands.empty()) {
                 makeOptionalNarrowing(inner.operands[0]);
                 narrow_then = true;
@@ -376,6 +380,115 @@ hir::HirExprId HirLowerModern::lowerWhenCondition(frontend::ExprId condition,
         condition.value > current_module_->frontend->expressions().size())
         return hir::kInvalidHirExpr;
     const auto &node = current_module_->frontend->expressions()[condition.value - 1U];
+    if (node.kind == frontend::ExprKind::WhenGuard) {
+        if (node.operands.empty())
+            return hir::kInvalidHirExpr;
+
+        std::function<hir::HirExprId(frontend::ExprId)> lower_island;
+        lower_island = [&](frontend::ExprId island) -> hir::HirExprId {
+            if (!island || island.value > current_module_->frontend->expressions().size())
+                return hir::kInvalidHirExpr;
+            const auto &island_node = current_module_->frontend->expressions()[island.value - 1U];
+            if (island_node.kind == frontend::ExprKind::Range) {
+                const auto lower_bound = lowerExpr(island_node.operands[0]);
+                const auto upper_bound = lowerExpr(island_node.operands[1]);
+                const auto subject     = emitSlotLoad(subject_slot, subject_type);
+                if (lower_bound == hir::kInvalidHirExpr || upper_bound == hir::kInvalidHirExpr)
+                    return hir::kInvalidHirExpr;
+
+                hir::HirBinary ge;
+                ge.lhs           = subject;
+                ge.rhs           = lower_bound;
+                ge.op            = hir::HirBinaryOp::Ge;
+                ge.type          = types::kBoolType;
+                const auto ge_id = addExpr(std::move(ge));
+
+                hir::HirBinary le;
+                le.lhs           = subject;
+                le.rhs           = upper_bound;
+                le.op            = hir::HirBinaryOp::Le;
+                le.type          = types::kBoolType;
+                const auto le_id = addExpr(std::move(le));
+
+                hir::HirBinary conjunction;
+                conjunction.lhs  = ge_id;
+                conjunction.rhs  = le_id;
+                conjunction.op   = hir::HirBinaryOp::And;
+                conjunction.type = types::kBoolType;
+                return addExpr(std::move(conjunction));
+            }
+            if (island_node.kind == frontend::ExprKind::Binary &&
+                (island_node.text == "and" || island_node.text == "or" ||
+                 island_node.text == "xor")) {
+                const auto left  = lower_island(island_node.operands[0]);
+                const auto right = lower_island(island_node.operands[1]);
+                if (left == hir::kInvalidHirExpr || right == hir::kInvalidHirExpr)
+                    return hir::kInvalidHirExpr;
+                hir::HirBinary binary;
+                binary.lhs  = left;
+                binary.rhs  = right;
+                binary.op   = sema::mapBinaryOp(island_node.text);
+                binary.type = types::kBoolType;
+                return addExpr(std::move(binary));
+            }
+
+            const auto island_type = typeOfExpr(island);
+            if (types_.kindOf(island_type) == types::TypeKind::Bool)
+                return lowerExpr(island);
+            if (types_.kindOf(island_type) == types::TypeKind::Optional)
+                return lowerOptionalCondition(island);
+
+            const auto value   = lowerExpr(island);
+            const auto subject = emitSlotLoad(subject_slot, subject_type);
+            if (value == hir::kInvalidHirExpr)
+                return hir::kInvalidHirExpr;
+            hir::HirBinary equality;
+            equality.lhs  = subject;
+            equality.rhs  = value;
+            equality.op   = hir::HirBinaryOp::Eq;
+            equality.type = types::kBoolType;
+            return addExpr(std::move(equality));
+        };
+
+        const auto make_boolean = [&](hir::HirExprId left, hir::HirExprId right,
+                                      std::string_view op) -> hir::HirExprId {
+            if (left == hir::kInvalidHirExpr || right == hir::kInvalidHirExpr)
+                return hir::kInvalidHirExpr;
+            hir::HirBinary binary;
+            binary.lhs  = left;
+            binary.rhs  = right;
+            binary.op   = sema::mapBinaryOp(op);
+            binary.type = types::kBoolType;
+            return addExpr(std::move(binary));
+        };
+
+        const std::vector<frontend::ExprId> islands(node.operands.begin(), node.operands.end());
+        const auto combine = [&](auto &&self, std::size_t begin,
+                                 std::size_t end) -> hir::HirExprId {
+            if (end - begin == 1U)
+                return lower_island(islands[begin]);
+            const auto &ops         = node.whenIslandOps;
+            const std::size_t split = [&]() {
+                std::size_t result                 = std::string_view::npos;
+                const std::string_view preferred[] = {"or", "and", "xor"};
+                for (const auto preferred_op : preferred) {
+                    for (std::size_t index = begin; index + 1U < end; ++index) {
+                        if (index < ops.size() && ops[index] == preferred_op)
+                            result = index;
+                    }
+                    if (result != std::string_view::npos)
+                        break;
+                }
+                return result;
+            }();
+            if (split == std::string_view::npos)
+                return hir::kInvalidHirExpr;
+            const auto left  = self(self, begin, split + 1U);
+            const auto right = self(self, split + 1U, end);
+            return make_boolean(left, right, ops[split]);
+        };
+        return combine(combine, 0U, node.operands.size());
+    }
     if (node.kind == frontend::ExprKind::Range) {
         const auto lower_bound = lowerExpr(node.operands[0]);
         const auto upper_bound = lowerExpr(node.operands[1]);

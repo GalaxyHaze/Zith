@@ -593,18 +593,89 @@ static void test_when_expression_runtime() {
     auto r = t.run("codegen-when.zith",
                    "fn classify(n: i32): i32 {\n"
                    "    return when (n) {\n"
-                   "        (0) ~> 10,\n"
-                   "        (1..3) ~> 20,\n"
-                   "        (4) ~> 30,\n"
-                   "        (_) ~> 40\n"
+                   "        (0) 10,\n"
+                   "        (1..3) 20,\n"
+                   "        (4) 30,\n"
+                   "        (_) 40\n"
                    "    }\n"
                    "}\n"
                    "fn main(): i32 {\n"
                    "    return classify(0) + classify(2) + classify(4) + classify(9);\n"
                    "}\n");
-    CHECK(r.ok, "when with literal, range, and default cases compiles and runs");
+    CHECK(r.ok, "when with literal, range, and default cases compiles without arrows");
     printf("EXIT CODE: %d\n", r.exitCode);
     CHECK_EQ(r.exitCode, 100, "when dispatches through literal, range, and default cases");
+}
+
+static void test_when_legacy_arrow_runtime() {
+    CodegenTest t;
+    auto r = t.run("codegen-when-arrow.zith", "fn classify(n: i32): i32 {\n"
+                                              "    return when (n) {\n"
+                                              "        (0) ~> 10,\n"
+                                              "        (1..3) ~> 20,\n"
+                                              "        (_) ~> 40\n"
+                                              "    }\n"
+                                              "}\n"
+                                              "fn main(): i32 {\n"
+                                              "    return classify(2);\n"
+                                              "}\n");
+    CHECK(r.ok, "legacy ~> when cases still compile");
+    CHECK_EQ(r.exitCode, 20, "legacy ~> when cases still dispatch at runtime");
+}
+
+static void test_when_pattern_alternatives_runtime() {
+    CodegenTest t;
+    auto r = t.run("codegen-when-pattern-alternatives.zith",
+                   "enum Status { Ok, Error }\n"
+                   "fn accept(status: Status): i32 {\n"
+                   "    return when (status) {\n"
+                   "        (Status.Ok or Status.Error) 10,\n"
+                   "        (_) 20\n"
+                   "    }\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    let or_matches = when (3) {\n"
+                   "        (3 or 5) 1,\n"
+                   "        (_) 4\n"
+                   "    };\n"
+                   "    let or_matches_rhs = when (5) {\n"
+                   "        (3 or 5) 1,\n"
+                   "        (_) 4\n"
+                   "    };\n"
+                   "    let or_misses = when (8) {\n"
+                   "        (3 or 5) 1,\n"
+                   "        (_) 4\n"
+                   "    };\n"
+                   "    let and_matches = when (3) {\n"
+                   "        (3 and 3) 2,\n"
+                   "        (_) 4\n"
+                   "    };\n"
+                   "    let xor_matches = when (3) {\n"
+                   "        (3 xor 3) 3,\n"
+                   "        (_) 4\n"
+                   "    };\n"
+                   "    return or_matches + or_matches_rhs + or_misses + and_matches +\n"
+                   "           xor_matches + accept(Status.Ok);\n"
+                   "}\n");
+    CHECK(r.ok, "when pattern alternatives compile and lower");
+    CHECK_EQ(r.exitCode, 1 + 1 + 4 + 2 + 3 + 10 + 1,
+             "when pattern alternatives dispatch through equality-desugared booleans");
+}
+
+static void test_when_default_must_be_last() {
+    CodegenTest t;
+    auto r = t.run("codegen-when-default-last.zith",
+                   "fn classify(n: i32): i32 {\n"
+                   "    return when (n) {\n"
+                   "        (_) 10,\n"
+                   "        (1) 20\n"
+                   "    }\n"
+                   "}\n"
+                   "fn main(): i32 {\n"
+                   "    return 0;\n"
+                   "}\n");
+    CHECK(!r.ok && r.errorCount > 0,
+          "a default when case must still be the final case");
 }
 
 static void test_tagged_union_pointer_is_type_runtime() {
@@ -679,8 +750,8 @@ static void test_when_narrowing_runtime() {
                          "fn main(): i32 {\n"
                          "    let v = Value{\"ok\"};\n"
                          "    when (v) {\n"
-                         "        (v is *char) ~> { printf(\"%s\\n\", v); return 7; },\n"
-                         "        (_) ~> { return 1; }\n"
+                         "        (v is *char) { printf(\"%s\\n\", v); return 7; },\n"
+                         "        (_) { return 1; }\n"
                          "    }\n"
                          "    return 2;\n"
                          "}\n");
@@ -2729,6 +2800,9 @@ static void test_codegen() {
     printf("Running test_slice_string_intrinsics_runtime\n");
     test_slice_string_intrinsics_runtime();
     test_when_expression_runtime();
+    test_when_legacy_arrow_runtime();
+    test_when_pattern_alternatives_runtime();
+    test_when_default_must_be_last();
     test_tagged_union_pointer_is_type_runtime();
     test_qualified_receiver_mutation_runtime();
     test_free_borrow_parameter_runtime();

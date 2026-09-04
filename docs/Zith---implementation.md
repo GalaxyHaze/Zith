@@ -44,6 +44,15 @@ preferida `else (cond) { body }`. Ambos os caminhos encadeados usam o mesmo
 só `else if` emite `W1008 DeprecatedSyntax`. A distinção de spelling no
 formatter é feita pelo token inicial do operando `else` no AST.
 
+`parseWhen()` aceita a forma canónica sem seta: depois do subject e das ilhas
+parentizadas, o token seguinte é o corpo do caso. Cada caso separa-se por
+vírgula obrigatória (omitida no último) e `(_)` continua a ser a única ilha do
+último caso. A primeira ilha é construída como `ExprKind::WhenGuard`; as ilhas
+seguintes dentro do mesmo par são lidas como expressões booleanas ligadas por
+`and`/`or`/`xor` no topo, com os operadores guardados em `whenIslandOps`. A
+forma legada `(cond) ~> body` continua aceite, mas o parser emite uma vez
+`W1008 DeprecatedSyntax` por braço e baixa o caso como antes.
+
 `parseExpression()` reconhece os operadores keyword `and`, `or` e `xor` no laço
 binário com precedências 3, 2 e 4, em paralelo com `FmtVisitor::binaryPrecedence`.
 `parseConditionExpression()` delega os operandos para esse laço, por isso
@@ -194,6 +203,16 @@ codegen. A fuga `raw x` é marcada em `Expression::isRawName`, ignora a
 verificação de binding não inicializado, e baixa diretamente para a leitura do
 binding com o mesmo tipo.
 
+Em `inferWhen`, a primeira ilha de um `WhenGuard` é sempre um pattern contra o
+subject: operandos booleans e optionals são condições, ranges comparam com o
+subject, e operandos não-booleanos são convertidos em igualdade com o subject.
+Alternativas `and`/`or`/`xor` dentro da primeira ilha são validadas
+recursivamente, para que `(Status.Ok or Status.Error)` signifique
+`status == Status.Ok or status == Status.Error`. As ilhas seguintes são guards
+booleanos normais (ou optionals, com o teste implícito) e não podem combinar
+com `(_)`. O formatter emite a forma canónica sem `~>`, preservando parêntesis
+por ilha e alternativa.
+
 `PerModuleSema` mantém `uninitializedLocals_` por corpo de função: bindings sem
 inicializador entram no conjunto durante `inferBlock`, a primeira escrita direta
 remove o local, e `inferExpr` rejeita leituras normais desse conjunto. A regra
@@ -244,6 +263,12 @@ target da `loop_stack_`, e com label procuram o target correspondente.
 `emitCleanupFrom` percorre a stack de fora para dentro depois de escolher a
 profundidade, o que também emite o cleanup de loops interiores quando o exit
 salta um alvo exterior.
+
+`HirLowerModern::lowerWhenCondition` reconhece `ExprKind::WhenGuard`: baixa a
+primeira ilha seguindo as regras de pattern (range, boolean, optional ou
+igualdade com o subject) e combina as ilhas seguintes com os operadores top-
+level gravados no frontend. A combinação usa a precedência `or` > `and` > `xor`
+para manter o mesmo resultado da árvore binária de expressões.
 
 ### Optional em contexto booleano
 
@@ -391,6 +416,7 @@ para `?T`.
 Os seguintes testes cobrem a iteração:
 
 - `test-frontend`: bindings `let`/`var`/`const`, rejeição de `global`/`mut`/ownership/tags, const fields.
+- `test-frontend`/`test-formatter`: sintaxe nova de `when` sem `~>`, guards com mais de uma ilha, alternativas `and`/`or`/`xor` no pattern e deprecation `W1008` da seta legada.
 - `test-sema`: valida const global/local, campos const, propagação de imutabilidade em structs/unions, discriminantes constantes de enum e atribuições proibidas.
 - `test-hir-lower-modern`: `HirGlobalConst`, `HirGlobalConstLoad` e valores de enum calculados a partir de expressões.
 - `test-enum-union-generics`: métodos inline em enums/unions genéricos, reificação,

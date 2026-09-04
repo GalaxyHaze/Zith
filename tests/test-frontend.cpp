@@ -789,6 +789,91 @@ static void test_slice_range_expression() {
     CHECK(!malformed.diagnostics().empty(), "an unterminated slice range is rejected");
 }
 
+static void test_when_no_arrow_syntax() {
+    auto snapshot = frontend::parse("fn main(n: i32): i32 {\n"
+                                    "    return when (n) {\n"
+                                    "        (0) 10,\n"
+                                    "        (1..3) 20,\n"
+                                    "        (n > 100) 30,\n"
+                                    "        (_) 40\n"
+                                    "    };\n"
+                                    "}\n");
+    CHECK(snapshot.diagnostics().empty(), "no-arrow when cases parse without diagnostics");
+
+    const frontend::Expression *when_node = nullptr;
+    for (const auto &expression : snapshot.expressions()) {
+        if (expression.kind == frontend::ExprKind::When)
+            when_node = &expression;
+    }
+    CHECK(when_node != nullptr, "when expression is present");
+    if (when_node != nullptr) {
+        CHECK(when_node->conditions.size() == 4u, "no-arrow when keeps one condition per case");
+        for (const auto &condition : when_node->conditions) {
+            if (condition && condition.value <= snapshot.expressions().size()) {
+                const auto &node = snapshot.expressions()[condition.value - 1u];
+                CHECK(node.kind == frontend::ExprKind::WhenGuard ||
+                          node.kind == frontend::ExprKind::Range ||
+                          node.kind == frontend::ExprKind::Binary,
+                      "when conditions lower into guard/range/binary nodes");
+            }
+        }
+    }
+
+    auto arrow = frontend::parse("fn main(n: i32): i32 {\n"
+                                 "    return when (n) {\n"
+                                 "        (0) ~> 10,\n"
+                                 "        (_) ~> 40\n"
+                                 "    };\n"
+                                 "}\n");
+    CHECK_EQ(arrow.diagnostics().size(), 2u,
+             "each legacy ~> marker emits exactly one W1008 warning");
+    std::size_t deprecated_count = 0;
+    for (const auto &diagnostic : arrow.diagnostics())
+        deprecated_count +=
+            diagnostic.isWarning && diagnostic.code == diagnostics::err::DeprecatedSyntax;
+    CHECK_EQ(deprecated_count, 2u, "legacy ~> markers use W1008 DeprecatedSyntax");
+
+    auto unary_tilde_body = frontend::parse("fn main(n: i32, bits: i32): i32 {\n"
+                                            "    return when (n) {\n"
+                                            "        (0) ~bits,\n"
+                                            "        (_) 40\n"
+                                            "    };\n"
+                                            "}\n");
+    CHECK(unary_tilde_body.diagnostics().empty(),
+          "a no-arrow body beginning with unary '~' is not treated as a legacy arrow");
+}
+
+static void test_when_guard_islands() {
+    auto snapshot = frontend::parse("fn main(status: i32, retries: i32): i32 {\n"
+                                    "    return when (status) {\n"
+                                    "        (0) and (retries < 5) 10,\n"
+                                    "        (1) or (retries > 10) 20,\n"
+                                    "        (_) 30\n"
+                                    "    };\n"
+                                    "}\n");
+    CHECK(snapshot.diagnostics().empty(),
+          "no-arrow when accepts boolean guard islands after the pattern island");
+
+    auto missing_comma = frontend::parse("fn main(n: i32): i32 {\n"
+                                         "    return when (n) {\n"
+                                         "        (0) 10\n"
+                                         "        (1) 20,\n"
+                                         "        (_) 30\n"
+                                         "    };\n"
+                                         "}\n");
+    CHECK(!missing_comma.diagnostics().empty(),
+          "no-arrow when cases require a comma between cases");
+
+    auto invalid = frontend::parse("fn main(status: i32, retries: i32): i32 {\n"
+                                   "    return when (status) {\n"
+                                   "        (_) and (retries < 5) 10,\n"
+                                   "        (_) 20\n"
+                                   "    };\n"
+                                   "}\n");
+    CHECK(!invalid.diagnostics().empty(),
+          "default island cannot be combined with a later guard island");
+}
+
 static void test_raw_index_slice_expression() {
     auto snapshot = frontend::parse("fn main(): i32 {\n"
                                     "    var values: [3]i32 = [10, 20, 30];\n"
@@ -1278,6 +1363,8 @@ static void test_frontend() {
     test_extern_before_declaration_is_tolerated();
     test_function_type_expression();
     test_slice_range_expression();
+    test_when_no_arrow_syntax();
+    test_when_guard_islands();
     test_raw_index_slice_expression();
     test_function_kinds();
     test_function_kind_combinations_are_rejected();

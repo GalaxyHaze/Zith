@@ -371,6 +371,27 @@ preferida `else (cond) { ... }`; a forma legada `else if (cond) { ... }`
 continua aceite, mas emite `W1008` DeprecatedSyntax com a sugestão de
 substituição.
 
+As armas de `when` escrevem-se na forma canónica sem seta: a primeira ilha
+parentizada é sempre um pattern contra o subject e o token seguinte é o corpo.
+Casos separam-se por vírgula obrigatória (omitida no último) e `(_)` continua a
+ser obrigatoriamente o último caso e a única ilha desse caso.
+
+```zith
+when (status) {
+    (Status.Ok or Status.Error) 10,
+    (Status.Queued) and (retries < 5) 20,
+    (_) 0
+}
+```
+
+Na primeira ilha, operandos não-booleanos desugeram para igualdade com o
+subject, por isso `(Status.Ok or Status.Error)` significa
+`status == Status.Ok or status == Status.Error`. Ilhas seguintes entre
+`and`/`or`/`xor` são condições booleanas normais; `(0) and (retries < 5)`
+combina o pattern `0` com o guard `retries < 5`. A forma legada
+`(cond) ~> body` continua a compilar e baixa da mesma forma, mas emite `W1008`
+DeprecatedSyntax.
+
 Os operadores booleanos `or`, `and` e `xor` têm precedência fixa, respetivamente
 mais baixa que a comparação: `a or b and c` parsa como `a or (b and c)`, e
 `a and b or c` como `(a and b) or c`. `and`/`or` exigem operandos `bool`;

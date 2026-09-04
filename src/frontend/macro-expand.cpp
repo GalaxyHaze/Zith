@@ -525,6 +525,8 @@ ExprId MacroExpander::cloneExpr(ExprId src, const std::vector<ExprId> &args, Tex
     for (size_t i = 0; i < copy.genericArgs.size(); ++i)
         copy.genericArgs[i] = cloneTypeExpr(copy.genericArgs[i], source);
 
+    copy.whenIslandOps = orig.whenIslandOps;
+
     ExprId result = addExpression(std::move(copy));
     if (src.value >= map.size())
         map.resize(src.value + 1U);

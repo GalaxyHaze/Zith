@@ -1,6 +1,6 @@
 # Zith Implementation Status
 
-> Last updated: 2026-08-28.
+> Last updated: 2026-09-04.
 
 This document is the single source of truth for what the compiler supports today. Status reflects
 actual compiler behaviour at baseline `a5f3716`. Each feature was verified by running
@@ -32,7 +32,7 @@ Implementation work that is incomplete or needs review is tracked in
 |---|---|---|
 | Lexer | **Working** | Hand-written, character-at-a-time. Longest-first maximal munch for all multi-char operators. `&&` and `||` are rejected with a dedicated error pointing to `and` / `or` |
 | Parser | **Working** | Recursive-descent. Function decls, expressions, imports. |
-| Formatter | **Working** | Round-trip stable for all 16 `ExprKind` nodes including `Index`, `OptionalProp`, `Field`, `Arrow`, and `StructLiteral` |
+| Formatter | **Working** | Round-trip stable for all 17 `ExprKind` nodes including `Index`, `OptionalProp`, `Field`, `Arrow`, `StructLiteral`, and `WhenGuard` |
 | Import resolution | **Working** | `import path`, `import path as name`, `from path`, `export path`, and selectors; qualified access works in expressions, types, constructors and methods |
 | Name resolution | **Working** | Scope-chained `lookupBinding`. Per-scope `DuplicateDecl`. |
 | Type checking | **Working** | All `ExprKind` nodes. Optional/null validation. Index bounds. |
@@ -123,7 +123,7 @@ Implementation work that is incomplete or needs review is tracked in
 | `for (cond) { }`, `for { }` | **Working** | Conditional and infinite loop forms lower to the same CFG as `while`; labels are supported on both forms. `?T` conditions are tested implicitly as non-null |
 | `for (init, cond, step) { }` | **Working** | Flat and parenthesized clause forms are accepted. `init` and `step` are both optional; `continue` still runs the step before the next test. Labels are stored on the real `For` node |
 | `for (x in xs)` | **Working** | Duck-typed iterator over a struct with `next(self)`; the canonical `next(self): ?T` returns `null` for the iteration end and a payload for each element. `??T` iterators bind the loop variable as `?T` so `null` elements are distinguishable from the end. The legacy tagged-union `{ T, End }` protocol remains accepted during migration. Labels are supported |
-| `when` / `match` pattern match | **Working** | Arms are written `(pattern) ~> body`, comma-separated; `match` is a parser synonym for `when`. Equality, boolean and range (`1..3`) patterns lower through HIR to codegen. An `(f is Member)` arm narrows `f` for that arm's body. `(_)` is the default arm and must come last; a value-producing `when` without a default reports non-exhaustive. Covered by runtime tests |
+| `when` / `match` pattern match | **Working** | Arms are written `(pattern) body`, comma-separated; optional later islands are boolean guards (`(pattern) and (guard) body`). `match` is a parser synonym for `when`. Equality, boolean and range (`1..3`) patterns lower through HIR to codegen, and the first island may combine non-boolean patterns with `and`/`or`/`xor`. An `(f is Member)` arm narrows `f` for that arm's body. `(_)` must be the sole island of the last arm; a value-producing `when` without a default reports non-exhaustive. Legacy `~>` stays accepted but emits `W1008`. Covered by runtime tests |
 | `state` / `jump` | **Working** | `state Name(params): ReturnType` declares a state with the machine return type; `jump Next(args)` terminates the current block and validates arity/types against the target's own parameters before a direct `musttail tailcc` transfer |
 | `dock` | **Working** | `dock State(args)` is a `tailcc` call expression that returns the machine's final `state` return value; the old `dock { ... }` block form is rejected |
 | `defer expr;` scope guards | **Working** | `defer expr;` and `defer { ... }` register cleanup on the nearest lexical block and run in reverse registration order on normal exit, `return`, `break`, `continue`, and `state` `jump`. A defer may capture same-block bindings declared later; exits before initializing a captured binding are rejected. The deferred body is cleanup-only and rejects `return`/`break`/`continue`/`jump` |
@@ -204,7 +204,7 @@ Codes are grouped by pipeline stage. `E0000` remains the generic user-reported d
 | Range | Stage | Codes |
 |---|---|---|
 | 0001-0005 | Lexical | `E0001` UnknownToken, `E0002` UnclosedString, `E0003` InvalidEscape, `E0004` InvalidIntLiteral, `E0005` UnclosedComment |
-| 1001-1008 | Parse | `E1001` ExpectedExpr, `E1002` ExpectedSemicolon, `E1003` UnclosedParen, `E1004` ExpectedIdent, `E1005` InvalidImportDepth, `E1006` ImportError, `E1007` TopLevelLetNotAllowed, `W1008` DeprecatedSyntax (`while` -> `for (cond)`; `else if` -> `else (cond)`) |
+| 1001-1008 | Parse | `E1001` ExpectedExpr, `E1002` ExpectedSemicolon, `E1003` UnclosedParen, `E1004` ExpectedIdent, `E1005` InvalidImportDepth, `E1006` ImportError, `E1007` TopLevelLetNotAllowed, `W1008` DeprecatedSyntax (`while` -> `for (cond)`; `else if` -> `else (cond)`; `~>` in `when` arms) |
 | 2001-2010 | Semantic | `E2001` UndefinedIdent, `E2002` DuplicateDecl, `E2003` WrongArity, `E2004` UnusedDecl, `E2005` NotNamespace, `E2006` NoMember, `E2007` NoMatchingFn, `E2008` AmbiguousCall, `E2009` NotImplemented, `E2010` UnsupportedSyntax |
 | 2021-2025 | Frontend/interface | Trait requirement/signature checks (`E2021`/`E2022`), `E2023` NotATrait, `E2024` InterfaceNotSatisfied, `E2025` explicit `implement` for an interface, `E2027` DuplicateImplementation |
 | 3001-3009 | Types | `E3001` TypeMismatch, `E3002` CannotInfer, `E3003` InvalidCast, `E3004` CyclicType, `E3005` NullDerefUnproven, `E3006` CoercionFailure, `E3007` WidthMismatch, `E3008` OptionalViolation, `E3009` ConstraintNotSatisfied |
