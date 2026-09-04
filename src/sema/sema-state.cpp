@@ -220,7 +220,11 @@ void PerModuleSema::checkReturnStatement(const frontend::Statement &stmt) {
         return;
     }
     const TypeId value = inferExpr(stmt.expression);
-    if (pointerAliasEscapesScope(stmt.expression)) {
+    if (stmt.expression &&
+        stmt.expression.value <= snapshot.expressions().size() &&
+        snapshot.expressions()[stmt.expression.value - 1U].kind == frontend::ExprKind::Index) {
+        // Returning `p[0]` returns the pointee value, not the local pointer.
+    } else if (pointerAliasEscapesScope(stmt.expression)) {
         report(stmt.span, "pointer to local storage cannot escape the current scope",
                diagnostics::err::PointerEscapesScope);
     }
@@ -233,7 +237,11 @@ void PerModuleSema::checkReturnStatement(const frontend::Statement &stmt) {
     }
     // A slice converted to `*char` is an explicit escape and must be checked
     // after the coercion has recorded the aliased expression.
-    if (pointerAliasEscapesScope(stmt.expression)) {
+    if (stmt.expression &&
+        stmt.expression.value <= snapshot.expressions().size() &&
+        snapshot.expressions()[stmt.expression.value - 1U].kind == frontend::ExprKind::Index) {
+        // A successfully coerced pointee value still does not escape the pointer.
+    } else if (pointerAliasEscapesScope(stmt.expression)) {
         report(stmt.span, "pointer to local storage cannot escape the current scope",
                diagnostics::err::PointerEscapesScope);
     }
@@ -245,6 +253,10 @@ TypeId PerModuleSema::inferReturn(frontend::ExprId id) {
         !coerceValue(expr.operands[0], currentReturnType_, value)) {
         reportCoercionFailure(expr.span, currentReturnType_, value,
                               "return type does not match declared return type");
+    } else if (!expr.operands.empty() &&
+               snapshot.expressions()[expr.operands[0].value - 1U].kind ==
+                   frontend::ExprKind::Index) {
+        // `return p[0]` returns the pointee value, not the local pointer.
     } else if (!expr.operands.empty() && pointerAliasEscapesScope(expr.operands[0])) {
         report(expr.span, "pointer to local storage cannot escape the current scope",
                diagnostics::err::PointerEscapesScope);

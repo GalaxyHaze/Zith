@@ -304,6 +304,14 @@ bool PerModuleSema::pointerAliasEscapesScope(frontend::ExprId id) const {
         return true;
     if (expr.kind == frontend::ExprKind::Unary && expr.text == "*")
         return false;
+    // Indexing through an in-scope local pointer reads or writes its pointee.
+    // The pointer itself is not returned or stored, so it does not escape.
+    if (expr.kind == frontend::ExprKind::Index && expr.operands.size() >= 2U) {
+        const auto *resolved = findResolvedExpr(expr.operands[0]);
+        if (resolved != nullptr && resolved->local &&
+            !escapingPointerLocals_.contains(resolved->local.value))
+            return false;
+    }
     for (const auto operand : expr.operands) {
         if (pointerAliasEscapesScope(operand))
             return true;
