@@ -203,11 +203,17 @@ hir::HirExprId HirLowerModern::lowerIf(const frontend::Expression &expr, const t
         }
     } else if (condition.kind == frontend::ExprKind::Unary && condition.text == "not" &&
                !condition.operands.empty()) {
-        const auto &inner =
-            current_module_->frontend->expressions()[condition.operands[0].value - 1U];
-        if (inner.kind == frontend::ExprKind::IsNull && !inner.operands.empty()) {
-            makeOptionalNarrowing(inner.operands[0]);
-            narrow_then = true;
+        // Frontend exposes `if not (...) { ... }` either as a direct Unary or
+        // as a bare `not(...)` call-shaped node depending on parse path. Match
+        // the text so both spellings receive payload narrowing.
+        frontend::ExprId inner_id = condition.operands[0];
+        if (inner_id && inner_id.value <= current_module_->frontend->expressions().size()) {
+            const auto &inner =
+                current_module_->frontend->expressions()[inner_id.value - 1U];
+            if (inner.kind == frontend::ExprKind::IsNull && !inner.operands.empty()) {
+                makeOptionalNarrowing(inner.operands[0]);
+                narrow_then = true;
+            }
         }
     }
 

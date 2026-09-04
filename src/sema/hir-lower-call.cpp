@@ -445,7 +445,18 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
             base_resolved != nullptr && base_resolved->local
                 ? typeOfLocal(base_resolved->local)
                 : base_hir_ty;
-        const auto *base_optional = sema_.typeTable().optional(base_sema_resolved);
+        // Sema narrows the expression type to the optional payload inside a
+        // guarded branch, but the local still stores the whole `?T` aggregate.
+        // Use the stored type so optional aggregate receivers keep lowering
+        // through the payload-field path instead of as a plain value.
+        const auto *storage_optional =
+            base_resolved != nullptr && base_resolved->local
+                ? sema_.typeTable().optional(sema_.typeTable().stripQualifiers(
+                      semaTypeOfLocal(base_resolved->local)))
+                : sema_.typeTable().optional(base_sema_resolved);
+        const auto *base_optional = storage_optional != nullptr ? storage_optional
+                                                               : sema_.typeTable().optional(
+                                                                     base_sema_resolved);
         const bool base_optional_aggregate =
             base_optional != nullptr &&
             sema_.typeTable().kindOf(sema_.typeTable().stripQualifiers(base_optional->inner)) !=
@@ -453,7 +464,11 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
         const bool optional_has_exact_owner =
             base_optional != nullptr && method_decl != nullptr &&
             sema_.typeTable().typeToString(base_sema_resolved) == method_decl->ownerName;
-        const bool base_is_ptr = base_storage_ty != types::kErrorType &&
+        // The storage-based decision only exists because sema retypes a plain
+        // `Sample` receiver to `*Sample` for explicit pointer selfs. Optional
+        // aggregates must keep using their payload-field receiver path.
+        const bool base_is_ptr = !(base_optional_aggregate && optional_has_exact_owner) &&
+                                 base_storage_ty != types::kErrorType &&
                                  base_storage_ty != types::kInvalidType &&
                                  (types_.kindOf(base_storage_ty) == types::TypeKind::Ptr ||
                                   types_.kindOf(base_storage_ty) == types::TypeKind::Optional);

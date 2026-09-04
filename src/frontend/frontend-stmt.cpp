@@ -924,8 +924,16 @@ std::vector<StmtId> AstLowerer::parseStatements() {
         ++index_;
         if (index_ < token_count_ && !punctuation(index_, ';') && !punctuation(index_, '}')) {
             statement.expression = parseExpression();
+            bool closed_when_block = false;
+            if (statement.expression &&
+                statement.expression.value <= snapshot_.expressions_.size()) {
+                const auto &parsed =
+                    snapshot_.expressions_[statement.expression.value - 1U];
+                closed_when_block = parsed.kind == ExprKind::When &&
+                                    punctuation(index_, '}');
+            }
             if (index_ < token_count_ && !punctuation(index_, ';') &&
-                !punctuation(index_, '}'))
+                !closed_when_block)
                 snapshot_.diagnostics_.push_back({tokenSpan(index_),
                                                   "a return expression must be terminated with ';'",
                                                   false, diagnostics::err::ExpectedSemicolon});
