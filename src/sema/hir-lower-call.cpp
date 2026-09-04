@@ -437,6 +437,14 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
         const auto base_hir_ty  = typeOfExpr(base_id);
         const sema::modern::TypeId base_sema_resolved =
             sema_.typeTable().stripQualifiers(base_sema_ty);
+        // Sema retypes the receiver expression to `*Owner` when the method
+        // declares an explicit pointer `self`, but the source value may still
+        // be a plain owner. Keep the decision based on the actual lvalue type.
+        const auto *base_resolved       = findResolvedExpr(base_id);
+        const types::TypeId base_storage_ty =
+            base_resolved != nullptr && base_resolved->local
+                ? typeOfLocal(base_resolved->local)
+                : base_hir_ty;
         const auto *base_optional = sema_.typeTable().optional(base_sema_resolved);
         const bool base_optional_aggregate =
             base_optional != nullptr &&
@@ -445,10 +453,10 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
         const bool optional_has_exact_owner =
             base_optional != nullptr && method_decl != nullptr &&
             sema_.typeTable().typeToString(base_sema_resolved) == method_decl->ownerName;
-        const bool base_is_ptr = base_hir_ty != types::kErrorType &&
-                                 base_hir_ty != types::kInvalidType &&
-                                 (types_.kindOf(base_hir_ty) == types::TypeKind::Ptr ||
-                                  types_.kindOf(base_hir_ty) == types::TypeKind::Optional);
+        const bool base_is_ptr = base_storage_ty != types::kErrorType &&
+                                 base_storage_ty != types::kInvalidType &&
+                                 (types_.kindOf(base_storage_ty) == types::TypeKind::Ptr ||
+                                  types_.kindOf(base_storage_ty) == types::TypeKind::Optional);
         if (base_optional_aggregate && optional_has_exact_owner)
             self_arg = lowerLValueAddr(base_id);
         else if (base_optional_aggregate) {
