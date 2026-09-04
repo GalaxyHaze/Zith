@@ -43,6 +43,7 @@ Implementation work that is incomplete or needs review is tracked in
 | LLVM codegen | **Working** | x86-64 and WebAssembly targets |
 | Cache | Partial | Object caching works; `.zirl` format not yet used |
 | Stdlib I/O | **Working** | `print`/`println`/`input`, `Formatable`, `ParseInput`, and `InputLine.cast<T>` type-check and lower; runtime parsing verification is manual for now |
+| Stdlib allocation | **Working** | `std/alloc` ships `Allocator`, `HeapAllocator`, and `allocate`/`deallocate`/`reallocate` over `dyn Allocator`. `stdlib/std/new.zith` is a proposed API draft for `InPlace` and generic `new`/`delete`/`make`/`release`; it is not part of the checked stdlib surface until generic return-only inference and opaque pack dispatch are supported |
 
 ---
 

@@ -1,0 +1,20 @@
+# std/new is a proposed API draft.
+#
+# The current Zith-- compiler cannot instantiate generic helpers whose only
+# generic parameter appears in the return type, and opaque pack extraction is
+# not implemented for struct construction yet. The signatures below are the
+# target contract from ADR 0010; they are not part of the shipped/check
+# stdlib surface until those compiler gaps are closed.
+
+import std/alloc
+
+pub trait InPlace {
+    fn inplace(var self, allocator: dyn Allocator, args: opaque): bool;
+    fn clean(var self, allocator: dyn Allocator) {}
+}
+
+pub fn new<T: InPlace>(args: opaque): ?*T;
+pub fn delete<T: InPlace>(ptr: *T);
+
+pub fn make<T: InPlace>(allocator: dyn Allocator, args: opaque): ?*T;
+pub fn release<T: InPlace>(allocator: dyn Allocator, ptr: *T);

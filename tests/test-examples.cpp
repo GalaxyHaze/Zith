@@ -20,6 +20,7 @@ struct Example {
 };
 
 constexpr Example kExamples[] = {
+    {"allocator-simple.zith", 42, false},
     {"bindings-simple.zith", 6, false},
     {"bindings-advanced.zith", 42, false},
     {"bitwise-simple.zith", 7, false},

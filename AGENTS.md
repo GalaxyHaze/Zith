@@ -229,6 +229,38 @@ If no results, run `opencode-rag index`.
 - NEVER finish a coding session without adding quirks for resolved errors.
 <!-- END opencode-rag -->
 
+## Local RAG Fallback (sandbox-safe)
+
+OpenCodeRAG needs Ollama for query embeddings and is not available in every
+sandbox. For local code/docs lookup use the daemon-free tool instead:
+
+```bash
+python3 scripts/rag.py index
+python3 scripts/rag.py search "<query>" --kind code --json
+python3 scripts/rag.py search "<query>" --kind docs --json
+python3 scripts/rag.py show <chunk_id> --kind code
+```
+
+The tool builds `.rag-index/` with separate code and docs corpora, uses BM25
+with optional llama.cpp embeddings, and exposes the same functionality through
+`scripts/rag-mcp.py`. See `docs/rag.md` for details.
+
+Outside the sandbox, register the MCP server once with ByteAsk:
+
+```bash
+byteask mcp add rag \
+  --env RAG_PROJECT_DIR=/home/diogo/Zith \
+  --env RAG_INDEX_DIR=/home/diogo/Zith/.rag-index \
+  -- python3 /home/diogo/Zith/scripts/rag-mcp.py
+```
+
+Verify it appears in the client:
+
+```bash
+byteask mcp list
+byteask mcp get rag
+```
+
 ## Agent skills
 
 ### Issue tracker

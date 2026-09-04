@@ -1,0 +1,36 @@
+import "stdlib.h"
+
+pub trait Allocator {
+    fn alloc(self, size: u64, align: u64): ?raw opaque;
+    fn free(self, mem: raw opaque, size: u64, align: u64);
+    fn realloc(self, old: raw opaque, old_size: u64, old_align: u64,
+               new_size: u64, new_align: u64): ?raw opaque;
+}
+
+pub struct HeapAllocator {}
+
+implement HeapAllocator as Allocator {
+    pub fn alloc(self, size: u64, align: u64): ?raw opaque {
+        return malloc(size) as ?raw opaque;
+    }
+    pub fn free(self, mem: raw opaque, size: u64, align: u64) {
+        free(mem);
+    }
+    pub fn realloc(self, old: raw opaque, old_size: u64, old_align: u64,
+                   new_size: u64, new_align: u64): ?raw opaque {
+        return realloc(old, new_size) as ?raw opaque;
+    }
+}
+
+pub fn allocate(self: dyn Allocator, size: u64, align: u64): ?raw opaque {
+    return self.alloc(size, align);
+}
+
+pub fn deallocate(self: dyn Allocator, mem: raw opaque, size: u64, align: u64) {
+    self.free(mem, size, align);
+}
+
+pub fn reallocate(self: dyn Allocator, old: raw opaque, old_size: u64, old_align: u64,
+                  new_size: u64, new_align: u64): ?raw opaque {
+    return self.realloc(old, old_size, old_align, new_size, new_align);
+}

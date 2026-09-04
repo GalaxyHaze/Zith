@@ -37,6 +37,9 @@ _deps/
 *.swp
 *.swo
 
+# Local RAG index
+.rag-index/
+
 # Editors
 .vscode/
 .idea/

@@ -1,0 +1,14 @@
+// Exercises: `std/alloc` raw storage, heap allocation, and dyn dispatch.
+// Expected exit code: 42
+
+import std/alloc
+
+fn main(): i32 {
+    let h = std.alloc.HeapAllocator {};
+    let mem = std.alloc.allocate(h, 64u64, 1u64);
+    if (mem is null) {
+        return 1;
+    }
+    std.alloc.deallocate(h, mem, 64u64, 1u64);
+    return 42;
+}

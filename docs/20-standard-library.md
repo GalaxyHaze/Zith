@@ -1,7 +1,9 @@
 ## 20. Standard Library
 
-> **Implementation status:** `stdlib/c/io.zith` and `stdlib/std/io/console.zith` are the only
-> shipped modules. `puts` and `println` work. All other standard library content is **spec-only**.
+> **Implementation status:** `stdlib/c/io.zith`, `stdlib/std/io/console.zith`, and
+> `stdlib/std/alloc.zith` are the shipped modules. `puts`, `println`, and raw allocator
+> primitives work. `stdlib/std/new.zith` is a proposed API draft and is not part of
+> the checked/shipped surface yet. All other standard library content is **spec-only**.
 > See [impl-status.md](impl-status.md).
 
 `std`/`soon` remain documentation-only in this iteration; no existing module is being rewritten.
@@ -58,6 +60,56 @@ stdlib surface; `*char` parsing remains out of scope.
 ```zith
 @println("hello");
 ```
+
+#### `std/alloc`
+
+Raw storage primitives and a default heap allocator. The trait methods use
+`self` read-only receivers because the current compiler invalidates a concrete
+receiver after a trait method call in the same scope; the `dyn Allocator`
+free functions are the supported repeatable call path.
+
+```zith
+pub trait Allocator {
+    fn alloc(self, size: u64, align: u64): ?raw opaque;
+    fn free(self, mem: raw opaque, size: u64, align: u64);
+    fn realloc(self, old: raw opaque, old_size: u64, old_align: u64,
+               new_size: u64, new_align: u64): ?raw opaque;
+}
+
+pub struct HeapAllocator {}
+
+pub fn allocate(self: dyn Allocator, size: u64, align: u64): ?raw opaque;
+pub fn deallocate(self: dyn Allocator, mem: raw opaque, size: u64, align: u64);
+pub fn reallocate(self: dyn Allocator, old: raw opaque, old_size: u64,
+                  old_align: u64, new_size: u64, new_align: u64): ?raw opaque;
+```
+
+`allocate` returns `null` when the underlying `malloc`/`realloc` call fails;
+the caller owns the storage and must pass the same `size`/`align` to
+`deallocate`. The larger `InPlace`/`new`/`delete`/`make`/`release` contract is
+recorded in [ADR 0010](adr/0010-allocator-inplace-drop.md). A draft module at
+`stdlib/std/new.zith` carries the target trait and helper signatures, but it is
+marked proposed because the compiler cannot yet instantiate generics that only
+appear in the return type or dispatch opaque packs during construction.
+
+#### `std/new` (proposed draft)
+
+```zith
+pub trait InPlace {
+    fn inplace(var self, allocator: dyn Allocator, args: opaque): bool;
+    fn clean(var self, allocator: dyn Allocator) {}
+}
+
+pub fn new<T: InPlace>(args: opaque): ?*T;
+pub fn delete<T: InPlace>(ptr: *T);
+
+pub fn make<T: InPlace>(allocator: dyn Allocator, args: opaque): ?*T;
+pub fn release<T: InPlace>(allocator: dyn Allocator, ptr: *T);
+```
+
+This module is intentionally not wired into `test-examples` until the
+compiler supports the API. It stays as the single stdlib location for the ADR
+contract so the larger ownership/allocator work has a concrete target.
 
 #### `std/collections/DynArray`
 
