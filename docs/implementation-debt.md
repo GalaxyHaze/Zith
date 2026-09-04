@@ -1,6 +1,6 @@
 # Zith Implementation Debt
 
-> Last updated: 2026-08-31.
+> Last updated: 2026-09-04.
 
 Documento de gestão da dívida de implementação. Distingue propositadamente:
 
@@ -75,7 +75,9 @@ engenharia para rever e gerir.
 
 - Literal ranges (`1..4`) e range syntax continuam sem sema dedicada.
 - `is <type>` fora de unions/opaque não existe.
-- Narrowing após `is null` não existe; `?*T -> *T` unchecked permanece.
+- Narrowing após `is null` / `not (is null)` para aggregate optionals (`?T`
+  com payload não-pointer) extrai o campo 0 no then/else correto; `?*T -> *T`
+  unchecked permanece para C pointers.
 - Casts numéricos estreitantes não verificam overflow.
 - `++` / `--` não existem.
 - Formatter reimprime `for (cond)` como `while`.
@@ -84,22 +86,20 @@ engenharia para rever e gerir.
 Estas entradas são detalhadas em [impl-status.md](/home/diogo/Zith/docs/impl-status.md) na secção
 `Known Debt` e devem ser movidas/consolidadas aqui quando forem tratadas.
 
-### 7. Falhas remanescentes conhecidas em `test-codegen`
+### 7. Falhas conhecidas em `test-codegen`
 
-Estado de 2026-09-01: `./build/test-codegen` reporta `364 passed, 6 failed`.
-Estas falhas não pertencem ao contrato stdlib I/O e ficam para tratamento
-separado:
+Estado de 2026-09-04: `./build/test-codegen` reporta `370 passed, 0 failed`.
+As seis falhas conhecidas de 2026-09-01 foram resolvidas:
 
-- Pointer indexing inválido por ownership: `E4008 pointer to local storage
-  cannot escape the current scope` em dois verificações; a validade/borderline
-  destes programas deve ser revista.
-- `when` com ramos literal, range e default falha na compilação/dispatch;
-  precisa de revisão no frontend, sema ou lowering de ranges/`when`.
-- Qualified `lend`/`view` receivers falham verificação de IR (`E5001`);
-  o receiver mutante em `*T` qualificado ainda não é gerado de forma válida.
-
-Não avançar com estas correcções enquanto dura o trabalho de stdlib I/O, para
-manter o diff focado.
+- Pointer indexing inválido por ownership (`E4008`) foi corrigido nos dois
+  verificações reportados.
+- `return when (...)` sem ponto e vírgula passou a ser aceite apenas quando o
+  `when` fecha com `}`; parser e testes foram ajustados.
+- Qualified `lend`/`view` receivers (`E5001`) passam a gerar IR válido, e
+  receivers de optional aggregate após `is null` / `not (is null)` extraem o
+  payload antes de passar como `self`.
+- `ownership-advanced.zith` executa com exit `16`, conforme esperado pelo
+  exemplo.
 
 ### 8. `ParseInput` / `InputLine.cast<T>` ficou adiado
 
