@@ -4,6 +4,30 @@ Zith is a statically typed C++23 compiler targeting a minimal systems-language s
 
 ## Language
 
+**Zith macro**:
+A source-level `macro` declaration in a `.zith` module. It defines a reusable syntax-template expansion that runs during frontend lowering, before semantic analysis.
+_Avoid_: C macro, comptime function, inline function
+
+**Macro argument kind**:
+The declared contract for a macro parameter: `val`, `identifier`, or `ast`.
+_Avoid_: parameter meta-type, metatype, expr parameter, body parameter
+
+**Macro value argument**:
+An evaluated argument produced by normal call-site expression semantics, without explicit unevaluated syntax.
+_Avoid_: expression parameter, value expression, evaluated expression
+
+**Macro identifier argument**:
+An argument bound from a single unqualified `Name` token. Qualified names, fields, and imported members are not identifier arguments.
+_Avoid_: name parameter, identifier expression, simple name argument
+
+**Macro AST argument**:
+An unevaluated syntactic expression requested at the call site with `=expr`, where `expr` may include a block literal.
+_Avoid_: pass-by-AST, quoted expression, raw expression, unevaluated expression
+
+**Macro call attribute**:
+A named call-site attribute written in the `|name: value|` position and made visible through the macro body as `attributes.name`.
+_Avoid_: annotation, tag attribute, macro attribute list
+
 **Module**:
 A `.zith` source unit that owns a set of public and module-local symbols and can be imported by other units.
 _Avoid_: File, script, package
@@ -49,6 +73,24 @@ _Avoid_: importer, resolver, module loader
 **Module resolution**:
 The per-module mapping from expression nodes and bindings to concrete declarations, imports, and foreign C header entries.
 _Avoid_: symbol table, binding table
+
+## Pattern Matching
+
+**When case**:
+A single alternative of a `when` expression. It starts with a parenthesized condition area, followed by an optional `~>` marker and a body; `~>` is deprecated and remains only as an explicit escape.
+_Avoid_: case, arm, branch, when branch
+
+**When pattern island**:
+The first parenthesized segment of a when case, always interpreted against the `when` subject.
+_Avoid_: pattern block, first guard, subject block
+
+**When continuation island**:
+Any parenthesized segment after a top-level `and`/`or`/`xor` in a when case. It behaves as an ordinary boolean condition, not as another subject pattern.
+_Avoid_: secondary pattern, multi-pattern, following guard
+
+**When case separator**:
+The mandatory comma between when cases, omitted for the final case.
+_Avoid_: arrow delimiter, comma terminator, case delimiter
 
 ## Standard Library
 
