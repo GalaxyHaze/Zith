@@ -17,9 +17,9 @@
 class Zithc < Formula
   desc "Zith programming language toolchain"
   homepage "https://github.com/GalaxyHaze/Zith-Lang"
-  url "https://github.com/GalaxyHaze/Zith-Lang/archive/d4a04ee2c259befeae280942cd1fcc2d4e2c6fe5.tar.gz"
+  url "https://github.com/GalaxyHaze/Zith-Lang/archive/401a87d1d84f8b10d7341864d3a1ff2ec847822c.tar.gz"
   version "0.6.4.2"
-  sha256 "93e00b992d8a6432db559fbfdf66e7504b74fbf57a9986492b1ffd29b0b4f26e"
+  sha256 "ad7fae7de2b5df4e2e31378c9ffaba948d7f9c8f6d192835e87b03a72e5d8ee0"
   # build-artifact.yml updates the tagged archive URL and verified SHA-256.
   license "MIT"
 
