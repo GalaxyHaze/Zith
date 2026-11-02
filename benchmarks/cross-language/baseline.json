@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-02T19:52:22+00:00",
+  "environment": {
+    "platform": "Linux-6.18.38_1-x86_64-with-glibc2.41",
+    "machine": "x86_64",
+    "processor": "unknown",
+    "cpu_count": 8
+  },
+  "configuration": {
+    "iterations": 50000000,
+    "warmups": 2,
+    "repeats": 7,
+    "timing": "wall-clock process launch; includes executable startup"
+  },
+  "toolchains": {
+    "c": {
+      "command": "/usr/bin/cc",
+      "version": "cc (GCC) 14.2.1 20250405"
+    },
+    "rust": {
+      "command": "/home/diogo/.cargo/bin/rustc",
+      "version": "rustc 1.96.0 (ac68faa20 2026-05-25)"
+    },
+    "zith": {
+      "command": "/home/diogo/Zith/build/zithc",
+      "version": "Zith - A minimal system programming language"
+    }
+  },
+  "results": [
+    {
+      "workload": "xorshift64",
+      "language": "c",
+      "expected_checksum": 6161352251317307305,
+      "samples_ns": [
+        99275486,
+        98811688,
+        97410758,
+        101648698,
+        101203525,
+        96796082,
+        97718873
+      ],
+      "median_ns": 98811688,
+      "min_ns": 96796082
+    },
+    {
+      "workload": "xorshift64",
+      "language": "rust",
+      "expected_checksum": 6161352251317307305,
+      "samples_ns": [
+        103358896,
+        101775813,
+        98085812,
+        103436674,
+        98713195,
+        98044156,
+        97913573
+      ],
+      "median_ns": 98713195,
+      "min_ns": 97913573
+    },
+    {
+      "workload": "xorshift64",
+      "language": "zith",
+      "expected_checksum": 6161352251317307305,
+      "samples_ns": [
+        99554835,
+        101417919,
+        97429172,
+        105861766,
+        100409436,
+        99165714,
+        104437548
+      ],
+      "median_ns": 100409436,
+      "min_ns": 97429172
+    },
+    {
+      "workload": "branch-count",
+      "language": "c",
+      "expected_checksum": 11038962,
+      "samples_ns": [
+        40796238,
+        37670492,
+        36915733,
+        35753445,
+        37801328,
+        35835042,
+        36658572
+      ],
+      "median_ns": 36915733,
+      "min_ns": 35753445
+    },
+    {
+      "workload": "branch-count",
+      "language": "rust",
+      "expected_checksum": 11038962,
+      "samples_ns": [
+        35007929,
+        33963734,
+        34090064,
+        33899823,
+        34605373,
+        34069205,
+        33898928
+      ],
+      "median_ns": 34069205,
+      "min_ns": 33898928
+    },
+    {
+      "workload": "branch-count",
+      "language": "zith",
+      "expected_checksum": 11038962,
+      "samples_ns": [
+        34048107,
+        36542556,
+        34401038,
+        33967148,
+        34068453,
+        33736696,
+        33710458
+      ],
+      "median_ns": 34048107,
+      "min_ns": 33710458
+    }
+  ]
+}
