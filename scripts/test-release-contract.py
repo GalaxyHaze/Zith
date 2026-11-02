@@ -334,7 +334,13 @@ def main() -> int:
         expected_url = (
             f"https://github.com/{REPOSITORY}/archive/refs/tags/v{VERSION}.tar.gz"
         )
-        for expected in (f'version "{VERSION}"', f'url "{expected_url}"'):
+        for expected in (
+            f'version "{VERSION}"',
+            f'url "{expected_url}"',
+            '-DZITH_VERSION=v#{version}',
+            'assert_path_exists share/"zith/stdlib"',
+            'shell_output("#{bin}/zithc --version")',
+        ):
             if expected not in formula_text:
                 raise AssertionError(f"missing Homebrew metadata: {expected}")
         if 'sha256 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"' not in formula_text:

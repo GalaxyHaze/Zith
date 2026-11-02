@@ -274,6 +274,13 @@ def validate_workflows(workflow_dir: Path) -> None:
         fail(f"{artifact_workflow} does not package macOS transitive dependencies")
     if "needs: [create-release, build-windows-arm64-llvm, build-main]" not in lsp_section:
         fail(f"{artifact_workflow} packages macOS runtimes before compiler builds finish")
+    if "macos-14" in artifact_text or "macos-14" in smoke_text:
+        fail("release workflows still use the retired macOS 14 runner")
+    if (
+        "os: macos-15\n            target_name: zithc-macos-arm64" not in main_section
+        or "os: macos-15\n            target_name: macos-arm64" not in lsp_section
+    ):
+        fail("release macOS ARM64 builds do not use the macos-15 runner")
     for marker in ("-headerpad_max_install_names", "zith-macos-runtime-"):
         if marker not in artifact_text:
             fail(f"{artifact_workflow} is missing macOS runtime marker {marker}")
@@ -414,8 +421,15 @@ def validate_workflows(workflow_dir: Path) -> None:
     if "group: zith-distribution-metadata" not in distribution_section:
         fail(f"{maintenance_workflow} does not serialize distribution metadata updates")
     for marker in (
-        "scripts/update-scoop-manifest.py",
-        "scripts/update-homebrew-formula.py",
+        "name: Checkout validated release source",
+        "ref: ${{ needs.validate-release-source.outputs.source_sha }}",
+        "path: release-source",
+        "cp release-source/.github/scoop/bucket/zithc.json",
+        "release-source/scripts/update-scoop-manifest.py",
+        "release-source/scripts/validate-release-contract.py",
+        "--workflow-dir release-source/.github/workflows",
+        "cp release-source/.github/homebrew/zithc.rb",
+        "release-source/scripts/update-homebrew-formula.py",
         "zithc-stdlib-$RELEASE_TAG.zip",
         'archive/${SOURCE_SHA}.tar.gz',
         "sha256sum source-archive.tar.gz",
@@ -484,6 +498,47 @@ def validate_workflows(workflow_dir: Path) -> None:
     scoop_section = job_section(artifact_text, "smoke-scoop")
     if "needs: [create-release, release-maintenance]" not in scoop_section:
         fail(f"{artifact_workflow} runs Scoop smoke before release maintenance")
+    scoop_setup = scoop_section.find("- name: Set up Scoop")
+    scoop_validation = scoop_section.find("- name: Validate Scoop is available")
+    if scoop_setup < 0 or scoop_validation < scoop_setup:
+        fail(f"{artifact_workflow} must install Scoop before validating its availability")
+    for marker in (
+        "          CI: true",
+        "Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression",
+        "$installExitCode = $LASTEXITCODE",
+        "$scoopShims | Out-File -FilePath $env:GITHUB_PATH",
+        "exit $installExitCode",
+    ):
+        if marker not in scoop_section:
+            fail(f"{artifact_workflow} Scoop setup is missing {marker}")
+    for marker in (
+        '$bucket = Join-Path $env:RUNNER_TEMP "zith-scoop-local"',
+        "uses: actions/setup-python@v5",
+        "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+        "gh release download $env:RELEASE_TAG",
+        "Remove-Item Env:GH_TOKEN",
+        '$assetDirectory = Join-Path $env:RUNNER_TEMP "zith-scoop-assets"',
+        'foreach ($asset in @("zithc-windows-amd64.exe", $stdlibAsset))',
+        "Test-Path -LiteralPath (Join-Path $assetDirectory $asset)",
+        '"--bind", "127.0.0.1"',
+        "$localManifest.architecture.'64bit'.url = @(",
+        'Set-Content -LiteralPath $manifest -Encoding utf8',
+        "git -C $bucket init --quiet",
+        "git -C $bucket add bucket/zithc.json",
+        "([System.Uri](Resolve-Path -LiteralPath $bucket).Path).AbsoluteUri",
+        "scoop bucket add zith-local $bucketUri",
+        "scoop install zithc",
+        "zithc check examples\\loops-simple.zith",
+        "} finally {",
+        "Stop-Process -Id $server.Id -Force",
+    ):
+        if marker not in scoop_section:
+            fail(f"{artifact_workflow} Scoop smoke test is missing {marker}")
+    token_removal = scoop_section.find("Remove-Item Env:GH_TOKEN")
+    scoop_install = scoop_section.find("scoop install zithc")
+    asset_download = scoop_section.find("gh release download $env:RELEASE_TAG")
+    if not asset_download < token_removal < scoop_install:
+        fail(f"{artifact_workflow} must remove the draft-download token before Scoop runs")
     dispatch_start = smoke_text.find("  workflow_dispatch:")
     call_start = smoke_text.find("  workflow_call:")
     if dispatch_start < 0 or call_start < 0 or call_start <= dispatch_start:
@@ -518,7 +573,7 @@ def validate_workflows(workflow_dir: Path) -> None:
     if "v[0-9]+\\.[0-9]+\\.[0-9]+(\\.[0-9]+)?" not in validation_job:
         fail(f"{smoke_workflow} does not validate release tags before using them")
     for smoke_job, runner in (
-        ("smoke-installers-unix", "ubuntu-latest, macos-14"),
+        ("smoke-installers-unix", "ubuntu-latest, macos-15"),
         ("smoke-installer-windows", "windows-latest"),
         ("smoke-installer-wasm", "ubuntu-latest"),
     ):
@@ -592,6 +647,14 @@ def validate_workflows(workflow_dir: Path) -> None:
         fail("Homebrew formula does not pass the keg-only LLVM CMake directory")
     if "-DZITH_REQUIRE_LLVM=ON" not in formula_text:
         fail("Homebrew formula does not require LLVM")
+    if "-DZITH_VERSION=v#{version}" not in formula_text:
+        fail("Homebrew formula does not set the compiler version from the release")
+    if 'shell_output("#{bin}/zithc --version")' not in formula_text:
+        fail("Homebrew formula does not test the compiler version")
+    if 'assert_path_exists share/"zith/stdlib"' not in formula_text:
+        fail("Homebrew formula does not test the installed standard library")
+    if "zithc info" in formula_text:
+        fail("Homebrew formula uses the unsupported zithc info command")
     for marker in (
         "scripts/update-scoop-manifest.py",
         "scripts/update-homebrew-formula.py",

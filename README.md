@@ -80,6 +80,8 @@ Lexer -> Parser -> Formatter -> Import resolution -> Name resolution -> Type che
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions and code style.
+Maintainers can publish and verify the Homebrew tap with the
+[Homebrew publication wizard](scripts/publish-homebrew-tap.sh).
 
 - [Discord](https://discord.gg/a7h4cpWHg4) — progress updates and collaboration
 - [Issue Tracker](https://github.com/GalaxyHaze/Zith/issues)

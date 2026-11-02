@@ -22,7 +22,7 @@ _zithc() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    cmds="build run execute check fmt create deps test docs repl clean completion"
+    cmds="build run execute check fmt create deps test docs repl clean completion info"
 
     opts="-h --help --version -m --mode -o --output -I --include --c-source-dir -L -l -D -A --assets --check -i --in-place --emit --target --sysroot --no-system-includes --no-cache --filter --emit-tokens --emit-cst --emit-ast --emit-hir --emit-vir --emit-ir --emit-asm --emit-all --interface --spec --index --error --force --out --interpreted --virtual-machine --opt-level --debug-level -s --strict --lto --strip-debug -c --color -v --verbose --debug-sema"
 
@@ -93,7 +93,7 @@ _zithc() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    cmds="build run execute check fmt create deps test docs repl clean completion"
+    cmds="build run execute check fmt create deps test docs repl clean completion info"
 
     opts="-h --help --version -m --mode -o --output -I --include --c-source-dir -L -l -D -A --assets --check -i --in-place --emit --target --sysroot --no-system-includes --no-cache --filter --emit-tokens --emit-cst --emit-ast --emit-hir --emit-vir --emit-ir --emit-asm --emit-all --interface --spec --index --error --force --out --interpreted --virtual-machine --opt-level --debug-level -s --strict --lto --strip-debug -c --color -v --verbose --debug-sema"
 
@@ -158,6 +158,7 @@ complete -c zithc -f -n "not __fish_use_subcommand" -a docs -d "Generate documen
 complete -c zithc -f -n "not __fish_use_subcommand" -a repl -d "Start interactive REPL"
 complete -c zithc -f -n "not __fish_use_subcommand" -a clean -d "Clean build artifacts"
 complete -c zithc -f -n "not __fish_use_subcommand" -a completion -d "Generate shell completion scripts"
+complete -c zithc -f -n "not __fish_use_subcommand" -a info -d "Show compiler version information"
 
 # Enable file completion for subcommands that take files
 complete -c zithc -F -n "__fish_seen_subcommand_from build run execute check fmt"

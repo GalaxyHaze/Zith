@@ -224,7 +224,7 @@ jobs:
               -DCMAKE_CXX_COMPILER=clang++
               -DCMAKE_LINKER=ld.lld
 
-          - os: macos-14
+          - os: macos-15
             target_name: zithc-macos-arm64
             cmake_flags: >-
               -DCMAKE_C_COMPILER=$(xcrun -f clang)
@@ -820,24 +820,151 @@ jobs:
           ref: main
           fetch-depth: 1
           token: ${{ secrets.RELEASE_PAT }}
+          persist-credentials: false
+
+      - name: Set up Scoop
+        shell: pwsh
+        env:
+          CI: true
+        run: |
+          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+          Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+          $installExitCode = $LASTEXITCODE
+
+          $scoopShims = Join-Path $env:USERPROFILE "scoop\shims"
+          $scoopCommand = Join-Path $scoopShims "scoop.ps1"
+          if (-not (Test-Path -LiteralPath $scoopCommand)) {
+            throw "Scoop installation did not create its command shim"
+          }
+          $scoopShims | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $env:PATH = "$scoopShims;$env:PATH"
+          if ($null -ne $installExitCode -and $installExitCode -ne 0) {
+            exit $installExitCode
+          }
 
       - name: Validate Scoop is available
         shell: pwsh
         run: scoop --version
 
+      - name: Set up Python for local asset server
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
       - name: Install and run Scoop package
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.create-release.outputs.tag }}
         run: |
-          $bucket = Join-Path $env:GITHUB_WORKSPACE ".github\scoop"
-          scoop bucket add zith-local $bucket
-          scoop install zithc
-          zithc --help | Out-Null
+          $bucket = Join-Path $env:RUNNER_TEMP "zith-scoop-local"
+          $bucketManifest = Join-Path $bucket "bucket"
+          $manifestPath = Join-Path $env:GITHUB_WORKSPACE ".github\scoop\bucket\zithc.json"
+          $assetDirectory = Join-Path $env:RUNNER_TEMP "zith-scoop-assets"
+          $stdlibAsset = "zithc-stdlib-$($env:RELEASE_TAG).zip"
+          New-Item -ItemType Directory -Path $bucketManifest -Force | Out-Null
+          New-Item -ItemType Directory -Path $assetDirectory -Force | Out-Null
+
+          gh release download $env:RELEASE_TAG `
+            --repo $env:GITHUB_REPOSITORY `
+            --pattern "zithc-windows-amd64.exe" `
+            --pattern $stdlibAsset `
+            --dir $assetDirectory
           if ($LASTEXITCODE -ne 0) {
-            throw "Scoop-installed compiler failed to start"
+            throw "Could not download draft release assets for Scoop smoke test"
           }
-          zithc check examples\loops-simple.zith
-          if ($LASTEXITCODE -ne 0) {
-            throw "Scoop-installed compiler failed the language smoke test"
+          foreach ($asset in @("zithc-windows-amd64.exe", $stdlibAsset)) {
+            if (-not (Test-Path -LiteralPath (Join-Path $assetDirectory $asset))) {
+              throw "Release asset was not downloaded: $asset"
+            }
+          }
+
+          Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $env:PYTHONUNBUFFERED = "1"
+          $listener = [System.Net.Sockets.TcpListener]::new(
+            [System.Net.IPAddress]::Loopback, 0
+          )
+          $listener.Start()
+          $port = $listener.LocalEndpoint.Port
+          $listener.Stop()
+          $server = $null
+
+          try {
+            $server = Start-Process -FilePath "python" `
+              -ArgumentList @(
+                "-m", "http.server", "$port",
+                "--bind", "127.0.0.1",
+                "--directory", $assetDirectory
+              ) `
+              -PassThru -WindowStyle Hidden
+
+            $assetBaseUrl = "http://127.0.0.1:$port"
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              if ($server.HasExited) {
+                throw "Local asset server exited before becoming ready"
+              }
+              try {
+                Invoke-WebRequest -Uri "$assetBaseUrl/$stdlibAsset" `
+                  -Method Head -TimeoutSec 2 | Out-Null
+                $ready = $true
+                break
+              } catch {
+                Start-Sleep -Seconds 1
+              }
+            }
+            if (-not $ready) {
+              throw "Local asset server did not become ready"
+            }
+
+            $localManifest = Get-Content -LiteralPath $manifestPath -Raw |
+              ConvertFrom-Json
+            $localManifest.architecture.'64bit'.url = @(
+              "$assetBaseUrl/zithc-windows-amd64.exe",
+              "$assetBaseUrl/$stdlibAsset"
+            )
+            $manifest = Join-Path $bucketManifest "zithc.json"
+            $localManifest |
+              ConvertTo-Json -Depth 20 |
+              Set-Content -LiteralPath $manifest -Encoding utf8
+
+            git -C $bucket init --quiet
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not initialize the local Scoop bucket repository"
+            }
+            git -C $bucket add bucket/zithc.json
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not stage the local Scoop manifest"
+            }
+            git -C $bucket -c "user.name=github-actions[bot]" `
+              -c "user.email=41898282+github-actions[bot]@users.noreply.github.com" `
+              commit --quiet -m "Add Zith Scoop manifest"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not commit the local Scoop manifest"
+            }
+
+            $bucketUri = ([System.Uri](Resolve-Path -LiteralPath $bucket).Path).AbsoluteUri
+            scoop bucket add zith-local $bucketUri
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not add the local Scoop bucket"
+            }
+            scoop install zithc
+            if ($LASTEXITCODE -ne 0) {
+              throw "Scoop could not install the release package"
+            }
+            zithc --help | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+              throw "Scoop-installed compiler failed to start"
+            }
+            zithc check examples\loops-simple.zith
+            if ($LASTEXITCODE -ne 0) {
+              throw "Scoop-installed compiler failed the language smoke test"
+            }
+          } finally {
+            if ($null -ne $server -and -not $server.HasExited) {
+              Stop-Process -Id $server.Id -Force
+              Wait-Process -Id $server.Id -Timeout 10 -ErrorAction SilentlyContinue
+            }
           }
 
   build-lsp:
@@ -862,7 +989,7 @@ jobs:
               -DCMAKE_CXX_COMPILER=clang++
               -DCMAKE_LINKER=ld.lld
 
-          - os: macos-14
+          - os: macos-15
             target_name: macos-arm64
             runtime_arch: arm64
             cmake_flags: >-

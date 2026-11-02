@@ -156,7 +156,7 @@ static size_t levenshteinDistance(const char *a, const char *b) {
 static void suggestCommand(const char *arg, term::UsagePrinter & /*err*/) {
     static const char *suggestCmds[] = {"build", "run",        "check", "execute", "test",
                                         "fmt",   "docs",       "repl",  "create",  "clean",
-                                        "deps",  "completion", "help",  nullptr};
+                                        "deps",  "completion", "info",  "help",    nullptr};
     const char *best                 = nullptr;
     size_t best_dist                 = static_cast<size_t>(-1);
     for (size_t i = 0; suggestCmds[i]; ++i) {
@@ -185,7 +185,7 @@ static void suggestCommand(const char *arg, term::UsagePrinter & /*err*/) {
 static bool isSubcommand(const char *arg) {
     static const char *cmds[] = {"build", "run",        "check", "execute", "test",
                                  "fmt",   "docs",       "repl",  "create",  "clean",
-                                 "deps",  "completion", "help",  nullptr};
+                                 "deps",  "completion", "info",  "help",    nullptr};
     for (auto cmd : cmds) {
         if (cmd && compare(cmd, arg))
             return true;
@@ -219,6 +219,8 @@ static Command subcommandToEnum(const char *arg) {
         return Command::Deps;
     if (compare(arg, "completion"))
         return Command::Completion;
+    if (compare(arg, "info"))
+        return Command::Version;
     if (compare(arg, "help"))
         return Command::Help;
     return Command::None;

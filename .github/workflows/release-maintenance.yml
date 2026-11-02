@@ -101,6 +101,14 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
+      - name: Checkout validated release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate-release-source.outputs.source_sha }}
+          path: release-source
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Download Windows release assets
         shell: bash
         env:
@@ -128,14 +136,16 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${RELEASE_TAG#v}"
-          python3 scripts/update-scoop-manifest.py \
+          cp release-source/.github/scoop/bucket/zithc.json \
+            .github/scoop/bucket/zithc.json
+          python3 release-source/scripts/update-scoop-manifest.py \
             --manifest .github/scoop/bucket/zithc.json \
             --release-dir "$GITHUB_WORKSPACE/release-bins" \
             --repository "$GITHUB_REPOSITORY" \
             --version "$VERSION"
-          python3 scripts/validate-release-contract.py \
+          python3 release-source/scripts/validate-release-contract.py \
             --manifest .github/scoop/bucket/zithc.json \
-            --workflow-dir .github/workflows
+            --workflow-dir release-source/.github/workflows
 
       - name: Compute Homebrew source metadata
         id: homebrew
@@ -151,7 +161,9 @@ jobs:
             --output source-archive.tar.gz "$URL"
           SHA=$(sha256sum source-archive.tar.gz | cut -d' ' -f1)
           test "${#SHA}" -eq 64
-          python3 scripts/update-homebrew-formula.py \
+          cp release-source/.github/homebrew/zithc.rb \
+            .github/homebrew/zithc.rb
+          python3 release-source/scripts/update-homebrew-formula.py \
             --formula .github/homebrew/zithc.rb \
             --repository "$GITHUB_REPOSITORY" \
             --version "$VERSION" \

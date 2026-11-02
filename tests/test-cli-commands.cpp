@@ -997,6 +997,24 @@ static void test_command_names_match_contract() {
     CHECK(true, "version() compiles");
 }
 
+static void test_info_command_aliases_version() {
+    char program[] = "zithc";
+    char info[]    = "info";
+    char *argv[]   = {program, info};
+
+    Cli cli;
+    cli.parseArgs(2, argv);
+    CHECK(cli.opts.command == Options::Command::Version,
+          "`info` selects the same command as `--version`");
+#ifdef ZITHC_BINARY
+    CliCapture capture;
+    const auto result = capture.run("info");
+    CHECK_EQ(result.exitCode, 0, "`zithc info` exits successfully");
+    CHECK(result.stdoutText.find("Version:") != std::string::npos,
+          "`zithc info` prints compiler version information");
+#endif
+}
+
 static void test_llvm_version_information() {
 #ifdef ZITH_LLVM_VERSION
     CHECK(std::strlen(ZITH_LLVM_VERSION) > 0,
@@ -1315,6 +1333,7 @@ static void test_cli_commands() {
     test_command_signatures_exist();
     test_count_passed();
     test_command_names_match_contract();
+    test_info_command_aliases_version();
     test_llvm_version_information();
     test_system_includes_flag();
     test_debug_sema_flag();
