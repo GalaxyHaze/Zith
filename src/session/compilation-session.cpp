@@ -363,7 +363,7 @@ bool CompilationSession::lexStage() {
 #ifndef ZITH_IS_WASM
     if (!mCacheStore && !mOpts.get().noCache) {
         const auto cache_root = (fs::path(mProjectRoot) / cache::kPersistentCacheDirName).string();
-        mCacheStore = std::make_unique<cache::Store>(cache_root, cache::kSharedHirProfile);
+        mCacheStore = std::make_unique<cache::Store>(cache_root, cache::sharedHirProfile());
     }
     if (!mOpts.get().noCache)
         (void)tryLoadPersistentCache();

@@ -101,11 +101,15 @@ engenharia para rever e gerir.
 - `scripts/verify-llvm-build.py` lê o `CMakeCache.txt` gerado e impede que um
   job publique um artefacto sem o backend LLVM efetivamente configurado. A
   versão detectada é persistida por CMake e precisa de ser 18 ou superior.
-- Os builds musl deixaram de resolver a versão mais recente do Zig em tempo de
-  execução. O workflow fixa Zig `0.13.0`, confirma que o executável descarregado
-  reporta essa versão e verifica no `CMakeCache.txt` que o triple configurado
-  coincide com cada target musl da matriz. O teste offline cobre tanto a
-  aceitação do target correto como a rejeição de um target diferente.
+- Os builds musl deixaram de usar Zig sobre archives LLVM do host. Tanto o
+  pipeline de release como o job `cross-builds` do CI constroem o compilador
+  dentro de `alpine:3.22`, com o LLVM musl nativo (`clang20`, `llvm20-dev`,
+  `llvm20-static`, `lld20`), `-DLLVM_DIR` apontado para essa instalação e
+  `-DZLIB_USE_STATIC_LIBS=ON`. Ligar archives LLVM glibc do host a um alvo musl
+  deixava símbolos `std::__cxx11` e `std::__once_callable` por resolver, porque
+  o runtime C++ do link não coincidia com o runtime usado para construir o
+  LLVM. O `scripts/verify-llvm-build.py` continua a verificar no `CMakeCache.txt`
+  que o triple configurado coincide com o target musl esperado.
 - O gate `validate-release-assets` também abre `zithc-wasm.zip` e exige
   `zith-playground.wasm` e `zith-stdlib.pack` não vazios antes de atualizar
   Scoop, Homebrew ou o playground. Essa regra vive agora em

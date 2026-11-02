@@ -61,9 +61,13 @@ covers imported `Result` constructors and `soon/result/fallback` helpers.
 Do not remove `std/` facades as part of the `soon/` promotion work. `std/` is
 not only a compatibility layer: shipped modules such as `std/io/console`,
 `std/io/format`, `std/result`, and `std/test` remain active. The console module
-imports `std/io/format`, and `tests/test-interface-satisfaction.cpp` deliberately
-checks qualified types through `std/memory`, including cold and warm cache
-loads. Broader removal requires a separate stable-API migration.
+imports `std/io/format`. `tests/test-interface-satisfaction.cpp` imports the
+`std/memory` facade and writes qualified types under `soon.memory...`, because
+a re-export keeps the target's own path prefix. The facade still injects the
+public symbols (`from std/memory` exposes `HeapAllocator` and `InPlace`), but a
+qualified name resolves through the re-exported `soon/...` module path, so the
+`std.memory...` spelling does not name a type. Cold and warm cache loads are
+both covered. Broader removal requires a separate stable-API migration.
 
 ## Facts And Gotchas
 

@@ -300,12 +300,15 @@ void test_qualified_types_through_export_facade() {
     CHECK(writeFile(root / "libs/unrelated.zith", "pub struct Unrelated { value: i32 }\n"),
           "write unrelated module to populate the workdir");
 
+    // The std/memory facade re-exports the soon/memory modules. A re-export
+    // keeps the target's own path prefix, so the facade exposes the qualified
+    // names under soon.memory, not std.memory.
     constexpr std::string_view source =
         "import libs/unrelated\n"
         "import std/memory\n"
         "\n"
-        "fn acceptHeap(value: ?std.memory.allocators.heap.HeapAllocator) {}\n"
-        "fn acceptInPlace(value: dyn std.memory.in-place.InPlace) {}\n"
+        "fn acceptHeap(value: ?soon.memory.allocators.heap.HeapAllocator) {}\n"
+        "fn acceptInPlace(value: dyn soon.memory.in-place.InPlace) {}\n"
         "\n"
         "fn main(): i32 { return 0; }\n";
 

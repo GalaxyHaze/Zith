@@ -742,6 +742,24 @@ auto slicePlaceholderCount(const LowerState &state, const hir::HirMakeSlice &sli
     return count;
 }
 
+/// Index of the `[]char` message parameter in a console `print`/`println`
+/// signature. The canonical stdlib declares `println(allocator, msg, values...)`,
+/// so the message is not the first argument. Locating it by parameter type keeps
+/// the fast path working for both the canonical signature and the older
+/// `println(msg, values...)` shape. Returns `call.args.size()` when the
+/// signature has no message parameter.
+auto consoleMessageArg(const LowerState &state, const hir::HirFunction &fn,
+                       const hir::HirCall &call) -> std::size_t {
+    for (std::size_t i = 0; i < fn.params.size() && i < call.args.size(); ++i) {
+        if (state.types.kindOf(fn.params[i]) != types::TypeKind::Slice)
+            continue;
+        const auto *paramSlice = std::get_if<types::TypeSlice>(&state.types.lookup(fn.params[i]));
+        if (paramSlice != nullptr && state.types.kindOf(paramSlice->elem) == types::TypeKind::Char)
+            return i;
+    }
+    return call.args.size();
+}
+
 auto materializeBorrowedSlice(LowerState &state, hir::HirExprId argument,
                               types::TypeId argumentType, bool &handled) -> std::uint16_t {
     handled = false;
@@ -817,7 +835,10 @@ auto lowerCall(LowerState &state, const hir::HirCall &call, bool tailTransfer = 
             }
             if (call.args.empty())
                 return newReg(state, types::kVoidType);
-            const auto &argExpr = state.hir.getExpr(call.args[0]);
+            const auto messageIndex = consoleMessageArg(state, hirFn, call);
+            if (messageIndex >= call.args.size())
+                return newReg(state, types::kVoidType);
+            const auto &argExpr = state.hir.getExpr(call.args[messageIndex]);
             const auto *slice   = std::get_if<hir::HirMakeSlice>(&argExpr);
             // The fast path below forwards the literal message to `puts` or
             // `write_stdout`. It cannot render the variadic `Formatable`
@@ -825,7 +846,7 @@ auto lowerCall(LowerState &state, const hir::HirCall &call, bool tailTransfer = 
             // values must report unsupported instead of silently dropping the
             // formatted output. A message without placeholders ignores the
             // extra values, exactly like the native stdlib path.
-            if (call.args.size() > 1 && slice != nullptr &&
+            if (call.args.size() > messageIndex + 1 && slice != nullptr &&
                 slicePlaceholderCount(state, *slice) > 0) {
                 state.result->ok = false;
                 state.result->message =

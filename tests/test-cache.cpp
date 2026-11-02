@@ -56,7 +56,7 @@ Artifact makeMinimalArtifact(std::string_view path, std::string_view name,
     art.canonical_path       = std::string(path);
     art.module_identity.path = art.canonical_path;
     art.module_name          = std::string(name);
-    art.semantic_profile     = kSharedHirProfile;
+    art.semantic_profile     = sharedHirProfile();
     art.frontend_identity    = {"Zith", "zithc-tests", "test"};
     art.source_fingerprint   = {source_fingerprint, source_fingerprint ^ 0x55AA55AA55AA55AAULL};
     art.public_abi_hi        = 0xEEFF0011u;
@@ -264,7 +264,7 @@ static void test_store_hit_miss() {
     fs::create_directories(root);
 
     const uint64_t fingerprint = 0x12345678u;
-    Store store(root.string(), kSharedHirProfile);
+    Store store(root.string(), sharedHirProfile());
 
     auto art = makeMinimalArtifact("/test/store.zith", "store", fingerprint);
     store.store(art);
@@ -293,7 +293,7 @@ static void test_frontend_provenance_does_not_gate_shared_hir() {
     fs::remove_all(root);
     fs::create_directories(root);
 
-    Store store(root.string(), kSharedHirProfile);
+    Store store(root.string(), sharedHirProfile());
     auto artifact              = makeMinimalArtifact("/test/shared.zith", "shared");
     artifact.frontend_identity = {"Zith--", "self-zithc", "0.1"};
     store.store(artifact);
@@ -306,9 +306,9 @@ static void test_frontend_provenance_does_not_gate_shared_hir() {
     auto incompatible_root = fs::temp_directory_path() / "zith-cache-profile-mismatch";
     fs::remove_all(incompatible_root);
     fs::create_directories(incompatible_root);
-    Store incompatible_store(incompatible_root.string(), kSharedHirProfile);
+    Store incompatible_store(incompatible_root.string(), sharedHirProfile());
     auto incompatible             = makeMinimalArtifact("/test/profile.zith", "profile");
-    incompatible.semantic_profile = {"zith-shared-hir", kSharedHirProfile.version + 1U};
+    incompatible.semantic_profile = {"zith-shared-hir", sharedHirProfile().version + 1U};
     incompatible_store.store(incompatible);
     CHECK(!incompatible_store
                .load(CanonicalModuleIdentity{incompatible.canonical_path},
@@ -326,7 +326,7 @@ static void test_store_invalidation() {
     fs::remove_all(root);
     fs::create_directories(root);
 
-    Store store(root.string(), kSharedHirProfile);
+    Store store(root.string(), sharedHirProfile());
 
     // Store a dependency and a dependent.
     auto dep = makeMinimalArtifact("/test/dep.zith", "dep");
@@ -370,14 +370,14 @@ static void test_canonical_registry_persists_stable_tags() {
     uint32_t first_tag  = 0;
     uint32_t second_tag = 0;
     {
-        Store store(root.string(), kSharedHirProfile);
+        Store store(root.string(), sharedHirProfile());
         first_tag  = store.assignCanonicalId(first);
         second_tag = store.assignCanonicalId(second);
         CHECK(first_tag != 0u && first_tag != second_tag,
               "registry assigns non-zero unique canonical tags");
     }
 
-    Store reopened(root.string(), kSharedHirProfile);
+    Store reopened(root.string(), sharedHirProfile());
     CHECK_EQ(reopened.assignCanonicalId(first), first_tag,
              "reopened registry returns the same tag for an existing canonical id");
     CHECK_EQ(reopened.assignCanonicalId(second), second_tag,
@@ -406,7 +406,7 @@ static void test_canonical_registry_reports_actionable_divergence() {
     types::TypeCanonicalId canonical{0x1111111122222222ULL, 0x3333333344444444ULL};
     const uint32_t persisted_tag = 0xCAFEBABEu;
 
-    Store store(root.string(), kSharedHirProfile);
+    Store store(root.string(), sharedHirProfile());
     CHECK(!store.lookupCanonicalId(canonical).has_value(),
           "cold registry has no mapping for the simulated persisted artifact");
 
@@ -435,7 +435,7 @@ static void test_canonical_registry_reports_actionable_divergence() {
     CHECK(reorder.field_order_changed,
           "a persisted tag owned by a different canonical is a reorder signal");
 
-    Store reopened(root.string(), kSharedHirProfile);
+    Store reopened(root.string(), sharedHirProfile());
     const auto after_reopen = reopened.checkCanonicalMapping(canonical, persisted_tag);
     CHECK_EQ(after_reopen.current_tag, current_tag,
              "persisted registry reports the same divergence after reopening");
@@ -591,7 +591,7 @@ static void test_canonical_field_order_is_shared_and_detected() {
     fs::remove_all(root);
     fs::create_directories(root);
 
-    Store store(root.string(), kSharedHirProfile);
+    Store store(root.string(), sharedHirProfile());
     const uint32_t stale_tag = store.assignCanonicalId(canonical_first);
     CHECK(stale_tag != 0u, "registry assigns a tag for the pre-change canonical id");
 
@@ -651,7 +651,7 @@ static void test_zero_abi_dependency_skips_validation() {
     fs::remove_all(root);
     fs::create_directories(root);
 
-    Store store(root.string(), kSharedHirProfile);
+    Store store(root.string(), sharedHirProfile());
 
     auto dep = makeMinimalArtifact("/test/dep.zith", "dep");
     store.store(dep);
@@ -674,7 +674,7 @@ static void test_dep_abi_validation() {
     fs::remove_all(root);
     fs::create_directories(root);
 
-    Store store(root.string(), kSharedHirProfile);
+    Store store(root.string(), sharedHirProfile());
 
     auto dep = makeMinimalArtifact("/test/dep.zith", "dep");
     store.store(dep);
@@ -713,7 +713,7 @@ static void test_manifest_load_skips_malformed_record() {
                "00000003\x1e\n";
     }
 
-    Store store(root.string(), kSharedHirProfile);
+    Store store(root.string(), sharedHirProfile());
     CHECK(!store.manifestEntry("/test/a.zith").has_value(), "malformed manifest record is ignored");
 
     fs::remove_all(root);
@@ -1167,7 +1167,7 @@ static void test_artifact_builder() {
     method_hir_decl.visibility = hir::HirVisibility::Public;
     point_hir_decl.method_declarations.push(scale_id);
     ArtifactBuilder builder(types, hir, interner, fp, {"Zith", "cache-test", "test"},
-                            kSharedHirProfile);
+                            sharedHirProfile());
     std::vector<DependencyRecord> deps;
     auto art = builder.build("/test/builder.zith", "builder", deps);
 

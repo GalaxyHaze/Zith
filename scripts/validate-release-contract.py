@@ -103,8 +103,16 @@ def validate_manifest(path: Path, allow_empty_hashes: bool) -> None:
 
     installer = manifest.get("installer", {}).get("script", [])
     installer_text = "\n".join(installer) if isinstance(installer, list) else ""
-    if "Expand-Archive" not in installer_text:
-        fail("installer must extract the stdlib archive")
+    for marker in (
+        "$StdlibSource = Join-Path $dir 'std'",
+        "Test-Path -LiteralPath $StdlibSource -PathType Container",
+        "Copy-Item -LiteralPath $StdlibSource -Destination $StdlibDir -Recurse -Force",
+        "Get-ChildItem $StdlibDir -Force | Remove-Item -Recurse -Force",
+    ):
+        if marker not in installer_text:
+            fail(f"installer must use Scoop-extracted stdlib content: {marker}")
+    if "Expand-Archive" in installer_text:
+        fail("Scoop installer must not re-extract the stdlib archive")
     if "Remove-Item" not in installer_text:
         fail("installer must remove stale stdlib files")
 

@@ -129,9 +129,12 @@ function runHir(hir) {
 }
 
 const stdHello = `from std/io/console
+from std/memory
 
-fn main() {
-    _ = println("Hello, WASM!");
+fn main(): i32 {
+    let heap = HeapAllocator {}
+    _ = println(heap, "Hello, WASM!");
+    0
 }
 `;
 
@@ -143,9 +146,13 @@ fn main(): i32 {
 }
 `;
 
-const unsupportedSource = `fn main() {
-    let x = 10;
-    _ = *(&x);
+// VM v2 lowers pointer dereference, so the previous `*(&x)` fixture is no
+// longer unsupported. An external global still has no VM v2 representation and
+// keeps the unsupported-construct status path covered.
+const unsupportedSource = `extern var external_value: i32;
+
+fn main() {
+    _ = external_value;
 }
 `;
 
@@ -215,14 +222,16 @@ async function main() {
   stdoutChunks.length = 0;
   stderrChunks.length = 0;
   const printSource = writeString(`from std/io/console
+from std/memory
 
 fn add4(a: i32, b: i32, c: i32, d: i32): i32 {
     a + b + c + d
 }
 
 fn main(): i32 {
-    print("one-");
-    print("two");
+    let heap = HeapAllocator {}
+    print(heap, "one-");
+    print(heap, "two");
     add4(1, 2, 3, 4)
 }
 `);
@@ -236,7 +245,8 @@ fn main(): i32 {
   const unsupportedHir = compileSource(unsupportedSource);
   const unsupportedStatus = runHir(unsupportedHir);
   assertEqual(unsupportedStatus, 5, "unsupported construct returns 5");
-  assertEqual(stderrChunks.join(""), "unsupported HIR unary operator in v2 lowering\n",
+  assertEqual(stderrChunks.join(""),
+              "unsupported external global 'external_value' in v2 VM\n",
               "unsupported message is reported");
 
   stdoutChunks.length = 0;
@@ -276,7 +286,7 @@ fn main(): i32 {
     for (i in 0..100) {
         x += i;
     }
-    x;
+    x
 }
 `;
   const controlFlowBuffer = writeString(controlFlowSource);

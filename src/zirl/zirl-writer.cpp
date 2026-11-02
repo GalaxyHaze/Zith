@@ -6,6 +6,7 @@
 #include "zirl/zirl-header.hpp"
 #include "zirl/zirl-instantiation-section.hpp"
 #include "zirl/zirl-type-section.hpp"
+#include "support/int-limits.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -43,10 +44,10 @@ uint32_t Writer::write(const cache::Artifact &artifact, ByteWriter &out) {
         artifact.hir_schema_version != cache::kHirSchemaVersion ||
         (artifact.required_features & cache::kRequiredHirFeatures) != cache::kRequiredHirFeatures ||
         (artifact.required_features & ~cache::kRequiredHirFeatures) != 0 ||
-        artifact.deps.size() > std::numeric_limits<uint32_t>::max() ||
-        artifact.canonical_path.size() > std::numeric_limits<uint32_t>::max() ||
-        artifact.module_name.size() > std::numeric_limits<uint32_t>::max() ||
-        artifact.semantic_profile.name.size() > std::numeric_limits<uint32_t>::max())
+        support::exceedsU32(artifact.deps.size()) ||
+        support::exceedsU32(artifact.canonical_path.size()) ||
+        support::exceedsU32(artifact.module_name.size()) ||
+        support::exceedsU32(artifact.semantic_profile.name.size()))
         return 0;
 
     std::vector<EncodedSection> sections;
@@ -84,10 +85,9 @@ uint32_t Writer::write(const cache::Artifact &artifact, ByteWriter &out) {
                                        !artifact.frontend_identity.implementation.empty() ||
                                        !artifact.frontend_identity.version.empty();
     if (has_frontend_identity) {
-        if (artifact.frontend_identity.dialect.size() > std::numeric_limits<uint32_t>::max() ||
-            artifact.frontend_identity.implementation.size() >
-                std::numeric_limits<uint32_t>::max() ||
-            artifact.frontend_identity.version.size() > std::numeric_limits<uint32_t>::max())
+        if (support::exceedsU32(artifact.frontend_identity.dialect.size()) ||
+            support::exceedsU32(artifact.frontend_identity.implementation.size()) ||
+            support::exceedsU32(artifact.frontend_identity.version.size()))
             return 0;
         EncodedSection section;
         section.id = static_cast<uint16_t>(SectionId::FrontendProvenance);
@@ -114,7 +114,7 @@ uint32_t Writer::write(const cache::Artifact &artifact, ByteWriter &out) {
     for (const auto &optional : artifact.optional_sections) {
         if (optional.id == 0 ||
             optional.id <= static_cast<uint16_t>(SectionId::FrontendProvenance) ||
-            optional.payload.size() > std::numeric_limits<uint32_t>::max())
+            support::exceedsU32(optional.payload.size()))
             return 0;
         EncodedSection section;
         section.id             = optional.id;
@@ -133,8 +133,8 @@ uint32_t Writer::write(const cache::Artifact &artifact, ByteWriter &out) {
 
     uint64_t deps_size = 0;
     for (const auto &dep : artifact.deps) {
-        if (dep.canonical_path.size() > std::numeric_limits<uint32_t>::max() ||
-            dep.import_key.size() > std::numeric_limits<uint32_t>::max())
+        if (support::exceedsU32(dep.canonical_path.size()) ||
+            support::exceedsU32(dep.import_key.size()))
             return 0;
         deps_size += dependencySize(dep);
     }

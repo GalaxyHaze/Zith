@@ -60,6 +60,12 @@ bool PerModuleSema::checkExpressions() {
 
 void PerModuleSema::resetProvisionalInferenceResults() {
     typed_map.exprTypes.clear();
+    // The first-assignment ledger is provisional inference state: it is filled
+    // by probeFunctionCallTargets and by a function's own return inference. It
+    // must not leak into the definitive checkExpressions pass, where an empty
+    // ledger is what makes the first write to a `let` legal. Without this, a
+    // typed `let q: i32; q = 42;` is reported as a second write (E2010).
+    typeInferredByAssignment_.clear();
     typed_map.forInRangeLiteral.clear();
     typed_map.forInNext.clear();
     typed_map.containsCall.clear();

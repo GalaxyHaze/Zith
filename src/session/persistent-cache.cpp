@@ -143,7 +143,7 @@ void CompilationSession::writePersistentCache() {
     const auto cache_root = (fs::path(mProjectRoot) / cache::kPersistentCacheDirName).string();
     if (!mCacheStore || mCacheStore->root() != cache_root) {
         mCacheStore =
-            std::make_unique<cache::Store>(cache_root, cache::kSharedHirProfile);
+            std::make_unique<cache::Store>(cache_root, cache::sharedHirProfile());
     }
 
     cache::FrontendIdentity frontend_identity{
@@ -151,7 +151,7 @@ void CompilationSession::writePersistentCache() {
         mFrontendContext ? mFrontendContext->config().compilerVersion : std::string("dev")};
     cache::ArtifactBuilder builder(mTypes, mHirModule, *mInterner,
                                    cacheFingerprint(mSourceFingerprint),
-                                   std::move(frontend_identity), cache::kSharedHirProfile);
+                                   std::move(frontend_identity), cache::sharedHirProfile());
     std::vector<cache::DependencyRecord> deps;
     memory::FlatSet<std::string> seen_deps;
     auto append_dep = [&](std::string canonical_path, std::string import_key) {

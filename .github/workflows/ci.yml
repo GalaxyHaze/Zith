@@ -10,9 +10,6 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  ZIG_VERSION: '0.13.0'
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -107,19 +104,10 @@ jobs:
           submodules: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install LLVM dependencies
+      - name: Install host build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build clang-18 lld-18 llvm-18-dev
-
-      - name: Setup Zig
-        run: |
-          ZIG_VER="${ZIG_VERSION}"
-          curl --fail --silent --show-error --location --retry 3 --retry-all-errors \
-            "https://ziglang.org/download/$ZIG_VER/zig-linux-x86_64-$ZIG_VER.tar.xz" \
-            | tar -xJ -C /tmp
-          echo "/tmp/zig-linux-x86_64-$ZIG_VER" >> $GITHUB_PATH
-          test "$(/tmp/zig-linux-x86_64-$ZIG_VER/zig version)" = "$ZIG_VER"
+          sudo apt-get install -y ninja-build
 
       - name: Setup Emscripten
         uses: emscripten-core/setup-emsdk@v16
@@ -127,27 +115,70 @@ jobs:
           version: 3.1.65
 
       - name: Configure and Build MUSL (Static)
-        env:
-          ZIG_GLOBAL_CACHE_DIR: /tmp/zig-global-cache
-          ZIG_LOCAL_CACHE_DIR: /tmp/zig-local-cache
         run: |
-          mkdir -p /tmp/zig-global-cache /tmp/zig-local-cache
-          cmake -S . -B build-musl \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTING=OFF \
-            -DCMAKE_C_COMPILER="zig;cc" \
-            -DCMAKE_CXX_COMPILER="zig;c++" \
-            -DCMAKE_C_COMPILER_TARGET="x86_64-linux-musl" \
-            -DCMAKE_CXX_COMPILER_TARGET="x86_64-linux-musl" \
-            -DZITH_ENABLE_FFI=OFF \
-            -DZITH_HAS_LLVM=ON \
-            -DZITH_REQUIRE_LLVM=ON \
-            -DCMAKE_EXE_LINKER_FLAGS='-static -lc' \
-            -DCMAKE_CXX_FLAGS='-fno-cxx-exceptions'
-          python3 scripts/verify-llvm-build.py \
-            --build-dir build-musl \
-            --expected-target x86_64-linux-musl
-          cmake --build build-musl -j$(nproc)
+          # Build the static musl compiler inside Alpine so the C++ runtime and
+          # the LLVM archives come from the same musl environment. Linking the
+          # host glibc LLVM archives into a musl target leaves libstdc++
+          # symbols (std::__cxx11::basic_string, std::__once_callable, and
+          # friends) unresolved, which is the failure this job used to hit.
+          docker run --rm \
+            --platform linux/amd64 \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            alpine:3.22 \
+            sh -euc '
+              apk add --no-cache build-base cmake ninja python3 git \
+                clang20 llvm20-dev llvm20-static llvm20-gtest lld20 \
+                zlib-static zstd-static
+
+              compiler_target="$(clang-20 --print-target-triple)"
+              case "$compiler_target" in
+                x86_64*musl*) ;;
+                *)
+                  echo "Unexpected musl compiler target: $compiler_target" >&2
+                  exit 1
+                  ;;
+              esac
+
+              zlib_archive="$(find /usr/lib -name libz.a -print -quit)"
+              test -n "$zlib_archive" && test -f "$zlib_archive"
+
+              cmake -S . -B build-musl -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DBUILD_TESTING=OFF \
+                -DZITH_ENABLE_STRICT_WARNINGS=OFF \
+                -DZITH_ENABLE_C_COMPILE=OFF \
+                -DZITH_ENABLE_C_INTEROP=OFF \
+                -DCMAKE_C_COMPILER=clang-20 \
+                -DCMAKE_CXX_COMPILER=clang++-20 \
+                -DCMAKE_C_COMPILER_TARGET="$compiler_target" \
+                -DCMAKE_CXX_COMPILER_TARGET="$compiler_target" \
+                -DLLVM_DIR="$(llvm-config-20 --cmakedir)" \
+                -DZITH_HAS_LLVM=ON \
+                -DZITH_REQUIRE_LLVM=ON \
+                -DZLIB_USE_STATIC_LIBS=ON \
+                -DZLIB_LIBRARY="$zlib_archive" \
+                -DCMAKE_EXE_LINKER_FLAGS="-static -lc" \
+                -DCMAKE_CXX_FLAGS="-fno-cxx-exceptions"
+
+              zlib_cache="$(sed -n "s/^ZLIB_LIBRARY:[^=]*=//p" build-musl/CMakeCache.txt)"
+              if [ "$zlib_cache" != "$zlib_archive" ]; then
+                echo "CMake selected $zlib_cache instead of $zlib_archive" >&2
+                exit 1
+              fi
+              case "$zlib_cache" in
+                *.a) ;;
+                *)
+                  echo "CMake did not select a static zlib archive: $zlib_cache" >&2
+                  exit 1
+                  ;;
+              esac
+
+              python3 scripts/verify-llvm-build.py \
+                --build-dir build-musl \
+                --expected-target "$compiler_target"
+              cmake --build build-musl -j"$(nproc)"
+            '
 
       - name: Configure and Build WebAssembly
         run: |

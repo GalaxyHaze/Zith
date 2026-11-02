@@ -120,3 +120,6 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
   file-ownership boundary, and the verification gates.
 - [test-stdlib-check-macros.md](test-stdlib-check-macros.md): macro expansion
   scope and VM formatting constraints for accumulated std/test diagnostics.
+- [wasm-strict-warnings.md](wasm-strict-warnings.md): why the WebAssembly build
+  rejects namespace-scope `std::string` constants and `constexpr std::string`,
+  and the `constexpr std::string_view` plus accessor pattern that works.

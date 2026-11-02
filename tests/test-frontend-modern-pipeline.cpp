@@ -308,6 +308,56 @@ void test_typed_uninitialized_binding_with_later_assignment_lowers() {
           "typed binding without an initializer lowers when assigned before use");
 }
 
+void test_typed_scalar_binding_first_assignment_with_explicit_return_lowers() {
+    // Exact shape that regressed in CI: the enclosing function declares its
+    // return type, so it skips return-type inference. The first assignment to a
+    // typed `let` must stay legal after the provisional probe pass.
+    Workspace workspace;
+    workspace.write("main.zith", "fn main(): i32 {\n"
+                                 "    let q: i32;\n"
+                                 "    q = 42;\n"
+                                 "    q\n"
+                                 "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "first assignment to a typed let is legal in a function with an explicit return type");
+}
+
+void test_typed_scalar_binding_second_assignment_is_rejected() {
+    Workspace workspace;
+    workspace.write("bad.zith", "fn main(): i32 {\n"
+                                "    let q: i32;\n"
+                                "    q = 42;\n"
+                                "    q = 43;\n"
+                                "    q\n"
+                                "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "bad.zith").string());
+    session.setBuffered(true);
+    CHECK(!session.runTo(session::Stage::HirLowered),
+          "second assignment to an immutable let is rejected");
+
+    bool saw_immutable_write = false;
+    for (const auto &diagnostic : session.diags().all()) {
+        if (diagnostic.message.find("cannot assign to an immutable let/const binding") !=
+            std::string::npos) {
+            saw_immutable_write = true;
+        }
+    }
+    CHECK(saw_immutable_write,
+          "second assignment reports the immutable-binding diagnostic");
+}
+
 void test_typed_uninitialized_unused_binding_lowers() {
     Workspace workspace;
     workspace.write("main.zith", "struct Foo {\n"
@@ -1456,6 +1506,8 @@ static void test_frontend_modern_pipeline() {
     test_imported_console_void_main_discardable();
     test_untyped_uninitialized_binding_is_rejected();
     test_typed_uninitialized_binding_with_later_assignment_lowers();
+    test_typed_scalar_binding_first_assignment_with_explicit_return_lowers();
+    test_typed_scalar_binding_second_assignment_is_rejected();
     test_typed_uninitialized_unused_binding_lowers();
     test_typed_uninitialized_binding_use_before_assignment_fails();
     test_inferred_return_type_from_value_tail();

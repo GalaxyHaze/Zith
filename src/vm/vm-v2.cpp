@@ -197,7 +197,7 @@ auto externAlignedAlloc(RunState &state, const ExternCall &args, std::int64_t &r
                                                   static_cast<std::size_t>(alignment));
     if (offset == allocationFailure)
         return true;
-    if (offset > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max())) {
+    if (!std::in_range<std::int64_t>(offset)) {
         (void)state.memory->freeBytes(offset);
         return true;
     }

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace zith::cache {
 
@@ -54,6 +55,21 @@ struct ContentFingerprint {
     bool operator==(const ContentFingerprint &) const = default;
 };
 
-inline const SemanticCompatibilityProfile kSharedHirProfile{"zith-shared-hir", 1};
+// The name and version are constexpr views so the identity has a single,
+// testable source of truth. The profile itself is built by accessor rather
+// than exposed as a namespace-scope object: SemanticCompatibilityProfile owns
+// its name in a std::string, and a namespace-scope std::string needs a dynamic
+// initializer and an exit-time destructor, which the strict Clang warning set
+// (-Wglobal-constructors, -Wexit-time-destructors) rejects in the WebAssembly
+// build. A constexpr std::string is not an option either, because emscripten's
+// libc++ 18 std::string is not constexpr-constructible. Returning the profile
+// by value has neither a global constructor nor an exit-time destructor.
+inline constexpr std::string_view kSharedHirProfileName = "zith-shared-hir";
+inline constexpr uint32_t kSharedHirProfileVersion      = 1;
+
+inline SemanticCompatibilityProfile sharedHirProfile() {
+    return SemanticCompatibilityProfile{std::string(kSharedHirProfileName),
+                                        kSharedHirProfileVersion};
+}
 
 } // namespace zith::cache

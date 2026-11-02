@@ -29,17 +29,17 @@ static void test_artifact_validation_separates_frontend_and_semantics() {
     Artifact artifact;
     artifact.canonical_path = "/test/shared.zith";
     artifact.module_identity = {artifact.canonical_path};
-    artifact.semantic_profile = kSharedHirProfile;
+    artifact.semantic_profile = sharedHirProfile();
     artifact.frontend_identity = {"Zith--", "legacy-frontend", "0.1"};
     artifact.source_fingerprint = {0x1234, 0x5678};
 
     const CanonicalModuleIdentity module{artifact.canonical_path};
     const ContentFingerprint fingerprint = artifact.source_fingerprint;
-    CHECK(validateArtifact(artifact, module, kSharedHirProfile, fingerprint),
+    CHECK(validateArtifact(artifact, module, sharedHirProfile(), fingerprint),
           "artifact validates against its canonical module and semantic profile");
 
     artifact.frontend_identity = {"Zith", "self-hosted-frontend", "0.2"};
-    CHECK(validateArtifact(artifact, module, kSharedHirProfile, fingerprint),
+    CHECK(validateArtifact(artifact, module, sharedHirProfile(), fingerprint),
           "different frontend provenance does not invalidate shared HIR");
 
     const SemanticCompatibilityProfile incompatible{"zith-shared-hir", 2};
@@ -51,11 +51,11 @@ static void test_store_does_not_persist_unencodable_artifacts() {
     auto root = fs::temp_directory_path() / "zith-test-invalid-artifact";
     fs::remove_all(root);
 
-    Store store(root.string(), kSharedHirProfile);
+    Store store(root.string(), sharedHirProfile());
     Artifact artifact;
     artifact.canonical_path = "/test/invalid.zith";
     artifact.module_identity = {artifact.canonical_path};
-    artifact.semantic_profile = kSharedHirProfile;
+    artifact.semantic_profile = sharedHirProfile();
     artifact.vtables.push_back({0, {0}, {}});
 
     store.store(artifact);
@@ -71,12 +71,12 @@ static void test_stale_vir_section_does_not_invalidate_hir() {
     auto root = fs::temp_directory_path() / "zith-test-stale-vir-section";
     fs::remove_all(root);
 
-    Store store(root.string(), kSharedHirProfile);
+    Store store(root.string(), sharedHirProfile());
     Artifact artifact;
     artifact.canonical_path = "/test/stale-vir.zith";
     artifact.module_name = "stale-vir";
     artifact.module_identity = {artifact.canonical_path};
-    artifact.semantic_profile = kSharedHirProfile;
+    artifact.semantic_profile = sharedHirProfile();
     artifact.frontend_identity = {"Zith", "zithc-tests", "test"};
     artifact.source_fingerprint = {0x1234, 0x5678};
     artifact.optional_sections.push_back(
@@ -111,7 +111,7 @@ static void test_transitive_invalidation() {
     fs::remove_all(root);
     fs::create_directories(root);
 
-    Store store(root.string(), kSharedHirProfile);
+    Store store(root.string(), sharedHirProfile());
 
     // Module A (no dependencies)
     ManifestEntry entryA;
@@ -271,7 +271,7 @@ static void test_store_metrics_exposed() {
     fs::remove_all(root);
     fs::create_directories(root);
 
-    Store store(root.string(), kSharedHirProfile);
+    Store store(root.string(), sharedHirProfile());
 
     auto m = store.metrics();
     CHECK(m.hits == 0, "metrics start at zero hits");

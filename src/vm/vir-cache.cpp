@@ -1,6 +1,7 @@
 #include "vm/vir-cache.hpp"
 
 #include "cache/cache-types.hpp"
+#include "support/int-limits.hpp"
 #include "vm/hir-to-vm.hpp"
 #include "zirl/zirl-buffer.hpp"
 #include "zirl/zirl-header.hpp"
@@ -14,7 +15,7 @@ namespace {
 constexpr uint32_t kCachedVirMagic = 0x32524956U; // "VIR2"
 
 bool fitsU32(size_t size) {
-    return size <= std::numeric_limits<uint32_t>::max();
+    return support::fitsInU32(size);
 }
 
 uint16_t sectionId() {

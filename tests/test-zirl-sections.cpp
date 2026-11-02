@@ -30,7 +30,7 @@ Artifact makeMinimalArtifact() {
     art.canonical_path       = "/test/main.zith";
     art.module_identity.path = art.canonical_path;
     art.module_name          = "main";
-    art.semantic_profile     = kSharedHirProfile;
+    art.semantic_profile     = sharedHirProfile();
     art.frontend_identity    = {"Zith", "zithc-tests", "test"};
     art.source_fingerprint   = {0xAABBCCDD11223344ULL, 0xEEFF001122334455ULL};
     art.public_abi_hi        = 0x99887766u;
@@ -873,7 +873,7 @@ static void test_empty_artifact_round_trip() {
     empty_art.canonical_path       = "/test/empty.zith";
     empty_art.module_identity.path = empty_art.canonical_path;
     empty_art.module_name          = "empty";
-    empty_art.semantic_profile     = kSharedHirProfile;
+    empty_art.semantic_profile     = sharedHirProfile();
 
     ByteWriter w;
     (void)Writer::write(empty_art, w);
