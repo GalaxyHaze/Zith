@@ -46,6 +46,8 @@ The active plan homes are:
   separate full-Zith unit.
 - `docs/plans/variadic-macros-and-defer.md`: variadic macro statement
   repetition and caller-scope cleanup registration, drawing stage.
+- `docs/plans/macro-type-aware-branches.md`: type-aware macro arguments,
+  generic type-category predicates, and `@staticAssert`, drawing stage.
 - `docs/plans/abi/explicit-alignment.md`: Zith-- type and binding alignment,
   currently promising and pending idea-owner review.
 - `docs/plans/stdlib/allocator-ownership.md`: explicit allocator ownership and
