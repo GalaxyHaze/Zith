@@ -8,15 +8,16 @@ kind: editorial
 ---
 # Zith-- FAQ
 
-## What can I compile today?
+## What language does `zithc` compile?
 
-Zith-- supports the documented subset of the language. Its reference covers
-the accepted syntax and behavior; the neutral [Implementation Status](neutral:reference-implementation-status)
-page records partial support, restrictions, and specification-only features.
+`zithc` compiles Zith--. The Zith-- reference covers its language contract;
+the neutral [Implementation Status](neutral:reference-implementation-status)
+page records compiler support, partial behavior, and restrictions.
 
-## Why does a feature in the Zith reference fail to compile?
+## Why does a feature in the Zith reference fail to compile with `zithc`?
 
-The Zith reference describes the complete language design, while Zith-- is
-the subset currently implemented by `zithc`. Start with the [Zith-- overview](doc:zith-subset-overview)
-and check [Implementation Status](neutral:reference-implementation-status)
-before using features from the full design.
+Zith and Zith-- are sibling languages with separate specifications. The Zith
+reference describes Zith, not the language implemented by `zithc`. Start with
+the [Zith-- overview](doc:zith-subset-overview) and check
+[Implementation Status](neutral:reference-implementation-status) for compiler
+behavior. A Zith feature is not automatically planned for Zith--.

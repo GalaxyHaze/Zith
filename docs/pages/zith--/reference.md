@@ -8,7 +8,8 @@ kind: editorial
 ---
 # Zith-- Reference
 
-This page documents the Zith-- subset compiled by the current `main` compiler.
+This page documents the Zith-- language compiled by the current `main`
+compiler.
 The [Implementation Status](doc:reference-implementation-status) page is
 authoritative when a feature is partial.
 
@@ -59,6 +60,22 @@ extern var counter: i32;
 extern const rate: f64;
 extern var local_name: i32 = extern c_counter;
 ```
+
+## Functions and function values
+
+Named function references and no-capture function literals are function values
+with the C function-pointer calling convention. A function literal can be
+written where an expression is expected:
+
+```zith
+fn main(): i32 {
+    let double: fn(i32): i32 = fn (value: i32): i32 { value * 2 };
+    double(21) - 42
+}
+```
+
+Function literals cannot capture locals from an enclosing function. Closures
+with captures are outside the Zith-- contract.
 
 ## Control flow
 
@@ -122,6 +139,11 @@ A local binding without an initializer may be declared before its first write.
 Reading it before that first write reports `E3001`. The explicit opt-out is
 `raw <name>`.
 
+Optional values use the `?T` type and can contain `null` or a `T` payload. An
+early-return guard such as `if (value is null) { return ...; }` narrows a local
+optional pointer or aggregate for subsequent use. The flow proof is local and
+does not extend through derived expressions or across function boundaries.
+
 `component` defines a copyable POD type. Fields are primitives, arrays or
 slices of those, or other components. Components cannot implement traits and
 inline functions are restricted to pure transformations.
@@ -142,7 +164,8 @@ operations and the compiler does not apply normal restrictions inside it.
 ### Layout intrinsics
 
 `@sizeOf(T)` returns the size of any complete type as `u64`. `@offsetOf(S,
-field)` and `@alignOf(S)` apply to structs and return `i32`. `@lengthOf(x)` and
+field)` applies to structs, while `@alignOf(T)` accepts any complete type;
+both return `i32`. `@lengthOf(x)` and
 `@ptrOf(x)` accept slices, arrays, string literals, and `lend`/`view` slice
 parameters. For borrowed slices, `@ptrOf` returns the element pointer, not the
 descriptor address. `@canonicalType(T)` returns a stable `u128` for the type.
@@ -196,7 +219,7 @@ binding already qualified as `lend` or `view` may also be passed without a new
 annotation.
 
 `unique`, `share`, `belong`, and `mut` in call position are rejected with
-`E2007`/`E4007`. The full Zith model uses `&T`, `&mut T`, `^T`, and `%T`;
+`E2007`/`E4007`. Zith's memory model uses `&T`, `&mut T`, `^T`, and `%T`;
 those spellings are not part of Zith--.
 
 ### Opaque tagged values
@@ -210,7 +233,7 @@ match. `raw opaque as T` reinterprets without verification.
 ## Macros
 
 Normal macros and `raw macro` are the only macro forms in Zith--. `tag` is a
-full Zith language item; the legacy `tag macro` spelling is rejected.
+Zith language item; the legacy `tag macro` spelling is rejected.
 
 ```zith
 macro add(a, b) { a + b }
@@ -313,9 +336,9 @@ Relevant diagnostics include:
 |---|---|---|
 | `global name: T = value` | globals use `const` | `E2010` with `const` suggestion |
 | `mut` qualifier | bindings use `var` | `E2010` |
-| `const fn` | ordinary functions fit the subset | `E2010` |
-| `unique` / `share` / `belong` | ownership outside this iteration | `E2010` |
-| `tag` / `tag macro` | `tag` is full Zith; Zith-- accepts only normal/raw macros | `E2010` |
+| `const fn` | ordinary functions fit the Zith-- contract | `E2010` |
+| `unique` / `share` / `belong` | ownership outside the Zith-- contract | `E2010` |
+| `tag` / `tag macro` | `tag` belongs to Zith; Zith-- accepts only normal/raw macros | `E2010` |
 | Assignment to `let` / `const` | immutability | `E2010` |
 | Field / arrow / index write through `let` / `const` root | immutability propagates | `E2010` |
 | Assignment to `const` field | const storage | `E2010` |
@@ -325,17 +348,17 @@ Relevant diagnostics include:
 | `break label;` / `continue label;` with no active label | missing or ambiguous target | `E2010` |
 | `++` / `--` | use explicit assignment | `E2010` |
 
-## What is not in this iteration
+## Outside the Zith-- contract
 
-Zith-- does not include comptime evaluation, the full NRA ownership model,
-contexts, words, tag macros, anonymous functions, closures, the stronger
-`unsafe` hierarchy, or the `fail` / `with` / `catch` / `throw` error workflow.
-Those topics remain full Zith work until implementation status moves them into
-the subset.
+Zith-- does not include comptime evaluation, the NRA ownership model,
+contexts, words, tag items, capturing closures, the `unsafe` hierarchy, or
+the `fail` / `with` / `catch` / `throw` error workflow. These features are
+described by Zith's separate language design; their presence there does not
+mean they are planned for Zith--.
 
 New ownership checks, SRA heuristics, `Result`-style types, feature flags, and
-separate safety modes are not planned for this iteration. The `main` compiler
-builds Zith-- as the default surface.
+separate safety modes are not planned for the current Zith-- contract. The
+`main` compiler builds Zith-- as its default language.
 
 ## Working language surface
 
@@ -343,6 +366,7 @@ Zith-- currently includes:
 
 - `let`, `var`, and `const` bindings.
 - structs, enums, unions, arrays, slices, packs, pointers, and `?T` optionals.
+- named function values and no-capture function literals.
 - `if`, `for`, `when`, `defer`, and `state` / `dock` / `jump`.
 - modules, aliases, visibility, generic declarations, overloads, and variadic slices.
 - traits, interfaces, `dyn` method dispatch, qualified method calls, and `implement` blocks on named types, primitives, `?T`, `[]T`, and `*char`.
@@ -352,13 +376,7 @@ Zith-- currently includes:
 - platform-specific module resolution and `#[alignas(N)]`.
 - layout intrinsics: `@sizeOf`, `@offsetOf`, `@alignOf`, `@lengthOf`, `@ptrOf`, and `@canonicalType`.
 
-## Deliberately outside Zith--
-
-The full Zith design also describes comptime evaluation, the complete NRA
-ownership model, contexts, words, `tag` macros, anonymous functions, closures,
-and the stronger `unsafe` hierarchy. Those topics belong to the [Zith
-reference](doc:zith-overview) until the implementation status says otherwise.
-
 For task-oriented explanations, continue with the [Zith-- Language
-Guide](doc:guide-overview). For the formal source chapters, use the [full
-Zith specification](doc:reference-specification).
+Guide](doc:guide-overview). This reference is the language contract; the
+[Implementation Status](doc:reference-implementation-status) records the
+compiler's current support.

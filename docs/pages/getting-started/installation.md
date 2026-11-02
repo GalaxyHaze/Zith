@@ -8,8 +8,9 @@ kind: editorial
 ---
 # Installation
 
-Zith provides package-manager installs, fetch installers, and a source build. The compiler
-currently works on Linux, macOS, and Windows.
+The `zithc` compiler for Zith-- provides package-manager installs, fetch
+installers, and a source build. It currently works on Linux, macOS, and
+Windows.
 
 ## Homebrew
 

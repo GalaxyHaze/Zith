@@ -8,16 +8,16 @@ kind: editorial
 ---
 # Zith FAQ
 
-## Does the Zith specification describe features that are not implemented?
+## Does `zithc` implement Zith?
 
-Yes. Zith documents the complete language design, including features that may
-not yet be available in `zithc`. The neutral [Implementation Status](neutral:reference-implementation-status)
-page tracks that boundary. For programs supported by the compiler, use the
+No. The current `zithc` compiler implements Zith--, a sibling language with
+its own contract. The neutral [Implementation Status](neutral:reference-implementation-status)
+page describes Zith-- compiler support; it does not report implementation
+status for Zith.
+
+## Is the Zith reference a roadmap for Zith--?
+
+No. Zith and Zith-- have separate specifications and language contracts.
+Features described in the Zith reference are not automatically available in
+Zith-- or planned for it. For programs accepted by `zithc`, use the
 [Zith-- documentation](route:zith--).
-
-## Is the specification a guarantee of current compiler behavior?
-
-No. The specification describes the intended language contracts. Check
-[Implementation Status](neutral:reference-implementation-status) for compiler
-support, and consult the Zith-- reference for the behavior accepted by the
-current compiler.

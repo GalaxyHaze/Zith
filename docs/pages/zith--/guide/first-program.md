@@ -8,7 +8,8 @@ kind: editorial
 ---
 # First Program
 
-Zith is experimental. This guide uses the working `zithc create`, `build`, and `run` commands described in [Implementation Status](doc:reference-implementation-status).
+Zith-- is in beta. This guide uses the working `zithc create`, `build`, and
+`run` commands described in [Implementation Status](doc:reference-implementation-status).
 
 ## Create a project
 

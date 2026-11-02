@@ -8,9 +8,10 @@ kind: editorial
 ---
 # Community
 
-Use the Zith issue tracker for compiler bugs and language discussions. Report
-the compiler version, command line, source sample, expected behaviour, and
-actual diagnostics.
+Use the Zith issue tracker for Zith-- compiler bugs and language discussions.
+Report the compiler version, command line, source sample, expected behaviour,
+and actual diagnostics. For language proposals, identify whether the proposal
+concerns Zith or Zith-- because their contracts are separate.
 
 ## Reporting a compiler issue
 
@@ -35,10 +36,10 @@ codegen changes.
 
 ## Contributing documentation
 
-Documentation contributions should distinguish specification text from
-observed implementation behaviour. The specification belongs in
-`../Zith/docs`; site editorial content belongs in this repository's
-`docs/pages`.
+Documentation contributions should distinguish Zith design text, the Zith--
+language contract, and observed compiler behavior. Canonical specifications
+and compiler status belong in `../Zith/docs`; site editorial content belongs
+in this repository's `docs/pages`.
 
 Write practical pages in English, lead with the task a reader wants to
 complete, and mark unsupported or partial features explicitly. Do not turn an

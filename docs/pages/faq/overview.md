@@ -10,14 +10,20 @@ kind: editorial
 
 ## Is Zith stable?
 
-No. Zith and its compiler are under active development, and the specification
-is not a stability guarantee. The neutral [Implementation Status](neutral:reference-implementation-status)
-page distinguishes the language design from current compiler support.
+No. The Zith specification is an experimental language-design document, not a
+stability guarantee. The `zithc` compiler implements the sibling language
+Zith--; [Implementation Status](neutral:reference-implementation-status)
+describes that compiler only and does not report implementation status for
+Zith.
 
 ## Is this a Rust replacement?
 
-No. Zith is an independent language experiment. Compare concrete compiler behavior and ecosystem maturity rather than assuming equivalent safety or tooling guarantees.
+No. Zith and Zith-- are independent language experiments with separate
+contracts. Compare concrete compiler behavior and ecosystem maturity rather
+than assuming equivalent safety or tooling guarantees.
 
 ## Where are game, ECS, and scene docs?
 
-They are not active language-guide sections because they are not established in the current specification and implementation status. This portal documents the language and compiler state that can be sourced canonically.
+This site does not currently publish dedicated guides for those topics. The
+Zith reference documents language design; the implementation-status page
+tracks Zith-- compiler behavior only.

@@ -66,9 +66,20 @@ Function references, parameters with a function type, and calls through those
 values are implemented. They lower to C-compatible function pointers, which
 makes them useful for callbacks and C interop.
 
-Anonymous functions and closures are not implemented in Zith--. They are a
-later language direction. For now, define a named function and pass its
-function value.
+Function literals are also supported without captures:
+
+```zith
+fn apply(operation: fn(i32): i32, value: i32): i32 {
+    operation(value)
+}
+
+fn main(): i32 {
+    apply(fn (value: i32): i32 { value * 2 }, 21)
+}
+```
+
+These literals are plain function values. They cannot refer to locals from an
+enclosing function; capturing closures are outside the Zith-- contract.
 
 ## Function kinds
 

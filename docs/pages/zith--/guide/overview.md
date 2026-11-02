@@ -8,9 +8,10 @@ kind: editorial
 ---
 # Zith-- Language Guide
 
-This guide is the practical entry point to Zith--. The `main` compiler builds
-the subset documented in the [English Zith-- reference](doc:zith-subset-reference).
-The larger language design is separated into the [Zith reference](doc:zith-overview).
+This guide is the practical entry point to Zith--, the language built by the
+`main` compiler and shipped as `zithc`. The [Zith-- reference](doc:zith-subset-reference)
+describes its language contract. Zith has a separate language design in the
+[Zith reference](doc:zith-overview).
 
 ## Learn the working language
 
@@ -32,7 +33,7 @@ and [C Interop](doc:guide-c-interop).
 [Comptime](doc:guide-comptime), [Contexts, Words & Macros](doc:guide-contexts-words-macros),
 [Concurrency](doc:guide-concurrency), and [Raw & Unsafe](doc:guide-raw-unsafe)
 include features with explicit implementation boundaries. Each page separates
-what works in Zith-- from what remains full-Zith design material.
+what works in Zith-- from features that belong to Zith's separate design.
 
 When an example needs a feature that is not implemented, the page links to the
 formal reference instead of presenting that example as runnable code.

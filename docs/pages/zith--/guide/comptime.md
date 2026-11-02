@@ -8,8 +8,9 @@ kind: editorial
 ---
 # Comptime
 
-Zith specifies `const` blocks, compile-time functions, reflection, and type
-transformation. Zith-- does not evaluate arbitrary code at compile time yet.
+The Zith design specifies `const` blocks, compile-time functions, reflection,
+and type transformation. These features are not part of Zith--, which does
+not evaluate arbitrary code at compile time.
 Treat `const` as an immutability keyword, not as a request for compile-time
 evaluation.
 
@@ -26,7 +27,7 @@ fn stride(): u64 {
 }
 ```
 
-`@sizeOf(T)` accepts any complete type and types as `u64`; `@sizeOf(void)` reports `E3001`. `@offsetOf(S, field)` and `@alignOf(S)` are struct-only and type as `i32`.
+`@sizeOf(T)` accepts any complete type and types as `u64`; `@sizeOf(void)` reports `E3001`. `@alignOf(T)` accepts any complete type, including primitives and generic `T`, and types as `i32`. `@offsetOf(S, field)` remains struct-only and also types as `i32`.
 
 ## What `const` means
 
@@ -41,10 +42,10 @@ during compilation. A `const` initializer must use values accepted by the
 current constant-expression rules. Function calls are not constant
 expressions.
 
-## What remains planned
+## Zith's separate comptime design
 
 Comptime evaluation, `const fn`, reflection helpers such as `@appendField`,
 `@removeField`, and `@appendMethod`, and type transformation remain
-specification-only. Read the [Comptime reference](doc:reference-11-comptime)
-for the intended model and [Implementation Status](doc:reference-implementation-status)
-for the current boundary.
+outside the Zith-- contract. Read the [Comptime reference](doc:reference-11-comptime)
+for the Zith design and [Implementation Status](doc:reference-implementation-status)
+for the Zith-- compiler boundary.

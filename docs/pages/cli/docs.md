@@ -8,7 +8,7 @@ kind: editorial
 ---
 # `zithc docs`
 
-Generate documentation from comments attached to Zith declarations.
+Generate documentation from comments attached to Zith-- declarations.
 
 ```bash
 zithc docs src/main.zith

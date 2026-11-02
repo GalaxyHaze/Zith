@@ -11,14 +11,14 @@
     <link rel="icon" type="image/png" href="./media/Logos/logo.png">
     <link rel="apple-touch-icon" sizes="180x180" href="./media/Logos/logo.png">
 
-    <meta name="description" content="Zith is a statically typed, compiled systems programming language with compile-time memory safety through Node Resource Analysis &mdash; no garbage collector, no borrow checker overhead.">
-    <meta name="keywords" content="Zith, systems programming, statically typed, memory safety, NRA, Node Resource Analysis, compile-time ownership, zero-cost abstractions, zithc compiler">
+    <meta name="description" content="Zith is an experimental systems-language design with static ownership through Node Resource Analysis. The current zithc compiler targets its sibling language, Zith--.">
+    <meta name="keywords" content="Zith, Zith--, systems programming, language design, static ownership, Node Resource Analysis, zithc compiler">
     <meta name="author" content="GalaxyHaze">
 
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://zith-lang.org/">
     <meta property="og:title" content="Zith Programming Language &mdash; Systems Programming, Reimagined">
-    <meta property="og:description" content="Statically typed systems language with compile-time memory safety via Node Resource Analysis &mdash; zero runtime overhead, no GC, no borrow checker.">
+    <meta property="og:description" content="Zith is an experimental systems-language design with static ownership through Node Resource Analysis. The current zithc compiler targets its sibling language, Zith--.">
     <meta property="og:site_name" content="Zith Programming Language">
     <meta property="og:locale" content="en_US">
     <meta property="og:image" content="https://zith-lang.org/media/Logos/social-share.png">
@@ -30,7 +30,7 @@
     <meta name="twitter:domain" content="zith-lang.org">
     <meta name="twitter:url" content="https://zith-lang.org/">
     <meta name="twitter:title" content="Zith Programming Language &mdash; Systems Programming, Reimagined">
-    <meta name="twitter:description" content="Statically typed systems language with compile-time memory safety via Node Resource Analysis &mdash; zero runtime overhead.">
+    <meta name="twitter:description" content="Zith is an experimental systems-language design with static ownership through Node Resource Analysis. The current zithc compiler targets its sibling language, Zith--.">
     <meta name="twitter:image" content="https://zith-lang.org/media/Logos/social-share.png">
 
     <link rel="stylesheet" href="./css/fonts.css">
@@ -46,11 +46,11 @@
       "@type": "WebSite",
       "name": "Zith",
       "url": "https://zith-lang.org/",
-      "description": "Official portal for Zith, a statically typed systems programming language with compile-time memory safety via Node Resource Analysis.",
+      "description": "Official portal for Zith and Zith--, sibling systems languages with separate contracts. The current zithc compiler implements Zith--.",
       "about": {
         "@type": "SoftwareSourceCode",
         "name": "Zith Language",
-        "description": "Zith proves memory safety at compile time via Node Resource Analysis. Zero runtime overhead, no garbage collector, no borrow checker.",
+        "description": "The Zith language design specifies static ownership analysis through Node Resource Analysis. The current zithc compiler implements the separate sibling language Zith--.",
         "programmingLanguage": "Zith",
         "applicationCategory": "DeveloperApplication"
       },
@@ -78,32 +78,32 @@
 
     <section class="section container" aria-labelledby="spotlight-title">
         <div class="section-head">
-            <h2 id="spotlight-title">Code Spotlight</h2>
-            <p>Discover Zith's expressive syntax, static ownership model, and direct C interop.</p>
+            <h2 id="spotlight-title">Zith-- Code Spotlight</h2>
+            <p>Explore supported syntax and C interop examples for the language compiled by <code>zithc</code>.</p>
         </div>
         <div class="spotlight-grid" data-code-spotlight="./json/code-spotlight.json"></div>
     </section>
 
     <section class="section container" aria-labelledby="features-title">
         <div class="section-head">
-            <h2 id="features-title">Why Zith?</h2>
-            <p>Engineered for high performance, deterministic lifetimes, and clean systems architecture.</p>
+            <h2 id="features-title">Why Zith and Zith--?</h2>
+            <p>Zith explores deterministic ownership; the current compiler supports its sibling language, Zith--.</p>
         </div>
         <div class="features-grid">
             <article class="feature-card">
                 <svg class="feature-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8.5 12 2.5 2.5L16 9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                <h3>Compile-Time Memory Safety</h3>
-                <p>Node Resource Analysis (NRA) proves pointer lifetimes and resource ownership statically during compilation. Catch use-after-free, double-free, and dangling references before code ever runs.</p>
+                <h3>Zith Ownership Design</h3>
+                <p>Zith specifies Node Resource Analysis (NRA) for static ownership and lifetime proofs. The current <code>zithc</code> compiler implements sibling Zith--, which has a separate, frozen ownership analysis called SRA (Small Resource Analysis).</p>
             </article>
             <article class="feature-card">
                 <svg class="feature-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
-                <h3>Zero Overhead Performance</h3>
-                <p>Direct memory layout, value semantics, and raw pointers when needed. Compiles down to optimized native assembly via an LLVM compiler pipeline with zero runtime GC pauses.</p>
+                <h3>Native Compiler for Zith--</h3>
+                <p>The <code>zithc</code> compiler lowers supported Zith-- programs through LLVM to native code or WebAssembly, with direct memory layout and no garbage collector.</p>
             </article>
             <article class="feature-card">
                 <svg class="feature-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M3 7l9 5 9-5M12 12v10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
-                <h3>Complete Integrated Ecosystem</h3>
-                <p>Built alongside language server tools (<code>zith-lsp</code>), the browser IDE (<strong>Glarea</strong>), an interactive playground, and cross-platform installation scripts.</p>
+                <h3>Language and Tooling Ecosystem</h3>
+                <p>The project develops <code>zithc</code> for Zith-- alongside language server tools (<code>zith-lsp</code>), the browser IDE (<strong>Glarea</strong>), an interactive playground, and cross-platform installation scripts.</p>
             </article>
         </div>
     </section>
@@ -111,7 +111,7 @@
     <section class="section container" id="install" aria-labelledby="install-title">
         <div class="section-head">
             <h2 id="install-title">Quick Installation</h2>
-            <p>Get <code>zithc</code> installed on macOS, Linux, or Windows in one click.</p>
+            <p>Install <code>zithc</code>, the Zith-- compiler, on macOS, Linux, or Windows.</p>
         </div>
         <div class="install-box">
             <div class="install-tabs" id="installTabs">

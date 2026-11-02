@@ -1,30 +1,30 @@
 [
     {
-        "key": "hello",
-        "label": "Hello World",
+        "key": "typed-functions",
+        "label": "Typed Functions (Zith--)",
         "file": "main.zith",
-        "code": "from std/io/console\n\nfn main(){\n    println(\"Hello, Zith!\");\n}",
-        "explanation": "A simple & expressive <strong>Hello World</strong> in Zith."
+        "code": "fn add(left: i32, right: i32): i32 {\n    left + right\n}\n\nfn main(): i32 {\n    add(20, 22) - 42\n}",
+        "explanation": "Zith-- supports statically typed functions with an explicit return type and a final expression as the return value."
     },
     {
-        "key": "nra",
-        "label": "Memory & NRA",
-        "file": "memory-nra.zith",
-        "code": "struct Buffer {\n    data: optional<*u8>,\n    len: usize,\n}\n\nfn processBuffer(buf: view Buffer){\n    println(\"Buffer length: {buf.len}\");\n}\n    \nfn main(){\n    let buf = Buffer { data: null, len: 1024 };\n    processBuffer(view buf); // 'view' borrows safely without moving ownership\n}",
-        "explanation": "<strong>Node Resource Analysis (NRA)</strong> inspects resource graph propagation. Keywords like <code>view</code> and <code>sink</code> define ownership boundaries at compile time."
+        "key": "borrow-view",
+        "label": "lend / view Ownership (Zith--)",
+        "file": "borrow-view.zith",
+        "code": "struct P { x: i32 }\n\nfn bump(p: lend P): i32 { p.x = p.x + 1; p.x }\nfn read(p: view P): i32 { p.x }\n\nfn main(): i32 {\n    var value = P { x: 41 };\n    _ = bump(lend value);\n    _ = read(view value);\n    value.x - 42\n}",
+        "explanation": "Zith-- uses <code>lend</code> and <code>view</code> parameters with explicit call-site annotations for default bindings. This is its own ownership contract, separate from Zith's NRA design."
     },
     {
         "key": "c_interop",
-        "label": "C Interop",
+        "label": "C Interop (Zith--)",
         "file": "c-interop.zith",
-        "code": "import \"stdio.h\"\n\nfn main(){\n    let msg = \"A direct C call!\";\n    raw{\n        printf(msg);\n    }\n}",
-        "explanation": "<strong>Zero headache C Interop</strong> allows importing C headers directly with <code>import \"path\"</code>."
+        "code": "import \"stdio.h\";\n\nfn main(): i32 {\n    _ = printf(\"v=%d\\n\", 42);\n    0\n}",
+        "explanation": "Zith-- can import C declarations from headers and call supported functions directly."
     },
     {
         "key": "pattern",
-        "label": "Pattern Matching",
+        "label": "Pattern Matching (Zith--)",
         "file": "pattern-matching.zith",
-        "code": "enum Status{\n    Ok = 200,\n    Error = 404,\n    Pending = 202\n}\n\nfn handleStatus(status: Status) {\n    when (status){\n        (Status.Ok)  println(\"Success: {status}\"),\n        (Status.Error)  println(\"Error: {status}\"),\n        (Status.Pending)  println(\"Processing...\")   \n    }\n}",
-        "explanation": "Exhaustive pattern matching with <code>when</code> expression inspects tagged unions and enums."
+        "code": "enum Status {\n    Ok = 0,\n    Error = 1,\n}\n\nfn statusCode(status: Status): i32 {\n    when (status) {\n        (Status.Ok) 0,\n        (_) 1\n    }\n}\n\nfn main(): i32 {\n    statusCode(Status.Ok)\n}",
+        "explanation": "The <code>when</code> expression matches enum values. Its wildcard arm handles all remaining cases."
     }
 ]

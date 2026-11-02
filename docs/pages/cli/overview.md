@@ -8,7 +8,11 @@ kind: editorial
 ---
 # CLI Reference
 
-This reference documents the working `zithc` commands recorded in the canonical [Implementation Status](doc:reference-implementation-status). Command options change with the compiler; use `zithc --help` for the executable you installed.
+This reference documents the working `zithc` commands for Zith--, as recorded
+in the canonical [Implementation Status](doc:reference-implementation-status).
+The Zith language reference describes a separate design; it does not define
+these commands. Command options change with the compiler, so use
+`zithc --help` for the executable you installed.
 
 ## Working commands
 
@@ -20,12 +24,13 @@ This reference documents the working `zithc` commands recorded in the canonical 
 - [`zithc clean`](doc:cli-clean)
 - [`zithc execute`](doc:cli-execute)
 - [`zithc test`](doc:cli-test)
-- [`zithc deps list`](doc:cli-deps)
+- [`zithc deps`](doc:cli-deps) (`list`, `add`, `remove`, `resolve`)
 - [`zithc docs`](doc:cli-docs)
+- `zithc completion <shell>` (bash, zsh, fish)
 
 ## Stubs
 
-`zithc repl`, `zithc deps add`, and `zithc deps remove` print "not implemented yet" and are intentionally not documented as active workflows.
+`zithc repl` is a stub and prints "not implemented yet".
 
 ## Common options
 

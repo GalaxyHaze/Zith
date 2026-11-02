@@ -8,16 +8,23 @@ kind: editorial
 ---
 # Zith-- Overview
 
-Zith-- is the language subset built by the `main` compiler and shipped through
-`zithc`. Use this section when you want to write a program that the current
-compiler can check, lower, and, when LLVM is available, build.
+Zith-- is a statically typed systems language with its own specification and
+language contract. It is a sibling of Zith, not a subset or an implementation
+stage of that language. The `main` compiler builds Zith-- and ships as
+`zithc`. Use this section to write programs supported by the current compiler.
+
+Zith-- is in beta: its current language surface is near-complete and its
+behavior is intended to remain stable. Planned work focuses on additive
+language and standard-library extensions. See
+[Implementation Status](doc:reference-implementation-status) for verified
+compiler behavior and known restrictions.
 
 ## What works today
 
-The working subset includes:
+The implemented language includes:
 
-- typed functions, structs, enums, unions, arrays, slices, pointers, and
-  optionals;
+- typed functions and no-capture function literals; structs, enums, unions,
+  arrays, slices, pointers, and optionals;
 - `let`, `var`, and `const` bindings;
 - `if`, `for`, `when`, `defer`, and state-machine control flow;
 - modules, aliases, visibility, generic functions and types;
@@ -29,20 +36,19 @@ The working subset includes:
   execution.
 
 The [Implementation Status](doc:reference-implementation-status) page is the
-source of truth when a feature has a partial implementation or a known
-restriction.
+source of truth when a feature has partial support or a known restriction.
 
-## What is different from full Zith
+## Separate language contracts
 
-The larger Zith specification describes features that are not all available
-in Zith--. Comptime evaluation, the complete NRA ownership proof, contexts,
-words, tag macros, the full `unsafe` hierarchy, and the broader error model
-remain outside the current subset.
+Zith has a separate language-design specification. Its comptime evaluation,
+NRA ownership model, contexts, words, tag items, `unsafe` hierarchy, and error
+model do not define Zith-- behavior. Their presence in the Zith reference does
+not mean they are planned for Zith--.
 
 The compiler reports unsupported syntax instead of silently accepting a
 feature with different semantics. Read the [Zith reference](doc:zith-overview)
-when you need the intended design, and return here before using it in a
-program.
+for the Zith design, and use this section and [Implementation
+Status](doc:reference-implementation-status) for the behavior of Zith--.
 
 ## A small program
 
@@ -64,4 +70,4 @@ fn main(): i32 {
 ```
 
 Continue with the [Zith-- Language Guide](doc:guide-overview), or use the
-[English Zith-- reference](doc:zith-subset-reference) for the subset contract.
+[English Zith-- reference](doc:zith-subset-reference) for the language contract.

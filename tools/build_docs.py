@@ -10,7 +10,7 @@ URL scheme:
     docs/<neutral-page>.html           neutral / general docs
     docs/zith--/guide/<page>.html      Zith-- language guide
     docs/zith--/reference/<page>.html  Zith-- reference
-    docs/zith/reference/<page>.html    full Zith specification
+    docs/zith/reference/<page>.html    Zith language specification
 """
 
 from __future__ import annotations
@@ -452,7 +452,7 @@ def build_tree() -> list[dict]:
                 nav_item("Language Reference",
                          "reference-specification",
                          [nav_item(title, page_id) for title, page_id in zith_reference]),
-            ], description="Full language design and specification."),
+            ], description="Zith language design and specification; separate from the Zith-- compiler contract."),
             nav_item("Zith--", "zith-subset-overview", [
                 nav_item("Overview", "zith-subset-overview"),
                 nav_item("First Program", "getting-started-quick-start"),
@@ -460,7 +460,7 @@ def build_tree() -> list[dict]:
                          [nav_item(title, page_id) for title, page_id in guide]),
                 nav_item("Reference", "zith-subset-reference"),
                 nav_item("FAQ", "zith-subset-faq"),
-            ], description="Implemented subset of Zith supported by zithc today."),
+            ], description="Zith-- language and compiler contract currently supported by zithc."),
         ],
     }]
 
@@ -556,13 +556,24 @@ def alias_html(alias: str, target: str) -> str:
     )
 
 
-def status_notice() -> str:
-    return (
-        '<div class="callout callout-warning"><p><strong>Draft / Experimental:</strong> '
-        'Zith documentation describes a language under active development. Check '
+def status_notice(language: str) -> str:
+    status_link = (
         '<a href="./?page=reference/D-implementation-status.html" '
-        'data-docs-route="neutral">Implementation Status</a> before relying on a feature.</p></div>'
+        'data-docs-route="neutral">Implementation Status</a>'
     )
+    if language == "zith":
+        message = (
+            "<strong>Language design:</strong> This page describes Zith's "
+            "experimental language design, not the behavior of <code>zithc</code>. "
+            f"{status_link} reports compiler support for sibling Zith-- only."
+        )
+    else:
+        message = (
+            "<strong>Beta:</strong> Zith-- is a sibling language to Zith with its "
+            "own language contract. See "
+            f"{status_link} for compiler support and known restrictions."
+        )
+    return f'<div class="callout callout-warning"><p>{message}</p></div>'
 
 
 def expected_files(
@@ -581,8 +592,10 @@ def expected_files(
     files: dict[Path, str] = {}
     for page in pages:
         fragment = markdown_html(page, outputs, source_map)
-        if page.output.startswith(("zith/", "zith--/")):
-            fragment = status_notice() + "\n" + fragment
+        if page.output.startswith("zith/"):
+            fragment = status_notice("zith") + "\n" + fragment
+        elif page.output.startswith("zith--/"):
+            fragment = status_notice("zith--") + "\n" + fragment
         files[OUTPUT / page.output] = fragment
     aliases = legacy_aliases(pages)
     for alias, target in aliases.items():

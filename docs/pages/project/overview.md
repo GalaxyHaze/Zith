@@ -8,7 +8,10 @@ kind: editorial
 ---
 # Project
 
-Zith is developed alongside its compiler and specification. The language remains experimental, and implementation progress is tracked in [Implementation Status](doc:reference-implementation-status).
+Zith and Zith-- are sibling languages with separate contracts. Zith has a
+language-design specification; the `zithc` compiler implements Zith--.
+[Implementation Status](doc:reference-implementation-status) tracks Zith--
+compiler behavior only and makes no claim about a Zith implementation.
 
 ## Contributing to documentation
 

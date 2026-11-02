@@ -15,4 +15,4 @@ zithc check
 zithc check src/main.zith
 ```
 
-This is the fastest command to run after changing source code. A successful check only covers features implemented by the current compiler; see [Implementation Status](doc:reference-implementation-status).
+This is the fastest command to run after changing Zith-- source code. A successful check covers only the Zith-- features implemented by the current compiler; see [Implementation Status](doc:reference-implementation-status).

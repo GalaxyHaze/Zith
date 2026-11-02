@@ -11,8 +11,8 @@ kind: editorial
 `raw` makes one unchecked operation explicit. Use it at a small, audited
 boundary where the program has a guarantee that the compiler cannot prove.
 The current compiler implements several `raw` expressions and `raw fn`.
-The larger `unsafe` hierarchy belongs to full Zith and is not available as a
-general Zith-- programming model.
+Zith defines a separate `unsafe` hierarchy; it is not part of the Zith--
+programming model.
 
 ## Extract an optional value
 
@@ -144,5 +144,5 @@ condition can be expressed normally. If the guarantee cannot be written down
 in a comment or test, the operation is not ready to become raw.
 
 `unsafe` blocks, raw unions, and the `Trust` capability are described in the
-[full Raw & Unsafe reference](doc:reference-13-raw-unsafe). They are design
-material outside the current Zith-- subset.
+[Raw & Unsafe reference](doc:reference-13-raw-unsafe). They belong to Zith's
+design and are outside the Zith-- language contract.

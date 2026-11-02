@@ -8,14 +8,15 @@ kind: editorial
 ---
 # Introduction
 
-Zith is a statically typed, compiled systems language under active development.
-Its complete design is documented as **Zith**; the currently supported subset
-is documented as **Zith--**.
+Zith and Zith-- are statically typed systems languages with separate language
+contracts. **Zith** is documented by its language-design specification;
+**Zith--** is the language currently compiled by `zithc`.
 
-The [Zith documentation](route:zith) explains the full language and its
-specification. The [Zith-- documentation](route:zith--) is for people writing
-programs supported by `zithc`.
+The [Zith documentation](route:zith) explains the Zith language design. The
+[Zith-- documentation](route:zith--) is for people writing programs supported
+by `zithc`.
 
 General topics such as installation, command-line usage, and the relationship
-between the two language layers live here. See [Implementation Status](neutral:reference-implementation-status)
-for the current boundary between design and compiler support.
+between the languages live here. [Implementation Status](neutral:reference-implementation-status)
+describes compiler support for Zith-- only; it makes no claim about a Zith
+implementation.

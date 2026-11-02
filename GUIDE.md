@@ -63,8 +63,9 @@ inner HTML of a page, with no `<html>`, `<head>`, or `<body>`. The shell
 (`docs/D-home.html`) loads them with `fetch()` when you click a sidebar link.
 
 The build creates three entry routes from that shared shell: `/docs/` is the
-neutral comparison of Zith and Zith--, `/docs/zith/` opens the full Zith
-documentation, and `/docs/zith--/` opens the implemented-subset documentation.
+neutral overview of Zith and Zith--, `/docs/zith/` opens the Zith language
+design documentation, and `/docs/zith--/` opens the language and compiler
+documentation for Zith--.
 The previous `/docs/D-home.html` URL remains available.
 
 ### Write a page

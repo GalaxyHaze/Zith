@@ -8,10 +8,10 @@ kind: editorial
 ---
 # Memory Model
 
-The language separates ordinary values from references into existing storage.
-The full Zith design uses Node Resource Analysis (NRA) and the qualifiers
-`mut`, `lend`, `view`, `unique`, `share`, and `belong`. Zith-- currently
-implements the smaller `lend`/`view` slice.
+Zith and Zith-- define different memory and ownership contracts. The Zith
+design uses Node Resource Analysis (NRA) and the qualifiers `mut`, `lend`,
+`view`, `unique`, `share`, and `belong`. Zith-- has its own contract and
+currently supports `lend` and `view` parameters with call-site annotations.
 
 ## Borrowing with `lend` and `view`
 
@@ -84,17 +84,17 @@ access. LLVM emits `nocapture` for borrows and `readonly` for views.
 
 ## What is missing
 
-The alive/dead/lent state machine and the rest of the ownership diagnostics
-(`E4002` borrow conflict and `E4003` double borrow) are not implemented.
-`E4001` is emitted for logical receiver moves after calls that consume a method
-receiver. `unique`, `share`, `belong`, and `mut` are rejected with `E2010` in
-this subset.
+Zith-- does not implement Zith's full alive/dead/lent ownership proof
+state machine. Its smaller SRA does check local borrow conflicts (`E4002`)
+and double borrows (`E4003`). `E4001` is emitted for logical receiver moves
+after calls that consume a method receiver. `unique`, `share`, `belong`, and
+`mut` are rejected with `E2010` in Zith--.
 
 The ownership pipeline boundary is in place. The stable order is
 `sema -> comptime/solve -> NTA/SRA -> HIR`. Semantic facts are accumulated and
 consumed before final lowering, and residual ownership facts attach to side
 tables instead of introducing ownership nodes into HIR.
 
-Read the [Memory Model reference](doc:reference-07-memory-model) for the full
+Read the [Memory Model reference](doc:reference-07-memory-model) for the Zith
 design and [Implementation Status](doc:reference-implementation-status) for
-the current boundary.
+the Zith-- compiler behavior. The Zith model is not a roadmap for Zith--.

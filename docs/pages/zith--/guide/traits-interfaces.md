@@ -45,7 +45,9 @@ fn show<T: Printable>(value: T) {
 vtable. Interface fields are available for conformance and generic bounds, but
 they are not exposed through a `dyn Interface` value.
 
-The current subset supports declarations, conformance, generic bounds, and
-method dispatch. Capability semantics and some advanced full-Zith forms remain
-outside Zith--. Consult [Implementation Status](doc:reference-implementation-status)
-and the [Traits & Interfaces reference](doc:reference-04-traits-interfaces).
+Zith-- supports declarations, conformance, generic bounds, and method
+dispatch. Capability semantics and other features in the separate Zith design
+are not part of the Zith-- contract. The [Traits & Interfaces
+reference](doc:reference-04-traits-interfaces) describes that Zith design;
+consult [Implementation Status](doc:reference-implementation-status) for
+Zith-- compiler support.

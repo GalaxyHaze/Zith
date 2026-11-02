@@ -9,17 +9,19 @@ kind: editorial
 # Why Zith
 
 Zith explores a systems-language design that combines a small everyday core
-with explicit tools for domain-specific work. The working compiler already
-gives you typed functions, algebraic data types, modules, traits, C interop,
-generic instantiation, and LLVM or WebAssembly lowering.
+with explicit tools for domain-specific work. The sibling language Zith-- is
+implemented by `zithc`, which supports typed functions, algebraic data types,
+modules, traits, C interop, generic instantiation, and LLVM or WebAssembly
+lowering. These compiler capabilities do not establish an implementation
+status for Zith.
 
-## Why the split matters
+## Why the distinction matters
 
-Zith keeps the language design ahead of the compiler without pretending that
-planned features are already stable. The [Zith-- documentation](doc:zith-subset-overview)
-teaches the subset that `zithc` can compile today. The [Zith reference](doc:zith-overview)
-describes the larger language model. [Implementation Status](doc:reference-implementation-status)
-records the boundary feature by feature.
+Zith and Zith-- have separate language contracts. The [Zith-- documentation](doc:zith-subset-overview)
+covers the language compiled by `zithc`; the [Zith reference](doc:zith-overview)
+covers the Zith language design. The [Implementation Status](doc:reference-implementation-status)
+page records compiler support for Zith-- and does not define a roadmap between
+the languages.
 
 ## A practical starting point
 
@@ -32,5 +34,5 @@ Use Zith-- when you want to write programs with the current compiler:
 - a compiler pipeline that can target native code or WebAssembly.
 
 Start with the [First Program](doc:getting-started-quick-start) and the
-[Zith-- Language Guide](doc:guide-overview). Read the full Zith specification
-when you need to understand a feature that the current subset does not expose.
+[Zith-- Language Guide](doc:guide-overview). Read the Zith reference to study
+Zith's design; its features do not automatically apply to Zith--.

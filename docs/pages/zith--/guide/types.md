@@ -8,7 +8,7 @@ kind: editorial
 ---
 # Types
 
-Zith has signed and unsigned integer types (`i8`-`i128`, `u8`-`u128`), floating-point types (`f32`, `f64`), `bool`, and `char`. Structs, components, enums, and unions are working core declarations. Arithmetic requires matching widths; there is no implicit promotion.
+Zith-- has signed and unsigned integer types (`i8`-`i128`, `u8`-`u128`), floating-point types (`f32`, `f64`), `bool`, and `char`. Structs, components, enums, and unions are working core declarations. Arithmetic requires matching widths; there is no implicit promotion.
 
 ```zith
 struct Point {
@@ -35,8 +35,8 @@ integer position.
 
 ## Packs, the tuple-like type
 
-Zith calls its tuple-like aggregate a **pack**. A pack can hold values with
-different types and preserves their order:
+In Zith--, a tuple-like aggregate is called a **pack**. It can hold values
+with different types and preserves their order:
 
 ```zith
 let point = | 10, 20, 'x' |;
@@ -82,11 +82,14 @@ fn restore(handle: raw opaque): *i32 {
 }
 ```
 
-Pointers imported from C headers arrive as `?*T` and are checked with `is null`. Flow-sensitive narrowing does not exist yet, so a `?*T` is still accepted unchecked where a `*T` is expected; check it anyway.
+Pointers imported from C headers arrive as `?*T`. An early-return guard using
+`is null` narrows a local optional pointer before dereferencing it. Proof is
+local: derived expressions and cross-function checks are not tracked, and an
+unchecked nullable pointer where `*T` is required reports `E3005`.
 
 ## Memory qualifiers
 
-The subset enforces `lend` and `view`. They lower to pointer parameters and need explicit `lend x`/`view x` call annotations for `default` bindings; writing through `view` reports `E4004`. `mut`, `unique`, `share`, and `belong` are rejected with `E2010`.
+Zith-- enforces `lend` and `view`. They lower to pointer parameters and need explicit `lend x`/`view x` call annotations for `default` bindings; writing through `view` reports `E4004`. `mut`, `unique`, `share`, and `belong` are rejected with `E2010`.
 
 ```zith
 fn peek(value: view i32): i32 {
@@ -94,10 +97,16 @@ fn peek(value: view i32): i32 {
 }
 ```
 
-Layout builtins work in expression position: `@sizeOf(T)` types as `u64` for any complete type, and `@offsetOf(S, field)` and `@alignOf(S)` are struct-only and type as `i32`.
+Layout builtins work in expression position: `@sizeOf(T)` types as `u64` and
+`@alignOf(T)` as `i32` for any complete type. `@offsetOf(S, field)` is
+struct-only and types as `i32`.
 
 ## Dynamic dispatch
 
 `dyn Trait` and `dyn Interface` are implemented for method dispatch. A concrete value coerces to a fat pointer with a per-type vtable, and method calls through the value dispatch dynamically. Interface fields are used for conformance and are still readable on concrete types or generic bounds, but not through a `dyn Interface` value.
 
-Start with explicit annotations when learning. The [Type System reference](doc:reference-03-type-system) defines generic types, unions, and the experimental narrowing rules; [Implementation Status](doc:reference-implementation-status) records what compiles today.
+Start with explicit annotations when learning. The [Type System reference](doc:reference-03-type-system)
+describes Zith's type design and preserves some legacy Zith-- spellings in its
+examples. The [Zith-- reference](doc:zith-subset-reference) defines this
+language's contract; [Implementation Status](doc:reference-implementation-status)
+records compiler support.

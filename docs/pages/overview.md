@@ -8,21 +8,22 @@ kind: editorial
 ---
 # Documentation
 
-Zith has two closely related language layers. **Zith** is the complete
-language design and specification. **Zith--** is the subset currently
-supported by `zithc`.
+Zith and Zith-- are sibling systems languages with separate specifications and
+language contracts. **Zith** is documented by its language-design reference.
+**Zith--** is the language currently implemented by the `zithc` compiler.
 
 ## Choose a language
 
-[Zith](route:zith) documents the complete design, including features that
-may not yet be implemented.
+[Zith](route:zith) documents the Zith language design. It does not describe
+the behavior of `zithc`, and it is not a roadmap for Zith--.
 
-[Zith--](route:zith--) is the practical documentation for writing programs
-with the current compiler.
+[Zith--](route:zith--) documents the language and compiler contract you can
+use with `zithc` today.
 
 ## How they relate
 
-Zith describes the intended language; Zith-- describes the implemented
-subset. A feature in the Zith specification is not necessarily usable in a
-Zith-- program. This neutral documentation also covers [installation](doc:getting-started-installation),
-the [CLI](doc:cli-overview), and [implementation status](neutral:reference-implementation-status).
+The languages are related projects, not stages of one language. A feature in
+the Zith reference is not automatically part of Zith--, and Zith-- compiler
+status says nothing about whether Zith itself is implemented. This neutral
+documentation also covers [installation](doc:getting-started-installation),
+the [CLI](doc:cli-overview), and [Zith-- implementation status](neutral:reference-implementation-status).

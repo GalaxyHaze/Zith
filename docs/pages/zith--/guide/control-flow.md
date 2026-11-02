@@ -34,7 +34,7 @@ fn sum(n: i32): i32 {
 }
 ```
 
-`while` still compiles, but it emits the deprecation warning `W1008` telling you to write `for (cond) { }` instead. The iterator form `for (x in xs)` is implemented through a duck-typed `next(self)` method returning a tagged union with two members: the element value and the canonical `End` marker.
+`while` still compiles, but it emits the deprecation warning `W1008` telling you to write `for (cond) { }` instead. The iterator form `for (x in xs)` uses a duck-typed `next(self): ?T` method: return `null` to end iteration and a payload for each element. The legacy tagged-union `{ T, End }` result remains accepted during migration.
 
 ## Pattern matching
 
@@ -54,4 +54,4 @@ fn classify(x: i32): i32 {
 
 ## State machines and cleanup
 
-`state`, `dock`, and `jump` are the implemented state-machine form. `state Name(params): ReturnType` declares a state, `dock Name(args)` starts one as an expression, and `jump Next(args)` is a terminating direct transfer. The old `flow fn`, `marker`, and `dock { ... }` block syntax is rejected. `defer expr;` and `defer { ... }` also work as reverse-order lexical cleanup. Consult the [Control Flow reference](doc:reference-09-control-flow) for the semantics and [Implementation Status](doc:reference-implementation-status) for the current boundary.
+`state`, `dock`, and `jump` are the implemented state-machine form. `state Name(params): ReturnType` declares a state, `dock Name(args)` starts one as an expression, and `jump Next(args)` is a terminating direct transfer. The old `flow fn`, `marker`, and `dock { ... }` block syntax is rejected. `defer expr;` and `defer { ... }` also work as reverse-order lexical cleanup. The [Control Flow reference](doc:reference-09-control-flow) describes Zith's separate design; consult [Implementation Status](doc:reference-implementation-status) for the Zith-- compiler boundary.

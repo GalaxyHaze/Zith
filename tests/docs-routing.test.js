@@ -169,6 +169,14 @@ test("the static build emits an index shell for each docs route", () => {
         assert.match(landing, /data-docs-route="zith"/);
         assert.match(landing, /data-docs-route="zith--"/);
         assert.match(landing, /data-docs-route="neutral"/);
+        const zithMinusMinusOverview = fs.readFileSync(
+            path.join(output, "docs/zith--/D-overview.html"),
+            "utf8"
+        );
+        assert.match(
+            zithMinusMinusOverview,
+            /sibling of Zith, not a subset or an implementation stage/
+        );
         const tree = JSON.parse(fs.readFileSync(path.join(output, "json/tree.json"), "utf8"));
         assert.equal(tree.version, 5);
         assert.equal(
@@ -180,6 +188,16 @@ test("the static build emits an index shell for each docs route", () => {
         assert.ok(neutralTitles.includes("CLI Reference"));
         assert.ok(neutralTitles.includes("Zith"));
         assert.ok(neutralTitles.includes("Zith--"));
+        const zithSection = tree.navigation[0].children.find(item => item.title === "Zith");
+        const zithMinusMinusSection = tree.navigation[0].children.find(
+            item => item.title === "Zith--"
+        );
+        assert.match(zithSection.description, /Zith language design and specification/);
+        assert.match(
+            zithMinusMinusSection.description,
+            /Zith-- language and compiler contract/
+        );
+        assert.doesNotMatch(zithMinusMinusSection.description, /subset of Zith/i);
         const scopedNeutralTitles = filterDocsNavigation(tree.navigation, "neutral")[0]
             .children.map(item => item.title);
         assert.ok(scopedNeutralTitles.includes("Implementation Status"));
@@ -200,7 +218,19 @@ test("the static build emits an index shell for each docs route", () => {
             path.join(output, "docs/reference/D-implementation-status.html"),
             "utf8"
         );
-        assert.match(status, /Zith Implementation Status/);
+        assert.match(status, /Zith-- Implementation Status/);
+        const zithSpec = fs.readFileSync(
+            path.join(output, "docs/zith/reference/D-specification.html"),
+            "utf8"
+        );
+        assert.match(zithSpec, /experimental language design, not the behavior of <code>zithc<\/code>/);
+        assert.match(zithSpec, /reports compiler support for sibling Zith-- only/);
+        const zithMinusMinus = fs.readFileSync(
+            path.join(output, "docs/zith--/reference/D-zith-subset.html"),
+            "utf8"
+        );
+        assert.match(zithMinusMinus, /<strong>Beta:<\/strong> Zith-- is a sibling language to Zith/);
+        assert.match(zithMinusMinus, /for compiler support and known restrictions/);
     } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
     }

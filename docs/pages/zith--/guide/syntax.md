@@ -47,4 +47,7 @@ fn radix(): i32 {
 }
 ```
 
-Write a declaration before its use, and keep the first programs within the working core. See [Functions](doc:guide-functions) and the formal [Function reference](doc:reference-05-functions).
+Write a declaration before its use, and keep the first programs within the
+working Zith-- core. See [Functions](doc:guide-functions) for compiler
+behavior and the [Function reference](doc:reference-05-functions) for Zith's
+separate function design.

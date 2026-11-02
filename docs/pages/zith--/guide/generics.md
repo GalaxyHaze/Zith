@@ -51,5 +51,8 @@ Generic declarations are monomorphized before HIR. This means the compiler
 checks each instantiated body and can lower it without a general-purpose
 runtime generic representation.
 
-The complete syntax is in the [Type System reference](doc:reference-03-type-system);
-the boundary is in [Implementation Status](doc:reference-implementation-status).
+This guide describes the working Zith-- generic syntax. The [Type System
+reference](doc:reference-03-type-system) describes Zith's separate type
+design; consult the [Zith-- reference](doc:zith-subset-reference) for its
+language contract and [Implementation Status](doc:reference-implementation-status)
+for compiler support.

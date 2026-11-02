@@ -8,8 +8,9 @@ kind: editorial
 ---
 # Contexts, Words & Macros
 
-Normal macros and `raw macro` are the metaprogramming features available in
-Zith--. Contexts, words, and tag macros belong to the full Zith design.
+Normal macros and `raw macro` are the macro forms available in Zith--. Zith
+defines a separate design for contexts, words, and tag items; these are not
+part of the Zith-- language contract.
 
 ## Macros
 
@@ -47,7 +48,7 @@ normal hygiene boundary.
 
 ## Tag macros
 
-A `tag macro` is invoked with an HTML-like statement form. It takes a `body` parameter and, optionally, the special `attributes` parameter, which exposes named attributes as `attributes.name`. The declaration itself is reported with `E2010` in `Zith--`, so the form is still useful only as future specification material here.
+A `tag macro` is invoked with an HTML-like statement form. It takes a `body` parameter and, optionally, the special `attributes` parameter, which exposes named attributes as `attributes.name`. The declaration itself is reported with `E2010` in `Zith--`; this syntax is not part of the Zith-- contract.
 
 ```zith
 tag macro RunTwice(attributes, body: body) {
@@ -71,4 +72,4 @@ The parser still recognises tag macros as statement-position only, with dedicate
 
 `context` blocks, `use` statements, and the `prefix`, `suffix`, `infix`, and `nop` word declarations are accepted as declarations and then skipped entirely: the body is consumed without semantics. Word call and word sequence expressions have no parser support.
 
-Read the [Contexts](doc:reference-17-contexts), [Words](doc:reference-16-words), and [Macros](doc:reference-15-macros) reference chapters for the intended design, and [Implementation Status](doc:reference-implementation-status) for the boundary.
+Read the [Contexts](doc:reference-17-contexts), [Words](doc:reference-16-words), and [Macros](doc:reference-15-macros) chapters for the separate Zith design, and [Implementation Status](doc:reference-implementation-status) for the Zith-- compiler boundary.

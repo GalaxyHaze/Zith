@@ -8,8 +8,8 @@ kind: editorial
 ---
 # Optional Values and Errors
 
-Optional (`?T`) types are a working declared type. `null` coerces to `?T`, a
-plain `T` coerces to `?T`, and the postfix `?` operator propagates an optional
+Optional (`?T`) types are a working declared type. `null` and plain `T` values
+coerce to `?T`, and the postfix `?` operator propagates an optional
 operand inside a function that itself returns an optional. Failable `T!` types
 are not part of Zith--.
 
@@ -20,11 +20,15 @@ fn halve(value: ?i32): ?i32 {
 }
 ```
 
-The recovery vocabulary around those types is not implemented. `fail`, `with`, `catch`, `must`, and `throw` remain specification-only. Keep examples to optionals and explicit branching until error values land.
+The recovery vocabulary around those types is not implemented in Zith--.
+`fail`, `with`, `catch`, and `throw` belong to Zith's separate error model;
+their presence there does not make them planned Zith-- features. Zith--
+supports `must value` to extract an optional payload, panicking if it is
+`null`. Keep examples to optionals and explicit branching.
 
-`as` is a real cast that lowers to an LLVM conversion, covering numeric pairs and `raw opaque` <-> `*T`; other conversions are rejected and there is no narrowing overflow check. `is null` requires an optional operand, and `is Type` is implemented for tagged-union members and `opaque`. Flow-sensitive narrowing after an `is null` check on `?*T` does not exist yet, so `E3005` is reported where non-null pointer proof is required.
+`as` is a real cast that lowers to an LLVM conversion, covering numeric pairs and `raw opaque` <-> `*T`; other conversions are rejected and there is no narrowing overflow check. `is null` requires an optional operand, and `is Type` is implemented for tagged-union members and `opaque`. An early-return `is null` guard narrows a local `?*T` or optional aggregate, including `?S`, `?pack`, and `?i32`. Proof for derived expressions and across function boundaries is not tracked; without a local proof, `E3005` reports an unproven nullable use.
 
-The planned rules are in the [Error Handling reference](doc:reference-08-error-handling); the current boundary is in [Implementation Status](doc:reference-implementation-status).
+The Zith error model is described in the [Error Handling reference](doc:reference-08-error-handling); current Zith-- compiler behavior is in [Implementation Status](doc:reference-implementation-status).
 
 ## Check before extracting
 
@@ -43,10 +47,8 @@ fn portOrDefault(port: ?i32): i32 {
 Use `raw value` only when another invariant proves that the optional contains
 a value. It skips the normal check and is documented in [Raw & Unsafe](doc:guide-raw-unsafe).
 
-## What is planned
+## Zith's separate error model
 
-The full Zith error model includes failable values, propagation, recovery, and
-explicit failure. Zith-- currently accepts some of the syntax and types but
-does not provide the complete `fail`/`with`/`catch`/`must`/`throw` workflow.
-Do not write examples that depend on those forms unless you are reading the
-full reference.
+Zith specifies failable values, propagation, recovery, and explicit failure.
+These are Zith language features, not an incomplete Zith-- workflow. Do not
+use examples from the Zith reference as Zith-- programs.

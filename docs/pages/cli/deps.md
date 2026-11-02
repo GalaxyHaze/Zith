@@ -8,12 +8,17 @@ kind: editorial
 ---
 # `zithc deps`
 
-Inspect the dependencies declared in `ZithProject.toml`.
+Manage the local dependencies declared in `ZithProject.toml`.
 
 ```bash
 zithc deps list
+zithc deps add <name> <relative-path>
+zithc deps remove <name>
+zithc deps resolve
 ```
 
-`list` is the implemented subcommand; it reads the project manifest and prints the declared dependencies. Running it outside a project reports that `ZithProject.toml` was not found.
-
-`deps add` and `deps remove` are stubs that print "not implemented yet". Edit `ZithProject.toml` directly until they land.
+`list` reads the project manifest. `add` and `remove` change local path
+dependency declarations; resolution is explicit. `resolve` walks the
+transitive local dependency graph and writes a deterministic `Zith.lock`.
+Project `check`, `build`, and `run` require a lockfile that matches the
+manifest.

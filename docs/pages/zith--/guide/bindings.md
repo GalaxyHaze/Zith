@@ -8,7 +8,12 @@ kind: editorial
 ---
 # Bindings
 
-Use `let` for an immutable binding and `var` when the binding will be reassigned. `const` is for an immutable global or local value in `Zith--`; `global` is not supported and reports an error suggesting `const`.
+Use `let` for an immutable binding and `var` when the binding will be reassigned.
+`const` declares immutable global or local values in the Zith-- contract.
+`global name: T = value` is specified as rejected with an `E2010` suggestion
+to use `const`. The imported implementation-status table currently lists a
+`global` binding form as working, which conflicts with the specification and
+implementation notes; use `const` as the canonical spelling.
 
 ```zith
 let answer: i32 = 42;
@@ -22,7 +27,7 @@ Parameters are immutable by default. `var p: T` makes a parameter mutable; `var 
 
 ## Destructure a pack
 
-Packs are Zith's tuple-like aggregates. Use `| ... |` to create one and
+In Zith--, packs are tuple-like aggregates. Use `| ... |` to create one and
 `[ ... ]` to bind its members by position:
 
 ```zith
@@ -34,4 +39,5 @@ The pattern must match the pack's member count. Use `pack[index]` when one
 position is needed without binding the others. The index must be a compile-time
 integer.
 
-Destructuring and the full mutability model are specified in the [Bindings reference](doc:reference-06-mutability-bindings).
+Destructuring is part of the Zith-- contract. The [Bindings reference](doc:reference-06-mutability-bindings)
+describes Zith's separate, deeper mutability design.
