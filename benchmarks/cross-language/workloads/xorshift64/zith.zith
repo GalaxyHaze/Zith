@@ -1,0 +1,16 @@
+fn main(): i32 {
+    const iterations: u64 = @@ITERATIONS@@u64;
+    const expected: u64 = @@EXPECTED@@u64;
+    var rng: u64 = 88172645463325252u64;
+
+    for (var i: u64 = 0u64), (i < iterations), (i = i + 1u64) {
+        rng = rng xor (rng << 13u64);
+        rng = rng xor (rng >> 7u64);
+        rng = rng xor (rng << 17u64);
+    }
+
+    if (rng == expected) {
+        return 0;
+    }
+    return 1;
+}

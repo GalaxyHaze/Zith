@@ -1,0 +1,34 @@
+[1]
+task: cross-language::suite
+status: done
+desc: Add reproducible scalar runtime workloads for Zith--, C, and Rust with a small Python runner.
+impl:
+  - Add matching xorshift64 and divisible-by-7-or-11 loop sources under workloads/, one .zith, .c, and .rs file per workload.
+  - Use @@ITERATIONS@@ and @@EXPECTED@@ source markers so the runner can choose a workload size and inject its independently computed expected result.
+  - Add run.py using only the Python standard library. Compile with cc -std=c17 -O3, rustc --edition=2024 -C opt-level=3, and zithc build --mode release --opt-level 3 --no-cache.
+  - Resolve the Zith compiler from --zithc, then ./build/zithc when present, otherwise PATH. Resolve C and Rust from CC and RUSTC, defaulting to cc and rustc.
+  - Require all three compilers; fail with a clear message instead of silently skipping a language.
+  - Compute full expected u64 results in Python, inject them into source, and require each executable to return zero before accepting any timing.
+  - Run one warmup per language and workload by default, then collect seven wall-clock process samples per language and workload; allow iterations, warmups, repeats, benchmark selection, and JSON output to be configured on the CLI.
+  - Report medians and raw samples. Record platform, architecture, CPU count, UTC timestamp, compiler version strings, iteration count, warmups, repeats, and expected results in JSON.
+  - Compile each executable once in a temporary directory. Time only executable launches, not compilation; document that process startup is included.
+  - Add README.md with scope, compiler flags, caveats, the smoke command, and the baseline command. Do not integrate this suite with CMake because ZITH_BUILD_BENCHMARKS currently fails when enabled due to removed lexer benchmark sources.
+tests:
+  | id | dado | quando | então |
+  | S-1 | GCC-compatible cc, rustc, build/zithc disponíveis | correr o runner com 1000 iterações, zero aquecimentos e uma repetição | os seis executáveis compilam, validam o checksum completo e o comando termina com código zero |
+  | S-2 | fonte com marcador ou checksum inválido | compilar ou executar um benchmark | o runner termina com erro e identifica linguagem e workload |
+  | S-3 | saída JSON solicitada | executar o runner de smoke com --json-out | JSON contém metadados e seis medições com uma amostra cada |
+
+[2]
+task: cross-language::baseline
+status: done
+desc: Capture and retain one explicitly machine-specific baseline after the suite passes its smoke run.
+impl:
+  - Run the committed runner from the repository root with 50000000 iterations, two warmups, seven repetitions, and JSON output at benchmarks/cross-language/baseline.json.
+  - Execute the run through agent-run with a 900-second timeout and no CPU cap so the comparative measurements are not throttled by the safety wrapper.
+  - Inspect the generated JSON and confirm it records all three compiler versions, six workload-language result groups, seven positive samples per group, and positive medians.
+  - Keep the JSON as a dated environment snapshot, not a performance promise. Do not normalize or hand-edit measured values.
+tests:
+  | id | dado | quando | então |
+  | B-1 | suíte passou no teste S-1 | executar a configuração de baseline descrita acima | baseline.json contém seis grupos, cada um com sete amostras e checksum validado |
+  | B-2 | baseline.json gerado | validar o JSON com Python e rever o diff | JSON é válido, identifica plataforma/toolchains e só acrescenta o resultado medido |

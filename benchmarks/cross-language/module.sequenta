@@ -1,0 +1,7 @@
+# module: cross-language
+
+1. suite() -> CrossLanguageBenchmarkSuite
+
+2. baseline() -> BaselineResults
+   use: cross-language::suite
+   depends_on: cross-language::suite

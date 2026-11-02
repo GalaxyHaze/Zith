@@ -1,0 +1,16 @@
+fn main(): i32 {
+    const iterations: u64 = @@ITERATIONS@@u64;
+    const expected: u64 = @@EXPECTED@@u64;
+    var matches: u64 = 0u64;
+
+    for (var i: u64 = 0u64), (i < iterations), (i = i + 1u64) {
+        if (i % 7u64 == 0u64 or i % 11u64 == 0u64) {
+            matches = matches + 1u64;
+        }
+    }
+
+    if (matches == expected) {
+        return 0;
+    }
+    return 1;
+}

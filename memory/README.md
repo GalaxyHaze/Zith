@@ -90,6 +90,9 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
 - [comptime-contextual-inference.md](comptime-contextual-inference.md):
   expected-result generic inference (weak literal vs strong expected-result
   binding) and where it lives, enabling `Ok(7)`/`new(3)` without `<...>`.
+- [cross-language-benchmarks.md](cross-language-benchmarks.md): the standalone
+  runtime baseline, its timing scope, and the CMake, rustup, Zith-- keyword,
+  and Sequenta CLI pitfalls encountered while adding it.
 - [stdlib-c-fs.md](stdlib-c-fs.md): raw file access under `c/fs` and the
   Linux-only `c/posix` platform variant, with the `raw opaque` and
   duplicate-`SEEK_*` gotchas and the deferred safe `std/fs` blockers.
