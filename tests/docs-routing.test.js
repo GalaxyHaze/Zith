@@ -16,6 +16,20 @@ const specDir = [
     path.resolve(root, "..", "Zith", "docs")
 ].find(candidate => fs.existsSync(candidate));
 
+test("the Code Spotlight places a direct C binding beside header-based interop", () => {
+    const entries = JSON.parse(
+        fs.readFileSync(path.join(root, "json/code-spotlight.json"), "utf8")
+    );
+    const keys = entries.map(entry => entry.key);
+    const interopIndex = keys.indexOf("c_interop");
+    const bindingIndex = keys.indexOf("c_bind");
+
+    assert.notEqual(interopIndex, -1);
+    assert.equal(bindingIndex, interopIndex + 1);
+    assert.match(entries[bindingIndex].code, /extern fn puts\(message: \*char\): i32;/);
+    assert.match(entries[bindingIndex].code, /puts\("Hello from C"\)/);
+});
+
 test("the docs root is the neutral comparison page", () => {
     assert.deepEqual(resolveDocsRoute("/docs/"), {
         scope: "neutral",
