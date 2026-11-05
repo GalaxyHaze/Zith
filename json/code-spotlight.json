@@ -24,8 +24,8 @@
         "key": "c_bind",
         "label": "C Bind (Zith--)",
         "file": "c-bind.zith",
-        "code": "extern fn puts(message: *char): i32;\n\nfn main(): i32 {\n    _ = puts(\"Hello from C\");\n    0\n}",
-        "explanation": "Declare a C ABI function directly with <code>extern fn</code> and call <code>puts</code> without importing a header."
+        "code": "from c/io\n\nfn main(): i32 {\n    puts(\"Hello from C\");\n    0\n}",
+        "explanation": "Import the supported C/runtime I/O surface with <code>from c/io</code>. The result of <code>puts</code> is discardable, so the call needs no <code>_ =</code>."
     },
     {
         "key": "pattern",

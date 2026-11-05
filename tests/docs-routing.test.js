@@ -16,7 +16,7 @@ const specDir = [
     path.resolve(root, "..", "Zith", "docs")
 ].find(candidate => fs.existsSync(candidate));
 
-test("the Code Spotlight places a direct C binding beside header-based interop", () => {
+test("the Code Spotlight places the c/io puts example beside header-based interop", () => {
     const entries = JSON.parse(
         fs.readFileSync(path.join(root, "json/code-spotlight.json"), "utf8")
     );
@@ -26,8 +26,9 @@ test("the Code Spotlight places a direct C binding beside header-based interop",
 
     assert.notEqual(interopIndex, -1);
     assert.equal(bindingIndex, interopIndex + 1);
-    assert.match(entries[bindingIndex].code, /extern fn puts\(message: \*char\): i32;/);
-    assert.match(entries[bindingIndex].code, /puts\("Hello from C"\)/);
+    assert.match(entries[bindingIndex].code, /from c\/io/);
+    assert.match(entries[bindingIndex].code, /puts\("Hello from C"\);/);
+    assert.doesNotMatch(entries[bindingIndex].code, /_ = puts/);
 });
 
 test("the docs root is the neutral comparison page", () => {
