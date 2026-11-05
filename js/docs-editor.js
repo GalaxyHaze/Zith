@@ -8,6 +8,9 @@
     let activeSource = null;
     let original = "";
     let sourceText = null;
+    let previewDraftText = null;
+    let previewDraftOriginal = null;
+    let draftStorageAvailable = true;
 
     function draftKey(source) {
         return draftPrefix + `${source.repository}:${source.path}`;
@@ -86,6 +89,47 @@
         }
     }
 
+    function showDraftPreview() {
+        const rendered = content.querySelector(".docs-editor-preview .docs-content");
+        const preview = rendered
+            ? rendered.cloneNode(true)
+            : document.createElement("div");
+        const draftText = sourceText.value;
+        const baseText = original;
+        const notice = document.createElement("aside");
+        const heading = document.createElement("h2");
+        const message = document.createElement("p");
+        const actions = document.createElement("div");
+        const continueButton = document.createElement("button");
+        const discardButton = document.createElement("button");
+
+        previewDraftText = draftText;
+        previewDraftOriginal = baseText;
+        notice.className = "docs-draft-notice";
+        notice.setAttribute("aria-label", "Local draft");
+        heading.textContent = "Local draft preview";
+        message.textContent = draftStorageAvailable
+            ? "Saved in this browser only. The published page is unchanged."
+            : "Browser storage is unavailable. Keep this preview open or the draft may be lost.";
+        actions.className = "docs-editor-actions";
+        continueButton.className = "button button-secondary";
+        continueButton.type = "button";
+        continueButton.textContent = "Continue editing";
+        discardButton.className = "button button-secondary";
+        discardButton.type = "button";
+        discardButton.textContent = "Discard draft";
+        continueButton.addEventListener("click", () => {
+            openEditor(activePath, previewDraftText, previewDraftOriginal);
+        });
+        discardButton.addEventListener("click", discardDraft);
+
+        actions.append(continueButton, discardButton);
+        notice.append(heading, message, actions);
+        content.className = "docs-content docs-draft-preview";
+        content.replaceChildren(notice, preview);
+        sourceText = null;
+    }
+
     function onSourceInput() {
         const key = draftKey(activeSource);
         const draft = {
@@ -97,10 +141,12 @@
         try {
             if (draft.content === original) localStorage.removeItem(key);
             else localStorage.setItem(key, JSON.stringify(draft));
+            draftStorageAvailable = true;
             setStatus(draft.content === original
                 ? "No local changes. Drafts are saved only in this browser."
                 : "Saved automatically in this browser. The published page is unchanged.", "success");
         } catch (_) {
+            draftStorageAvailable = false;
             setStatus("Browser storage is unavailable; these edits may be lost if you leave this page.", "error");
         }
         renderPreview();
@@ -112,7 +158,11 @@
         return response.text();
     }
 
-    async function openEditor(path) {
+    async function openEditor(path, draftContent = null, baseContent = null) {
+        if (draftContent === null && path === activePath && previewDraftText !== null) {
+            draftContent = previewDraftText;
+            baseContent = previewDraftOriginal;
+        }
         const descriptor = window.DocsPageData && window.DocsPageData.editSources[path];
         if (!descriptor) return;
         activePath = path;
@@ -122,7 +172,10 @@
         const saved = readDraft(key);
 
         try {
-            if (saved) {
+            if (draftContent !== null) {
+                original = baseContent;
+                sourceText.value = draftContent;
+            } else if (saved) {
                 original = saved.original;
                 sourceText.value = saved.content;
             } else {
@@ -131,9 +184,12 @@
                 original = loadedSource;
                 sourceText.value = original;
             }
+            previewDraftText = null;
+            previewDraftOriginal = null;
+            draftStorageAvailable = true;
             content.querySelector(".docs-editor-grid").hidden = false;
             renderPreview();
-            setStatus(saved
+            setStatus(draftContent !== null || saved
                 ? "Restored this page’s draft from this browser."
                 : "Edits save automatically in this browser. The published page is unchanged.");
             sourceText.focus();
@@ -144,18 +200,35 @@
 
     function closeEditor() {
         const path = activePath;
-        activePath = "";
-        activeSource = null;
-        sourceText = null;
-        content.className = "docs-content";
-        if (window.DocsReloadCurrentPage) window.DocsReloadCurrentPage(path);
+        onSourceInput();
+        if (sourceText.value === original) {
+            activePath = "";
+            activeSource = null;
+            original = "";
+            sourceText = null;
+            content.className = "docs-content";
+            if (window.DocsReloadCurrentPage) window.DocsReloadCurrentPage(path);
+            return;
+        }
+        showDraftPreview();
     }
 
     function discardDraft() {
-        if (!activeSource || !sourceText) return;
+        if (!activeSource) return;
         try {
             localStorage.removeItem(draftKey(activeSource));
         } catch (_) {}
+        previewDraftText = null;
+        previewDraftOriginal = null;
+        if (!sourceText) {
+            const path = activePath;
+            activePath = "";
+            activeSource = null;
+            original = "";
+            content.className = "docs-content";
+            if (window.DocsReloadCurrentPage) window.DocsReloadCurrentPage(path);
+            return;
+        }
         sourceText.value = original;
         renderPreview();
         setStatus("Local changes discarded.", "success");
@@ -165,7 +238,11 @@
         if (activePath) {
             activePath = "";
             activeSource = null;
+            original = "";
             sourceText = null;
+            previewDraftText = null;
+            previewDraftOriginal = null;
+            draftStorageAvailable = true;
             content.className = "docs-content";
         }
     });
