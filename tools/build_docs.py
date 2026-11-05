@@ -25,6 +25,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import quote
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -183,6 +184,8 @@ def inline(text: str, page: Page, outputs: dict[str, str], source_map: dict[str,
 
     def link(match: re.Match[str]) -> str:
         label, target = match.group(1), html.unescape(match.group(2))
+        if re.match(r"^(?:javascript|data|vbscript):", target.strip(), re.IGNORECASE):
+            return label
         if target.startswith("http://") or target.startswith("https://") or target.startswith("mailto:"):
             return f'<a href="{html.escape(target, quote=True)}">{label}</a>'
         if target.startswith("#"):
@@ -201,7 +204,7 @@ def inline(text: str, page: Page, outputs: dict[str, str], source_map: dict[str,
             if target_id not in outputs:
                 raise ValueError(f"{page.source}: unknown document id '{target_id}'")
             href = f"./?page={outputs[target_id]}" + (f"#{anchor}" if anchor else "")
-            return f'<a href="{href}" data-docs-route="neutral">{label}</a>'
+            return f'<a href="{html.escape(href, quote=True)}" data-docs-route="neutral">{label}</a>'
         if target.startswith("doc:"):
             target_id, _, anchor = target[4:].partition("#")
             if target_id not in outputs:
@@ -266,12 +269,12 @@ def documentation_link(
             href = f"./{target_scope}/?page={target_output}"
         if anchor:
             href += f"#{anchor}"
-        return f'<a href="{href}" data-docs-route="{target_scope}">{label}</a>'
+        return f'<a href="{html.escape(href, quote=True)}" data-docs-route="{target_scope}">{label}</a>'
 
     href = relative_href(source_output, target_output)
     if anchor:
         href += f"#{anchor}"
-    return f'<a href="{href}">{label}</a>'
+    return f'<a href="{html.escape(href, quote=True)}">{label}</a>'
 
 
 def reldir(target: Path, source_dir: Path) -> Path:
@@ -589,6 +592,10 @@ def expected_files(
     if len(set(outputs.values())) != len(outputs):
         raise ValueError("Duplicate output path")
     source_map = {page.source.resolve(): page.output for page in pages}
+    source_descriptors = {
+        f"./{page.output}": source_descriptor(page, spec_dir)
+        for page in pages
+    }
     files: dict[Path, str] = {}
     for page in pages:
         fragment = markdown_html(page, outputs, source_map)
@@ -609,11 +616,32 @@ def expected_files(
         protected_path = OUTPUT / protected
         if protected_path in files:
             raise ValueError(f"Output or alias would overwrite protected file: {protected}")
+    for page in pages:
+        descriptor = source_descriptors[f"./{page.output}"]
+        repository_name = descriptor["repository"].split("/")[1]
+        source_output = (
+            OUTPUT.parent / "editor-sources" / repository_name /
+            descriptor["branch"] / descriptor["path"]
+        )
+        files[source_output] = page.source.read_text(encoding="utf-8")
     tree = {
-        "version": 5,
+        "version": 7,
         "navigation": build_tree(),
         "aliases": {f"./{alias}": f"./{target}" for alias, target in sorted(aliases.items())},
         "topicEquivalents": build_topic_equivalents(),
+        "editUrls": {
+            f"./{page.output}": source_edit_url(page, spec_dir)
+            for page in pages
+        },
+        "editSources": {
+            output: descriptor
+            for output, descriptor in source_descriptors.items()
+        },
+        "documentOutputs": outputs,
+        "sourceOutputs": {
+            f"{descriptor['repository']}:{descriptor['path']}": descriptor["output"]
+            for descriptor in source_descriptors.values()
+        },
     }
     manifest = {
         "version": 1,
@@ -627,6 +655,37 @@ def expected_files(
     files[TREE] = json.dumps(tree, indent=2) + "\n"
     files[MANIFEST] = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     return files, tree
+
+
+def source_edit_url(page: Page, spec_dir: Path) -> str:
+    descriptor = source_descriptor(page, spec_dir)
+    return (
+        f"https://github.com/{descriptor['repository']}/edit/{descriptor['branch']}/"
+        f"{quote(descriptor['path'], safe='/')}"
+    )
+
+
+def source_descriptor(page: Page, spec_dir: Path) -> dict[str, str]:
+    if page.kind == "spec":
+        repository = "GalaxyHaze/Zith"
+        branch = "main"
+        source_path = f"docs/{page.source.relative_to(spec_dir).as_posix()}"
+    else:
+        repository = "GalaxyHaze/Zith-Lang"
+        branch = "gh-pages"
+        source_path = page.source.relative_to(ROOT).as_posix()
+    return {
+        "repository": repository,
+        "branch": branch,
+        "path": source_path,
+        "sourceUrl": (
+            f"../editor-sources/{repository.split('/')[1]}/{branch}/"
+            f"{quote(source_path, safe='/')}"
+        ),
+        "kind": page.kind,
+        "output": page.output,
+        "title": page.title,
+    }
 
 
 def validate(files: dict[Path, str], tree: dict) -> list[str]:

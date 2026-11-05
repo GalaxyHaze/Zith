@@ -52,7 +52,15 @@
         </nav>
         <p class="docs-switch-notice" id="docsSwitchNotice"
            role="status" aria-live="polite" hidden></p>
-        <p class="docs-filebar" id="filebarPath">_</p>
+        <div class="docs-page-toolbar">
+            <p class="docs-filebar" id="filebarPath">_</p>
+            <div class="docs-toolbar-actions">
+                <button class="button button-secondary docs-edit-link" id="editPageButton"
+                        type="button" hidden>Edit locally</button>
+                <a class="docs-source-link" id="editPageLink" href="#" target="_blank"
+                   rel="noopener noreferrer" hidden>Edit on GitHub</a>
+            </div>
+        </div>
         <div class="docs-content" id="content"></div>
     </main>
 </div>
@@ -61,6 +69,8 @@
 
 <script defer src="{{baseurl}}/js/zith-highlight.js"></script>
 <script defer src="{{baseurl}}/js/docs-routing.js"></script>
+<script defer src="{{baseurl}}/js/docs-markdown.js"></script>
 <script defer src="{{baseurl}}/js/loadTree.js"></script>
+<script defer src="{{baseurl}}/js/docs-editor.js"></script>
 </body>
 </html>

@@ -7,13 +7,17 @@ const docsBase = new URL(document.body.dataset.docsBase, document.baseURI);
 const route = window.DocsRouting.resolveDocsRoute(window.location.pathname);
 const docsScope = document.body.dataset.docsScope || route.scope;
 const defaultPage = route.page;
-const treeVersion = 5;
+const treeVersion = 7;
 
 let treeModel = [];
 let flatPages = [];
 let pageMeta = new Map();
 let aliasMap = new Map();
 let topicEquivalents = {};
+let editUrls = {};
+let editSources = {};
+let documentOutputs = {};
+let sourceOutputs = {};
 let currentPage = defaultPage;
 
 function sectionDescription(trail) {
@@ -75,6 +79,11 @@ function initialiseNavigation(menuData) {
     flatPages = [];
     pageMeta = new Map();
     aliasMap = new Map(Object.entries(generatedTree ? menuData.aliases || {} : {}));
+    editUrls = generatedTree ? menuData.editUrls || {} : {};
+    editSources = generatedTree ? menuData.editSources || {} : {};
+    documentOutputs = generatedTree ? menuData.documentOutputs || {} : {};
+    sourceOutputs = generatedTree ? menuData.sourceOutputs || {} : {};
+    window.DocsPageData = { editSources, documentOutputs, sourceOutputs };
 
     buildPageIndex(treeModel);
     renderMenu(treeModel, sidebar);
@@ -201,6 +210,20 @@ function updateFilebar(path) {
     filebarPath.textContent = meta ? meta.trail.join(" / ") : filename;
 }
 
+function updateEditLink(path) {
+    const link = document.getElementById("editPageLink");
+    const button = document.getElementById("editPageButton");
+    if (!link || !button) return;
+
+    const editUrl = editUrls[path];
+    const descriptor = editSources[path];
+    link.hidden = !editUrl;
+    button.hidden = !descriptor;
+    if (editUrl) link.href = editUrl;
+    else link.removeAttribute("href");
+    button.dataset.page = descriptor ? path : "";
+}
+
 function resolveAlias(path) {
     return aliasMap.get(path) || path;
 }
@@ -301,6 +324,7 @@ function loadPage(path, anchor = null, opts = {}) {
             }
 
             updateFilebar(canonicalPath);
+            updateEditLink(canonicalPath);
             setActiveLink(canonicalPath);
             injectPageNavigation(canonicalPath);
 
@@ -356,6 +380,10 @@ function loadPage(path, anchor = null, opts = {}) {
                 );
             }
 
+            window.dispatchEvent(new CustomEvent("docs-page-loaded", {
+                detail: { path: canonicalPath }
+            }));
+
             requestAnimationFrame(() => {
                 if (anchor) {
                     requestAnimationFrame(() => {
@@ -369,6 +397,7 @@ function loadPage(path, anchor = null, opts = {}) {
             });
         })
         .catch(() => {
+            updateEditLink("");
             content.replaceChildren();
             const message = document.createElement("p");
             message.className = "docs-error";
@@ -389,6 +418,10 @@ function getPageFromURL() {
 function getAnchorFromURL() {
     return window.location.hash ? decodeURIComponent(window.location.hash.slice(1)) : null;
 }
+
+window.DocsReloadCurrentPage = path => {
+    if (path) loadPage(path, null, { replaceHistory: true });
+};
 
 // Only links inside the docs content and sidebar are SPA links; the shared
 // header/footer must keep navigating normally.

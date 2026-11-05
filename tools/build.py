@@ -29,6 +29,7 @@ VAR = re.compile(r"\{\{\s*([\w-]+)\s*\}\}")
 SKIP_DIRS = {
     ".git", ".github", ".vscode", ".idea", ".agents", ".codex",
     "tools", "partials", "notes", "_site", "node_modules", "__pycache__",
+    "tests", "worker",
     "agents", "pages",
 }
 SKIP_FILES = {

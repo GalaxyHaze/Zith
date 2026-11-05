@@ -28,6 +28,11 @@ make docs-check
 `make docs-check` fails if generated fragments, navigation, or the specification manifest are out
 of date.
 
+The docs reader also has an in-browser Markdown editor with a live preview.
+Drafts are saved automatically in the current browser and do not change the
+published site. Markdown sources are included in the static build, so editing
+works without sign-in. Publishing edits is not enabled yet.
+
 ### Site build
 
 The header and footer live in `partials/` and are expanded into `_site/` by
@@ -41,6 +46,9 @@ make serve          # build + serve _site/ on http://localhost:5501
 
 On GitHub Pages, `.github/workflows/build.yml` builds and publishes `_site/`.
 See `GUIDE.md` for the page and documentation workflow.
+
+Run the editor and routing checks with `node tests/docs-editor.test.js`
+and `node tests/docs-routing.test.js`.
 
 ---
 

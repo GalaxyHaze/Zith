@@ -123,11 +123,145 @@ DOCS — documentation shell
     font-size: var(--step--1);
 }
 
-.docs-filebar {
+.docs-page-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
     margin-bottom: var(--space-4);
+}
+
+.docs-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex: 0 0 auto;
+}
+
+.docs-filebar {
+    min-width: 0;
+    margin: 0;
     color: var(--text-muted);
     font-family: var(--font-mono);
     font-size: var(--step--1);
+    overflow-wrap: anywhere;
+}
+
+.docs-edit-link,
+.docs-source-link {
+    flex: 0 0 auto;
+    font-size: var(--step--1);
+    white-space: nowrap;
+}
+
+.docs-edit-link[hidden],
+.docs-source-link[hidden] {
+    display: none;
+}
+
+.docs-editor {
+    max-width: none;
+}
+
+.docs-editor-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.docs-editor-heading h2 {
+    margin: 0;
+    padding: 0;
+    font-size: var(--step-2);
+}
+
+.docs-editor-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.docs-editor-status {
+    min-height: 1.5em;
+    margin: 0 0 var(--space-3);
+    color: var(--text-muted);
+    font-size: var(--step--1);
+}
+
+.docs-editor-status[data-state="error"] {
+    color: var(--danger, #b42318);
+}
+
+.docs-editor-status[data-state="success"] {
+    color: var(--accent-hover);
+}
+
+.docs-editor-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--space-4);
+    align-items: start;
+}
+
+.docs-editor-source,
+.docs-editor-preview {
+    min-width: 0;
+}
+
+.docs-editor-source h3,
+.docs-editor-preview h3 {
+    margin: 0 0 var(--space-2);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--step--1);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.docs-editor-textarea {
+    display: block;
+    width: 100%;
+    min-height: min(70vh, 56rem);
+    resize: vertical;
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.88rem;
+    line-height: 1.6;
+    tab-size: 4;
+}
+
+.docs-editor-textarea:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.docs-editor-preview {
+    max-height: min(70vh, 56rem);
+    overflow: auto;
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+}
+
+.docs-editor-preview .docs-content {
+    max-width: 52rem;
+}
+
+.docs-editor-error {
+    padding: var(--space-3);
+    border-left: 3px solid var(--danger, #b42318);
+    background: var(--surface);
+    color: var(--text);
 }
 
 .docs-content {
@@ -294,6 +428,26 @@ DOCS — documentation shell
 
     .docs-sidebar {
         position: static;
+        max-height: none;
+    }
+
+    .docs-page-toolbar {
+        align-items: flex-start;
+    }
+
+    .docs-toolbar-actions {
+        flex-direction: column;
+        align-items: flex-end;
+        gap: var(--space-1);
+    }
+
+    .docs-editor-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .docs-editor-textarea,
+    .docs-editor-preview {
+        min-height: 50vh;
         max-height: none;
     }
 }

@@ -175,10 +175,13 @@ test("the static build emits an index shell for each docs route", () => {
         ]) {
             assert.ok(fs.existsSync(path.join(output, target)), `${target} should be published`);
         }
+        assert.ok(!fs.existsSync(path.join(output, "worker/docs-editor.mjs")));
+        assert.ok(!fs.existsSync(path.join(output, "tests/docs-editor.test.js")));
 
         const shell = fs.readFileSync(path.join(output, "docs/D-home.html"), "utf8");
         assert.match(shell, /data-docs-language="zith"/);
         assert.match(shell, /data-docs-language="zith--"/);
+        assert.match(shell, /id="editPageLink"/);
         const landing = fs.readFileSync(path.join(output, "docs/D-overview.html"), "utf8");
         assert.match(landing, /data-docs-route="zith"/);
         assert.match(landing, /data-docs-route="zith--"/);
@@ -192,7 +195,53 @@ test("the static build emits an index shell for each docs route", () => {
             /sibling of Zith, not a subset or an implementation stage/
         );
         const tree = JSON.parse(fs.readFileSync(path.join(output, "json/tree.json"), "utf8"));
-        assert.equal(tree.version, 5);
+        assert.equal(tree.version, 7);
+        assert.equal(
+            tree.editUrls["./D-overview.html"],
+            "https://github.com/GalaxyHaze/Zith-Lang/edit/gh-pages/docs/pages/overview.md"
+        );
+        assert.equal(
+            tree.editUrls["./zith--/reference/D-zith-subset.html"],
+            "https://github.com/GalaxyHaze/Zith/edit/main/docs/Zith--.md"
+        );
+        assert.equal(
+            tree.editUrls["./zith--/guide/D-functions.html"],
+            "https://github.com/GalaxyHaze/Zith-Lang/edit/gh-pages/docs/pages/zith--/guide/functions.md"
+        );
+        assert.equal(
+            tree.editUrls["./zith/reference/D-specification.html"],
+            "https://github.com/GalaxyHaze/Zith/edit/main/docs/Zith-spec.md"
+        );
+        assert.deepEqual(tree.editSources["./D-overview.html"], {
+            repository: "GalaxyHaze/Zith-Lang",
+            branch: "gh-pages",
+            path: "docs/pages/overview.md",
+            sourceUrl: "../editor-sources/Zith-Lang/gh-pages/docs/pages/overview.md",
+            kind: "editorial",
+            output: "D-overview.html",
+            title: "Documentation"
+        });
+        assert.equal(
+            fs.readFileSync(
+                path.join(output, "editor-sources/Zith-Lang/gh-pages/docs/pages/overview.md"),
+                "utf8"
+            ),
+            fs.readFileSync(path.join(root, "docs/pages/overview.md"), "utf8")
+        );
+        Object.values(tree.editSources).forEach(source => {
+            const sourceRoot = source.repository === "GalaxyHaze/Zith"
+                ? path.resolve(root, "../Zith")
+                : root;
+            assert.equal(
+                fs.readFileSync(path.resolve(output, "docs", source.sourceUrl), "utf8"),
+                fs.readFileSync(path.join(sourceRoot, source.path), "utf8"),
+                `${source.path} should be available to the local editor`
+            );
+        });
+        assert.equal(
+            tree.sourceOutputs["GalaxyHaze/Zith:docs/18-c-interop.md"],
+            "zith/reference/D-c-interop.html"
+        );
         assert.equal(
             tree.topicEquivalents["zith--/guide/D-types.html"].zith,
             "zith/reference/D-type-system.html"
