@@ -847,7 +847,7 @@ jobs:
         run: scoop --version
 
       - name: Set up Python for local asset server
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.x'
 
