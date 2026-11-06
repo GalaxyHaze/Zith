@@ -376,7 +376,7 @@ jobs:
 
       - name: Download full-backend LLVM package
         if: matrix.os == 'windows-11-arm'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: llvm-windows-arm64-full-backends
           path: ${{ runner.temp }}\llvm-arm64-full
@@ -1165,7 +1165,7 @@ jobs:
 
       - name: Download full-backend LLVM package
         if: matrix.os == 'windows-11-arm'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: llvm-windows-arm64-full-backends
           path: ${{ runner.temp }}\llvm-arm64-full
@@ -1315,7 +1315,7 @@ jobs:
 
       - name: Download macOS compiler for runtime packaging
         if: runner.os == 'macOS'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: compiler-zithc-${{ matrix.target_name }}
           path: compiler-artifact
