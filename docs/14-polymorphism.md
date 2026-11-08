@@ -34,16 +34,15 @@ Inside a smart-cast branch (`is`), the type narrows to the concrete type. Mutati
 
 ### 14.3 `dyn` Traits
 
-`dyn Trait` is a `view` by default, which is a read-only, non-owning reference with a vtable. That means `view dyn` is redundant.
+A bare `dyn Trait` is the boxed trait object, `own dyn Trait`, not an implicit
+read reference. The transfer mode is written explicitly:
 
-All other memory modifiers work with `dyn`:
-
-| Keyword | `dyn` behavior |
+| Spelling | `dyn` behavior |
 |---|---|
-| `view dyn` | Redundant — `dyn` is already a view |
-| `share dyn` | Multiple names, same dynamic value |
-| `lend dyn` | Exclusive mutable borrow of a dynamic value |
-| `own dyn` | Single-owner dynamic value |
+| `&dyn Trait` | Read reference to a dynamic value. |
+| `lend dyn Trait` | Exclusive mutable reference to a dynamic value. |
+| `own dyn Trait` | Single-owner dynamic value (boxed trait object). The vtable carries the drop, so the box is a known guardian. A bare `dyn Trait` means this. |
+| `dyn T` (concrete `T`) | A dynamic projection. It erases the outer storage and has no guardian, so a bare `dyn T` is an error and `own dyn T` is rejected. Write the reference, for example `&dyn T` or `lend dyn T`. See [ADR-0056](adr/0056-nra-erased-forms-and-spelling.md). |
 
 ```zith
 fn draw_all(items: dyn []Drawable) {

@@ -1,12 +1,12 @@
 # Native `zithc test` and the compiler-synthesized test driver
 
-Status: accepted for the Zith-- iteration. It adds `#[test]`, `@assert`,
-`@check`, and `@log` to the subset and reworks the `zithc test` command.
+Status: accepted for the Zith-- language. It adds `#[test]`, `@assert`,
+`@check`, and `@log`, and reworks the `zithc test` command.
 
 `zithc test` was shipped as a batch type-check of the `.zith` files under
 `test_dir`, with no execution and no way for a test to fail at runtime. That
-made the command a duplicate of `zithc check` and left the Zith-- subset with
-no testing surface of its own. This records the design that replaces it.
+made the command a duplicate of `zithc check` and left the Zith-- compiler with
+no test execution surface of its own. This records the design that replaces it.
 
 ## The test unit is a `#[test]` function
 

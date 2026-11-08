@@ -76,7 +76,7 @@ In effect, if `a` is never reassigned, it is as though `a` never existed and `b`
 
 ### 7.2.1 Pointer Objects in Zith--
 
-In the `Zith--` subset, `*T` is a non-nullable pointer object and `?*T` is the same object
+In Zith--, `*T` is a non-nullable pointer object and `?*T` is the same object
 nullable. `p.x`, `p->x` and `*p` remain valid accesses. `&x` performs a logical move of the
 binding: reads of `x` after it report `E4001 UseAfterMove`, while a direct assignment to `x`
 revives a new local version. There is no SSA/phi infrastructure. The version is a per-binding

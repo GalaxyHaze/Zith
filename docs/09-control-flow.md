@@ -167,9 +167,9 @@ fn main(): i32 {
 }
 ```
 
-### 9.5 Scope Cleanup (`defer` / `drop`)
+### 9.5 Scope Cleanup (`defer`)
 
-`defer expr;` and `defer { ... }` are implemented in the `Zith--` subset.
+`defer expr;` and `defer { ... }` are implemented in Zith--.
 `defer expr;` registers one cleanup expression. `defer { ... }` registers the
 whole body as a cleanup-only block that does not produce a value. Statements in
 a deferred body run in written order, while separate `defer` statements run in
@@ -200,11 +200,10 @@ fn main(): i32 {
   `jump`.
 
 Inside a loop, cleanup runs each time the loop body exits, including a
-`break` or `continue`. `drop` remains a reserved keyword and is still a
-roadmap candidate: planned as the deterministic per-owner cleanup hook through
-the same reverse-order mechanism, but not yet implemented. Anything stronger,
-such as `errdefer` or `drop` interactions with borrows, is kept out of the
-current iteration. The implementation plan is in `docs/plans/defer-drop.md`.
+`break` or `continue`. For Zith--, `drop` remains a reserved keyword but
+automatic per-owner cleanup is not planned. Cleanup stays explicit. ADR-0055
+records the accepted ownership design, and
+[`defer-drop.md`](plans/defer-drop.md) preserves the superseded proposal.
 
 ---
 

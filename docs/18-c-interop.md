@@ -289,9 +289,13 @@ Override or supplement auto-generated bindings to attach Zith-specific semantics
 ```zith
 // Equivalent declarations — malloc is a C function (no namespace)
 // bindToC is subject to Zith namespace rules
-fn bindToC = extern 'C' malloc(size: u64): own opaque;
-extern 'C' malloc(size: u64): own opaque;   // same thing, no namespace alias
+fn bindToC = extern 'C' malloc(size: u64): own raw opaque;
+extern 'C' malloc(size: u64): own raw opaque;   // same thing, no namespace alias
 ```
+
+The result is `own raw opaque`, not `own opaque`: `raw opaque` is a concrete
+`void*` slot with a known storage guardian, while `opaque` erases the outer
+type and has none. See [ADR-0056](adr/0056-nra-erased-forms-and-spelling.md).
 
 ### 18.3 External (No Header)
 

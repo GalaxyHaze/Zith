@@ -1,6 +1,6 @@
 # SRA Holder and Ephemeral-Owner Heuristics
 
-Status: accepted
+Status: accepted, holder heuristic superseded by ADR-0055
 
 The `Zith--` `main` keeps SRA (Small Resource Analysis) as its small, frozen
 ownership analysis. It does not grow into the full NRA proof machine and does
@@ -23,7 +23,9 @@ instruction but whose handle the array retains.
 
 ## Decision
 
-SRA gains two heuristics and nothing else.
+SRA gains two heuristics in this decision. ADR-0055 supersedes the holder
+heuristic and its strict rejection of every unnamed owner temporary. The
+value-declaration lint remains unchanged.
 
 1. **Holder heuristic (safety).** A value that carries a cleanup obligation must
    be bound to a name with a scope, so a `defer`/`destroy` path can run against

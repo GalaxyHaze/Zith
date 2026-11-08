@@ -19,7 +19,7 @@
 > [ADR 0032](adr/0032-universal-api-project-identity-and-contexts.md).
 
 > **Zith-- distinction:** normal `macro` and `raw macro` are the macro forms implemented in
-> Zith--. Full-Zith tags do not change that subset or its diagnostics.
+> Zith--. Zith tags do not change its macro contract or diagnostics.
 
 - Zith-- macros accept a special first parameter named `attributes` (with no meta-type) to
   receive call-site attributes. `@closure|k: 1|(...)` exposes values as `attributes.k` inside

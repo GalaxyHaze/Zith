@@ -4,7 +4,7 @@ Objective: move Zith native builds from host-provided TinyCC/libclang/toolchain 
 
 > Status: active Zith infrastructure work, not a Zith-- language feature. It
 > tracks the native toolchain, C companion compilation, and C header ABI
-> surface; the Zith language subset is not changed by the plan.
+> surface; the Zith language contract is not changed by the plan.
 
 Preconditions:
 

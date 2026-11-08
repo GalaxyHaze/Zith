@@ -9,12 +9,23 @@ Comptime covers compile-time computation: reflection, type manipulation, and `co
 
 ### 11.1 Comptime Bindings
 
+A `const` value is bare: it carries no access or lifetime qualifier and no
+`mut`, because the intent is that it can be copied directly. A `const` binding
+that needs to be modified during evaluation uses a `var` inside a
+compile-time context instead:
 
 ```zith
-const counter: mut = 0;
-counter += 1;   // valid at compile time
-// counter += input().nextI32();   // COMPILE ERROR: frozen at runtime
+const total {
+    var counter = 0;
+    counter += 1;   // valid at compile time
+    // counter += input().nextI32();   // COMPILE ERROR: frozen at runtime
+    counter
+}
 ```
+
+`const X: view i32 = 5` and `const X: mut = 0` are both errors. The value
+stored as a `const` has to be bare. See
+[ADR-0057](adr/0057-bare-union-members-and-const-values.md).
 
 ### 11.2 `const` Blocks
 

@@ -10,7 +10,8 @@ that users download are consistent with what the project claims to ship.
 
 - Plan: build artifact/feature flag audit.
 - Worktree: {REPO}/.awt/{AGENT} (branch awt/{AGENT}).
-- The compiler main is the Zith-- subset; full-Zith artifacts are out of scope.
+- The compiler main targets `Zith--`, a sibling language to Zith. Zith-specific
+  compiler artifacts are out of scope.
 - Current release matrix heavily passes `-DZITH_HAS_LLVM=OFF` for `build-main`
    and `build-musl`, while some LSP matrix entries and the local development
    build use LLVM.

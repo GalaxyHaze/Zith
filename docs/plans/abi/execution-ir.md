@@ -191,8 +191,8 @@ before executing the interpreter path.
 id: ABI-EXEC-03
 contract: HIR interpreter, ordinary functions
 rule: The HIR interpreter executes functions with bodies, parameters, local
-slots, calls, branches, jumps, and returns for the Zith-- subset used by the
-hello-world test.
+slots, calls, branches, jumps, and returns for the Zith-- surface exercised by
+the hello-world test.
 seam: tests/test-abi-execution.cpp
 layout: none
 fields: none

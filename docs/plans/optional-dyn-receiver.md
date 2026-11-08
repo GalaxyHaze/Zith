@@ -13,7 +13,7 @@ that retains an allocator as a `?dyn Allocator` field.
 
 ## Problem
 
-The Zith-- subset supports `dyn Trait` as a struct field, a local, a parameter,
+`Zith--` supports `dyn Trait` as a struct field, a local, a parameter,
 and a return type, and dispatches methods through the embedded vtable. The
 optional form `?dyn Trait` is broken end to end. The motivating consumer is the
 standard-library allocator retention field:

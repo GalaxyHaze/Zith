@@ -10,7 +10,7 @@ discovery on each platform.
 
 - Plan: stdlib packaging/discovery audit.
 - Worktree: {REPO}/.awt/{AGENT} (branch awt/{AGENT}).
-- The compiler main is the Zith-- subset; full-Zith artifacts are out of scope.
+- The compiler main targets Zith--; artifacts specific to Zith are out of scope.
 - `CMakeLists.txt` now installs `stdlib/` to
   `${CMAKE_INSTALL_LIBDIR}/zith/stdlib`.
 - `const std::vector<std::string> findStdlibRoots()` looks for

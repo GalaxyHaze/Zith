@@ -176,32 +176,52 @@ Each rule has a stable id. Diagnostics reference these ids.
 | NRA-9 | Mutation exclusivity at the instant. At the instant of a mutation, no other access to the same subgraph is in progress. In `c = a + b`, `a` and `b` are reading and `c` is mutating at that instant. Coexisting writable edges are legal; simultaneous effective access is not. Same-flow enforcement happens at the mutation instant and at expression end. |
 | NRA-10 | Thread frontier. A bounded flow is merged before the end of the creating scope. An unbounded flow is revoked at the end of the creating scope. NRA proves each flow separately and checks these two construction rules at the frontier. |
 | NRA-11 | Capability gating. Writing a resource reachable from another flow requires `MultiWrite` or `SyncWrite`. Without the capability, the write is rejected at the frontier. The effect header records `write`; the caller-side check sees that a flow is being created and applies this rule. |
+| NRA-12 | No own of an erased outer type. `own` requires a known storage guardian (section 2.8). An `opaque` keeps only a runtime type tag, and a dynamic projection `dyn T` is a reference plus an `outerTypeId` and an `offset` into a container it does not own, so `own opaque` and `own dyn T` are rejected. `raw opaque` is a concrete slot and may be owned. `dyn Trait` is a trait object with a known layout, and its vtable carries the drop slot, so `own dyn Trait` is the boxed trait object and is allowed. See [ADR-0056](adr/0056-nra-erased-forms-and-spelling.md). |
 
 ## 4. Surface Forms
 
-Each form has a sigil and, for the write and own forms, an equivalent
-keyword. The keyword and the sigil are two spellings of the same form and may
-be used interchangeably. A plain `T` is the only form with neither.
+Each form has one canonical spelling. The spelling follows mutability: an
+immutable form is written with its sigil, and a mutable form is written with
+its keyword. The same spelling is used in type position and at the call site.
+A plain `T` is the only form with neither.
 
-| Sigil form | Keyword form | Meaning |
-|---|---|---|
-| `T` | (none) | Owned binding, lifetime follows the resource graph. |
-| `&T` | `view T` | Read reference. Non-owning, region-bound, pins its source against relocation and consumption while live. |
-| `&mut T` | `lend T` | Write reference, same region and pinning rules as `&T`. |
-| `^T` | (none) | Read bind. A general lifetime dependency, `lifetime(B) <= lifetime(A)`, without region limit or pin. Invalid if its target is consumed or relocated. |
-| `^mut T` | `bind T` | Write bind. Same as `^T`, but counts as a writer at a boundary. |
-| `%T` | (none) | Immutable own: logical ownership of an address or slot. Moving it marks the source slot `taken`. |
-| `%mut T` | `own T` | Mutable own. |
+| Canonical form | Accepted alias | Mutability | Meaning |
+|---|---|---|---|
+| `T` | (none) | - | Owned binding, lifetime follows the resource graph. |
+| `&T` | `view T` | immutable | Read reference. Non-owning, region-bound, pins its source against relocation and consumption while live. |
+| `^T` | (none) | immutable | Read bind. A general lifetime dependency, `lifetime(B) <= lifetime(A)`, without region limit or pin. Invalid if its target is consumed or relocated. |
+| `%T` | (none) | immutable | Immutable own: logical ownership of an address or slot. Moving it marks the source slot `taken`. |
+| `lend T` | `&mut T` | mutable | Write reference, same region and pinning rules as `&T`. |
+| `bind T` | `^mut T` | mutable | Write bind. Same as `^T`, but counts as a writer at a boundary. |
+| `own T` | `%mut T` | mutable | Mutable own. |
 
-The read forms `^T` and `%T` have no keyword. `belong` is the old name of the
-write bind and is removed; the current keyword is `bind`. `unique` is the old
-name of `own` and is removed. `default` is a description of the plain `T`
-case, not a keyword. See [ADR-0034](adr/0034-nra-surface-spellings.md).
+The three read forms `&T`, `^T`, and `%T` have no keyword, which is the
+consequence of the rule: an immutable form is written with its sigil, so it
+needs no keyword. `view` is a non-canonical alias of `&T`; the read reference
+is `&T` in formatted source. The mutable sigil spellings `&mut T`, `^mut T`,
+and `%mut T` are accepted on input and the formatter rewrites them to `lend T`,
+`bind T`, and `own T`. `belong` is the old name of the write bind and is
+removed; the current keyword is `bind`. `unique` is the old name of `own` and
+is removed. `default` is a description of the plain `T` case, not a keyword.
+See [ADR-0034](adr/0034-nra-surface-spellings.md) and
+[ADR-0056](adr/0056-nra-erased-forms-and-spelling.md).
+
+An erased form does not default to a read reference. A bare erased form is
+legal only when the form can own, so a bare `dyn Trait` is `own dyn Trait` (the
+boxed trait object), a bare `raw opaque` is the `void*` value, and a bare
+`opaque` or `dyn T` is an error that must name its reference (`&opaque`,
+`lend opaque`, `&dyn T`, `lend dyn T`). The general rule is one line: a bare
+erased form defaults to `own` of the same form when the form is ownable, and is
+an error when it is not. `dyn T` is a dynamic projection, a single pinning edge
+that records the payload reference plus the `outerTypeId` and `offset` of its
+container; `own dyn T` is rejected by NRA-12. See
+[ADR-0056](adr/0056-nra-erased-forms-and-spelling.md).
 
 The revocable prefix is the sigil `'` or the long spelling `grant`. It
-combines with every form except a bare `T`, so `'&T`, `'&mut T`, `'^T`,
-`'^mut T`, `'%T`, and `'%mut T` all exist. `'%mut T` equals `grant %mut T`.
-`'T` does not exist.
+combines with every form except a bare `T`, so `'&T`, `'^T`, `'%T`, `'lend T`,
+`'bind T`, and `'own T` all exist. `'own T` equals `grant own T`. The mutable
+sigil spellings `'&mut T`, `'^mut T`, and `'%mut T` are accepted on input and
+the formatter rewrites them. `'T` does not exist.
 
 The prefix appears only where the argument or type is declared. A call site
 does not repeat it, because the `unbounded` launch site already marks where
@@ -352,6 +372,10 @@ references its proof rule id from section 3.
   model.
 - `docs/adr/0034-nra-surface-spellings.md` for the sigil spellings and the
   legacy keyword equivalences.
+- `docs/adr/0056-nra-erased-forms-and-spelling.md` for NRA-12 (no own of an
+  erased outer type) and the sigil/keyword mutability rule.
+- `docs/adr/0057-bare-union-members-and-const-values.md` for the bare rule on
+  union members and const values.
 - `docs/adr/0026-nra-aggregate-nodes-and-revokable-flows.md` for aggregate
   nodes and revocable flows.
 - `docs/adr/0035-nra-thread-separation-supersedes-forkcount.md` for the

@@ -3,8 +3,8 @@
 ## Goal
 
 Implement Zith-- platform-specific imports according to
-`docs/plans/platform-imports.md`. The compiler main is always the Zith--
-subset; do not start full-spec Zith features.
+`docs/plans/platform-imports.md`. The compiler main targets the sibling
+language `Zith--`; do not implement features specified only for Zith.
 
 ## Context
 

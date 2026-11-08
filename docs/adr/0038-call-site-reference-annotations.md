@@ -18,18 +18,26 @@ sigil that names the mode the callee receives.
 
 ## Decision
 
-A call argument carries a sigil that names its transfer mode. The sigil
-matches the mode of the callee's parameter, not the declared form of the
-argument binding.
+A call argument carries a sigil or a keyword that names its transfer mode. The
+spelling matches the mode of the callee's parameter, not the declared form of
+the argument binding. An immutable mode uses the sigil and a mutable mode uses
+the keyword, per [ADR-0056](0056-nra-erased-forms-and-spelling.md).
 
 | Argument form | Meaning |
 |---|---|
 | `x` | Plain value move. The default, written with no sigil. |
 | `&x` | Read borrow. The callee receives a `&T`. |
-| `&mut x` | Write borrow. The callee receives a `&mut T`. |
 | `^x` | Read bind. The callee receives a `^T`. |
-| `^mut x` | Write bind. The callee receives a `^mut T`. |
-| `%x` | Logical move. The callee takes ownership of the slot. |
+| `%x` | Logical move. The callee receives an immutable own `%T` and takes ownership of the slot. |
+| `lend x` | Write borrow. The callee receives a `&mut T`. |
+| `bind x` | Write bind. The callee receives a `^mut T`. |
+| `own x` | Logical move. The callee receives a mutable own `%mut T` and takes ownership of the slot. |
+
+The spelling follows mutability, per
+[ADR-0056](0056-nra-erased-forms-and-spelling.md): an immutable mode uses the
+sigil and a mutable mode uses the keyword. The mutable sigil spellings
+`&mut x`, `^mut x`, and `%mut x` are accepted on input and the formatter
+rewrites them to `lend x`, `bind x`, and `own x`.
 
 The annotation reflects the callee's parameter mode. A `^` binding passed to a
 `&` parameter is written `&x`, because the free `^ -> &` coercion happens after
@@ -46,9 +54,9 @@ parameter is rejected. This follows the existing Zith-- rule for `lend x` /
 `view x` (E4005), extended to every non-default mode.
 
 A plain value move stays unmarked. The one move that must be marked is a
-logical move out of a slot, because it is the surprising one: moving a `%mut T`
-out of a struct field or an aggregate slot consumes that slot, so
-`f(%s.field)` names the logical move at the call site. The diagnostic for the
+logical move out of a slot, because it is the surprising one: moving an `own T`
+(`%mut T`) out of a struct field or an aggregate slot consumes that slot, so
+`own s.field` names the logical move at the call site. The diagnostic for the
 later use of the consumed slot names the move site and the provenance of the
 moved value.
 
@@ -57,7 +65,8 @@ moved value.
 - `%` gains a call-site use beyond its `%T` type spelling. In type position it
   still names an own; in argument position `%x` names a logical move.
 - The call-site surface has one rule: every mode that is not the plain value
-  move has a sigil, and the plain value move does not.
+  move is marked, an immutable mode with its sigil and a mutable mode with its
+  keyword, and the plain value move is unmarked.
 - `^` and `^mut` remain legal parameter modes in the language. The universal
   API style discourages them in the public surface; see
   [ADR-0032](0032-universal-api-project-identity-and-contexts.md).

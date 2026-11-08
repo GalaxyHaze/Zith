@@ -1,7 +1,9 @@
-# Zith Compiler Roadmap
+# Zith-- Compiler Roadmap
 
-> Derived from [Zith-spec.md](Zith-spec.md) and [impl-status.md](impl-status.md) at baseline
-> `bf7925e`. Each feature carries a stable ID (`F-NN`) reused across waves and test suites.
+> Tracks compiler work for `Zith--`, a sibling language to Zith. The language
+> contracts are separate. This roadmap uses [Zith-spec.md](Zith-spec.md) as a
+> comparison reference and [impl-status.md](impl-status.md) for current
+> `Zith--` behavior. Each feature carries a stable ID (`F-NN`).
 
 ## Feature IDs
 
@@ -12,7 +14,7 @@
 | F-03 | `for` iterator (`in`) and 3-clause | 9 | Working |
 | F-04 | `state` machine / `dock` / `jump` | 9 | Working (musttail transitions) |
 | F-05 | `const fn` | 5, 11 | Parse-level in progress |
-| F-06 | `is <type>` type narrowing | 3 | Working (tagged unions + opaque; general type tests are outside the Zith-- subset) |
+| F-06 | `is <type>` type narrowing | 3 | Working (tagged unions + opaque; general type tests are not part of Zith--) |
 | F-07 | `dyn Trait` dynamic dispatch | 14 | Working (`dyn Interface` also dispatches through vtables) |
 | F-08 | `@macro` calls | 15 | Working |
 | F-09 | Word call and sequence expressions | 16 | Parse error |
@@ -44,9 +46,13 @@
 | F-34 | Memory qualifier parsing and typing (`mut`, `lend`, `view`, `own`, `share`, `belong`) | 7 | Working |
 | F-35 | Trait and interface bodies as real declarations | 4 | Working; interface bodies accept single/grouped fields and declaration-only method requirements |
 | F-40 | Scope-guard `defer` statements | 9, Zith-- | Working |
-| F-41 | Deterministic `drop` cleanup hooks | 9, Zith-- | Planned for Zith--; depends on F-40 |
+| F-41 | Deterministic `drop` cleanup hooks | 9, Zith-- | Rejected for Zith-- by ADR-0055 |
 | F-42 | Platform-specific imports (`foo.<arch>.<os>.zith`) | 2, Zith-- | Working; resolver checks `arch.os`, `arch`, `os`, then generic `foo.zith` |
 | F-43 | Native test surface (`#[test]`, `@assert`, `@check`, `@log`, synthesized driver) | 9, Zith-- | Partial: accumulating checks and rich `std/test` formatting pass on native and VM v2; HIR covers checks, portable assertions, and logs, but rich formatting remains unsupported |
+
+`Spec only` marks material described in Zith design documents without a
+corresponding `Zith--` implementation. It is not automatically planned work for
+`Zith--`; the active waves below identify work intended for that language.
 
 ## Dependency Graph
 
@@ -153,16 +159,13 @@ Max parallelism: 2 agents (assets + stdlib).
 F-40 (`defer`) is implemented in `Zith--`: parser, sema, HIR, and codegen
 support `defer expr;` and `defer { ... }` with reverse-order cleanup on block
 exit, including `return`, `break`, `continue`, and `state` `jump`. F-41
-(`drop`) remains pending and will reuse the same scope-cleanup structure to add
-the deterministic owner method plus ownership checks. Max parallelism: 1 agent,
-because F-41 is a natural extension of F-40 and both touch the same statement
-and block-lowering paths.
+(`drop`) is rejected by ADR-0055. Zith-- keeps owner cleanup explicit.
 
 ## Wave 01 (Current Zith--)
 
-Zith--: platform imports (F-42) are implemented as resolver work; `drop`
-(F-41) remains the deterministic scope-cleanup completion, followed by
-monolith splits and debt closure.
+Zith--: platform imports (F-42) are implemented as resolver work. Automatic
+`drop` cleanup (F-41) is rejected by ADR-0055. Other work remains tracked by
+its active plans and debt records without an order implied by this note.
 Comptime/introspection/type construction remain full-Zith features and are
 archived under `docs/plans/archive/0.7.0-zith/`.
 

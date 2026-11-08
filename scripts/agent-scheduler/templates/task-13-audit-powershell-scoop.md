@@ -11,7 +11,8 @@ library.
 
 - Plan: Windows installer/Scoop audit.
 - Worktree: {REPO}/.awt/{AGENT} (branch awt/{AGENT}).
-- The compiler main is the Zith-- subset; full-Zith artifacts are out of scope.
+- The compiler main targets `Zith--`, a sibling language to Zith. Zith-specific
+  compiler artifacts are out of scope.
 - `scripts/install.ps1` downloads and installs to
   `%LOCALAPPDATA%\Microsoft\WindowsApps`.
 - The Scoop manifest pins version `0.6.2`, uses the old `Zith-Lang` owner, and

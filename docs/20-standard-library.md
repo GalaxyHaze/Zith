@@ -14,7 +14,7 @@ above. The common C bindings used by those modules live under `c/` rather than i
 headers directly.
 The documented convention uses resource types with `init`/`destroy`, read-only methods with
 `view`, and mutating methods with `lend`. `defer` runs `destroy(self: lend Self)` on resource
-cleanup. `drop` remains outside the `Zith--` subset.
+cleanup. `drop` remains outside the current Zith-- contract.
 
 ### 20.1 Three-Part Structure
 

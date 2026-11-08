@@ -66,10 +66,10 @@ operator* (SELECT, list) { ... }
 
 > Tokens are useful when a domain syntax needs low-precedence keywords without function-call syntax.
 
-### 16.2 Zith-- Macro Compatibility
+### 16.2 Zith-- Macro Contrast
 
-Macros are available in the Zith-- subset, not in full Zith. This comparison
-describes the subset only:
+Zith-- and Zith are sibling languages with different syntax facilities. Zith--
+provides syntax-template macros, while Zith provides words:
 
 - **Zith-- macros:** Use call syntax and provide syntax-template expansion.
 - **Words:** Work as keywords and can return values.

@@ -15,11 +15,16 @@ and user-facing language documentation is in `docs/`.
 
 ## Zith-- Source of Truth
 
-The `main` compiler builds the `Zith--` subset of the language. The canonical
-user-facing specification is `docs/Zith--.md`, and the implementation rules for
-frontend, sema, HIR, codegen and tests are in `docs/Zith---implementation.md`.
-Changes to bindings, storage, const semantics, ownership or macro restrictions
-must stay consistent with both files and update them when behavior changes.
+The `main` compiler targets `Zith--`, a sibling language to `Zith`. It does not
+compile a subset of Zith or represent a development stage on the way to Zith.
+The canonical `Zith--` specification is `docs/Zith--.md`; the separate Zith
+design specification is `docs/Zith-spec.md`. Compiler feature status applies
+only to `Zith--` and is tracked in `docs/impl-status.md`.
+
+The implementation rules for the `Zith--` frontend, sema, HIR, codegen and tests
+are in `docs/Zith---implementation.md`. Changes to bindings, storage, const
+semantics, ownership or macro restrictions must stay consistent with that
+document and `docs/Zith--.md`, and update them when behavior changes.
 
 ## Build, Test, and Development Commands
 

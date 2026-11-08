@@ -27,7 +27,7 @@ point at those files instead of restating full specifications.
 The active plan homes are:
 
 - `docs/plans/0.7.0/`: current Zith-- iteration scope and retired-step index.
-- `docs/plans/defer-drop.md`: `drop` roadmap, extending shipped `defer`.
+- `docs/plans/defer-drop.md`: historical `drop` proposal, rejected by ADR-0055.
 - `docs/plans/monolith-splits.md`: source-reorganization order.
 - `docs/plans/archive/platform-imports.old.md`: archived implementation
   contract for platform imports.
@@ -176,47 +176,47 @@ why specific roadmap rows were updated.
 | F-35 | Working |
 | F-36 | Working |
 | F-40 | Working |
-| F-41 | Planned for Zith-- |
+| F-41 | Rejected for Zith-- by ADR-0055 |
 | F-42 | Working |
 
 The F-10 row is nuanced. `@sizeOf`, `@offsetOf`, `@alignOf`, `@lengthOf`,
 `@ptrOf`, and `@canonicalType` are implemented. The generic `@intrinsic`
 surface referenced by the older spec name is not, so the row says the layout
-intrinsics are working and leaves the full-Zith remainder explicit.
+intrinsics are working and keeps the Zith-specific surface explicit.
 
 The F-12 and F-13 rows are similarly split. `T!` is a declared type that
 lowers through HIR per `impl-status.md`, but `!` propagation is not
-implemented. `raw` optional extraction is working even though the spec's
-larger `unsafe` and raw-block hierarchy is not part of Zith--.
+implemented in `Zith--`. `raw` optional extraction is working. Zith defines a
+separate `unsafe` and raw-block model.
 
-## Full-Zith Boundaries
+## Zith-Specific Boundaries
 
 Comptime evaluation, reflection/type mutation, capabilities, full NRA,
 `fail`/`with`/`catch`/`throw`, words/contexts/use semantics, `::`, assets, and
-the stdlib/runtime APIs remain non-Zith-- work unless the product split
-changes. The archived `docs/plans/archive/0.7.0-zith/` tree is intentionally
-not active.
+the stdlib/runtime APIs belong to Zith's separate language track. They are not
+missing `Zith--` features. The archived `docs/plans/archive/0.7.0-zith/` tree
+is intentionally not active.
 
-A surface can be partially implemented in Zith-- and still have a separate
-full-Zith remainder. `T!` is a good example: the declared type lowers through
-HIR, but `!` propagation and the `fail` family remain full-Zith.
+Related concepts can have distinct implementations in the two languages.
+`T!` is an example: the declared type lowers through HIR in `Zith--`, while
+the `!` propagation and `fail` family belong to Zith's separate design.
 
 The C toolchain plans are a separate axis. They are active infrastructure work
-for Zith-- builds, but they are not Zith-- language features and must not be
-confused with the full-Zith archived tree.
+for `Zith--` builds, but they are not `Zith--` language features and must not
+be confused with the archived Zith plan.
 
 Tag macros are another boundary case. `impl-status.md` says tag macro calls
 are parsed and then rejected with `E2010` in the Zith-- pipeline. This is not
-an unported full-Zith feature that should remain in an active wave checklist
-without qualification. The roadmap now labels it as parsed/rejected in Zith--
-and full-Zith semantics as out of core.
+a pending port from Zith and should not remain in an active wave checklist
+without qualification. The roadmap labels this as parsed/rejected in
+`Zith--`; Zith's tag semantics are separate and out of scope for that language.
 
 The dynamic dispatch row in the older spec-only list was also ambiguous. Zith--
 supports `dyn Trait` and `dyn Interface` method dispatch through fat pointers
-and vtables. The spec-only entry in `impl-status.md` refers to the broader spec
-surface, and `Zith--.md` documents the method-only public surface. Roadmap text
-kept the working `dyn` status rather than treating all `dyn` material as
-absent.
+and vtables. The spec-only entry in `impl-status.md` refers to Zith's separate
+specification, and `Zith--.md` documents the method-only public surface.
+Roadmap text kept the working `dyn` status rather than treating all `dyn`
+material as absent.
 
 ## Implemented Steps and Debt
 

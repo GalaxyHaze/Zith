@@ -1,11 +1,11 @@
 ## 21. Best Practices & Patterns
 
-> **Scope:** this chapter describes the **full Zith** design, not the Zith--
-> subset. The patterns below use `%T`, `&T`, `&mut T`, `^T`, `try ... or`,
-> `fail`, `catch`, `resume`, `use`, `risky()!`, and `assert AS CHECK`, none of
-> which compile in Zith-- today. Verify each pattern in
-> [impl-status.md](impl-status.md) before applying it, and read
-> [`Zith--.md`](Zith--.md) for the supported subset.
+> **Scope:** this chapter describes Zith. Zith and `Zith--` are sibling
+> languages with separate contracts. The patterns below use `%T`, `&T`,
+> `&mut T`, `^T`, `try ... or`, `fail`, `catch`, `resume`, `use`, `risky()!`,
+> and `assert AS CHECK`. These are Zith design examples, not `Zith--`
+> requirements. Read [`Zith--.md`](Zith--.md) for that language's contract and
+> [impl-status.md](impl-status.md) for the compiler's current support.
 
 ### 21.1 Ownership Patterns
 
@@ -98,8 +98,9 @@ understand a specific API contract. Use `camelCase` for method names.
 
 Prefer `&T` and `&mut T` for reference parameters, and reserve `^T`/`^mut T`
 for stored dependencies and return values. At a call site every argument whose
-mode is not a plain value move carries the sigil of its mode (`&x`, `&mut x`,
-`^x`, `^mut x`, or `%x`); see
+mode is not a plain value move is marked: an immutable mode with its sigil
+(`&x`, `^x`, `%x`) and a mutable mode with its keyword (`lend x`, `bind x`,
+`own x`); see
 [ADR 0038](adr/0038-call-site-reference-annotations.md).
 
 These are conventions rather than compiler restrictions. A public API may

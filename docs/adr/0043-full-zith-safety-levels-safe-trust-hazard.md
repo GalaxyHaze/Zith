@@ -110,10 +110,9 @@ including the unnecessary `trust` warning, the redundant block warnings, the
 `safe` pin violation, and the raw cleanup inside a safe block. Its numeric code
 range is not assigned here, as with the purity family in ADR-0039.
 
-Zith-- keeps `raw fn`, `unsafe`, and its `#[...]` attributes unchanged. Full
-Zith abandons `raw fn` and `unsafe` as function kinds. If Zith-- later becomes
-a sibling language rather than a subset, this decision is the record of the
-point where the two surfaces diverged.
+Zith-- keeps `raw fn`, `unsafe`, and its `#[...]` attributes unchanged. Zith
+uses different function kinds and abandons `raw fn` and `unsafe`. This is one
+of the points where the sibling language contracts diverge.
 
 The `trust fn` level replaces the `Trust` capability, which full Zith removes.
 The capability was nominal and per-type, exposing `raw fn` methods through a

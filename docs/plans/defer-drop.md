@@ -1,4 +1,6 @@
-# Defer and Drop Roadmap
+# Defer and Drop Proposal (Historical)
+
+Status: superseded by ADR-0055
 
 ## Objective
 
@@ -7,29 +9,25 @@ style: expressions registered inside a block run when that block exits, in
 reverse registration order, even across `return`, `break`, `continue`,
 `jump`, and normal fallthrough.
 
-`drop` is intentionally narrower: it does not exist yet as a semantic feature,
-only as a reserved keyword in the modern lexer and `TokenKind::Drop` in the
-legacy lexer. The candidate semantics are "run the drop hook when a value exits
-its scope". This roadmap keeps `drop` behind `defer` so both are implemented as
-one scoped-cleanup contract instead of two unrelated features.
+`drop` was considered as a deterministic owner cleanup hook. ADR-0055 rejects
+that feature for Zith--. The keyword may remain reserved, but owner cleanup
+stays explicit.
 
-This plan tracks the deferred scope-cleanup contract. `defer` is implemented
-in this iteration; `drop` remains a reserved keyword and a roadmap candidate.
+This file preserves the implementation record for `defer` and the rejected
+`drop` proposal. It is not an active implementation roadmap.
 
 ## Scope Split
 
 The `main` target remains `Zith--` as defined by `docs/Zith--.md`. `defer` is
-now part of `Zith--` with parser, sema, HIR, codegen, and test coverage.
-`drop` is planned for the next `Zith--` iteration so the scope-cleanup contract
-becomes complete for resource types. It remains outside the subset until
-ownership cleanup is implemented:
+part of Zith-- with parser, sema, HIR, codegen, and test coverage. Automatic
+per-owner `drop` cleanup is not part of the language design:
 
 | Surface | Status |
 | --- | --- |
 | `defer expr;` / `defer { ... }` | Working; reverse-order block cleanup |
 | `defer` in `state` bodies | Working; cleanup runs before `jump` |
-| `drop` keyword | Reserved only; no parser branch consumes it yet |
-| `docs/impl-status.md` | `defer` recorded as `Working`; `drop` remains `Planned (Zith--)` until implementation lands |
+| `drop` keyword | Reserved only; automatic cleanup is rejected by ADR-0055 |
+| `docs/impl-status.md` | `defer` is `Working`; `drop` is not planned for Zith-- |
 
 ## Minimal Semantics
 
@@ -63,11 +61,12 @@ Rules:
 follow the normal sema path. A `raw macro` that expands to `defer` currently
 registers cleanup at the expansion boundary rather than the surrounding
 caller block. The proposed caller-block behavior for variadic cleanup macros
-is tracked in [the variadic macro drawing](variadic-macros-and-defer.md).
+is tracked in [the variadic macro plan](variadic-macros-and-defer.md).
 
-### `drop`
+### Rejected `drop` proposal
 
-Candidate syntax, to be confirmed before implementation:
+The following syntax was considered and rejected. It is preserved here as
+historical context, not as a Zith-- proposal:
 
 ```zith
 struct Buffer {
@@ -102,13 +101,9 @@ Rules:
    terminator of the block. Done.
 4. Add codegen coverage for normal exit, `return`, `break`, `continue`, and
    `jump` in `state` functions. Done.
-5. Type-check `drop` as a method, add the owner hook to HIR cleanup, and add
-   ownership diagnostics for double drop / drop from a view. Pending.
-6. Add tests under `tests/test-defer.cpp` and `tests/test-drop.cpp`, registered
-   with `add_zith_test`, and update `docs/Zith--.md`,
-   `docs/Zith---implementation.md`, `docs/impl-status.md`, and
-   `docs/09-control-flow.md`. Defer tests are covered in the existing focused
-   suites and docs are updated; `drop` tests remain pending.
+5. Type-check `drop` as a method and add ownership diagnostics. Rejected by
+   ADR-0055.
+6. Add `drop` tests and update the language contract. Rejected by ADR-0055.
 
 ## Verification
 

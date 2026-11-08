@@ -1,15 +1,19 @@
 # Zith 0.7.0 Zith-- Planning
 
-> Updated for the current product split: `Zith--` is the compiler subset built
-> and maintained by `main`; comptime and the full-Zith capability base are not
-> `Zith--` targets.
+> `Zith--` is the sibling language built and maintained by `main`. This plan
+> tracks `Zith--`; Zith has a separate specification and development track.
+> Comptime and the capability model described for Zith are not `Zith--` targets.
 
 ## Scope
 
-This directory is the planning home for the current `Zith--` iteration:
+This directory tracks current `Zith--` planning and retired steps:
 
-- `drop` as deterministic scope cleanup, extending the already-shipped
-  `defer` path. See `docs/plans/defer-drop.md`.
+- The accepted ownership, pipeline, type-kind, and variadic cleanup design is
+  not yet assigned an implementation order. See
+  [ADR-0055](../../adr/0055-zith-minusminus-explicit-ownership-and-pipelines.md)
+  and [the variadic macro plan](../variadic-macros-and-defer.md).
+- Automatic `drop` cleanup is rejected for Zith--. See the historical
+  [`defer-drop.md`](../defer-drop.md) proposal.
 - Platform-specific imports (`foo.<arch>.<os>.zith`) are implemented in the
   import resolver and archived. See
   `docs/plans/archive/platform-imports.old.md`.
@@ -21,7 +25,8 @@ in `Zith--` and documented under `docs/impl-status.md`.
 
 ## Related Plan Locations
 
-- `docs/plans/defer-drop.md`: `drop` roadmap, the recommended next feature.
+- `docs/plans/defer-drop.md`: historical `drop` proposal, superseded by
+  ADR-0055.
 - `docs/plans/monolith-splits.md`: source reorganization priority and contract.
 - `docs/plans/archive/0.7.0-zith/`: the older 0.7.0 full-Zith planning for
   comptime, introspection, type construction, capabilities and NRA steps.

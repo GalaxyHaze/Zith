@@ -58,6 +58,12 @@ Making the keywords legacy-only and the sigils canonical was rejected: both
 spellings coexist and are equivalent, so the choice is stylistic. The read
 bind `^T` and the immutable own `%T` simply have no keyword.
 
+> Superseded by [ADR-0056](0056-nra-erased-forms-and-spelling.md): the choice
+> is no longer stylistic. The canonical spelling follows mutability, the
+> immutable forms use the sigil, the mutable forms use the keyword, and the
+> formatter rewrites the aliases. ADR-0056 also settles that an erased outer
+> type (`opaque`, `dyn T`) is not ownable.
+
 ## Lexical Note
 
 The revocable sigil `'` shares its opening character with the character

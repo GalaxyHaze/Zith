@@ -75,6 +75,48 @@ is `docs/nra-spec.md`; the current `Zith--` implementation status is in
   `%mut T` mutable own (`own`, formerly `unique`). The `'`/`grant` prefix
   combines with every form except a bare `T`. The old `lend`, `view`, and
   `share` categories are absorbed into `&`/`&mut`.
+- Erased forms and spelling settled 2026-11-08 by ADR-0056. `own` requires a
+  known storage guardian, so an erased outer type is not ownable: `own opaque`
+  and `own dyn T` (dynamic projection) are rejected, `own raw opaque` is the
+  owned opaque, and `own dyn Trait` stays as the boxed trait object because the
+  vtable carries the drop slot. This adds proof rule NRA-12.
+- `dyn T` is a dynamic projection, not a trait object: a reference to the
+  payload plus the `outerTypeId` of its container and the byte `offset` of the
+  payload in it. `let d: dyn i32 = p.x` on `struct Vec2d { [x, y]: i32 }` gives
+  `outerTypeId = Vec2d` and `offset = @offsetOf(Vec2d, x)`. A checked cast
+  `d as Vec2d` compares the id and rewinds the offset, so it rebuilds the
+  container rather than a bare `i32`. `dyn Trait` is the separate vtable form.
+  The projection is a single edge that pins its container like `&`, and the
+  `outerTypeId` is the outermost container (the one the projection was taken
+  from), so a nested `p.a.b` records the type of `p`.
+- Erased forms no longer default to a read reference (ADR-0056). A bare erased
+  form defaults to `own` of the same form when the form is ownable and is an
+  error when it is not: a bare `dyn Trait` is `own dyn Trait` (boxed trait
+  object), a bare `raw opaque` is the `void*` value, and a bare `opaque` or
+  `dyn T` is an error that must name its reference (`&opaque`/`lend opaque`,
+  `&dyn T`/`lend dyn T`). The legal qualifiers on `opaque`/`dyn T` are
+  `&`/`^`/`lend`/`bind`; `own`/`%` are rejected by NRA-12.
+- Zith-only, Zith-- unchanged: Zith-- keeps the bare `opaque` as an implicit
+  read reference and keeps `T as opaque` / `opaque as T`.
+- The erasure cast names the reference: `T as &opaque`, `T as lend opaque`,
+  `T as ^opaque`, `T as bind opaque` (one per reference form). There is no
+  `T as opaque` and no `T as own opaque`. `raw opaque` keeps `T as raw opaque`
+  and `raw opaque as T`.
+- Union members and `const` values are bare (ADR-0057). A union member carries
+  no access qualifier (`own`/`&`/`lend` rejected; `bind`/`^` allowed for a
+  stored back-reference), and the qualifier lives on the union value
+  (`let x: mut Correct`, `let y: &Correct`). A `const` value carries no
+  qualifier at all, including no `mut`; compile-time mutation is a `var` inside
+  `const { ... }` or a `const fn` body. An `enum` is a trivial compile-time
+  value (a runtime number), so a const of an enum type is bare by nature, but
+  `&SomeEnum` in runtime code stays legal.
+- ADR-0056 also replaces ADR-0034's "the choice is stylistic" sentence. The
+  canonical spelling now follows mutability: the immutable forms keep the
+  sigil (`&T`, `^T`, `%T`) and the mutable forms use the keyword (`lend T`,
+  `bind T`, `own T`). `view` is demoted to a non-canonical alias of `&T`, and
+  the mutable sigils (`&mut T`, `^mut T`, `%mut T`) are input aliases the
+  formatter rewrites. The same rule governs the call-site annotations of
+  ADR-0038 (`&x`/`^x`/`%x` vs `lend x`/`bind x`/`own x`).
 - References may coexist in one flow. Exclusivity is checked only at a
   boundary (call, return, flow crossing, closure capture): many readers or one
   writer. A closure capture is sugar for passing the captured resources in an
@@ -172,9 +214,10 @@ is `docs/nra-spec.md`; the current `Zith--` implementation status is in
 
 ### Views and flows
 
-Written before the reference model. `view` now reads as `&` and `lend` as
-`&mut`. Where this section disagrees with the reference model, the reference
-model wins.
+Written before the reference model. The read reference is `&T` (canonically;
+`view` is a non-canonical alias) and the write reference is `lend T`
+(`&mut T` is a non-canonical alias), per ADR-0056. Where this section
+disagrees with the reference model, the reference model wins.
 
 - `view` is lazy by default. Invalidation does not fail immediately; a later
   access to the invalidated view reports the error. A view remains associated

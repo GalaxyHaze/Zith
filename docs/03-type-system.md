@@ -20,7 +20,7 @@
 | Other primitives | `bool`, `char`, `void` |
 | Compiler-internal | `unknown` — a valid but unresolved type, not user-instantiable. `invalid` — a dead or uninitialized state (a moved variable, a proven-null variable). Neither can be named or stored by user code. |
 | Special | `never`, `null` |
-| Opaque | `opaque` — a reference type (`view` by default), equivalent to a tagged `void*`. `raw opaque` is an untagged `void*`, used for C interop. |
+| Opaque | `opaque` — an erased reference type, equivalent to a tagged `void*`. It has no bare form: a bare `opaque` is an error and the reference is written, `&opaque` or `lend opaque`. `raw opaque` is an untagged `void*` and is a plain value, used for C interop. See [ADR-0056](adr/0056-nra-erased-forms-and-spelling.md). |
 
 ### 3.2 Slice & Array Types
 
@@ -204,6 +204,20 @@ Its members can be heterogeneous:
 union Numbers {
     i32, f32, u64
 }
+```
+
+A `union` member is bare: it carries no access or lifetime qualifier. The
+qualifier belongs to the union value, not to an alternative inside it. `own`
+and `&` on a member are errors; the lifetime qualifier `bind` (`^mut`) and the
+read bind `^` are allowed, because a stored back-reference is intrinsic to the
+member. See [ADR-0057](adr/0057-bare-union-members-and-const-values.md).
+
+```zith
+union Incorrect { own Point, &i32, bind Node }   // error
+union Correct   { Point, i32, bind Node }
+
+let x: mut Correct;    // the qualifier lives on the value
+let y: &Correct;
 ```
 
 Use a type hint when an expression needs to produce a union:

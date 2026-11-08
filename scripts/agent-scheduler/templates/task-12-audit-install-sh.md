@@ -10,7 +10,8 @@ installed location without requiring `ZITH_STDLIB`.
 
 - Plan: package/installer audit.
 - Worktree: {REPO}/.awt/{AGENT} (branch awt/{AGENT}).
-- The compiler main is the Zith-- subset; full-Zith artifacts are out of scope.
+- The compiler main targets `Zith--`, a sibling language to Zith. Zith-specific
+  compiler artifacts are out of scope.
 - `scripts/install.sh` currently downloads `zithc-*`, copies only the binary,
   then separately downloads `zithc-stdlib-<version>.tar.gz`.
 - `src/support/stdlib-discovery.cpp` looks for

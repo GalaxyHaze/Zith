@@ -1,9 +1,11 @@
-# Zith Implementation Status
+# Zith-- Implementation Status
 
 > Last updated: 2026-10-28.
 
-This document is the single source of truth for what the compiler supports today. Status reflects
-actual compiler behaviour, not spec intent. The complete feature inventory was last broadly
+This document is the single source of truth for what the compiler supports in `Zith--` today.
+`Zith--` is a sibling language to Zith, so these statuses do not describe Zith or imply that
+`Zith--` is a partial stage of it. Status reflects actual compiler behaviour, not spec intent.
+The complete feature inventory was last broadly
 audited at baseline `a5f3716`; entries changed on 2026-10-26 were rechecked against the compiler
 built from `7595e541`, with source inspection where status depends on internal structure. The test
 command entries changed on 2026-10-27 were checked by native and VM v2 integration runs plus the
@@ -42,7 +44,7 @@ Implementation work that is incomplete or needs review is tracked in
 | Type checking | **Working** | All `ExprKind` nodes. Optional/null validation. Index bounds. |
 | Generic instantiation | **Working** | Generic `fn`, `struct`, `alias`, `enum`, `union`, and `implement` blocks are monomorphized before HIR. Calls and named types resolve concrete instances; reified structs keep concrete type arguments as structural metadata, so nested generics such as `Entry<K, V>` inside `HashMap<K, V>` keep the correct slots, and generic `union` instances are named from their substituted members so a helper returning `Result<T, E>` yields the caller's concrete `Result<A, B>` (generic `Ok`/`Err` helpers over the positional union compile). Enum/union templates accept inline `fn` methods and generic `implement as Trait` blocks alongside their positional variants/members. Generic inference considers implicit optional coercions, so `?T`/`??T` parameters can infer `T` from a bare or partially-optional argument while non-optional parameters remain exact. Contextual (expected-result) inference binds parameters that appear only in the return type: a binding annotation, `return`, or `?*T` annotation unifies the declared result against the expected type, so `Ok(7)` and `new(3)` bind their result-only parameters without explicit `<...>`. An unsuffixed numeric literal binds such a parameter weakly, so a later strong binding (the expected result) overrides it. `T: A + B` bounds are parsed, stored, and enforced at generic call sites; trait-bound method calls type-check through the declared trait method while `GenericBinding` remains the source of truth for bounds |
 | Comptime / Solve | **Reserved** | Macro expansion happens in frontend; the solver remains a compatibility stub. Generic monomorphization now runs before SRA/HIR in step-04 |
-| SRA / Reference Analysis | **Working (frozen)** | SRA (Small Resource Analysis) is the ownership slice Zith-- implements and will not grow beyond: residual facts are accumulated and consumed before final lowering, and the `&local`/`@ptrOf(local)` use-after-move slice marks moved slots as consumed in `HirAttrs` without HIR ownership nodes. The full ownership proof belongs to full Zith and is specified in [nra-spec.md](nra-spec.md); it is deliberately out of scope for Zith--. Internal names use the SRA spelling (`SraFacts`, `sraStage()`, `Stage::SraResolved`); the C ABI keeps `ZITHC_STAGE_NRA_RESOLVED` as a compatibility alias |
+| SRA / Reference Analysis | **Working (frozen)** | SRA (Small Resource Analysis) is the ownership slice Zith-- implements and will not grow beyond: residual facts are accumulated and consumed before final lowering, and the `&local`/`@ptrOf(local)` use-after-move slice marks moved slots as consumed in `HirAttrs` without HIR ownership nodes. The full ownership proof belongs to Zith's separate design and is specified in [nra-spec.md](nra-spec.md); it is deliberately out of scope for Zith--. Internal names use the SRA spelling (`SraFacts`, `sraStage()`, `Stage::SraResolved`); the C ABI keeps `ZITHC_STAGE_NRA_RESOLVED` as a compatibility alias |
 | HIR lowering | **Working** | Covers all working features; residual ownership facts attach to side tables without introducing ownership HIR nodes |
 | LLVM codegen | **Working** | x86-64 and WebAssembly targets |
 | Cache | **Working** | Object and artifact caching persist/load `.zirl` files, validate canonical mappings, and hydrate cached artifacts |
@@ -143,7 +145,7 @@ Implementation work that is incomplete or needs review is tracked in
 | `state` / `jump` | **Working** | `state Name(params): ReturnType` declares a state with the machine return type; `jump Next(args)` terminates the current block and validates arity/types against the target's own parameters before a direct `musttail tailcc` transfer |
 | `dock` | **Working** | `dock State(args)` is a `tailcc` call expression that returns the machine's final `state` return value; the old `dock { ... }` block form is rejected |
 | `defer expr;` scope guards | **Working** | `defer expr;` and `defer { ... }` register cleanup on the nearest lexical block and run in reverse registration order on normal exit, `return`, `break`, `continue`, and `state` `jump`. A defer may capture same-block bindings declared later; exits before initializing a captured binding are rejected. The deferred body is cleanup-only and rejects `return`/`break`/`continue`/`jump` |
-| `drop` cleanup hooks | **Planned (Zith--)** | Reserved keyword only, no parser branch consumes it yet. F-41 is the next Zith-- cleanup feature after `defer`; plan and scope split live in `docs/plans/defer-drop.md` |
+| `drop` cleanup hooks | **Rejected for Zith--** | The token remains reserved, but automatic per-owner cleanup is not part of the language design. See [ADR-0055](adr/0055-zith-minusminus-explicit-ownership-and-pipelines.md) |
 
 ### Words, Contexts, Macros
 
@@ -170,7 +172,11 @@ Implementation work that is incomplete or needs review is tracked in
 
 ---
 
-### Spec Only (No Compiler Support)
+### Zith Design Surfaces Outside the `Zith--` Contract
+
+These entries are described in Zith design documents but are not part of the
+current `Zith--` contract. Listing them here does not make them planned work
+for `Zith--`; its planned features are identified in `docs/roadmap.md`.
 
 | Feature | Spec chapter |
 |---|---|
@@ -189,7 +195,7 @@ Implementation work that is incomplete or needs review is tracked in
 |---|---|---|
 | `async fn` | **Parse skipped** | Legacy parser affordance only, and out of scope for the current design. A normal `async`/`await` model is expected to remain banned because suspension points hide ownership/lifetime effects from the NRA. Concurrency is documented as `stdlib`/runtime APIs, not a function kind |
 | `yield` | Reserved token | Not a core statement |
-| `fork`, `merge`, `revoke`, `spawn` | Spec only (full Zith) | Draft thread protocol; no frontend/HIR contract exists yet. See docs/plans/branch-protocol.md |
+| `fork`, `merge`, `revoke`, `spawn` | Spec only (Zith) | Draft thread protocol; no frontend/HIR contract exists yet. See docs/plans/branch-protocol.md |
 | `await` | Reserved token | Not a core statement. `async`/`await` is out of scope and expected to remain banned |
 
 ---
@@ -265,7 +271,7 @@ Recorded deliberately. Each item is a follow-up, not an unknown.
 
 | Surface | Deliberate Zith-- boundary |
 |---|---|
-| `is <type>` outside tagged unions and bare `opaque` | General type tests are outside the Zith-- subset |
+| `is <type>` outside tagged unions and bare `opaque` | General type tests are not part of the Zith-- contract |
 | C struct-by-value outside validated layouts | C interop does not promise compatibility with every aggregate ABI. By-value records remain limited to the documented 64-bit Linux target and integer-only layouts; other target ABIs and aggregate classes are deliberately rejected until validated |
 | User-defined casts | No user-defined conversion trait or cast syntax is part of the Zith-- spec |
 | Bodyless `for (literal..literal){}` | Rejected in sema with a targeted diagnostic before HIR/codegen |

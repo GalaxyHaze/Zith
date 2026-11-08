@@ -9,9 +9,12 @@
 A systems language that lets you choose how you will implement a task.
 Follow idiomatic Zith-style, C-style, functional, or whatever fits your team.
 
-The current compiler implements **Zith--**, a working subset of the full language.
-See the [Zith-- specification](docs/Zith--.md) and the
-[implementation status](docs/impl-status.md) for what works today.
+The `zithc` compiler targets **Zith--**, a sibling language to **Zith**.
+**Zith-- is in beta**: its current language surface is near-complete and its
+behavior is intended to remain stable. Planned work focuses on additive
+language and standard-library extensions. See the
+[Zith-- specification](docs/Zith--.md) and the
+[implementation status](docs/impl-status.md) for details.
 
 ## Quick Start
 
@@ -52,8 +55,8 @@ Lexer -> Parser -> Formatter -> Import resolution -> Name resolution -> Type che
 
 | Document | Purpose |
 |---|---|
-| [Zith--.md](docs/Zith--.md) | Current compiler subset specification |
-| [impl-status.md](docs/impl-status.md) | Verified status of every feature and command |
+| [Zith--.md](docs/Zith--.md) | Zith-- language specification |
+| [impl-status.md](docs/impl-status.md) | Verified compiler status for Zith-- |
 | [CHANGELOG.md](CHANGELOG.md) | What changed and what is planned |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Build instructions, code style, and pipeline overview |
 

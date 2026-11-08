@@ -2,12 +2,17 @@
 
 ## Objetivo
 
-Zith-- é o subconjunto da linguagem compilado pelo `main` atual da toolchain, documentado em
-[`docs/impl-status.md`](impl-status.md). O objetivo desta divisão é manter o `main` pequeno e
-verificável: só entra em `Zith--` o que está implementado e protegido por testes nesta iteração,
-independentemente de a spec maior `Zith-spec.md` descrever mais features.
+Zith-- é uma linguagem de sistemas estaticamente tipada, irmã de Zith. Esta especificação define
+o contrato próprio de Zith--. Ela não é um subconjunto de Zith nem uma etapa de desenvolvimento
+que evolui para Zith. O compilador `main` implementa Zith--; o estado das features está em
+[`docs/impl-status.md`](impl-status.md).
 
-Esta iteração mantém os tipos e features existentes, mas restringe bindings, storage e ownership a um núcleo verificável:
+Zith-- está em beta: a superfície atual está quase completa e o seu comportamento é considerado
+estável. O trabalho previsto concentra-se em extensões aditivas da linguagem e da standard
+library, sem expectativa de alterar o comportamento existente.
+
+A versão atual mantém os tipos e features existentes, com bindings, storage e ownership definidos
+por um núcleo verificável:
 
 - `let` para bindings locais imutáveis não-rebindáveis.
 - `var` para bindings locais mutáveis e rebindáveis.
@@ -885,19 +890,20 @@ O cache continua separado por target, porque `CacheKey` já inclui
 | `break label;`/`continue label;` sem label ativo | alvo inexistente ou ambíguo | `E2010` |
 | `++` / `--` | sem operadores de incremento/decremento; atualizar com atribuição explícita | `E2010` |
 
-## Não É Desta Iteração
+## Fora do Escopo Atual de Zith--
 
-Novos checks de ownership/borrow, heurísticas novas de SRA, `Result` e similares, flag de ativação ou modo separado. O `main` é o Zith--.
+Novos checks de ownership/borrow, heurísticas novas de SRA, `Result` e similares, flag de ativação
+ou modo separado. O compilador `main` implementa Zith-- diretamente.
 
-O move de receiver é lógico e conservador: invalida usos no sema sem alterar ABI, storage ou chamadas. A exclusividade de `lend`/`view` no call site está implementada; o borrow-checker completo, lifetimes, `unique`, `share`, `belong` e move real de valores ficam para iterações futuras.
+O move de receiver é lógico e conservador: invalida usos no sema sem alterar ABI, storage ou chamadas. A exclusividade de `lend`/`view` no call site está implementada. O borrow-checker completo, lifetimes, `unique`, `share`, `belong` e move real de valores ficam fora do contrato atual de Zith--.
 
-## Divisão do Roadmap
+## Roadmap de Zith--
 
-A metáfora de gestão é a seguinte: `Zith--` é o subconjunto que o `main` consegue
-compilar hoje; `docs/roadmap.md`, `docs/plans/0.7.0/` e
-`docs/plans/defer-drop.md` mapeiam a próxima iteração. Cada feature candidata só
-entra no documento do `Zith--` depois de terminar no pipeline real, porque o
-`main` não é um modo opt-in.
+Zith-- e Zith são linguagens irmãs com contratos separados. Este documento especifica Zith--;
+`docs/Zith-spec.md` especifica Zith. `docs/roadmap.md` e `docs/plans/0.7.0/` acompanham o
+trabalho de implementação para Zith--. `docs/plans/defer-drop.md` preserva a proposta histórica
+de `drop`. O ADR-0055 regista design aceite sem prioridade de implementação. Uma feature só passa
+a fazer parte do contrato de Zith-- depois de implementada e verificada no pipeline real.
 
 ### Já implementado e provado no `main`
 
@@ -957,22 +963,16 @@ entra no documento do `Zith--` depois de terminar no pipeline real, porque o
   `tests/test-trait-*.cpp`, `tests/test-interface-*.cpp` e
   `tests/test-generic-constraints.cpp`.
 
-### Features candidatas à próxima iteração
+### Design aceite sem ordem de implementação
 
-Estas são as features que parecem fazer falta ao conjunto atual e que devem ser
-avaliadas juntas, por ordem de afinidade com o núcleo:
-
-| Feature | Razão | Dependência mais provável |
-| --- | --- | --- |
-| `drop` funcional | limpeza determinística de recursos ao sair do binding/escopo, reutilizando o cleanup de `defer` | ownership residual + HIR |
-
-A prioridade recomendada é `drop`, reutilizando a infraestrutura de escopo de
-`defer` já implementada. Ver `docs/plans/defer-drop.md` para a proposta
-completa e `docs/09-control-flow.md` para a semântica de escopo.
+As decisões de ownership, pipelines, testes de categoria de tipo e macros
+variádicas estão registadas no ADR-0055. Ainda não definem uma ordem de
+implementação nem alteram o contrato descrito neste documento. A limpeza
+automática por `drop` foi rejeitada para Zith--. A limpeza continua explícita.
 
 ### Fora do núcleo até prova em contrário
 
-Ficam fora do `Zith--` e do roadmap de `defer`/`drop`: as superfícies `dyn` não-método
+Ficam fora do `Zith--` e do roadmap atual: as superfícies `dyn` não-método
 (`view dyn`, slices `dyn`, etc.), capabilities activadas, `comptime`
 completo, reflexão de mutação de tipos,
 ownership full NRA, `fail`/`with`/`catch`/`throw`, `use`/contexts/words, assets

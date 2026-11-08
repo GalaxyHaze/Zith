@@ -25,13 +25,18 @@ pub struct FormatResult {
     status: IoError,
 }
 
-pub fn format(msg: []char, values: [...]dyn Formatable): FormatResult;
+pub fn emptyFormatBuffer(allocator: dyn Allocator): FormatBuffer;
+pub fn format(dest: lend FormatBuffer, msg: []char,
+              values: [...]dyn Formatable): IoError;
+pub fn format(allocator: dyn Allocator, msg: []char,
+              values: [...]dyn Formatable): FormatResult;
 ```
 
-`format` creates a `FormatBuffer` with the default heap for now;
-`format_with(allocator, ...)` is the planned future explicit-allocator path.
-The result is owned and must be destroyed with `result.destroy()`. `text()`
-returns the view slice and `error()` returns the `IoError` status.
+Both buffer construction and the owned `format` overload receive an allocator
+explicitly. `FormatBuffer` retains it for growth and destruction. The owned
+result must be destroyed with `result.destroy()`. `text()` returns the view
+slice and `error()` returns the `IoError` status. The current module does not
+provide an implicit `HeapAllocator` overload.
 
 The placeholder grammar stays the same as `print`/`println`: `#` marks one
 positional value and `\#` is the literal escape. `FormatBuffer` can grow; there
@@ -39,9 +44,9 @@ is no fixed-slice sink yet.
 
 ## Intended Target Surface
 
-The domain contract for a sink is `TextSink`. Once mutable dynamic receivers
-work, `Formatable` should accept that contract and primitives should append
-through a reusable sink instead of only through `FormatBuffer`:
+The domain contract for a sink is `TextSink`. `Formatable` can later accept
+that contract so primitives can append through a reusable sink instead of only
+through `FormatBuffer`:
 
 ```zith
 pub trait TextSink {
@@ -56,16 +61,16 @@ pub trait Formatable {
 }
 ```
 
-This is the target recorded in `docs/adr/0022-stdlib-io-format-split.md` and
-the compiler debt for mutable dyn receivers.
+This is the target recorded in `docs/adr/0022-stdlib-io-format-split.md`.
+Migrating the stdlib to it remains follow-up work.
 
 ## Probe Facts Recorded
 
-`TextSink` is the intended target contract for sinks. The compiler now accepts
-a `self: lend dyn TextSink` receiver and mutating it through a `dyn` value
-updates the caller's storage (ADR-0037 plus the receiver slice of issue #64).
-`FormatBuffer` remains the concrete sink in the first stdlib surface because
-the stdlib migration to `lend dyn TextSink` is a separate follow-up. A
+`TextSink` is the intended target contract for sinks. The compiler accepts a
+`self: lend dyn TextSink` receiver and mutation through a `dyn` value updates
+the caller's storage (ADR-0037 plus the receiver slice of issue #64).
+`FormatBuffer` remains the concrete sink in the current stdlib surface because
+migrating `Formatable` to `lend dyn TextSink` is separate follow-up work. A
 qualified receiver such as `self: view Self` is still rejected with `E2022`.
 
 Calling a method directly on a variadic `dyn Formatable` element does not
@@ -86,10 +91,11 @@ fn formatNext(value: dyn Formatable, buffer: lend FormatBuffer): IoError {
 `format` keeps this bridge shape and calls
 `formatNext(raw values[next], lend buffer)`.
 
-Tuple returns are not supported, so the owned result uses a plain struct
-instead of a tuple or generic `Result<T, E>` helper. Variadic slices cannot be
-forwarded into another variadic function, so `print`/`println` keep their own
-loop instead of delegating to `format`.
+The owned result uses a plain struct to keep the buffer and status together.
+Generic `Result<T, E>` helpers now work, but the current I/O surface has not
+been changed to use them. Variadic tail forwarding is implemented. The
+`print`/`println` path still has its own formatting loop, so that duplication
+is current structure rather than a compiler limitation.
 
 `export std/io/format` cannot preserve `std.io.console.println` qualified
 access while also re-exporting the format symbols without duplicate `std`

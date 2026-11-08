@@ -88,5 +88,5 @@ value sense as the contract meaning.
 
 Zith-- does not implement the `@` annotation surface. It keeps its `#[...]`
 attributes and none of `@using`, `@only`, `@pure`, `@honest`, or `@impure`.
-The canonical order and the rename apply to full Zith only, and this decision
-does not change the Zith-- subset.
+The canonical order and the rename apply to Zith only, and this decision does
+not change `Zith--`.

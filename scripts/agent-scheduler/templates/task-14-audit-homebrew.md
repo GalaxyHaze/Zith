@@ -11,7 +11,8 @@ locally.
 
 - Plan: Homebrew packaging audit.
 - Worktree: {REPO}/.awt/{AGENT} (branch awt/{AGENT}).
-- The compiler main is the Zith-- subset; full-Zith artifacts are out of scope.
+- The compiler main targets `Zith--`, a sibling language to Zith. Zith-specific
+  compiler artifacts are out of scope.
 - The current repo does not contain a Homebrew formula; the release automation
    dispatches `homebrew-zithc` events from `.github/workflows/update-package.yml`.
 - Homebrew formulas typically need a `sha256` for a source tarball URL and

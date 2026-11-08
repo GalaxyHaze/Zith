@@ -78,8 +78,8 @@ and `test-stdlib-modules` cover it.
 ## Adopted Surface
 
 The first stdlib I/O version does not use a generic union for `format`.
-`FormatResult` is a plain struct that keeps the owned `FormatBuffer` and an
-`IoError` status together:
+`FormatResult` remains a plain struct that keeps the owned `FormatBuffer` and
+an `IoError` status together:
 
 ```zith
 pub struct FormatResult {
@@ -88,10 +88,12 @@ pub struct FormatResult {
 }
 ```
 
-`format(msg, values)` returns `FormatResult`. Callers use `result.error()`,
-`result.text()`, and `result.destroy()`. Tuple returns and variadic forwarding
-are not supported, which are the concrete reasons the original
-`Result<FormatBuffer, IoError>` tuple-like plan was replaced.
+The owned `format(allocator, msg, values)` overload returns `FormatResult`.
+Callers use `result.error()`, `result.text()`, and `result.destroy()`.
+`Result<T, E>` helpers and variadic tail forwarding now work. `FormatResult`
+is the current I/O surface choice, not a workaround for those compiler
+limitations. The separate append overload writes into a caller-owned
+`FormatBuffer` and returns `IoError`.
 
 ## Design Decision
 

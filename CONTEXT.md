@@ -1,8 +1,24 @@
-# Zith Compiler
+# Zith Languages
 
-Zith is a statically typed C++23 compiler targeting a minimal systems-language subset called `Zith--`. The modern pipeline is the canonical implementation surface; legacy parser/sema artifacts are archived outside the active tree.
+This context defines the relationship between the sibling languages Zith and Zith-- and the terms used in their compiler repository.
 
 ## Language
+
+**Zith**:
+The systems language specified by `docs/Zith-spec.md`. It is distinct from and a sibling language to `Zith--`.
+_Avoid_: describing Zith as a superset of Zith--
+
+**Full Zith**:
+A label used in design documents for Zith when they contrast it with `Zith--`. The label does not imply a superset relationship.
+_Avoid_: full-Zith subset
+
+**Zith--**:
+A distinct systems language with its own specification and compiler status. Its implementation status does not describe Zith.
+_Avoid_: subset of Zith, Zith dialect
+
+**Zith-- compiler status**:
+The implementation status of the compiler against the `Zith--` language contract. It says nothing about the implementation status of Zith.
+_Avoid_: Zith compiler maturity
 
 **Universal Zith API**:
 The shared public-API design style intended to remain familiar across Zith implementation styles. It guides public API shape and is distinct from a project's implementation policy.
@@ -25,7 +41,7 @@ The representation contract for a Zith tag's required body. Established kinds ar
 _Avoid_: macro argument kind, body meta-type
 
 **Zith-- macro**:
-A source-level `macro` declaration in the implemented Zith-- subset. It defines a reusable syntax-template expansion that runs during frontend lowering, before semantic analysis.
+A source-level `macro` declaration in Zith--. It defines a reusable syntax-template expansion that runs during frontend lowering, before semantic analysis.
 _Avoid_: C macro, comptime function, inline function
 
 **Zith-- macro argument kind**:
@@ -35,6 +51,10 @@ _Avoid_: parameter meta-type, metatype, expr parameter, body parameter
 **Variadic macro parameter**:
 A final macro parameter that binds an ordered tail of zero or more call-site arguments.
 _Avoid_: macro slice, argument spread
+
+**Type-kind predicate**:
+A compile-time test of whether a type is a `struct`, `component`, `enum`, or `union`, without inspecting or changing its structure.
+_Avoid_: field reflection, type mutation
 
 **Macro statement repetition**:
 A template operation that emits one statement for each argument bound to a variadic macro parameter, preserving argument order.
@@ -114,13 +134,25 @@ _Avoid_: returned token, runtime builder
 
 **Enum**:
 A closed set of named numeric constants in Zith--, distinct from a runtime
-union. `enum: union` is outside the Zith-- subset.
+union. `enum: union` is not part of the Zith-- contract.
 _Avoid_: tagged union
 
 **Union**:
 A runtime-tagged value that contains one of its declared member types, which may be
 heterogeneous.
 _Avoid_: enum
+
+**Bare**:
+A position that carries no access or lifetime qualifier, so the value in it can
+be copied directly. A `union` member is bare, and a `const` value is bare. The
+qualifier lives on the value that owns the position, not on the position.
+_Avoid_: unqualified, plain, default
+
+**Const value**:
+A full-Zith compile-time value. It is bare by definition, carries no access or
+lifetime qualifier and no `mut`, and is copyable directly. Compile-time
+mutation is a `var` inside a `const { ... }` block or a `const fn` body.
+_Avoid_: comptime binding, runtime constant
 
 **Anonymous state**:
 A `state` literal without a source-level name that produces a state value for a state machine.
@@ -139,7 +171,7 @@ A full-Zith `contract` declaration whose conjunctive type and value conditions a
 _Avoid_: full-Zith interface, dynamic contract
 
 **Zith-- interface**:
-A structural static contract in the implemented Zith-- subset, satisfied automatically when its conditions hold.
+A structural static contract in Zith--, satisfied automatically when its conditions hold.
 _Avoid_: trait, dynamic interface
 
 **Capability trait**:
@@ -559,24 +591,40 @@ A value that owns storage or another runtime handle and requires an explicit cle
 _Avoid_: owner-managed type, handle, object
 
 **Resource owner**:
-The single scope that holds a resource and must call its cleanup path. Passing a resource by `view` or `lend` does not transfer cleanup responsibility.
+The current holder of a resource and its cleanup obligation. Passing a resource by `view` or `lend` does not transfer cleanup responsibility.
 _Avoid_: caller, responsible scope, lifetime owner
+
+**Consuming parameter**:
+A by-value parameter that receives ownership of its argument and the obligation to clean or transfer it.
+_Avoid_: borrowing parameter, retaining parameter
+
+**Retained reference**:
+A non-owning reference that a callee may keep after the call. The caller keeps ownership and must keep the referenced resource valid while the reference is used.
+_Avoid_: ownership transfer, temporary borrow
 
 **Cleanup path**:
 The explicit consuming operation that releases a resource. The current default is `destroy`; the target convention is the `new`/`delete` and `make`/`release` pairs.
 _Avoid_: destructor, drop, teardown method
 
 **Cleanup obligation**:
-The open duty that a resource owner's scope must discharge by running its cleanup path. SRA tracks it as a residual fact, not as a type identity, so it is independent of how the owner was declared.
+The current owner's duty to run a cleanup path or transfer that duty with ownership.
 _Avoid_: ownership flag, destructor slot, pending resource
 
 **Holder**:
-A binding that gives an owner a scope, so its cleanup obligation is reachable by a `defer` or `destroy` path. An owner that appears only as an unnamed temporary has no holder.
+A binding that names a resource owner and gives its cleanup obligation a scope that an explicit cleanup path can reach.
 _Avoid_: owner name, cleanup site, lifetime scope
 
 **Ephemeral owner**:
-An owner whose storage ends before a handle taken from it, such as an arena created for a single call. The holder heuristic rejects the unnamed form of an ephemeral owner.
+An owner whose lifetime ends before a handle that retains a reference to it, such as an arena created for a single call.
 _Avoid_: temporary allocator, stack resource, short-lived value
+
+**Consuming pipeline stage**:
+A `|>` stage that transfers the current value to its operation exactly once on every execution path, then continues with the stage result.
+_Avoid_: observing stage, implicit pipeline injection
+
+**Observing pipeline stage**:
+An `also` stage that borrows the current value for read-only use and leaves the chain value unchanged. Its `it` may be unused or read more than once, but the borrow cannot escape the stage.
+_Avoid_: consuming stage, chain transform
 
 **Storage block**:
 The untyped byte region returned by an `Allocator` primitive. A storage block becomes typed only when `InPlace` construction or a collection reserves it for a concrete layout.
@@ -605,6 +653,16 @@ _Avoid_: runtime type support, reflection requirement, polymorphism support
 **Optional dyn receiver**:
 A `?dyn Trait` value used as a method-call receiver. It carries the same two-word fat pointer as `dyn Trait` and a null data pointer marks the `null` state, so dispatch is reachable only after an `is null` narrowing proves the payload present.
 _Avoid_: nullable dyn, tagged dyn pointer
+
+**Dynamic projection (`dyn T`)**:
+A reference to a `T` that lives inside another value, together with the
+`outerTypeId` of the container and the byte `offset` of the payload in it. It
+is distinct from `dyn Trait`: `dyn Trait` erases the implementation and
+dispatches through a vtable, while `dyn T` keeps the inner type `T` and erases
+the container. A checked cast back to the container type rebuilds the
+container from the `outerTypeId` and `offset`. It does not own its payload, so
+it cannot take `own`. See [ADR-0056](docs/adr/0056-nra-erased-forms-and-spelling.md).
+_Avoid_: dyn trait, type-erased value, opaque reference
 
 **Failable**:
 A Zith capability for values with valid and invalid states, distinct from ownership and from the kind of invalid state a value carries.
@@ -744,7 +802,9 @@ _Avoid_: field record, member node, smallNode
 **Reference (`&`)**:
 A non-owning, region-bound access to a resource. `&T` permits reads, `&mut T`
 permits writes, and a live reference pins its source against relocation and
-consumption. `view T` and `lend T` are the equivalent keyword spellings.
+consumption. The canonical spelling follows mutability: `&T` for the read
+reference and `lend T` for the write reference. `view T` is a non-canonical
+alias of `&T`, and `&mut T` is a non-canonical alias of `lend T`.
 _Avoid_: raw pointer
 
 **Bind (`^`)**:

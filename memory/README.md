@@ -19,6 +19,8 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
 
 ## Index
 
+- [writing-user-voice.md](writing-user-voice.md): style reference for editing
+  the user's language-positioning prose without flattening its voice.
 - [audit-cleaning.md](audit-cleaning.md): current repo-hygiene audit state,
   deferred WIP, and the cleaning queue.
 - [comptime-generics-traits.md](comptime-generics-traits.md): full-Zith 0.7.0
