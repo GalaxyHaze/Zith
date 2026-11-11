@@ -235,6 +235,26 @@ explicit reason in `skippedFunctions`. It never reaches codegen with an unverifi
 Pointers to records continue to import as opaque nullable pointers without requiring a record
 layout, because no value ABI needs to be proven for a pointer.
 
+#### C ABI verification matrix
+
+The tests prove different stages of the boundary. Import and target-layout tests do not by
+themselves prove that a native call uses the platform ABI correctly.
+
+| Surface | Current evidence | Boundary of the evidence |
+|---|---|---|
+| Header declarations | `test-cinterop` checks scalar types, pointers and qualifiers, array decay, typedefs, enums, variadic declarations, callback function-pointer rejection, scalar macros, and external globals | Import acceptance and metadata only, except where a runtime test is listed below |
+| Scalar function calls | `test_c_scalar_arguments_and_results_run` checks signed and unsigned 8-, 16-, 32-, and 64-bit integers, `float`, and `double`; `test_c_bool_char_long_scalars_run` checks `_Bool`, plain `char`, and target-resolved `long` | End-to-end execution on the configured host target only; target-specific `long` widths and other targets need their own runtime jobs |
+| Record-by-value classification | `test-cinterop` checks supported layouts and generated adapters for x86-64 Linux and AArch64 Linux, and checks rejection for Windows x64 and unsupported record shapes | These target-specific checks inspect classification and adapter generation; they are not runtime execution on those cross-targets |
+| Record-by-value calls | `test-codegen` runs simple records, `Pair64`, mixed integer records, and other validated record shapes through header import, native compilation, linking, and execution | Runtime evidence is for the configured host only. `Pair64` uses values that exercise both full-width fields and a 64-bit result |
+| Pointers and external globals | `test_imported_c_pointer_roundtrip_runtime` checks `int*` parameters and results; `test_imported_c_void_pointer_roundtrip_runtime` passes, returns, and reuses `void*`, checks C-side mutation through it, and checks a null result; existing runtime tests also exercise pointers and a returned slice through manual `extern fn` bindings, plus an imported external global | Runtime evidence is for the configured host only; this does not establish other targets or pointer-to-record layout/value passing |
+| Enums and variadic calls | A header-imported enum is round-tripped at runtime; `test_imported_variadic_c_promotes_tail_arguments` calls an imported variadic declaration and C reads `u8` as `int` and `f32` as `double` with `va_arg`; a manual `extern fn` variadic call is also tested | End-to-end evidence is for the configured host and these promotion cases only; it does not establish behavior on other targets or for every variadic argument type |
+| Function pointers and callbacks | `test-cinterop` checks that callback parameters and results are skipped with an unsupported-type reason; `test_c_header_callback_declaration_is_not_imported` proves a callback declaration cannot be called as if it accepted a data pointer; `test_function_pointer_call` separately passes a Zith function through a manual `extern fn`, and C invokes it | Header-declared callbacks remain unsupported because the imported type model does not preserve their callable signature; the rejection test does not invoke a callback, and the user-facing diagnostic is currently generic. The manual binding runtime test covers only the configured host target |
+| Unsupported ABI cases | Import tests verify skips for bitfields, packed and anonymous records, flexible arrays, `long double`, `__int128`, variadic functions with by-value records, and unvalidated targets | These are rejection/classification checks, not runtime tests |
+
+Grow this matrix when a new ABI family is validated. For each addition, keep header-import
+assertions, target-specific classification tests, and native end-to-end execution distinct, and
+state which targets actually ran the executable.
+
 The project may configure C parsing and linking in `ZithProject.toml`:
 
 ```toml

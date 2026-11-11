@@ -4269,10 +4269,13 @@ static void test_validated_c_pair64_by_value_runs() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
     t.opts.cSourceDirs.push("c");
-    t.write("c/pair64-records.c", "#include <stdint.h>\n"
-                                  "struct Pair64 { int64_t lo, hi; };\n"
-                                  "int32_t c_sum_pair64(struct Pair64 p) {\n"
-                                  "    return (int32_t)(p.lo + p.hi);\n"
+    t.write("c/pair64-records.c", "#include \"../pair64-records.h\"\n"
+                                  "int c_check_pair64(struct Pair64 p) {\n"
+                                  "    return p.lo == INT64_C(1311768467463790320) &&\n"
+                                  "           p.hi == INT64_C(1147797409030816545);\n"
+                                  "}\n"
+                                  "int64_t c_sum_pair64(struct Pair64 p) {\n"
+                                  "    return p.lo + p.hi;\n"
                                   "}\n"
                                   "struct Pair64 make_pair64(int64_t lo, int64_t hi) {\n"
                                   "    struct Pair64 p = { lo, hi };\n"
@@ -4280,18 +4283,274 @@ static void test_validated_c_pair64_by_value_runs() {
                                   "}\n");
     t.write("main.zith", "import \"pair64-records.h\"\n"
                          "fn main(): i32 {\n"
-                         "    let p = make_pair64(20, 22);\n"
-                         "    let sum: i32 = c_sum_pair64(p);\n"
-                         "    if (sum != 42) { return 1; }\n"
+                         "    let p = make_pair64(1311768467463790320, 1147797409030816545);\n"
+                         "    if (c_check_pair64(p) != 1) { return 1; }\n"
+                         "    let sum: i64 = c_sum_pair64(p);\n"
+                         "    if (sum != 2459565876494606865) { return 2; }\n"
                          "    return 0;\n"
                          "}\n");
-    t.write("pair64-records.h", "struct Pair64 { long long lo, hi; };\n"
-                                "int c_sum_pair64(struct Pair64 p);\n"
-                                "struct Pair64 make_pair64(long long lo, long long hi);\n");
+    t.write("pair64-records.h", "#include <stdint.h>\n"
+                                "struct Pair64 { int64_t lo, hi; };\n"
+                                "int c_check_pair64(struct Pair64 p);\n"
+                                "int64_t c_sum_pair64(struct Pair64 p);\n"
+                                "struct Pair64 make_pair64(int64_t lo, int64_t hi);\n");
 
     auto r = t.run();
     CHECK(r.ok, "validated two-adjacent-i64 record by-value functions compile, link, and run");
-    CHECK_EQ(r.exitCode, 0, "the C stub reads the passed Pair64 and returns the expected sum");
+    CHECK_EQ(r.exitCode, 0,
+             "C independently checks both 64-bit fields and returns their full-width sum");
+#endif
+}
+
+static void test_c_scalar_arguments_and_results_run() {
+#ifdef ZITH_ENABLE_C_INTEROP
+    ModernFileCodegenTest t;
+    t.opts.cSourceDirs.push("c");
+    t.write("c/scalar-abi.c",
+            "#include \"../scalar-abi.h\"\n"
+            "int c_check_i8(int8_t value) { return value == -101; }\n"
+            "int8_t c_make_i8(void) { return -101; }\n"
+            "int c_check_u8(uint8_t value) { return value == 231; }\n"
+            "uint8_t c_make_u8(void) { return 231; }\n"
+            "int c_check_i16(int16_t value) { return value == -30001; }\n"
+            "int16_t c_make_i16(void) { return -30001; }\n"
+            "int c_check_u16(uint16_t value) { return value == 61001; }\n"
+            "uint16_t c_make_u16(void) { return 61001; }\n"
+            "int c_check_i32(int32_t value) { return value == -123456789; }\n"
+            "int32_t c_make_i32(void) { return -123456789; }\n"
+            "int c_check_u32(uint32_t value) { return value == UINT32_C(0xFEDCBA98); }\n"
+            "uint32_t c_make_u32(void) { return UINT32_C(0xFEDCBA98); }\n"
+            "int c_check_i64(int64_t value) { return value == -INT64_C(81985529216486895); }\n"
+            "int64_t c_make_i64(void) { return -INT64_C(81985529216486895); }\n"
+            "int c_check_u64(uint64_t value) { return value == UINT64_C(0xFEDCBA9876543210); }\n"
+            "uint64_t c_make_u64(void) { return UINT64_C(0xFEDCBA9876543210); }\n"
+            "int c_check_f32(float value) { return value == -13.25f; }\n"
+            "float c_make_f32(void) { return -13.25f; }\n"
+            "int c_check_f64(double value) { return value == 1234567.125; }\n"
+            "double c_make_f64(void) { return 1234567.125; }\n");
+    t.write("scalar-abi.h", "#include <stdint.h>\n"
+                            "int c_check_i8(int8_t value);\n"
+                            "int8_t c_make_i8(void);\n"
+                            "int c_check_u8(uint8_t value);\n"
+                            "uint8_t c_make_u8(void);\n"
+                            "int c_check_i16(int16_t value);\n"
+                            "int16_t c_make_i16(void);\n"
+                            "int c_check_u16(uint16_t value);\n"
+                            "uint16_t c_make_u16(void);\n"
+                            "int c_check_i32(int32_t value);\n"
+                            "int32_t c_make_i32(void);\n"
+                            "int c_check_u32(uint32_t value);\n"
+                            "uint32_t c_make_u32(void);\n"
+                            "int c_check_i64(int64_t value);\n"
+                            "int64_t c_make_i64(void);\n"
+                            "int c_check_u64(uint64_t value);\n"
+                            "uint64_t c_make_u64(void);\n"
+                            "int c_check_f32(float value);\n"
+                            "float c_make_f32(void);\n"
+                            "int c_check_f64(double value);\n"
+                            "double c_make_f64(void);\n");
+    t.write(
+        "main.zith",
+        "import \"scalar-abi.h\"\n"
+        "fn main(): i32 {\n"
+        "    if (c_check_i8(-101) != 1 or c_make_i8() != -101) { return 1; }\n"
+        "    if (c_check_u8(231) != 1 or c_make_u8() != 231) { return 2; }\n"
+        "    if (c_check_i16(-30001) != 1 or c_make_i16() != -30001) { return 3; }\n"
+        "    if (c_check_u16(61001) != 1 or c_make_u16() != 61001) { return 4; }\n"
+        "    if (c_check_i32(-123456789) != 1 or c_make_i32() != -123456789) { return 5; }\n"
+        "    if (c_check_u32(0xFEDCBA98u32) != 1 or c_make_u32() != 0xFEDCBA98u32) { return 6; }\n"
+        "    if (c_check_i64(-81985529216486895) != 1 or c_make_i64() != -81985529216486895) { "
+        "return 7; }\n"
+        "    if (c_check_u64(0xFEDCBA9876543210u64) != 1 or\n"
+        "        c_make_u64() != 0xFEDCBA9876543210u64) { return 8; }\n"
+        "    if (c_check_f32(-13.25) != 1 or c_make_f32() != -13.25) { return 9; }\n"
+        "    if (c_check_f64(1234567.125) != 1 or c_make_f64() != 1234567.125) { return 10; }\n"
+        "    return 0;\n"
+        "}\n");
+
+    const auto result = t.run();
+    CHECK(result.ok, "imported C scalar arguments and results compile, link, and execute");
+    CHECK_EQ(
+        result.exitCode, 0,
+        "C observes each fixed-width integer and float argument and Zith receives each result");
+#endif
+}
+
+static void test_imported_variadic_c_promotes_tail_arguments() {
+#ifdef ZITH_ENABLE_C_INTEROP
+    ModernFileCodegenTest t;
+    t.opts.cSourceDirs.push("c");
+    t.write("c/variadic-promotions.c",
+            "#include \"../variadic-promotions.h\"\n"
+            "#include <stdarg.h>\n"
+            "int c_check_variadic_promotions(int fixed, ...) {\n"
+            "    va_list args;\n"
+            "    va_start(args, fixed);\n"
+            "    int small = va_arg(args, int);\n"
+            "    double promoted = va_arg(args, double);\n"
+            "    va_end(args);\n"
+            "    return fixed == 17 && small == 250 && promoted == 1.25;\n"
+            "}\n");
+    t.write("variadic-promotions.h", "int c_check_variadic_promotions(int fixed, ...);\n");
+    t.write("main.zith",
+            "import \"variadic-promotions.h\"\n"
+            "fn main(): i32 {\n"
+            "    let small: u8 = 250;\n"
+            "    let fraction: f32 = 1.25;\n"
+            "    if (c_check_variadic_promotions(17, small, fraction) != 1) { return 1; }\n"
+            "    return 0;\n"
+            "}\n");
+
+    const auto result = t.run();
+    CHECK(result.ok, "header-imported C variadic function compiles, links, and executes");
+    CHECK_EQ(result.exitCode, 0,
+             "C reads the variadic u8 as int and f32 as double after default promotions");
+#endif
+}
+
+static void test_c_bool_char_long_scalars_run() {
+#ifdef ZITH_ENABLE_C_INTEROP
+    ModernFileCodegenTest t;
+    t.opts.cSourceDirs.push("c");
+    t.write("c/native-scalars.c", "#include \"../native-scalars.h\"\n"
+                                  "int c_check_bool(_Bool value) { return value == 1; }\n"
+                                  "_Bool c_make_bool(void) { return 1; }\n"
+                                  "int c_check_char(char value) { return value == 'Q'; }\n"
+                                  "char c_make_char(void) { return 'R'; }\n"
+                                  "int c_check_long(long value) { return value == 1234567L; }\n"
+                                  "long c_make_long(void) { return 7654321L; }\n");
+    t.write("native-scalars.h", "int c_check_bool(_Bool value);\n"
+                                "_Bool c_make_bool(void);\n"
+                                "int c_check_char(char value);\n"
+                                "char c_make_char(void);\n"
+                                "int c_check_long(long value);\n"
+                                "long c_make_long(void);\n");
+    t.write("main.zith",
+            "import \"native-scalars.h\"\n"
+            "fn main(): i32 {\n"
+            "    if (c_check_bool(true) != 1 or c_make_bool() != true) { return 1; }\n"
+            "    if (c_check_char('Q') != 1 or c_make_char() != 'R') { return 2; }\n"
+            "    if (c_check_long(1234567) != 1 or c_make_long() != 7654321) { return 3; }\n"
+            "    return 0;\n"
+            "}\n");
+
+    const auto result = t.run();
+    CHECK(result.ok, "imported C _Bool, char, and long functions compile, link, and execute");
+    CHECK_EQ(result.exitCode, 0,
+             "C observes the Zith arguments and Zith receives each native scalar result");
+#endif
+}
+
+static void test_imported_c_pointer_roundtrip_runtime() {
+#ifdef ZITH_ENABLE_C_INTEROP
+    ModernFileCodegenTest t;
+    t.opts.cSourceDirs.push("c");
+    t.write("c/pointer-abi.c", "#include \"../pointer-abi.h\"\n"
+                                "int *c_increment_and_return_i32(int *value) {\n"
+                                "    *value += 5;\n"
+                                "    return value;\n"
+                                "}\n"
+                                "int *c_return_null_i32(void) { return 0; }\n");
+    t.write("pointer-abi.h", "int *c_increment_and_return_i32(int *value);\n"
+                             "int *c_return_null_i32(void);\n");
+    t.write("main.zith",
+            "import \"pointer-abi.h\"\n"
+            "fn main(): i32 {\n"
+            "    var value: i32 = 37;\n"
+            "    let returned = c_increment_and_return_i32(&value);\n"
+            "    if (returned is null) { return 1; }\n"
+            "    if (*returned != 42) { return 2; }\n"
+            "    let null_pointer = c_return_null_i32();\n"
+            "    if (null_pointer is null) { return 0; }\n"
+            "    return 3;\n"
+            "}\n");
+
+    const auto result = t.run();
+    CHECK(result.ok, "header-imported C pointer parameters and results compile, link, and execute");
+    CHECK_EQ(result.exitCode, 0,
+             "C mutates the pointed value, returns its address, and preserves a null pointer");
+#endif
+}
+
+static void test_imported_c_void_pointer_roundtrip_runtime() {
+#ifdef ZITH_ENABLE_C_INTEROP
+    ModernFileCodegenTest t;
+    t.opts.cSourceDirs.push("c");
+    t.write("c/void-pointer-abi.c", "#include \"../void-pointer-abi.h\"\n"
+                                    "void *c_roundtrip_void_pointer(void *value) {\n"
+                                    "    return value;\n"
+                                    "}\n"
+                                    "int c_write_through_void_pointer(void *value, int replacement) {\n"
+                                    "    int *typed = (int *)value;\n"
+                                    "    *typed = replacement;\n"
+                                    "    return *typed;\n"
+                                    "}\n"
+                                    "void *c_return_null_void_pointer(void) { return 0; }\n");
+    t.write("void-pointer-abi.h", "void *c_roundtrip_void_pointer(void *value);\n"
+                                  "int c_write_through_void_pointer(void *value, int replacement);\n"
+                                  "void *c_return_null_void_pointer(void);\n");
+    t.write("main.zith", "import \"void-pointer-abi.h\"\n"
+                         "fn main(): i32 {\n"
+                         "    var value: i32 = 17;\n"
+                         "    let erased_pointer = c_roundtrip_void_pointer(&value);\n"
+                         "    if (erased_pointer is null) { return 1; }\n"
+                         "    if (c_write_through_void_pointer(erased_pointer, 42) != 42) { return 2; }\n"
+                         "    let null_pointer = c_return_null_void_pointer();\n"
+                         "    if (null_pointer is null) { return 0; }\n"
+                         "    return 4;\n"
+                         "}\n");
+
+    const auto result = t.run();
+    CHECK(result.ok, "header-imported void* parameters and results compile, link, and execute");
+    CHECK_EQ(result.exitCode, 0,
+             "C preserves a void* round trip, mutates the pointed value, and returns null");
+#endif
+}
+
+static void test_c_header_callback_declaration_is_not_imported() {
+#ifdef ZITH_ENABLE_C_INTEROP
+    ModernFileCodegenTest t;
+    t.opts.cSourceDirs.push("c");
+    t.write("c/callback-abi.c", "#include \"../callback-abi.h\"\n"
+                                "int c_invoke_callback(int (*callback)(int)) {\n"
+                                "    return callback(1);\n"
+                                "}\n");
+    t.write("callback-abi.h", "int c_invoke_callback(int (*callback)(int));\n");
+    t.write("main.zith",
+            "import \"callback-abi.h\"\n"
+            "fn invalid_call(): i32 {\n"
+            "    var value: i32 = 7;\n"
+            "    return c_invoke_callback(&value);\n"
+            "}\n"
+            "fn main(): i32 { return 0; }\n");
+
+    const auto result = t.run();
+    CHECK(!result.ok && result.errorCount > 0U &&
+              result.hasMessage("c_invoke_callback"),
+          "a callback declaration without a callable type must not be exposed as an object pointer");
+#endif
+}
+
+static void test_c_enum_return_local_argument_runs() {
+#ifdef ZITH_ENABLE_C_INTEROP
+    ModernFileCodegenTest t;
+    t.opts.cSourceDirs.push("c");
+    t.write("c/color.c", "#include \"../color.h\"\n"
+                         "Color c_make_color(void) { return ColorGreen; }\n"
+                         "int c_check_color(Color color) { return color == ColorGreen; }\n");
+    t.write("color.h", "typedef enum Color { ColorRed = 3, ColorGreen = 42 } Color;\n"
+                       "Color c_make_color(void);\n"
+                       "int c_check_color(Color color);\n");
+    t.write("main.zith", "import \"color.h\"\n"
+                         "fn main(): i32 {\n"
+                         "    let color = c_make_color();\n"
+                         "    if (c_check_color(color) != 1) { return 1; }\n"
+                         "    return 0;\n"
+                         "}\n");
+
+    const auto result = t.run();
+    CHECK(result.ok, "foreign enum return lowers into a local and can be passed back to C");
+    CHECK_EQ(result.exitCode, 0, "the C enum round-trip preserves its value");
 #endif
 }
 
@@ -4862,6 +5121,20 @@ static void test_codegen() {
     test_validated_c_struct_by_value_runs();
     printf("Running test_validated_c_pair64_by_value_runs\n");
     test_validated_c_pair64_by_value_runs();
+    printf("Running test_c_scalar_arguments_and_results_run\n");
+    test_c_scalar_arguments_and_results_run();
+    printf("Running test_c_bool_char_long_scalars_run\n");
+    test_c_bool_char_long_scalars_run();
+    printf("Running test_imported_c_pointer_roundtrip_runtime\n");
+    test_imported_c_pointer_roundtrip_runtime();
+    printf("Running test_imported_c_void_pointer_roundtrip_runtime\n");
+    test_imported_c_void_pointer_roundtrip_runtime();
+    printf("Running test_c_header_callback_declaration_is_not_imported\n");
+    test_c_header_callback_declaration_is_not_imported();
+    printf("Running test_imported_variadic_c_promotes_tail_arguments\n");
+    test_imported_variadic_c_promotes_tail_arguments();
+    printf("Running test_c_enum_return_local_argument_runs\n");
+    test_c_enum_return_local_argument_runs();
     printf("Running test_validated_c_double_pair_by_value_runs\n");
     test_validated_c_double_pair_by_value_runs();
     printf("Running test_validated_c_large_record_by_value_runs\n");

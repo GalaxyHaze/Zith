@@ -28,6 +28,10 @@ struct Type {
     /// Clang's target-resolved C spelling, used when emitting C ABI adapters.
     std::string cSpelling;
     std::shared_ptr<const Type> pointee;
+    /// For an enum, the underlying integer type reported by libclang. Null when
+    /// the enum has no complete definition, in which case a by-value use cannot
+    /// be proven and is rejected by the lowerer.
+    std::shared_ptr<const Type> enumUnderlying;
     /// Validated record ABI.  Only populated when libclang proved the layout for
     /// the target named in `ParseOptions::targetTriple`.
     std::vector<RecordField> recordFields;

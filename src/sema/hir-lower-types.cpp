@@ -123,8 +123,24 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
         break;
     case TypeKind::Pointer: {
         const auto *pointer = sema_.typeTable().pointer(type);
-        lowered =
-            pointer != nullptr ? types_.internPtr(lowerType(pointer->pointee)) : types::kErrorType;
+        if (pointer == nullptr) {
+            lowered = types::kErrorType;
+            break;
+        }
+        const auto pointee = sema_.typeTable().canonical(pointer->pointee);
+        if (sema_.typeTable().kindOf(pointee) == TypeKind::Enum) {
+            const std::string_view name = sema_.typeTable().namedTypeName(pointee);
+            const auto *foreign         = foreignEnumForName(name);
+            if (foreign != nullptr && foreign->enumUnderlying == nullptr) {
+                // An incomplete foreign enum is valid as an opaque pointer
+                // target, but must not be cached as a by-value type.
+                const auto opaque = types_.registerNamedType(name, types::TypeKind::Enum);
+                types_.setDefiningModule(opaque, sema_.typeTable().definingModule(pointee));
+                lowered = types_.internPtr(opaque);
+                break;
+            }
+        }
+        lowered = types_.internPtr(lowerType(pointer->pointee));
         break;
     }
     case TypeKind::Optional: {
@@ -197,6 +213,13 @@ types::TypeId HirLowerModern::lowerType(sema::modern::TypeId type) {
         break;
     }
     case TypeKind::Enum: {
+        const std::string_view name = sema_.typeTable().namedTypeName(type);
+        if (const auto *foreign = foreignEnumForName(name); foreign != nullptr) {
+            lowered = lowerForeignType(*foreign);
+            if (lowered != types::kErrorType)
+                types_.setDefiningModule(lowered, sema_.typeTable().definingModule(type));
+            break;
+        }
         const auto *enumeration = sema_.typeTable().enum_type(type);
         if (enumeration == nullptr) {
             lowered = types::kErrorType;
@@ -438,14 +461,34 @@ types::TypeId HirLowerModern::lowerForeignType(const cinterop::Type &type) {
         }
         return lowered;
     }
-    case cinterop::TypeKind::Enum:
-        return types_.registerNamedType(type.name, types::TypeKind::Enum);
+    case cinterop::TypeKind::Enum: {
+        // A C enum value is carried by its underlying integer type.  Without it
+        // the enum would lower to `void` and the LLVM verifier would reject the
+        // declaration (or the backend would loop).  Reject an enum with no known
+        // underlying instead of emitting an unproven ABI.
+        if (type.enumUnderlying == nullptr) {
+            diags_.reportError(diagnostics::err::InvalidIR,
+                               "unsupported C ABI: enum '" + type.name +
+                                   "' is used by value without a known underlying type",
+                               {});
+            return types::kErrorType;
+        }
+        const types::TypeId underlying = lowerForeignType(*type.enumUnderlying);
+        const types::TypeId lowered    = types_.defineEnum(type.name, underlying);
+        types_.setEnumUnderlying(lowered, underlying);
+        return lowered;
+    }
     }
     return types::kErrorType;
 }
 
 const cinterop::Type *HirLowerModern::foreignRecordForName(std::string_view name) const noexcept {
     const auto *cached = foreign_record_types_.get(interner_.intern(name));
+    return cached != nullptr ? *cached : nullptr;
+}
+
+const cinterop::Type *HirLowerModern::foreignEnumForName(std::string_view name) const noexcept {
+    const auto *cached = foreign_enum_types_.get(interner_.intern(name));
     return cached != nullptr ? *cached : nullptr;
 }
 
@@ -465,6 +508,11 @@ types::TypeId HirLowerModern::lowerForeignPointee(const cinterop::Type &type) {
         // A pointer to a C record has a bare pointer ABI even when the record
         // layout itself is not needed by the caller.
         return types_.registerNamedType(type.name, types::TypeKind::Struct);
+    }
+    if (type.kind == cinterop::TypeKind::Enum) {
+        // A pointer to a C enum has a bare pointer ABI.  The underlying type is
+        // not needed for a pointer, so a forward-declared enum stays usable here.
+        return types_.registerNamedType(type.name, types::TypeKind::Enum);
     }
     return lowerForeignType(type);
 }

@@ -32,7 +32,7 @@ HirLowerModern::HirLowerModern(memory::Arena &arena, diagnostics::DiagnosticEngi
       test_filter_(test_filter) {}
 
 bool HirLowerModern::run() {
-    registerForeignRecords();
+    registerForeignTypes();
     // Close the nested-generic instantiation set before predeclaring functions
     // so every concrete callee a generic body needs already exists.
     if (auto *instantiations = sema_.instantiations(); instantiations != nullptr)
@@ -356,31 +356,44 @@ void HirLowerModern::populateHirDeclarations() {
     }
 }
 
-void HirLowerModern::registerForeignRecords() {
+void HirLowerModern::registerForeignTypes() {
     for (const auto &header : snapshot_.cHeaders()) {
         if (header == nullptr)
             continue;
         std::vector<const cinterop::Type *> pending;
         const auto queue = [&](const cinterop::Type &type) {
-            if (type.kind == cinterop::TypeKind::Record)
-                pending.push_back(&type);
+            pending.push_back(&type);
         };
         for (const auto &function : header->functions) {
             queue(function.result);
             for (const auto &parameter : function.parameters)
                 queue(parameter);
         }
+        for (const auto &global : header->globals)
+            queue(global.type);
+        for (const auto &type_alias : header->typedefs)
+            queue(type_alias.type);
         while (!pending.empty()) {
-            const auto *record = pending.back();
+            const auto *type = pending.back();
             pending.pop_back();
-            if (record == nullptr || record->kind != cinterop::TypeKind::Record)
+            if (type == nullptr)
                 continue;
-            const auto key = interner_.intern(record->name);
-            if (foreign_record_types_.get(key) == nullptr)
-                foreign_record_types_.insert(key, record);
-            for (const auto &field : record->recordFields) {
-                if (field.type != nullptr && field.type->kind == cinterop::TypeKind::Record)
-                    pending.push_back(field.type.get());
+            if (type->kind == cinterop::TypeKind::Record) {
+                const auto key = interner_.intern(type->name);
+                if (foreign_record_types_.get(key) == nullptr)
+                    foreign_record_types_.insert(key, type);
+                for (const auto &field : type->recordFields) {
+                    if (field.type != nullptr)
+                        pending.push_back(field.type.get());
+                }
+            } else if (type->kind == cinterop::TypeKind::Enum) {
+                const auto key = interner_.intern(type->name);
+                if (foreign_enum_types_.get(key) == nullptr)
+                    foreign_enum_types_.insert(key, type);
+                if (type->enumUnderlying != nullptr)
+                    pending.push_back(type->enumUnderlying.get());
+            } else if (type->kind == cinterop::TypeKind::Pointer && type->pointee != nullptr) {
+                pending.push_back(type->pointee.get());
             }
         }
     }

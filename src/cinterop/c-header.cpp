@@ -395,13 +395,12 @@ bool lowerTypeImpl(const CXType source, Type &result, std::string &unsupported,
     case CXType_Pointer: {
         const CXType pointee_type      = clang_getPointeeType(type);
         const CXType pointee_canonical = clang_getCanonicalType(pointee_type);
-        // Function pointers would need a Zith callable/ABI model to be passed as
-        // values. Import them as an opaque pointer so declarations stay usable.
+        // Do not erase the distinction between function and object pointers.
+        // The imported type model has no callable function-pointer type yet.
         if (pointee_canonical.kind == CXType_FunctionProto ||
             pointee_canonical.kind == CXType_FunctionNoProto) {
-            result.kind    = TypeKind::Pointer;
-            result.pointee = std::make_shared<Type>(Type{});
-            return true;
+            unsupported = "function pointer type " + result.cSpelling;
+            return false;
         }
         Type pointee;
         const bool validate_pointee = pointee_canonical.kind != CXType_Record;
@@ -421,6 +420,19 @@ bool lowerTypeImpl(const CXType source, Type &result, std::string &unsupported,
     case CXType_Enum:
         result.kind = TypeKind::Enum;
         result.name = takeString(clang_getTypeSpelling(source));
+        // The C ABI of an enum value is its underlying integer type.  Record it
+        // so the lowerer emits the real integer width instead of `void`.  A
+        // forward-declared enum reports an invalid integer type; leave the
+        // underlying null so a by-value use is rejected instead of guessed.
+        if (const CXCursor declaration = clang_getTypeDeclaration(type);
+            declaration.kind == CXCursor_EnumDecl) {
+            const CXType underlying = clang_getEnumDeclIntegerType(declaration);
+            if (underlying.kind != CXType_Invalid) {
+                Type lowered;
+                if (lowerTypeImpl(underlying, lowered, unsupported, false, false))
+                    result.enumUnderlying = std::make_shared<Type>(std::move(lowered));
+            }
+        }
         return true;
     default:
         unsupported = takeString(clang_getTypeSpelling(source));

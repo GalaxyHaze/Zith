@@ -235,21 +235,31 @@ void test_decayed_and_special_parameter_types() {
         }
     }
 
-    // 6d. Function-pointer parameters import as opaque pointers.
+    // 6d. Reject function-pointer parameters until the imported type preserves callability.
     {
         const auto art = parseHeaderFromContent(
             "callback_param.h", "#include <stddef.h>\n"
                                 "void qsort(void *base, size_t nmemb, size_t size,\n"
-                                "           int (*compar)(const void *, const void *));\n");
-        CHECK(art->diagnostics.empty(), "callback parameter imports without diagnostics");
-        if (const auto *f = findFunction(*art, "qsort")) {
-            CHECK_EQ(f->parameters.size(), 4u, "qsort keeps all four parameters");
-            if (f->parameters.size() == 4U) {
-                CHECK_EQ(static_cast<int>(f->parameters[3].kind),
-                         static_cast<int>(TypeKind::Pointer),
-                         "the comparator parameter becomes an opaque Pointer");
+                                "           int (*compar)(const void *, const void *));\n"
+                                "int (*get_callback(void))(int);\n");
+        CHECK(art->diagnostics.empty(), "an unsupported callback does not fail sibling imports");
+        CHECK(findFunction(*art, "qsort") == nullptr,
+              "a declaration with a callback parameter is not imported");
+        CHECK(findFunction(*art, "get_callback") == nullptr,
+              "a declaration with a callback result is not imported");
+        bool found_parameter_skip = false;
+        bool found_result_skip    = false;
+        for (const auto &skipped : art->skippedFunctions)
+            if (skipped.find("function pointer") != std::string::npos) {
+                found_parameter_skip =
+                    found_parameter_skip || skipped.find("qsort") != std::string::npos;
+                found_result_skip =
+                    found_result_skip || skipped.find("get_callback") != std::string::npos;
             }
-        }
+        CHECK(found_parameter_skip,
+              "the skipped callback parameter declaration records its unsupported type");
+        CHECK(found_result_skip,
+              "the skipped callback result declaration records its unsupported type");
     }
 }
 
@@ -655,6 +665,15 @@ void test_struct_and_enum() {
                      "next: result is Enum");
             CHECK(f->result.name.find("Color") != std::string::npos,
                   "next: result name contains Color");
+            CHECK(f->result.enumUnderlying != nullptr,
+                  "next: result records its clang-reported underlying type");
+            if (f->result.enumUnderlying != nullptr) {
+                CHECK_EQ(static_cast<int>(f->result.enumUnderlying->kind),
+                         static_cast<int>(TypeKind::Integer),
+                         "next: enum underlying type is integer");
+                CHECK_EQ(f->result.enumUnderlying->bits, 32U,
+                         "next: ordinary C enum has a 32-bit underlying type on this target");
+            }
         }
     }
 }
