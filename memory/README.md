@@ -128,6 +128,14 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
 - [wasm-strict-warnings.md](wasm-strict-warnings.md): why the WebAssembly build
   rejects namespace-scope `std::string` constants and `constexpr std::string`,
   and the `constexpr std::string_view` plus accessor pattern that works.
+- [cpp-interop-parked.md](cpp-interop-parked.md): C++ interop is parked; the
+  only defensible slice is Itanium mangling plus standard-layout class ABI,
+  behind a verified C ABI. Points to
+  `docs/plans/abi/cpp-interop-drawing.md`.
+- [cinterop-foreign-enum-broken.md](cinterop-foreign-enum-broken.md): imported
+  C enums use the libclang-reported integer type, including when a function
+  return is stored in a local. Records and enums are registered from reachable
+  signatures, globals, typedefs, pointers, and record fields.
 - [docs-deltas.md](docs-deltas.md): the `docs/deltas/` playground for edits to
   a canonical document, its status/location contract, the
   `scripts/check-deltas.py` check, and how it relates to `docs/plans/` and

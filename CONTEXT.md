@@ -982,3 +982,7 @@ _Avoid_: system headers for WASM, browser libc headers, precompiled headers
 **Bundle provider**:
 The configurable source of embedded/locally installed compiler resources (LLD, header resource dirs, Zith-owned C backend, WASI headers) resolved relative to the `zithc` binary.
 _Avoid_: toolchain root, LLVM_DIR, compiler path
+
+**C++ interop slice**:
+The only defensible C++ interop scope: Itanium name mangling plus standard-layout class ABI compatible with C, with no vtables, RTTI, exceptions, or templates. It is parked behind a completed and verified C ABI and a concrete C++ library to call.
+_Avoid_: full C++ ABI, Itanium ABI support, C++ frontend
