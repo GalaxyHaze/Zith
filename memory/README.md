@@ -128,3 +128,7 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
 - [wasm-strict-warnings.md](wasm-strict-warnings.md): why the WebAssembly build
   rejects namespace-scope `std::string` constants and `constexpr std::string`,
   and the `constexpr std::string_view` plus accessor pattern that works.
+- [docs-deltas.md](docs-deltas.md): the `docs/deltas/` playground for edits to
+  a canonical document, its status/location contract, the
+  `scripts/check-deltas.py` check, and how it relates to `docs/plans/` and
+  `docs/adr/`.
