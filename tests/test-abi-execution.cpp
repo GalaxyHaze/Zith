@@ -88,6 +88,55 @@ void test_abi_exec_10_control_flow() {
     CHECK_EQ(result.exitCode, 7, "the taken if branch drives the returned value");
 }
 
+void test_abi_exec_11_broadcast_initialization() {
+    const fs::path root = fs::temp_directory_path() / "zith-abi-execution-broadcast";
+    fs::remove_all(root);
+    fs::create_directories(root);
+
+    const fs::path source = root / "main.zith";
+    std::ofstream output(source, std::ios::binary | std::ios::trunc);
+    output << "alias Pair = |first: i32, second: i32|;\n"
+              "alias Count = i32;\n"
+              "fn main(): i32 {\n"
+              "    var [a, b, c]: i32 = 4;\n"
+              "    let [x, y]: i32 = 7;\n"
+              "    let packed = |3, 4|;\n"
+              "    let [p, q] = packed;\n"
+              "    let [r, s]: i32 = |8, 9|;\n"
+              "    const [u, v]: i32 = 2;\n"
+              "    let pair: Pair = |10, 11|;\n"
+              "    let [m, n]: Pair = pair;\n"
+              "    let [ca, cb]: Count = 5;\n"
+              "    var [fa, fb, fc]: f64 = 0.0;\n"
+              "    a += 1;\n"
+              "    b += 2;\n"
+              "    c += 3;\n"
+              "    _ = fa;\n"
+              "    _ = fb;\n"
+              "    _ = fc;\n"
+              "    return a * 100 + b * 10 + c + x + y + p * 10 + q + r * 10 + s + u + v + "
+              "m * 10 + n + ca + cb;\n"
+              "}\n";
+    output.close();
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, source.string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "broadcast and pack destructuring lower through the modern pipeline");
+
+    interp::HirInterpreter interpreter(session.hirModule(), session.interner(), session.types());
+    const auto result = interpreter.runMain();
+
+    CHECK(result.status == interp::HirInterpStatus::Ok,
+          "HIR interpreter runs a program with broadcast bindings");
+    CHECK_EQ(result.exitCode, 829,
+             "broadcasting preserves binding kinds and pack aliases destructure positionally");
+}
+
 void test_abi_exec_02_cli_interpreted() {
 #ifdef ZITHC_BINARY
     const fs::path root = fs::temp_directory_path() / "zith-abi-execution-cli";
@@ -127,6 +176,7 @@ void test_abi_exec_02_cli_interpreted() {
 void test_abi_execution() {
     test_abi_exec_09_hello_world();
     test_abi_exec_10_control_flow();
+    test_abi_exec_11_broadcast_initialization();
     test_abi_exec_02_cli_interpreted();
 }
 

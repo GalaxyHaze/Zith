@@ -923,14 +923,67 @@ std::vector<StmtId> AstLowerer::parseStatements() {
             ++index_;
             const ExprId initializer = parseExpression();
 
+            const auto is_pack_annotation = [&](TypeExprId type_id) {
+                for (size_t depth = 0; depth <= snapshot_.type_expressions_.size(); ++depth) {
+                    if (!type_id || type_id.value > snapshot_.type_expressions_.size())
+                        return false;
+                    const TypeExpression &type = snapshot_.type_expressions_[type_id.value - 1U];
+                    if (type.kind == TypeExprKind::Parenthesized && type.arguments.size() == 1U) {
+                        type_id = type.arguments.front();
+                        continue;
+                    }
+                    if (type.kind == TypeExprKind::Pack)
+                        return true;
+                    if (type.kind != TypeExprKind::Name || !type.segments.empty() ||
+                        !type.arguments.empty())
+                        return false;
+                    // A transparent local alias may name a pack even though the
+                    // annotation itself is written as a name.
+                    const Declaration *alias = nullptr;
+                    for (const Declaration &declaration : snapshot_.declarations_) {
+                        if (declaration.kind != DeclKind::TypeAlias || declaration.isNominalType ||
+                            declaration.name != type.name || !declaration.genericParams.empty())
+                            continue;
+                        if (alias != nullptr)
+                            return false;
+                        alias = &declaration;
+                    }
+                    if (alias == nullptr)
+                        return false;
+                    type_id = alias->declaredType;
+                }
+                return false;
+            };
+            TypeExprId annotation_type          = annotation;
+            bool annotation_applies_to_elements = false;
+            while (annotation_type && annotation_type.value <= snapshot_.type_expressions_.size()) {
+                const TypeExpression &type =
+                    snapshot_.type_expressions_[annotation_type.value - 1U];
+                if (type.kind == TypeExprKind::Parenthesized && type.arguments.size() == 1U) {
+                    annotation_type = type.arguments.front();
+                    continue;
+                }
+                annotation_applies_to_elements =
+                    type.kind != TypeExprKind::Error && !is_pack_annotation(annotation_type);
+                break;
+            }
+            const bool initializer_is_pack_literal =
+                initializer && initializer.value <= snapshot_.expressions_.size() &&
+                snapshot_.expressions_[initializer.value - 1U].kind == ExprKind::PackLiteral;
+            const bool broadcast = annotation_applies_to_elements && !initializer_is_pack_literal;
+
             Statement pack_stmt;
             pack_stmt.kind                = StmtKind::Binding;
             pack_stmt.binding.bindingKind = statement.binding.bindingKind;
             pack_stmt.binding.attributes  = statement_attrs;
             pack_stmt.binding.id          = LocalId{statementCountLocals_++};
-            pack_stmt.binding.name        = "__pack" + std::to_string(pack_stmt.binding.id.value);
-            pack_stmt.binding.span        = range(start, index_);
-            pack_stmt.binding.type        = annotation;
+            const std::string temporary_name =
+                (broadcast ? "__broadcast" : "__pack") + std::to_string(pack_stmt.binding.id.value);
+            pack_stmt.binding.name = temporary_name;
+            pack_stmt.binding.span = range(start, index_);
+            pack_stmt.binding.type = annotation_applies_to_elements && initializer_is_pack_literal
+                                         ? TypeExprId{}
+                                         : annotation;
             pack_stmt.binding.initializer = initializer;
             pack_stmt.span                = range(start, index_);
             const StmtId pack_id          = addStatement(std::move(pack_stmt));
@@ -939,23 +992,26 @@ std::vector<StmtId> AstLowerer::parseStatements() {
             lowered.push_back(pack_id);
             for (size_t element = 0; element < names.size(); ++element) {
                 Expression object_expr;
-                object_expr.kind       = ExprKind::Name;
-                object_expr.scope      = current_scope_;
-                object_expr.text       = "__pack" + std::to_string(pack_stmt.binding.id.value);
-                object_expr.span       = range(start, index_);
-                const ExprId object_id = addExpression(std::move(object_expr));
-                Expression index_expr;
-                index_expr.kind  = ExprKind::Index;
-                index_expr.scope = current_scope_;
-                index_expr.span  = range(start, index_);
-                index_expr.operands.push_back(object_id);
-                Expression index_literal;
-                index_literal.kind  = ExprKind::Literal;
-                index_literal.scope = current_scope_;
-                index_literal.text  = std::to_string(element);
-                index_literal.span  = range(start, index_);
-                index_expr.operands.push_back(addExpression(std::move(index_literal)));
-                const ExprId index_id = addExpression(std::move(index_expr));
+                object_expr.kind           = ExprKind::Name;
+                object_expr.scope          = current_scope_;
+                object_expr.text           = temporary_name;
+                object_expr.span           = range(start, index_);
+                const ExprId object_id     = addExpression(std::move(object_expr));
+                ExprId element_initializer = object_id;
+                if (!broadcast) {
+                    Expression index_expr;
+                    index_expr.kind  = ExprKind::Index;
+                    index_expr.scope = current_scope_;
+                    index_expr.span  = range(start, index_);
+                    index_expr.operands.push_back(object_id);
+                    Expression index_literal;
+                    index_literal.kind  = ExprKind::Literal;
+                    index_literal.scope = current_scope_;
+                    index_literal.text  = std::to_string(element);
+                    index_literal.span  = range(start, index_);
+                    index_expr.operands.push_back(addExpression(std::move(index_literal)));
+                    element_initializer = addExpression(std::move(index_expr));
+                }
 
                 Statement element_stmt;
                 element_stmt.kind                = StmtKind::Binding;
@@ -964,7 +1020,9 @@ std::vector<StmtId> AstLowerer::parseStatements() {
                 element_stmt.binding.id          = LocalId{statementCountLocals_++};
                 element_stmt.binding.name        = names[element];
                 element_stmt.binding.span        = range(start, index_);
-                element_stmt.binding.initializer = index_id;
+                element_stmt.binding.type =
+                    annotation_applies_to_elements ? annotation : TypeExprId{};
+                element_stmt.binding.initializer = element_initializer;
                 element_stmt.span                = range(start, index_);
                 lowered.push_back(addStatement(std::move(element_stmt)));
             }
