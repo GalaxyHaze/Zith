@@ -472,6 +472,13 @@ if(BUILD_TESTING AND NOT ZITH_IS_WASM)
                  COMMAND ${Python3_EXECUTABLE}
                          ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-docs-consistency.py
                          --root ${CMAKE_CURRENT_SOURCE_DIR})
+        # Documentation delta check: every delta under docs/deltas/ must carry a
+        # resolvable target and a status consistent with its location (active vs
+        # archive). Offline, like docs-consistency and concepts-consistency.
+        add_test(NAME deltas-consistency
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-deltas.py
+                         --root ${CMAKE_CURRENT_SOURCE_DIR})
     endif()
 
     add_zith_test(test-formatter tests/test-formatter.cpp)
