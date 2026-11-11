@@ -14,6 +14,7 @@
 #include <vector>
 
 namespace llvm {
+class AllocaInst;
 class IRBuilderBase;
 class Value;
 class Type;
@@ -42,12 +43,19 @@ public:
     void setBlocks(const std::vector<llvm::BasicBlock *> *blocks) {
         blocks_ = blocks;
     }
+    /// The function entry block for frame-backed slots and non-escaping scratch
+    /// storage. Pointer-bearing spills keep their point-of-use allocation.
+    void setEntryBlock(llvm::BasicBlock *entry) {
+        entryBlock_ = entry;
+    }
     void setModule(llvm::Module *module) {
         module_ = module;
     }
 
     llvm::Value *emitExpr(hir::HirExprId id, const hir::HirModule &mod);
     llvm::Value *emitBody(const hir::HirFunction &fn, const hir::HirModule &mod);
+    /// Emits a static `alloca` in the function entry block (see setEntryBlock).
+    llvm::AllocaInst *emitHoistedAlloca(llvm::Type *type);
     void registerParams(const hir::HirFunction &fn, llvm::Function *llvmFn,
                         const hir::HirModule &mod);
     bool hasFailedEmission() const noexcept {
@@ -95,6 +103,7 @@ private:
     memory::FlatMap<std::string_view, NamedValue> namedValues_;
     std::vector<llvm::Value *> slots_;
     const std::vector<llvm::BasicBlock *> *blocks_ = nullptr;
+    llvm::BasicBlock *entryBlock_                  = nullptr;
     llvm::Module *module_                          = nullptr;
 };
 

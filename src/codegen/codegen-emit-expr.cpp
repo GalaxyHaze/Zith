@@ -133,7 +133,7 @@ llvm::Value *CodeGenEmit::emitExpr(hir::HirExprId id, const hir::HirModule &mod)
             [&](const hir::HirSlotAlloca &s) -> llvm::Value * {
                 if (s.slot >= slots_.size())
                     slots_.resize(s.slot + 1);
-                auto *alloc = builder_.CreateAlloca(typeGen_.lower(s.type));
+                auto *alloc = emitHoistedAlloca(typeGen_.lower(s.type));
                 if (s.alignmentBytes != 0U) {
                     auto alignment = typeGen_.alignOf(s.type);
                     if (alignment < s.alignmentBytes)
@@ -794,7 +794,7 @@ llvm::Value *CodeGenEmit::emitCall(const hir::HirCall &call, const hir::HirModul
         const auto arg_type =
             index < call.argument_types.size() ? call.argument_types[index] : types::kInvalidType;
         if (arg_type != types::kInvalidType)
-            args[index] = typeGen_.abiCoerceArgument(builder_, args[index], arg_type);
+            args[index] = typeGen_.abiCoerceArgument(builder_, args[index], arg_type, entryBlock_);
     }
     if (fn_type->isVarArg()) {
         const auto fixed_count = fn_type->getNumParams();
@@ -846,7 +846,7 @@ llvm::Value *CodeGenEmit::emitCall(const hir::HirCall &call, const hir::HirModul
         }
         if (hir_fn == nullptr)
             return nullptr;
-        return typeGen_.abiRestoreResult(builder_, llvm_call, hir_fn->return_type);
+        return typeGen_.abiRestoreResult(builder_, llvm_call, hir_fn->return_type, entryBlock_);
     }
     return llvm_call;
 }
@@ -1052,7 +1052,7 @@ llvm::Value *CodeGenEmit::emitLet(const hir::HirLet &let, const hir::HirModule &
 
     auto name      = interner_.lookup(let.name);
     auto *elemType = typeGen_.lower(let.type);
-    auto *alloca   = builder_.CreateAlloca(elemType);
+    auto *alloca   = emitHoistedAlloca(elemType);
     if (init != nullptr) {
         builder_.CreateStore(init, alloca);
     }

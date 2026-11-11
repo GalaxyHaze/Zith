@@ -10,12 +10,22 @@
 #include <string_view>
 
 namespace llvm {
+class AllocaInst;
+class BasicBlock;
 class IRBuilderBase;
 class LLVMContext;
 class Type;
 } // namespace llvm
 
 namespace zith::codegen {
+
+/// Emits a static `alloca` in `entry_block`, past any allocas already there, so
+/// storage requested inside a loop is created once per call instead of once per
+/// iteration. A point-of-use alloca inside a loop is never reclaimed until the
+/// function returns, so the stack pointer walks down until it overflows. Falls
+/// back to the builder's current insert point when `entry_block` is null.
+llvm::AllocaInst *createHoistedAlloca(llvm::IRBuilderBase &builder, llvm::Type *type,
+                                      llvm::BasicBlock *entry_block);
 
 class CodeGenType {
 public:
@@ -31,11 +41,11 @@ public:
     /// Coerces an aggregate value to a foreign single-i64 C ABI value, or
     /// returns the value unchanged when the type has no such ABI.
     llvm::Value *abiCoerceArgument(llvm::IRBuilderBase &builder, llvm::Value *value,
-                                   types::TypeId type);
+                                   types::TypeId type, llvm::BasicBlock *entry_block = nullptr);
     /// Coerces a foreign single-i64 C ABI return back to the aggregate storage
     /// type, or returns the value unchanged when the type has no such ABI.
     llvm::Value *abiRestoreResult(llvm::IRBuilderBase &builder, llvm::Value *value,
-                                  types::TypeId type);
+                                  types::TypeId type, llvm::BasicBlock *entry_block = nullptr);
     uint64_t sizeOf(types::TypeId id) const;
     uint64_t alignOf(types::TypeId id) const;
     uint64_t fieldOffset(types::TypeId struct_type, size_t field_index) const;

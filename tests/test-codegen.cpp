@@ -2460,6 +2460,30 @@ static void test_state_loop_does_not_grow_stack() {
     CHECK_EQ(r.exitCode, 42, "large recursive state loop reaches the terminal return value");
 }
 
+static void test_loop_local_binding_does_not_grow_stack() {
+    ModernFileCodegenTest t;
+    t.opts.flags.emitIr(true);
+    t.write("main.zith", "fn main(): i32 {\n"
+                         "    var acc: i32 = 0;\n"
+                         "    var n: i32 = 0;\n"
+                         "    for (n < 1000000) {\n"
+                         "        let a = n + 1;\n"
+                         "        acc = (acc + a) % 10;\n"
+                         "        n = n + 1;\n"
+                         "    }\n"
+                         "    return acc;\n"
+                         "}\n");
+
+    const auto result = t.run();
+    CHECK(result.ok, "a local binding in a million-iteration loop compiles and runs");
+    CHECK_EQ(result.exitCode, 0, "the loop completes with the expected accumulated result");
+    const auto loop_block = result.output.find("bb1:");
+    CHECK(loop_block != std::string::npos, "the emitted function contains its loop block");
+    if (loop_block != std::string::npos)
+        CHECK(result.output.find("alloca", loop_block) == std::string::npos,
+              "loop-local stack storage is hoisted out of the loop blocks");
+}
+
 static void test_local_state_machine_executes() {
     ModernFileCodegenTest t;
     t.write("main.zith", "fn machine(): i32 {\n"
@@ -5016,6 +5040,8 @@ static void test_codegen() {
     test_state_codegen_has_no_marker_runtime_symbols();
     printf("Running test_state_loop_does_not_grow_stack\n");
     test_state_loop_does_not_grow_stack();
+    printf("Running test_loop_local_binding_does_not_grow_stack\n");
+    test_loop_local_binding_does_not_grow_stack();
     printf("Running test_local_state_machine_executes\n");
     test_local_state_machine_executes();
     printf("Running test_defer_reverse_order_before_return\n");

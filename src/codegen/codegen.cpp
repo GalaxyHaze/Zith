@@ -564,6 +564,7 @@ void CodeGen::emitFnBody(const hir::HirFunction &fn, const hir::HirModule &mod) 
 
     CodeGenEmit emit(builder, typeGen, interner_, types_);
     emit.setBlocks(&llvmBlocks);
+    emit.setEntryBlock(firstBB);
     emit.setModule(module_.get());
     emit.registerParams(fn, llvmFn, mod);
     emit.emitBody(fn, mod);

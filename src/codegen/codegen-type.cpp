@@ -19,6 +19,17 @@
 
 namespace zith::codegen {
 
+llvm::AllocaInst *createHoistedAlloca(llvm::IRBuilderBase &builder, llvm::Type *type,
+                                      llvm::BasicBlock *entry_block) {
+    if (entry_block == nullptr)
+        return builder.CreateAlloca(type);
+    const auto saved = builder.saveIP();
+    builder.SetInsertPointPastAllocas(entry_block->getParent());
+    auto *alloca = builder.CreateAlloca(type);
+    builder.restoreIP(saved);
+    return alloca;
+}
+
 namespace {
 
 constexpr unsigned kMaxAlignmentMarkerBytes = 4096U;
@@ -235,22 +246,24 @@ llvm::Type *CodeGenType::abiLower(types::TypeId id) {
 }
 
 llvm::Value *CodeGenType::abiCoerceArgument(llvm::IRBuilderBase &builder, llvm::Value *value,
-                                            const types::TypeId type) {
+                                            const types::TypeId type,
+                                            llvm::BasicBlock *entry_block) {
     if (types_.kindOf(type) != types::TypeKind::Struct || !types_.hasForeignLayout(type) ||
         !types_.foreignAbiIsSingleI64(type))
         return value;
-    auto *storage = builder.CreateAlloca(lower(type));
+    auto *storage = createHoistedAlloca(builder, lower(type), entry_block);
     builder.CreateStore(value, storage);
     auto *data = builder.CreateBitCast(storage, llvm::PointerType::get(builder.getContext(), 0));
     return builder.CreateLoad(llvm::Type::getInt64Ty(builder.getContext()), data);
 }
 
 llvm::Value *CodeGenType::abiRestoreResult(llvm::IRBuilderBase &builder, llvm::Value *value,
-                                           const types::TypeId type) {
+                                           const types::TypeId type,
+                                           llvm::BasicBlock *entry_block) {
     if (types_.kindOf(type) != types::TypeKind::Struct || !types_.hasForeignLayout(type) ||
         !types_.foreignAbiIsSingleI64(type))
         return value;
-    auto *storage = builder.CreateAlloca(lower(type));
+    auto *storage = createHoistedAlloca(builder, lower(type), entry_block);
     builder.CreateStore(
         value, builder.CreateBitCast(storage, llvm::PointerType::get(builder.getContext(), 0)));
     return builder.CreateLoad(lower(type), storage);
