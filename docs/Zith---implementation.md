@@ -34,6 +34,11 @@ O AST modela bindings com `BindingKind`:
 - Aplica `Parameter.bindingKind` com default `Let` e lê `var p: T` ou `let p: T` antes do nome do parâmetro; `var self`/`let self` usam o mesmo campo no receiver.
 - Depois do tipo de um parâmetro, reconhece `= expr` e guarda a expressão em `Parameter.defaultValue`; o `= extern name` de um alias de função só é tratado depois do tipo de retorno.
 - Aplica o default `BindingKind::Let` e corrige com a palavra-chave real.
+- Baixa `[a, b]` para uma binding temporária e bindings locais posicionais. Uma
+  anotação escalar gera inicializadores que referenciam a mesma temporária;
+  uma anotação pack ou um inicializador pack literal mantém a extração por
+  índice. Aliases transparentes locais, não genéricos e não ambíguos são
+  seguidos para distinguir tipos pack de tipos escalares.
 - Rejeita `global` antes de baixar a declaração, com recovery para `DeclKind::Variable`.
 - Parseia `extern var name: T` e `extern const name: T` como declarations externas ao nível do módulo. `= extern CSymbol` guarda um alias de linker, não um inicializador.
 - Rejeita `const fn` em `functionKindPrefix`.

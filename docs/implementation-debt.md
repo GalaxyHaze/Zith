@@ -1,6 +1,6 @@
 # Zith Implementation Debt
 
-> Last updated: 2026-10-26.
+> Last updated: 2026-11-11.
 
 Documento de gestão da dívida de implementação. Distingue propositadamente:
 
@@ -163,6 +163,7 @@ preservados para referências em planos, memória e testes.
 | `7. Falhas em test-codegen` | As seis falhas históricas foram corrigidas; a secção de regressões antigas foi retirada. |
 | `8. ParseInput` | `InputLine.cast<T>` está implementado para os tipos suportados. A exclusão de `*char` é uma decisão de escopo, não uma dívida. |
 | `11. Facades exportadas` | Prefixos partilhados, tipos qualificados e segmentos kebab-case estão cobertos pelo status de importação em `impl-status.md`. |
+| `13. Destructuring binding: broadcast` | Anotações escalares inicializam todos os bindings a partir de um único valor. `test-abi-execution` cobre `let`, `var`, `const`, `f64`, literais pack, valores pack nomeados e aliases transparentes locais. A classificação de aliases pack importados, genéricos ou ambíguos continua limitada, conforme o status de F-27. |
 | `VM v2 #3, #5-#7, #10-#11` | Arena por frame, chamadas indiretas, cache HIR/artifact, diagnósticos JSON, variadic slice tails e lowering dos agregados suportados foram concluídos e cobertos pelos testes da VM. |
 | Variadic tail logic | `VariadicCallPlan` é produzido em sema e consumido pelo HIR, sem rederivação local nos call sites. |
 | Merge de `ProjectConfig` e options | Os call sites usam `session::mergeStrings`; já não há uma dívida separada de concatenação. |

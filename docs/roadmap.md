@@ -35,7 +35,7 @@
 | F-24 | Full-Zith tag items (`@<Tag> ... </Tag>`) | 15 | Design direction accepted; not implemented. Zith-- parses the legacy `<Tag>` call form and rejects the declaration with `E2010` |
 | F-25 | Assets (`ZithProject.toml` asset paths) | 12 | Spec only |
 | F-26 | `::` scope resolution | 2 | Spec only (normal/raw macro scope diversification is complete; `::` remains a separate wave) |
-| F-27 | Binding destructuring (`[]`) and pack literals | 6 | Spec only |
+| F-27 | Binding destructuring (`[]`) and pack literals | 6 | Partial: pack literals and positional destructuring work; scalar-annotated broadcast works; alias classification has frontend limits |
 | F-28 | `@pack` / `@toStruct` / `@toPack` | 11 | Spec only |
 | F-29 | Generic trait and interface constraints (`T: Trait`, `T: Interface`) | 4 | Working; interface bounds expose interface fields and methods |
 | F-30 | Standard library (beyond io) | 20 | Spec only |

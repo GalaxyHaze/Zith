@@ -48,6 +48,22 @@ fn main(): i32 {
 }
 ```
 
+Bindings agrupados usam posições de um pack ou fazem broadcast de um valor
+escalar anotado:
+
+```zith
+let [x, y]: i32 = 7;
+var [first, second]: f64 = 0.0;
+let pair = |3, 4|;
+let [left, right] = pair;
+```
+
+Uma anotação escalar aplica-se a cada binding do grupo. Se o inicializador for
+um pack literal, a anotação escalar aplica-se a cada posição. Uma anotação de
+tipo pack mantém a extração posicional, incluindo para um alias transparente
+local e não genérico. O valor escalar é avaliado uma vez e partilhado pelos
+bindings gerados.
+
 Expressões constantes para `const` são literais numéricos, `bool`, `char` e `null`, agregados desses literais, struct literals com campos `const`, e referências a `const` já declarados. Chamadas de função não contam como expressões constantes.
 
 `let x; x = e;` continua aceite uma vez para inferir o tipo do binding; atribuições seguintes são rejeitadas. `let x: T; x = e;` também aceite a primeira escrita para inicializar o valor, sem alterar o tipo anotado.
