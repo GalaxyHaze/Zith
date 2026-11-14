@@ -64,7 +64,7 @@ jobs:
 
       - name: Create release
         if: github.event_name != 'workflow_call'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
           draft: ${{ steps.meta.outputs.create_draft }}
@@ -547,7 +547,7 @@ jobs:
 
       - name: Upload release asset
         if: runner.os != 'macOS'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.create-release.outputs.tag || inputs.tag_name }}
           files: artifacts/${{ matrix.target_name }}
@@ -649,7 +649,7 @@ jobs:
             '
 
       - name: Upload release asset
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.create-release.outputs.tag || inputs.tag_name }}
           files: artifacts/${{ matrix.target_name }}
@@ -678,7 +678,7 @@ jobs:
           cd ..
 
       - name: Upload stdlib release assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.create-release.outputs.tag || inputs.tag_name }}
           files: artifacts/zithc-stdlib-*
@@ -1345,7 +1345,7 @@ jobs:
           fi
 
       - name: Upload release asset
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.create-release.outputs.tag || inputs.tag_name }}
           files: artifacts/*
@@ -1413,7 +1413,7 @@ jobs:
           cd wasm-staging && zip -r ../artifacts/zithc-wasm.zip . && cd ..
 
       - name: Upload release asset
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.create-release.outputs.tag || inputs.tag_name }}
           files: artifacts/zithc-wasm.zip
