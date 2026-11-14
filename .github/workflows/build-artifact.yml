@@ -194,7 +194,7 @@ jobs:
           }
 
       - name: Upload full-backend LLVM package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: llvm-windows-arm64-full-backends
           path: ${{ runner.temp }}\llvm-arm64-20.1.8-full
@@ -538,7 +538,7 @@ jobs:
 
       - name: Stage macOS compiler for runtime packaging
         if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: compiler-${{ matrix.target_name }}
           path: artifacts/${{ matrix.target_name }}
