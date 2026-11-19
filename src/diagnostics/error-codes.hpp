@@ -30,6 +30,7 @@ inline constexpr ErrCode const DeprecatedSyntax        = 1008;
 inline constexpr ErrCode const CircularImport          = 1009;
 inline constexpr ErrCode const ParseDepthExceeded      = 1010;
 inline constexpr ErrCode const ExpectedConditionParens = 1011;
+inline constexpr ErrCode const ExpectedControlBody     = 1012;
 
 // Semantic (2001-2999)
 inline constexpr ErrCode const UndefinedIdent    = 2001;

@@ -40,6 +40,13 @@ static void test_existing_codes_preserved() {
     CHECK(e1011->note.find("when (value)") != std::string_view::npos,
           "E1011 help includes a subject example for when");
 
+    auto e1012 = lookupError(1012u);
+    CHECK(e1012, "E1012 ExpectedControlBody is registered");
+    CHECK_EQ(std::string(e1012->title), "Expected block after control header",
+             "E1012 identifies a missing control-flow block");
+    CHECK(e1012->note.find("enclosed in braces") != std::string_view::npos,
+          "E1012 help explains that control-flow bodies require braces");
+
     CHECK(e1006->note.find("referenced file exists") != std::string_view::npos,
           "E1006 help applies to imports beyond modules");
     CHECK(e1006->why.find("C headers, and assets") != std::string_view::npos,

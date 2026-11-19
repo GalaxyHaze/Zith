@@ -104,6 +104,28 @@ void test_wasm_playground_structured_diagnostics() {
     CHECK(missingImportJson.find("could not find module 'missing/module'") != std::string::npos,
           "playground exposes the actionable missing-module diagnostic");
 
+    constexpr std::string_view missingControlBody = "fn main() {\n"
+                                                    "    if (true) 42;\n"
+                                                    "}\n";
+    host_errors.clear();
+    const auto controlBodyStatus = runSource(missingControlBody);
+    CHECK_EQ(controlBodyStatus, 1, "a control statement without a block fails compilation");
+    const auto controlBodyJson = diagnosticsJson();
+    CHECK_EQ(countOccurrences(controlBodyJson, "\"code\":1012"), 1u,
+             "a missing control body has one structured E1012 diagnostic");
+    CHECK(controlBodyJson.find("if (condition) { ... }") != std::string::npos,
+          "E1012 suggests the required if block syntax in the playground");
+    CHECK_EQ(countOccurrences(host_errors, "error: "), 1u,
+             "a missing control body is written once through host stderr");
+
+    host_errors.clear();
+    CHECK_EQ(runSource(missingControlBody), 1,
+             "repeated missing-control-body compilation keeps its status");
+    CHECK_EQ(diagnosticsJson(), controlBodyJson,
+             "repeated missing-control-body compilation does not accumulate diagnostics");
+    CHECK_EQ(countOccurrences(host_errors, "error: "), 1u,
+             "repeated missing-control-body compilation writes the diagnostic once");
+
     CHECK_EQ(runSource("fn main(): i32 {\n    42\n}\n"), 0,
              "a valid call after a failed call succeeds");
     CHECK_EQ(diagnosticsJson(), std::string("{\"diagnostics\":[]}"),

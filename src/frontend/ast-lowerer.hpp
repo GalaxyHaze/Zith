@@ -112,6 +112,8 @@ private:
 
     [[nodiscard]] ExprId parseExpression(int minimum_precedence = 0);
     [[nodiscard]] ExprId parseBlock();
+    [[nodiscard]] ExprId missingControlBody(std::string_view control,
+                                            std::string_view syntax_example);
     void parseArgumentList(std::vector<ExprId> &out);
     [[nodiscard]] ExprId parseElseTail(uint32_t start);
     [[nodiscard]] ExprId parseIf();

@@ -46,6 +46,19 @@ ExprId AstLowerer::parseBlock() {
     current_scope_                = parent;
     return addExpression(std::move(block));
 }
+ExprId AstLowerer::missingControlBody(std::string_view control, std::string_view syntax_example) {
+    const TextSpan body_span = tokenSpan(index_);
+    snapshot_.diagnostics_.push_back({body_span,
+                                      "expected '{' before " + std::string(control) +
+                                          " body; write '" + std::string(syntax_example) + "'",
+                                      false, diagnostics::err::ExpectedControlBody});
+
+    Expression error;
+    error.kind  = ExprKind::Error;
+    error.scope = current_scope_;
+    error.span  = body_span;
+    return addExpression(std::move(error));
+}
 void AstLowerer::parseArgumentList(std::vector<ExprId> &out) {
     if (!punctuation(index_, '(')) {
         snapshot_.diagnostics_.push_back({tokenSpan(index_), "expected '(' with target arguments"});
@@ -88,7 +101,7 @@ ExprId AstLowerer::parseElseTail(uint32_t start) {
     tail.scope = current_scope_;
     tail.span  = range(start, index_);
     if (index_ >= token_count_ || punctuation(index_, '}')) {
-        snapshot_.diagnostics_.push_back({range(start, index_), "expected else body"});
+        tail.operands.push_back(missingControlBody("else", "else { ... }"));
         return addExpression(std::move(tail));
     }
     const bool has_condition_parens = punctuation(index_, '(');
@@ -112,7 +125,7 @@ ExprId AstLowerer::parseElseTail(uint32_t start) {
     if (punctuation(index_, '{'))
         tail.operands.push_back(parseBlock());
     else
-        snapshot_.diagnostics_.push_back({range(start, index_), "expected else body"});
+        tail.operands.push_back(missingControlBody("else", "else (condition) { ... }"));
     if (index_ < token_count_ && text(index_) == "else") {
         ++index_;
         tail.span           = range(start, index_);
@@ -151,7 +164,7 @@ ExprId AstLowerer::parseIf() {
     if (punctuation(index_, '{'))
         expression.operands.push_back(parseBlock());
     else
-        snapshot_.diagnostics_.push_back({range(start, index_), "expected if body"});
+        expression.operands.push_back(missingControlBody("if", "if (condition) { ... }"));
     if (index_ < token_count_ && text(index_) == "else") {
         ++index_;
         if (punctuation(index_, '{'))
@@ -179,9 +192,9 @@ ExprId AstLowerer::parseIf() {
             else if (has_else_parens && !punctuation(index_, '{'))
                 snapshot_.diagnostics_.push_back(
                     {range(else_start, index_), "expected ')' after else condition"});
-            const ExprId else_body = punctuation(index_, '{') ? parseBlock() : ExprId{};
-            if (!else_body)
-                snapshot_.diagnostics_.push_back({range(start, index_), "expected else body"});
+            const ExprId else_body = punctuation(index_, '{')
+                                         ? parseBlock()
+                                         : missingControlBody("else", "else (condition) { ... }");
             if (index_ < token_count_ && text(index_) == "else") {
                 ++index_;
                 const ExprId tail = parseElseTail(index_ - 1U);
@@ -197,8 +210,9 @@ ExprId AstLowerer::parseIf() {
                 expression.operands.push_back(else_condition);
                 expression.operands.push_back(else_body);
             }
-        } else
-            snapshot_.diagnostics_.push_back({range(start, index_), "expected else body"});
+        } else {
+            expression.operands.push_back(missingControlBody("else", "else { ... }"));
+        }
     }
     expression.span = range(start, index_);
     return addExpression(std::move(expression));
@@ -425,7 +439,8 @@ ExprId AstLowerer::parseFor() {
                 if (punctuation(index_, ')'))
                     ++index_;
                 if (!punctuation(index_, '{'))
-                    snapshot_.diagnostics_.push_back({range(start, index_), "expected for body"});
+                    expression.operands.push_back(
+                        missingControlBody("for", "for (init), (condition), (step) { ... }"));
                 expression.kind = ExprKind::Error;
                 expression.span = range(start, index_);
                 return addExpression(std::move(expression));
@@ -479,9 +494,10 @@ ExprId AstLowerer::parseFor() {
             else
                 snapshot_.diagnostics_.push_back(
                     {range(start, index_), "expected ')' after for clauses"});
-            if (!punctuation(index_, '{'))
-                snapshot_.diagnostics_.push_back({range(start, index_), "expected for body"});
-            const ExprId body = parseBlock();
+            const ExprId body =
+                punctuation(index_, '{')
+                    ? parseBlock()
+                    : missingControlBody("for", "for (init, condition, step) { ... }");
             if (cond_omitted || !bool(cond_expr)) {
                 Expression always;
                 always.kind  = ExprKind::Literal;
@@ -521,7 +537,8 @@ ExprId AstLowerer::parseFor() {
                 snapshot_.diagnostics_.push_back(
                     {range(start, index_), "expected ')' after for iterable"});
             if (!punctuation(index_, '{')) {
-                snapshot_.diagnostics_.push_back({range(start, index_), "expected for body"});
+                expression.operands.push_back(
+                    missingControlBody("for", "for (variable in iterable) { ... }"));
                 expression.kind = ExprKind::Error;
                 expression.span = range(start, index_);
                 return addExpression(std::move(expression));
@@ -601,9 +618,10 @@ ExprId AstLowerer::parseFor() {
                 };
                 cond_expr = parseGroup();
                 step_expr = parseGroup();
-                if (!punctuation(index_, '{'))
-                    snapshot_.diagnostics_.push_back({range(start, index_), "expected for body"});
-                const ExprId body = parseBlock();
+                const ExprId body =
+                    punctuation(index_, '{')
+                        ? parseBlock()
+                        : missingControlBody("for", "for (init), (condition), (step) { ... }");
                 if (!bool(cond_expr)) {
                     Expression always;
                     always.kind  = ExprKind::Literal;
@@ -651,7 +669,7 @@ ExprId AstLowerer::parseFor() {
             if (punctuation(index_, '{'))
                 expression.operands.push_back(parseBlock());
             else
-                snapshot_.diagnostics_.push_back({range(start, index_), "expected for body"});
+                expression.operands.push_back(missingControlBody("for", "for (condition) { ... }"));
             expression.span = range(start, index_);
             return addExpression(std::move(expression));
         }
@@ -672,7 +690,7 @@ ExprId AstLowerer::parseFor() {
     if (punctuation(index_, '{'))
         expression.operands.push_back(parseBlock());
     else
-        snapshot_.diagnostics_.push_back({range(start, index_), "expected for body"});
+        expression.operands.push_back(missingControlBody("for", "for (condition) { ... }"));
     expression.span = range(start, index_);
     return addExpression(std::move(expression));
 }
@@ -709,7 +727,7 @@ ExprId AstLowerer::parseWhile() {
     if (punctuation(index_, '{'))
         expression.operands.push_back(parseBlock());
     else
-        snapshot_.diagnostics_.push_back({range(start, index_), "expected while body"});
+        expression.operands.push_back(missingControlBody("while", "while (condition) { ... }"));
     expression.span = range(start, index_);
     return addExpression(std::move(expression));
 }

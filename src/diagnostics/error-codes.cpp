@@ -68,6 +68,10 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
         return ErrorInfo{code, 'E', "parse", "Expected parentheses around control expression",
                          "Wrap the condition or subject in parentheses, for example "
                          "'if (condition) { ... }' or 'when (value) { ... }'"};
+    case err::ExpectedControlBody:
+        return ErrorInfo{code, 'E', "parse", "Expected block after control header",
+                         "Control-flow bodies must be enclosed in braces, for example "
+                         "'if (condition) { ... }' or 'for (condition) { ... }'"};
 
     // Semantic
     case err::UndefinedIdent:

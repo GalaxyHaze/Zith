@@ -880,6 +880,85 @@ static void test_default_parameters_and_condition_syntax() {
           "function-call conditions and legacy negation parse without errors");
 }
 
+static void test_control_bodies_require_blocks() {
+    const auto missing_bodies =
+        frontend::parse("fn run(flag: bool, index: i32) {\n"
+                        "    if (flag) work();\n"
+                        "    while (flag) work();\n"
+                        "    for (flag) work();\n"
+                        "    if (flag) { } else (flag) work();\n"
+                        "    for (index in items) work();\n"
+                        "    for (var i: i32 = 0, i < 2, i += 1) work();\n"
+                        "    for (var j: i32 = 0), (j < 2), (j += 1) work();\n"
+                        "    let retained: i32 = 0;\n"
+                        "}\n"
+                        "fn missing_else(flag: bool) {\n"
+                        "    if (flag) { } else\n"
+                        "}\n"
+                        "fn after() { }\n");
+
+    CHECK_EQ(countErrorCode(missing_bodies, diagnostics::err::ExpectedControlBody), 8u,
+             "all control-flow forms require block bodies");
+    bool has_if_example           = false;
+    bool has_while_example        = false;
+    bool has_for_example          = false;
+    bool has_for_in_example       = false;
+    bool has_else_example         = false;
+    bool has_plain_else_example   = false;
+    bool has_flat_for_example     = false;
+    bool has_comma_for_example    = false;
+    std::size_t unexpected_errors = 0;
+    for (const auto &diagnostic : missing_bodies.diagnostics()) {
+        if (diagnostic.isWarning)
+            continue;
+        if (diagnostic.code != diagnostics::err::ExpectedControlBody) {
+            ++unexpected_errors;
+            continue;
+        }
+        has_if_example |= diagnostic.message.find("if (condition) { ... }") != std::string::npos;
+        has_while_example |=
+            diagnostic.message.find("while (condition) { ... }") != std::string::npos;
+        has_for_example |= diagnostic.message.find("for (condition) { ... }") != std::string::npos;
+        has_for_in_example |=
+            diagnostic.message.find("for (variable in iterable) { ... }") != std::string::npos;
+        has_else_example |=
+            diagnostic.message.find("else (condition) { ... }") != std::string::npos;
+        has_plain_else_example |= diagnostic.message.find("else { ... }") != std::string::npos;
+        has_flat_for_example |=
+            diagnostic.message.find("for (init), (condition), (step) { ... }") != std::string::npos;
+        has_comma_for_example |=
+            diagnostic.message.find("for (init, condition, step) { ... }") != std::string::npos;
+    }
+    CHECK_EQ(unexpected_errors, 0u, "missing control bodies do not emit generic duplicate errors");
+    CHECK(has_if_example && has_while_example && has_for_example && has_for_in_example &&
+              has_else_example && has_plain_else_example && has_flat_for_example &&
+              has_comma_for_example,
+          "missing control bodies include a correction matching their syntax");
+
+    bool retained_in_function_body = false;
+    for (const auto &declaration : missing_bodies.declarations()) {
+        if (declaration.kind != frontend::DeclKind::Function || declaration.name != "run" ||
+            !declaration.body)
+            continue;
+        const auto &body = missing_bodies.expressions()[declaration.body.value - 1U];
+        for (const auto statement_id : body.statements) {
+            if (!statement_id)
+                continue;
+            const auto &statement = missing_bodies.statements()[statement_id.value - 1U];
+            retained_in_function_body |= statement.kind == frontend::StmtKind::Binding &&
+                                         statement.binding.name == "retained";
+        }
+    }
+    CHECK(retained_in_function_body,
+          "a missing flat-for body does not absorb following statements in its function");
+
+    bool preserved_following_function = false;
+    for (const auto &declaration : missing_bodies.declarations())
+        preserved_following_function |= declaration.name == "after";
+    CHECK(preserved_following_function,
+          "a missing flat-for body does not consume the following function declaration");
+}
+
 static void test_for_var_var_reports_specific_diagnostic() {
     auto snapshot     = frontend::parse("fn main() {\n"
                                         "    for (var one: i32, var two: i32) { }\n"
@@ -1892,6 +1971,7 @@ static void test_frontend() {
     test_for_loop_forms();
     test_loop_labels_and_not_negation();
     test_default_parameters_and_condition_syntax();
+    test_control_bodies_require_blocks();
     test_else_condition_forms();
     test_for_var_var_reports_specific_diagnostic();
     test_structured_imports();
