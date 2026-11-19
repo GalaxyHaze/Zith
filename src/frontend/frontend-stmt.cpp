@@ -87,30 +87,40 @@ ExprId AstLowerer::parseElseTail(uint32_t start) {
     tail.kind  = ExprKind::If;
     tail.scope = current_scope_;
     tail.span  = range(start, index_);
-    if (punctuation(index_, '(')) {
-        ++index_;
-        tail.operands.push_back(parseConditionExpression());
-        if (punctuation(index_, ')'))
-            ++index_;
-        else if (!punctuation(index_, '{'))
-            snapshot_.diagnostics_.push_back(
-                {range(start, index_), "expected ')' after condition"});
-        if (punctuation(index_, '{'))
-            tail.operands.push_back(parseBlock());
-        else
-            snapshot_.diagnostics_.push_back({range(start, index_), "expected else body"});
-        if (index_ < token_count_ && text(index_) == "else") {
-            ++index_;
-            tail.span           = range(start, index_);
-            const ExprId nested = parseElseTail(index_ - 1U);
-            tail.span           = range(start, index_);
-            tail.operands.push_back(nested);
-        }
-        tail.span = range(start, index_);
+    if (index_ >= token_count_ || punctuation(index_, '}')) {
+        snapshot_.diagnostics_.push_back({range(start, index_), "expected else body"});
         return addExpression(std::move(tail));
     }
+    const bool has_condition_parens = punctuation(index_, '(');
+    if (!has_condition_parens && !isKeywordToken("optional") && !isKeywordToken("not") &&
+        !isFunctionCallStart()) {
+        snapshot_.diagnostics_.push_back(
+            {tokenSpan(start),
+             "expected '(' before else condition; write 'else (condition) { ... }'", false,
+             diagnostics::err::ExpectedConditionParens});
+    }
+    if (has_condition_parens)
+        ++index_;
 
-    snapshot_.diagnostics_.push_back({range(start, index_), "expected else body"});
+    tail.operands.push_back(has_condition_parens ? parseConditionExpression()
+                                                 : parseUnparenthesizedCondition());
+    if (punctuation(index_, ')'))
+        ++index_;
+    else if (has_condition_parens && !punctuation(index_, '{'))
+        snapshot_.diagnostics_.push_back(
+            {range(start, index_), "expected ')' after else condition"});
+    if (punctuation(index_, '{'))
+        tail.operands.push_back(parseBlock());
+    else
+        snapshot_.diagnostics_.push_back({range(start, index_), "expected else body"});
+    if (index_ < token_count_ && text(index_) == "else") {
+        ++index_;
+        tail.span           = range(start, index_);
+        const ExprId nested = parseElseTail(index_ - 1U);
+        tail.span           = range(start, index_);
+        tail.operands.push_back(nested);
+    }
+    tail.span = range(start, index_);
     return addExpression(std::move(tail));
 }
 ExprId AstLowerer::parseIf() {
@@ -120,13 +130,19 @@ ExprId AstLowerer::parseIf() {
         return parserDepthErrorExpression(start);
 
     ++index_;
-    if (punctuation(index_, '('))
+    const bool has_condition_parens = punctuation(index_, '(');
+    if (has_condition_parens)
         ++index_;
-    const ExprId condition = parseConditionExpression();
+    else if (!isKeywordToken("optional") && !isKeywordToken("not") && !isFunctionCallStart())
+        snapshot_.diagnostics_.push_back(
+            {tokenSpan(start), "expected '(' before if condition; write 'if (condition) { ... }'",
+             false, diagnostics::err::ExpectedConditionParens});
+    const ExprId condition =
+        has_condition_parens ? parseConditionExpression() : parseUnparenthesizedCondition();
     if (punctuation(index_, ')'))
         ++index_;
-    else if (!punctuation(index_, '{'))
-        snapshot_.diagnostics_.push_back({range(start, index_), "expected ')' after condition"});
+    else if (has_condition_parens && !punctuation(index_, '{'))
+        snapshot_.diagnostics_.push_back({range(start, index_), "expected ')' after if condition"});
 
     Expression expression;
     expression.kind  = ExprKind::If;
@@ -145,15 +161,24 @@ ExprId AstLowerer::parseIf() {
                 {tokenSpan(index_ - 1U), "'else if (cond)' is deprecated; use 'else (cond) { }'",
                  true, diagnostics::err::DeprecatedSyntax});
             expression.operands.push_back(parseIf());
-        } else if (punctuation(index_, '(')) {
-            const uint32_t else_start = index_ - 1U;
-            ++index_; // consume '('
-            const ExprId else_condition = parseConditionExpression();
+        } else if (index_ < token_count_ && !punctuation(index_, '}')) {
+            const uint32_t else_start  = index_ - 1U;
+            const bool has_else_parens = punctuation(index_, '(');
+            if (has_else_parens)
+                ++index_;
+            else if (!isKeywordToken("optional") && !isKeywordToken("not") &&
+                     !isFunctionCallStart())
+                snapshot_.diagnostics_.push_back(
+                    {tokenSpan(else_start),
+                     "expected '(' before else condition; write 'else (condition) { ... }'", false,
+                     diagnostics::err::ExpectedConditionParens});
+            const ExprId else_condition =
+                has_else_parens ? parseConditionExpression() : parseUnparenthesizedCondition();
             if (punctuation(index_, ')'))
                 ++index_;
-            else if (!punctuation(index_, '{'))
+            else if (has_else_parens && !punctuation(index_, '{'))
                 snapshot_.diagnostics_.push_back(
-                    {range(start, index_), "expected ')' after condition"});
+                    {range(else_start, index_), "expected ')' after else condition"});
             const ExprId else_body = punctuation(index_, '{') ? parseBlock() : ExprId{};
             if (!else_body)
                 snapshot_.diagnostics_.push_back({range(start, index_), "expected else body"});
@@ -181,14 +206,20 @@ ExprId AstLowerer::parseIf() {
 ExprId AstLowerer::parseWhen() {
     const uint32_t start = index_++;
     Expression expression;
-    expression.kind  = ExprKind::When;
-    expression.scope = current_scope_;
-    if (punctuation(index_, '('))
+    expression.kind               = ExprKind::When;
+    expression.scope              = current_scope_;
+    const bool has_subject_parens = punctuation(index_, '(');
+    if (has_subject_parens)
         ++index_;
-    expression.operands.push_back(parseConditionExpression()); // subject
+    else if (!isKeywordToken("optional") && !isFunctionCallStart())
+        snapshot_.diagnostics_.push_back(
+            {tokenSpan(start), "expected '(' before when subject; write 'when (value) { ... }'",
+             false, diagnostics::err::ExpectedConditionParens});
+    expression.operands.push_back(has_subject_parens ? parseConditionExpression()
+                                                     : parseUnparenthesizedCondition()); // subject
     if (punctuation(index_, ')'))
         ++index_;
-    else
+    else if (has_subject_parens)
         snapshot_.diagnostics_.push_back({range(start, index_), "expected ')' after when subject"});
     if (punctuation(index_, '{'))
         ++index_;
@@ -343,9 +374,7 @@ ExprId AstLowerer::parseFor() {
         always.span  = tokenSpan(start);
         expression.operands.push_back(addExpression(std::move(always)));
     } else if (isKeywordToken("optional")) {
-        expression.operands.push_back(parseConditionExpression());
-    } else if (isKeywordToken("not")) {
-        expression.operands.push_back(parseConditionExpression());
+        expression.operands.push_back(parseUnparenthesizedCondition());
     } else if (punctuation(index_, '(')) {
         ++index_;
         const uint32_t clause_start = index_;
@@ -367,9 +396,9 @@ ExprId AstLowerer::parseFor() {
             stmt.binding.bindingKind = has_var ? BindingKind::Var : BindingKind::Let;
             classifyAttributes(loop_attrs, AttributeTarget::Variable, snapshot_.diagnostics_);
             stmt.binding.attributes = loop_attrs;
-            stmt.binding.id   = LocalId{statementCountLocals_++};
-            stmt.binding.name = std::string(text(index_));
-            stmt.binding.span = tokenSpan(index_++);
+            stmt.binding.id         = LocalId{statementCountLocals_++};
+            stmt.binding.name       = std::string(text(index_));
+            stmt.binding.span       = tokenSpan(index_++);
             if (punctuation(index_, ':')) {
                 ++index_;
                 stmt.binding.type = parseType();
@@ -411,8 +440,7 @@ ExprId AstLowerer::parseFor() {
                 // `for (name in iterable)` is the iterator form; the name is
                 // synthesized below as a loop binding, so do not parse it as
                 // an expression (which would treat `in` as a binary operator).
-                classifyAttributes(loop_attrs, AttributeTarget::Variable,
-                                   snapshot_.diagnostics_);
+                classifyAttributes(loop_attrs, AttributeTarget::Variable, snapshot_.diagnostics_);
                 init_expr = parsePrimary();
             } else {
                 init_expr = parseConditionExpression();
@@ -633,11 +661,12 @@ ExprId AstLowerer::parseFor() {
                 {range(start, index_), "expected a condition or clause after 'for ('"});
         expression.operands.push_back(init_expr);
     } else {
-        snapshot_.diagnostics_.push_back(
-            {range(start, index_), "expected '(' or a block after 'for'"});
-        expression.span = range(start, index_);
-        expression.kind = ExprKind::Error;
-        return addExpression(std::move(expression));
+        if (!isKeywordToken("optional") && !isKeywordToken("not") && !isFunctionCallStart())
+            snapshot_.diagnostics_.push_back({tokenSpan(start),
+                                              "expected '(' before for condition; write "
+                                              "'for (condition) { ... }'",
+                                              false, diagnostics::err::ExpectedConditionParens});
+        expression.operands.push_back(parseUnparenthesizedCondition());
     }
 
     if (punctuation(index_, '{'))
@@ -660,13 +689,21 @@ ExprId AstLowerer::parseWhile() {
         expression.label = std::string(text(index_));
         index_ += 2;
     }
-    if (punctuation(index_, '('))
+    const bool has_condition_parens = punctuation(index_, '(');
+    if (has_condition_parens)
         ++index_;
-    const ExprId condition = parseConditionExpression();
+    else if (!isKeywordToken("optional") && !isKeywordToken("not") && !isFunctionCallStart())
+        snapshot_.diagnostics_.push_back(
+            {tokenSpan(start),
+             "expected '(' before while condition; write 'while (condition) { ... }'", false,
+             diagnostics::err::ExpectedConditionParens});
+    const ExprId condition =
+        has_condition_parens ? parseConditionExpression() : parseUnparenthesizedCondition();
     if (punctuation(index_, ')'))
         ++index_;
-    else if (!punctuation(index_, '{'))
-        snapshot_.diagnostics_.push_back({range(start, index_), "expected ')' after condition"});
+    else if (has_condition_parens && !punctuation(index_, '{'))
+        snapshot_.diagnostics_.push_back(
+            {range(start, index_), "expected ')' after while condition"});
 
     expression.operands.push_back(condition);
     if (punctuation(index_, '{'))
@@ -711,6 +748,41 @@ ExprId AstLowerer::parseConditionExpression() {
         return addExpression(std::move(unary));
     }
     return parseExpression();
+}
+ExprId AstLowerer::parseUnparenthesizedCondition() {
+    const bool saved         = suppress_struct_literal_;
+    suppress_struct_literal_ = true;
+    const ExprId condition   = parseConditionExpression();
+    suppress_struct_literal_ = saved;
+    return condition;
+}
+bool AstLowerer::isFunctionCallStart() const noexcept {
+    if (index_ >= token_count_ || snapshot_.tokens_[index_].kind != TokenKind::Identifier)
+        return false;
+
+    uint32_t callee_end = index_ + 1U;
+    while (callee_end + 1U < token_count_ && punctuation(callee_end, '.'))
+        callee_end += 2U;
+    if (punctuation(callee_end, '('))
+        return true;
+    if (callee_end >= token_count_ || snapshot_.tokens_[callee_end].kind != TokenKind::Operator ||
+        text(callee_end) != "<")
+        return false;
+
+    int32_t generic_depth = 0;
+    for (uint32_t i = callee_end; i < token_count_; ++i) {
+        const auto &token = snapshot_.tokens_[i];
+        if (token.kind == TokenKind::Operator) {
+            if (text(i) == "<")
+                ++generic_depth;
+            else if (text(i) == ">" && --generic_depth == 0)
+                return punctuation(i + 1U, '(');
+        } else if ((token.kind == TokenKind::Punctuation && text(i) == "(") ||
+                   token.kind == TokenKind::End) {
+            return false;
+        }
+    }
+    return false;
 }
 bool AstLowerer::isOperatorAt(uint32_t offset, std::string_view op) const noexcept {
     const auto i = index_ + offset;

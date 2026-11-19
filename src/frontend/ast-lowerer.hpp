@@ -51,7 +51,7 @@ private:
     public:
         explicit ParserDepthGuard(AstLowerer &lowerer) noexcept;
         ~ParserDepthGuard();
-        ParserDepthGuard(const ParserDepthGuard &) = delete;
+        ParserDepthGuard(const ParserDepthGuard &)            = delete;
         ParserDepthGuard &operator=(const ParserDepthGuard &) = delete;
 
         [[nodiscard]] bool entered() const noexcept {
@@ -120,6 +120,8 @@ private:
     [[nodiscard]] ExprId parseFor();
     [[nodiscard]] ExprId parseWhile();
     [[nodiscard]] ExprId parseConditionExpression();
+    [[nodiscard]] ExprId parseUnparenthesizedCondition();
+    [[nodiscard]] bool isFunctionCallStart() const noexcept;
     [[nodiscard]] bool isOperatorAt(uint32_t offset, std::string_view op) const noexcept;
     [[nodiscard]] bool isTagMacroOpen() const noexcept;
     [[nodiscard]] ExprId parseTagMacroCall();
@@ -151,9 +153,9 @@ private:
 
     FrontendSnapshot &snapshot_;
     uint32_t token_count_;
-    uint32_t index_      = 0;
-    uint32_t parser_depth_ = 0;
-    uint32_t next_scope_ = 1;
+    uint32_t index_                   = 0;
+    uint32_t parser_depth_            = 0;
+    uint32_t next_scope_              = 1;
     bool parser_depth_error_reported_ = false;
     ScopeId root_scope_;
     ScopeId current_scope_;

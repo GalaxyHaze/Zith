@@ -33,6 +33,18 @@ static void test_existing_codes_preserved() {
     CHECK_EQ(e1009->prefix, 'E', "E1009 has error prefix");
     CHECK_EQ(std::string(e1009->title), "Circular import", "E1009 title correct");
 
+    auto e1011 = lookupError(1011u);
+    CHECK(e1011, "E1011 ExpectedConditionParens is registered");
+    CHECK_EQ(std::string(e1011->title), "Expected parentheses around control expression",
+             "E1011 title covers conditions and when subjects");
+    CHECK(e1011->note.find("when (value)") != std::string_view::npos,
+          "E1011 help includes a subject example for when");
+
+    CHECK(e1006->note.find("referenced file exists") != std::string_view::npos,
+          "E1006 help applies to imports beyond modules");
+    CHECK(e1006->why.find("C headers, and assets") != std::string_view::npos,
+          "E1006 help distinguishes module, header, and asset roots");
+
     auto e3003 = lookupError(3003u);
     CHECK(e3003, "E3003 InvalidCast is registered");
     CHECK_EQ(std::string(e3003->category), "types", "E3003 category matches");

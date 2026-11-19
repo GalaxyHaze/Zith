@@ -38,8 +38,14 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
         return ErrorInfo{code, 'E', "parse", "Invalid import depth",
                          "Import depth must be an integer or '..' for infinite depth"};
     case err::ImportError:
-        return ErrorInfo{code, 'E', "parse", "Import error",
-                         "Check the module path and ensure the file exists"};
+        return ErrorInfo{code,
+                         'E',
+                         "parse",
+                         "Import error",
+                         "Check that the import form is supported and the referenced file exists "
+                         "in its configured roots",
+                         "Modules, C headers, and assets use different roots; platform-specific "
+                         "modules need a generic file or a variant matching the target"};
     case err::TopLevelLetNotAllowed:
         return ErrorInfo{
             code,
@@ -58,6 +64,10 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
     case err::ParseDepthExceeded:
         return ErrorInfo{code, 'E', "parse", "Parser nesting limit exceeded",
                          "Reduce the nesting depth of expressions, types, or blocks"};
+    case err::ExpectedConditionParens:
+        return ErrorInfo{code, 'E', "parse", "Expected parentheses around control expression",
+                         "Wrap the condition or subject in parentheses, for example "
+                         "'if (condition) { ... }' or 'when (value) { ... }'"};
 
     // Semantic
     case err::UndefinedIdent:

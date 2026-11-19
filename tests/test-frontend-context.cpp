@@ -157,8 +157,7 @@ void test_partial_artifact_cycle_and_session_snapshot() {
             if (diag.code == diagnostics::err::CircularImport &&
                 diag.message.find("/tmp/zith-frontend-context-tests/a.zith -> "
                                   "/tmp/zith-frontend-context-tests/b.zith -> "
-                                  "/tmp/zith-frontend-context-tests/a.zith") !=
-                    std::string::npos) {
+                                  "/tmp/zith-frontend-context-tests/a.zith") != std::string::npos) {
                 saw_cycle = true;
                 break;
             }
@@ -501,7 +500,8 @@ void test_system_include_roots() {
     bool saw_unresolved = false;
     for (const auto &diagnostic : disabled_result.value()->diagnostics())
         saw_unresolved |=
-            diagnostic.message.find("could not resolve import 'stdint.h'") != std::string::npos;
+            diagnostic.message.find("could not find header 'stdint.h'") != std::string::npos &&
+            diagnostic.message.find("configured include roots") != std::string::npos;
     CHECK(saw_unresolved, "system header import fails without system include roots");
 
     FrontendContext enabled(workspace.config(1));
@@ -659,10 +659,63 @@ void test_platform_import_missing_diagnostic() {
     bool saw_actionable = false;
     for (const auto &diagnostic : result.value()->diagnostics()) {
         saw_actionable |=
-            diagnostic.message.find("missing generic module or matching platform variant") !=
+            diagnostic.message.find("generic module or a platform variant matching the target") !=
             std::string::npos;
     }
-    CHECK(saw_actionable, "missing import mentions generic and platform variants");
+    CHECK(saw_actionable, "missing platform import explains which module variants to add");
+}
+
+void test_missing_module_import_diagnostic() {
+    Workspace workspace;
+    workspace.write("main.zith", "from missing/module\nfn main() { }\n");
+
+    FrontendContext context(workspace.config(1));
+    auto result = context.analyzeFile(workspace.path("main.zith"));
+    CHECK(result.isOk(), "missing module import still produces a snapshot");
+    if (!result)
+        return;
+
+    const auto &diagnostics = result.value()->diagnostics();
+    CHECK_EQ(diagnostics.size(), 1u, "a missing module import produces one diagnostic");
+    if (diagnostics.size() == 1U) {
+        CHECK_EQ(diagnostics[0].code, diagnostics::err::ImportError,
+                 "missing module import uses E1006");
+        CHECK(diagnostics[0].message.find("could not find module 'missing/module'") !=
+                  std::string::npos,
+              "missing module diagnostic names the unresolved module");
+        CHECK(diagnostics[0].message.find("configured import roots") != std::string::npos,
+              "missing module diagnostic tells the user where to check resolution");
+    }
+}
+
+void test_missing_header_and_asset_import_diagnostics() {
+    Workspace workspace;
+    workspace.write("main.zith", "import \"missing.h\"\n"
+                                 "from assets/missing.json as Missing\n"
+                                 "fn main() { }\n");
+
+    FrontendContext context(workspace.config(1));
+    auto result = context.analyzeFile(workspace.path("main.zith"));
+    CHECK(result.isOk(), "missing header and asset imports still produce a snapshot");
+    if (!result)
+        return;
+
+    const auto &diagnostics = result.value()->diagnostics();
+    CHECK_EQ(diagnostics.size(), 2u, "missing header and asset each produce one diagnostic");
+    bool saw_header = false;
+    bool saw_asset  = false;
+    for (const auto &diagnostic : diagnostics) {
+        if (diagnostic.code != diagnostics::err::ImportError)
+            continue;
+        saw_header |=
+            diagnostic.message.find("could not find header 'missing.h'") != std::string::npos &&
+            diagnostic.message.find("configured include roots") != std::string::npos;
+        saw_asset |= diagnostic.message.find("could not find asset 'assets/missing.json'") !=
+                         std::string::npos &&
+                     diagnostic.message.find("configured asset roots") != std::string::npos;
+    }
+    CHECK(saw_header, "missing C header diagnostic names include roots to check");
+    CHECK(saw_asset, "missing asset diagnostic names asset roots to check");
 }
 
 void test_platform_import_cache_key_separation() {
@@ -756,6 +809,8 @@ static void test_frontend_context() {
     test_platform_import_os_only();
     test_platform_import_generic_fallback();
     test_platform_import_missing_diagnostic();
+    test_missing_module_import_diagnostic();
+    test_missing_header_and_asset_import_diagnostics();
     test_platform_import_cache_key_separation();
 }
 

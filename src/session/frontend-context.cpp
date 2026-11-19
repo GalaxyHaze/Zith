@@ -140,12 +140,25 @@ FrontendContext::analyze(SourceCatalog::SourcePtr root_source) {
                 if (resolved.targetKind == ImportTargetKind::Zith && request.isHeader)
                     edge.request.isFrom = true;
                 if (!resolved.found) {
-                    const auto import_name =
-                        request.isHeader ? request.headerPath : request.importKey();
-                    edge.error = resolved.consideredPlatformVariants
-                                     ? "could not resolve import '" + import_name +
-                                           "'; missing generic module or matching platform variant"
-                                     : "could not resolve import '" + import_name + "'";
+                    const auto import_name = request.isAsset && !request.rawPath.empty()
+                                                 ? request.rawPath
+                                             : request.isHeader ? request.headerPath
+                                                                : request.importKey();
+                    if (request.isAsset) {
+                        edge.error = "could not find asset '" + import_name +
+                                     "'; check its path and configured asset roots";
+                    } else if (request.isHeader) {
+                        edge.error = "could not find header '" + import_name +
+                                     "'; check its path and configured include roots";
+                    } else if (resolved.consideredPlatformVariants) {
+                        edge.error = "could not find module '" + import_name +
+                                     "'; check its spelling, path, and configured import roots, "
+                                     "or add a generic module or a platform variant matching "
+                                     "the target";
+                    } else {
+                        edge.error = "could not find module '" + import_name +
+                                     "'; check its spelling, path, and configured import roots";
+                    }
                     diagnostics.push_back(makeImportDiagnostic(*module, request, edge.error));
                     import_graph.push_back(std::move(edge));
                     continue;

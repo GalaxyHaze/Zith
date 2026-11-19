@@ -29,6 +29,16 @@ auto diagnosticsJson() -> std::string {
     return std::string(ptr, static_cast<std::size_t>(len));
 }
 
+auto countOccurrences(std::string_view text, std::string_view needle) -> std::size_t {
+    std::size_t count = 0;
+    std::size_t start = 0;
+    while ((start = text.find(needle, start)) != std::string_view::npos) {
+        ++count;
+        start += needle.size();
+    }
+    return count;
+}
+
 auto runSource(std::string_view source) -> int {
     return zith_run_source(source.data(), static_cast<int>(source.size()));
 }
@@ -55,11 +65,17 @@ void test_wasm_playground_structured_diagnostics() {
     CHECK_EQ(diagnosticsJson(), std::string("{\"diagnostics\":[]}"),
              "successful calls expose an empty diagnostics array");
 
-    const auto compileStatus = runSource("fn main() {\n    let x: MissingType = 1;\n}\n");
+    constexpr std::string_view invalidSource = "fn main() {\n    let x: MissingType = 1;\n}\n";
+    host_errors.clear();
+    const auto compileStatus = runSource(invalidSource);
     CHECK_EQ(compileStatus, 1, "compile failure keeps the existing status code");
     const auto compileJson = diagnosticsJson();
     CHECK(compileJson.find("\"diagnostics\":[{") != std::string::npos,
           "compile diagnostics are represented in the JSON array");
+    CHECK_EQ(countOccurrences(compileJson, "\"severity\":\"error\""), 1u,
+             "one compile failure is emitted once in structured diagnostics");
+    CHECK_EQ(countOccurrences(host_errors, "error: "), 1u,
+             "one compile failure is emitted once through host stderr");
     CHECK(compileJson.find("\"severity\":\"error\"") != std::string::npos,
           "compile diagnostic includes severity");
     CHECK(compileJson.find("\"message\":") != std::string::npos,
@@ -69,6 +85,29 @@ void test_wasm_playground_structured_diagnostics() {
     CHECK(compileJson.find("\"span\":{\"start\":") != std::string::npos &&
               compileJson.find("\"end\":") != std::string::npos,
           "compile diagnostic includes its source byte span");
+
+    host_errors.clear();
+    CHECK_EQ(runSource(invalidSource), 1, "repeated compile failure keeps its status");
+    CHECK_EQ(diagnosticsJson(), compileJson,
+             "repeated compilation returns the same diagnostics without accumulating entries");
+    CHECK_EQ(countOccurrences(host_errors, "error: "), 1u,
+             "repeated compilation writes the diagnostic once to host stderr");
+
+    host_errors.clear();
+    const auto missingImportStatus = runSource("from missing/module\nfn main() { }\n");
+    CHECK_EQ(missingImportStatus, 1, "missing from-import reports a compile failure");
+    const auto missingImportJson = diagnosticsJson();
+    CHECK_EQ(countOccurrences(missingImportJson, "\"severity\":\"error\""), 1u,
+             "a missing import is reported once in the playground");
+    CHECK_EQ(countOccurrences(host_errors, "error: "), 1u,
+             "a missing import is written once through host stderr");
+    CHECK(missingImportJson.find("could not find module 'missing/module'") != std::string::npos,
+          "playground exposes the actionable missing-module diagnostic");
+
+    CHECK_EQ(runSource("fn main(): i32 {\n    42\n}\n"), 0,
+             "a valid call after a failed call succeeds");
+    CHECK_EQ(diagnosticsJson(), std::string("{\"diagnostics\":[]}"),
+             "a valid call after a failed call clears prior diagnostics");
 
     const auto trapStatus = runSource("fn main(): i32 {\n"
                                       "    let values: [1]i32 = [7];\n"
@@ -97,8 +136,8 @@ void test_wasm_playground_structured_diagnostics() {
 
 void test_wasm_playground_hir_cache() {
     const auto source = kCacheProgram;
-    const auto *ptr  = source.data();
-    const auto len   = static_cast<int>(source.size());
+    const auto *ptr   = source.data();
+    const auto len    = static_cast<int>(source.size());
 
     const auto hitsBefore   = zith_hir_cache_hits();
     const auto missesBefore = zith_hir_cache_misses();
@@ -135,9 +174,9 @@ void test_wasm_playground_hir_cache() {
 
     // A restored blob that no longer decodes is reported as stale, not as a
     // silent recompile.
-    const std::string_view garbage = "not-a-flat-hir-blob";
+    const std::string_view garbage     = "not-a-flat-hir-blob";
     const std::string_view staleSource = "fn main(): i32 {\n    2\n}\n";
-    const auto staleBefore = zith_hir_cache_stale();
+    const auto staleBefore             = zith_hir_cache_stale();
     CHECK_EQ(zith_restore_cached(staleSource.data(), static_cast<int>(staleSource.size()),
                                  garbage.data(), static_cast<int>(garbage.size())),
              0, "restore_cached accepts a persisted blob");

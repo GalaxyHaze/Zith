@@ -553,21 +553,21 @@ static void test_else_condition_forms() {
     }
     CHECK(old_if_found, "deprecated 'else if' still lowers to an if graph");
 
-    auto missing_paren = frontend::parse("fn run(n: i32): i32 {\n"
-                                         "    if (n < 0) {\n"
-                                         "        return 0;\n"
-                                         "    } else n < 10 {\n"
-                                         "    }\n"
-                                         "    return 2;\n"
-                                         "}\n");
-    bool saw_recovery  = false;
+    auto missing_paren              = frontend::parse("fn run(n: i32): i32 {\n"
+                                                      "    if (n < 0) {\n"
+                                                      "        return 0;\n"
+                                                      "    } else n < 10 {\n"
+                                                      "    }\n"
+                                                      "    return 2;\n"
+                                                      "}\n");
+    bool saw_parentheses_diagnostic = false;
     for (const auto &diagnostic : missing_paren.diagnostics()) {
         if (diagnostic.isWarning)
             continue;
-        if (diagnostic.message.find("expected else body") != std::string::npos)
-            saw_recovery = true;
+        saw_parentheses_diagnostic |= diagnostic.code == diagnostics::err::ExpectedConditionParens;
     }
-    CHECK(saw_recovery, "malformed 'else (cond)' still reports the existing body recovery");
+    CHECK(saw_parentheses_diagnostic,
+          "an unparenthesized else condition reports the required correction");
 }
 
 static std::string_view tokenText(const frontend::FrontendSnapshot &snapshot,
@@ -813,22 +813,71 @@ static void test_default_parameters_and_condition_syntax() {
     CHECK(only_while_warning,
           "'not' conditions in if/while/flat and parenthesized for clauses parse cleanly");
 
-    auto bare_conditions            = frontend::parse("fn run(x: ?i32, ok: bool): i32 {\n"
-                                                      "    if not ok { return 0; }\n"
-                                                      "    while not ok { break; }\n"
-                                                      "    for not ok { break; }\n"
-                                                      "    if optional x { return 1; }\n"
-                                                      "    while optional x { break; }\n"
-                                                      "    for optional x { return 2; }\n"
-                                                      "    return 3;\n"
-                                                      "}\n");
-    size_t optional_condition_diags = 0;
+    auto bare_conditions = frontend::parse("fn run(ok: bool, done: bool, keep: bool): i32 {\n"
+                                           "    if ok { return 0; }\n"
+                                           "    while done { break; }\n"
+                                           "    for keep { break; }\n"
+                                           "    return 1;\n"
+                                           "}\n");
+    CHECK_EQ(countErrorCode(bare_conditions, diagnostics::err::ExpectedConditionParens), 3u,
+             "if, while, and conditional for require parenthesized conditions");
+    bool has_if_correction        = false;
+    bool has_while_correction     = false;
+    bool has_for_correction       = false;
+    bool has_cascading_body_error = false;
     for (const auto &diagnostic : bare_conditions.diagnostics()) {
-        if (!diagnostic.isWarning)
-            ++optional_condition_diags;
+        if (diagnostic.code == diagnostics::err::ExpectedConditionParens) {
+            has_if_correction |= diagnostic.message.find("if (condition) {") != std::string::npos;
+            has_while_correction |=
+                diagnostic.message.find("while (condition) {") != std::string::npos;
+            has_for_correction |= diagnostic.message.find("for (condition) {") != std::string::npos;
+        }
+        has_cascading_body_error |= diagnostic.message == "expected if body" ||
+                                    diagnostic.message == "expected while body" ||
+                                    diagnostic.message == "expected for body";
     }
-    CHECK_EQ(optional_condition_diags, 3u,
-             "removed 'optional' condition forms report the implicit-condition diagnostic");
+    CHECK(has_if_correction && has_while_correction && has_for_correction,
+          "each missing-parentheses diagnostic shows the correction for that control form");
+    CHECK(!has_cascading_body_error,
+          "missing condition parentheses do not hide the loop or branch body");
+
+    auto optional_conditions = frontend::parse("fn run(x: ?i32): i32 {\n"
+                                               "    if optional x { return 0; }\n"
+                                               "    while optional x { break; }\n"
+                                               "    for optional x { return 1; }\n"
+                                               "    return 2;\n"
+                                               "}\n");
+    CHECK_EQ(countErrorCode(optional_conditions, diagnostics::err::UnsupportedSyntax), 3u,
+             "removed 'optional' condition forms retain their focused diagnostic");
+    CHECK_EQ(countErrorCode(optional_conditions, diagnostics::err::ExpectedConditionParens), 0u,
+             "the obsolete optional form does not produce a redundant parentheses error");
+
+    auto bare_else_and_when = frontend::parse("fn run(ok: bool): i32 {\n"
+                                              "    if (ok) { } else ok { }\n"
+                                              "    let result = when ok { (true) 1, (_) 0 };\n"
+                                              "    return result;\n"
+                                              "}\n");
+    CHECK_EQ(countErrorCode(bare_else_and_when, diagnostics::err::ExpectedConditionParens), 2u,
+             "conditional else and when subjects require parentheses");
+    CHECK_EQ(bare_else_and_when.diagnostics().size(), 2u,
+             "missing else/when parentheses do not produce cascading diagnostics");
+
+    auto call_conditions = frontend::parse("fn predicate<T>(): bool { return true; }\n"
+                                           "fn subject(): i32 { return 0; }\n"
+                                           "fn run(ok: bool, done: bool): i32 {\n"
+                                           "    if predicate() and (ok) { }\n"
+                                           "    if predicate<i32>() { }\n"
+                                           "    while predicate() { break; }\n"
+                                           "    for predicate() { break; }\n"
+                                           "    if (ok) { } else predicate() { }\n"
+                                           "    if (ok) { } else not done { }\n"
+                                           "    let value = when subject() { (0) 1, (_) 0 };\n"
+                                           "    return value;\n"
+                                           "}\n");
+    CHECK_EQ(countErrorCode(call_conditions, diagnostics::err::ExpectedConditionParens), 0u,
+             "function-call conditions and legacy 'else not' remain accepted");
+    CHECK(!hasErrors(call_conditions),
+          "function-call conditions and legacy negation parse without errors");
 }
 
 static void test_for_var_var_reports_specific_diagnostic() {

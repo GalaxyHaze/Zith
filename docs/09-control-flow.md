@@ -7,7 +7,13 @@
 
 ### 9.1 Syntax Rules
 
-Parentheses `()` are mandatory on every control structure's condition except function calls. Logical operators use English keywords. Bitwise operators use standard symbols followed by `.`:
+Parentheses `()` are required around every control expression except when it
+starts with a function call. For compatibility, `not expr` may also omit the
+outer parentheses in `if`, `while`, `for`, and conditional `else`. The
+condition-less infinite loop `for { ... }` needs no parentheses. A missing pair
+is reported as `E1011`, with a correction showing where to add it. Logical
+operators use English keywords. Bitwise operators use standard symbols
+followed by `.`:
 
 ```zith
 if (x > 0 and y < 10) { ... }

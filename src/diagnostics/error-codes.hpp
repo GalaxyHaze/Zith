@@ -19,16 +19,17 @@ inline constexpr ErrCode const UnclosedComment   = 5;
 // Know let me thik what to add
 
 // Parse (1001-1999)
-inline constexpr ErrCode const ExpectedExpr          = 1001;
-inline constexpr ErrCode const ExpectedSemicolon     = 1002;
-inline constexpr ErrCode const UnclosedParen         = 1003;
-inline constexpr ErrCode const ExpectedIdent         = 1004;
-inline constexpr ErrCode const InvalidImportDepth    = 1005;
-inline constexpr ErrCode const ImportError           = 1006;
-inline constexpr ErrCode const TopLevelLetNotAllowed = 1007;
-inline constexpr ErrCode const DeprecatedSyntax      = 1008;
-inline constexpr ErrCode const CircularImport        = 1009;
-inline constexpr ErrCode const ParseDepthExceeded    = 1010;
+inline constexpr ErrCode const ExpectedExpr            = 1001;
+inline constexpr ErrCode const ExpectedSemicolon       = 1002;
+inline constexpr ErrCode const UnclosedParen           = 1003;
+inline constexpr ErrCode const ExpectedIdent           = 1004;
+inline constexpr ErrCode const InvalidImportDepth      = 1005;
+inline constexpr ErrCode const ImportError             = 1006;
+inline constexpr ErrCode const TopLevelLetNotAllowed   = 1007;
+inline constexpr ErrCode const DeprecatedSyntax        = 1008;
+inline constexpr ErrCode const CircularImport          = 1009;
+inline constexpr ErrCode const ParseDepthExceeded      = 1010;
+inline constexpr ErrCode const ExpectedConditionParens = 1011;
 
 // Semantic (2001-2999)
 inline constexpr ErrCode const UndefinedIdent    = 2001;

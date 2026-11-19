@@ -452,10 +452,15 @@ reportam `E0003` e são detetados durante a verificação de tipos, tal como no 
 
 ## Controlo de Fluxo
 
-O `Zith--` usa condições parentizadas e palavras inglesas para os operadores
-booleanos. A negação é `not`; `not (cond)` é a forma idiomática, embora
-`not cond` continue a ser aceite. O `!` fica reservado a uma futura forma
-postfix e não é um operador unário prefixo nesta iteração.
+O `Zith--` exige parênteses à volta das condições de `if`, `while`, `for`,
+`when` e de `else` condicionado. Uma condição iniciada por chamada de função
+pode ficar sem parênteses, assim como a forma legada `not expr` em `if`,
+`while`, `for` e `else`. Nos restantes casos, o parser emite `E1011` e indica a
+forma esperada. A forma removida `optional expr` tem diagnóstico próprio. O
+loop infinito `for { ... }` não tem condição e não precisa de parênteses. A
+forma idiomática para negação é `not (cond)`; `not cond` continua a ser aceite
+por compatibilidade. O `!` fica reservado a uma futura forma postfix e não é
+um operador unário prefixo nesta iteração.
 
 `return;` termina uma função `void`. Quando `return` transporta uma expressão
 o ponto e vírgula é obrigatório: `return expr;`. O parser emite `E1002`
@@ -537,13 +542,20 @@ fn main(): i32 {
 sobre valores definidos pelo utilizador e continua separado de
 `Contains`.
 
-Em posição de condição, `not expr` sem parêntesis extra é aceite em `if`, `while`, nas três cláusulas do `for (init), (cond), (step)` e em `for (cond)`. A forma canónica dos exemplos e testes é `if not (cond)`; `not cond` e `not (cond)` continuam aceites por compatibilidade. O parser fecha a cláusula depois do operando, por isso também não deixa o parêntesis de fecho pendurado: `for (var i = 0), (not done), (i += 1) { ... }` e `for (var i = 0), (not (done)), ...` são equivalentes.
+Em posição de condição, `not expr` sem parêntesis extra é aceite em `if`,
+`while`, `else`, nas três cláusulas do `for (init), (cond), (step)` e em
+`for (cond)`. A forma canónica dos exemplos e testes é `if not (cond)`; `not
+cond` e `not (cond)` continuam aceites por compatibilidade. O parser fecha a
+cláusula depois do operando, por isso também não deixa o parêntesis de fecho
+pendurado: `for (var i = 0), (not done), (i += 1) { ... }` e
+`for (var i = 0), (not (done)), ...` são equivalentes.
 
 Uma condição opcional é implícita: qualquer expressão de tipo `?T` é verdadeira quando
 tem payload e falsa quando é `null`. Serve para condição (`if`, `while`, `for` e
 cláusulas de `for`) e para armas booleanas de `when`. `optional` continua a ser o
 modificador de tipo e a forma `optional expr` em posição de condição foi removida.
-O teste não faz narrowing do payload; para estreitar continua a usar-se `is null`.
+Essa forma removida produz o seu próprio diagnóstico. O teste não faz narrowing
+do payload; para estreitar continua a usar-se `is null`.
 
 ```zith
 fn main(x: ?i32): i32 {
