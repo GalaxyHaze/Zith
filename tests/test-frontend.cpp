@@ -959,6 +959,57 @@ static void test_control_bodies_require_blocks() {
           "a missing flat-for body does not consume the following function declaration");
 }
 
+static void test_import_from_prefix_has_actionable_diagnostic() {
+    const auto snapshot = frontend::parse("import from graphics { draw as paint }\n"
+                                          "fn after_import() { }\n");
+
+    CHECK_EQ(countErrorCode(snapshot, 1013u), 1u,
+             "'import from path' receives its dedicated parse diagnostic");
+    CHECK_EQ(snapshot.diagnostics().size(), 1u,
+             "the malformed import does not produce a generic or cascading diagnostic");
+    if (!snapshot.diagnostics().empty()) {
+        const auto &message = snapshot.diagnostics().front().message;
+        CHECK(message.find("use 'from path'") != std::string::npos,
+              "the diagnostic suggests 'from path' for importing symbols");
+        CHECK(message.find("'import path'") != std::string::npos,
+              "the diagnostic explains the namespace-import alternative");
+    }
+
+    CHECK_EQ(snapshot.declarations().size(), 2u,
+             "the malformed import is recovered as one declaration");
+    if (!snapshot.declarations().empty()) {
+        const auto &import = snapshot.declarations().front().import;
+        CHECK(import.isFrom, "recovery keeps the apparent direct-import form");
+        CHECK(!import.path.empty(), "recovery keeps the module path");
+        if (!import.path.empty())
+            CHECK_EQ(import.path.front(), std::string("graphics"),
+                     "recovery keeps the module path after the unexpected prefix");
+        CHECK_EQ(import.selectors.size(), 1u, "recovery keeps selectors following the module path");
+        if (!import.selectors.empty())
+            CHECK_EQ(import.selectors.front().alias, std::string("paint"),
+                     "recovery keeps selector aliases");
+    }
+    if (!snapshot.declarations().empty())
+        CHECK_EQ(snapshot.declarations().back().name, std::string("after_import"),
+                 "the declaration after the malformed import remains available");
+
+    const auto valid_from = frontend::parse("from graphics { draw as paint }\n");
+    CHECK(valid_from.diagnostics().empty(),
+          "'from path { selectors }' remains a valid direct-import form");
+    CHECK_EQ(valid_from.declarations().size(), 1u,
+             "a valid selective direct import remains one declaration");
+    if (!valid_from.declarations().empty()) {
+        const auto &import = valid_from.declarations().front().import;
+        CHECK(import.isFrom, "the valid 'from path' declaration is a direct import");
+        CHECK_EQ(import.path.size(), 1u, "the valid direct import keeps its path");
+        CHECK_EQ(import.selectors.size(), 1u, "the valid direct import keeps its selector");
+    }
+
+    const auto separate_lines = frontend::parse("import\nfrom graphics\n");
+    CHECK_EQ(countErrorCode(separate_lines, diagnostics::err::UnexpectedFromAfterImport), 0u,
+             "the dedicated diagnostic only matches 'import from' on one line");
+}
+
 static void test_for_var_var_reports_specific_diagnostic() {
     auto snapshot     = frontend::parse("fn main() {\n"
                                         "    for (var one: i32, var two: i32) { }\n"
@@ -1972,6 +2023,7 @@ static void test_frontend() {
     test_loop_labels_and_not_negation();
     test_default_parameters_and_condition_syntax();
     test_control_bodies_require_blocks();
+    test_import_from_prefix_has_actionable_diagnostic();
     test_else_condition_forms();
     test_for_var_var_reports_specific_diagnostic();
     test_structured_imports();

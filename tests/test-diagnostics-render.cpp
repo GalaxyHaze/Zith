@@ -47,6 +47,14 @@ static void test_existing_codes_preserved() {
     CHECK(e1012->note.find("enclosed in braces") != std::string_view::npos,
           "E1012 help explains that control-flow bodies require braces");
 
+    auto e1013 = lookupError(1013u);
+    CHECK(e1013, "E1013 UnexpectedFromAfterImport is registered");
+    CHECK_EQ(std::string(e1013->title), "Unexpected 'from' after 'import'",
+             "E1013 identifies the invalid import prefix");
+    CHECK(e1013->note.find("'from path'") != std::string_view::npos &&
+              e1013->note.find("'import path'") != std::string_view::npos,
+          "E1013 explains both valid import forms");
+
     CHECK(e1006->note.find("referenced file exists") != std::string_view::npos,
           "E1006 help applies to imports beyond modules");
     CHECK(e1006->why.find("C headers, and assets") != std::string_view::npos,

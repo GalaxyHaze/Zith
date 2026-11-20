@@ -23,9 +23,25 @@ void AstLowerer::lowerImport(uint32_t start, Visibility visibility,
     declaration.attributes = attributes;
     for (auto &attr : declaration.attributes)
         classifyAttribute(attr, AttributeTarget::Other, snapshot_.diagnostics_);
-    declaration.import.isExport = text(index_) == "export";
-    declaration.import.isFrom   = text(index_) == "from";
+    declaration.import.isExport   = text(index_) == "export";
+    declaration.import.isFrom     = text(index_) == "from";
+    const bool starts_with_import = text(index_) == "import";
+    const TextSpan import_span    = tokenSpan(index_);
     ++index_;
+    if (starts_with_import && index_ < token_count_ && text(index_) == "from") {
+        const TextSpan from_span = tokenSpan(index_);
+        const auto between =
+            snapshot_.source_.substr(import_span.end, from_span.start - import_span.end);
+        if (between.find_first_of("\r\n") == std::string_view::npos) {
+            declaration.import.isFrom = true;
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_ + 1U),
+                 "unexpected 'from' after 'import'; use 'from path' to import symbols, or "
+                 "'import path' to import a module namespace",
+                 false, diagnostics::err::UnexpectedFromAfterImport});
+            ++index_;
+        }
+    }
     if (index_ < token_count_ && text(index_) == "asset") {
         declaration.import.isAsset = true;
         ++index_;

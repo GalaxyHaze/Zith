@@ -72,6 +72,10 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
         return ErrorInfo{code, 'E', "parse", "Expected block after control header",
                          "Control-flow bodies must be enclosed in braces, for example "
                          "'if (condition) { ... }' or 'for (condition) { ... }'"};
+    case err::UnexpectedFromAfterImport:
+        return ErrorInfo{code, 'E', "parse", "Unexpected 'from' after 'import'",
+                         "Use 'from path' to import visible symbols directly, or 'import path' "
+                         "to import a module namespace"};
 
     // Semantic
     case err::UndefinedIdent:
