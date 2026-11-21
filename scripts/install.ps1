@@ -145,8 +145,8 @@ try {
     }
     New-Item -ItemType Directory -Path $StdlibStage -Force | Out-Null
     Expand-Archive -Path $StdlibArchivePath -DestinationPath $StdlibStage -Force
-    if (-not (Test-Path (Join-Path $StdlibStage "std\io\console.zith"))) {
-        throw "downloaded stdlib is missing std\io\console.zith"
+    if (-not (Test-Path (Join-Path $StdlibStage "std\io\console.zithm"))) {
+        throw "downloaded stdlib is missing std\io\console.zithm"
     }
 
     if (-not (Test-Path $InstallDir)) {

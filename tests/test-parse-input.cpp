@@ -77,12 +77,12 @@ struct SessionRunner {
     };
 
     Result run(std::string_view input, session::Stage target = session::Stage::TypeChecked) {
-        write("main.zith", input);
+        write("main.zithm", input);
         return runMain(target);
     }
 
     Result runMain(session::Stage target = session::Stage::TypeChecked) {
-        const auto path = root / "main.zith";
+        const auto path = root / "main.zithm";
         session::FrontendConfig config;
         config.workspaceRoot      = root.string();
         config.maxFrontendWorkers = 1;
@@ -205,8 +205,8 @@ void test_generic_component_rejects_non_pod_instantiation() {
 
 void test_imported_generic_component_constraints() {
     SessionRunner t;
-    t.write("dep.zith", "pub component Box<T> { value: T }\n");
-    t.write("main.zith", "from dep\n"
+    t.write("dep.zithm", "pub component Box<T> { value: T }\n");
+    t.write("main.zithm", "from dep\n"
                          "fn take(box: Box<*i32>) {}\n"
                          "fn main(): i32 { return 0; }\n");
     const auto rejected = t.runMain();

@@ -115,7 +115,7 @@ void test_vm_v2_cached_vir_compatibility() {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
-    const auto source = root / "main.zith";
+    const auto source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "fn main(): i32 { 7 }\n";
@@ -1075,7 +1075,7 @@ void test_vm_v2_hello_stdlib_import_println() {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
-    const auto source = root / "main.zith";
+    const auto source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "from std/io/console\n"
@@ -1129,11 +1129,11 @@ pub fn println(msg: []char, values: [...]dyn Formatable): IoError {
 }
 )";
     {
-        std::ofstream output(root / "std" / "io" / "console.zith",
+        std::ofstream output(root / "std" / "io" / "console.zithm",
                              std::ios::binary | std::ios::trunc);
         output << console;
     }
-    const auto source = root / "main.zith";
+    const auto source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "from std/io/console\n"
@@ -1183,7 +1183,7 @@ void test_vm_v2_functions_with_stdlib() {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
-    const auto source = root / "main.zith";
+    const auto source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "from std/io/console\n"
@@ -1217,7 +1217,7 @@ void test_vm_v2_extern_putchar() {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
-    const auto source = root / "main.zith";
+    const auto source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "#[discardable] extern fn putchar(c: char): i32\n"
@@ -1255,7 +1255,7 @@ void test_vm_v2_extern_snprintf_subset() {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
-    const auto source = root / "main.zith";
+    const auto source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "extern fn malloc(size: u64): raw opaque\n"
@@ -1300,7 +1300,7 @@ void test_vm_v2_call_range_multi_args() {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
-    const auto source = root / "main.zith";
+    const auto source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "fn add4(a: i32, b: i32, c: i32, d: i32): i32 {\n"
@@ -1338,7 +1338,7 @@ void test_vm_v2_variadic_slice_call_forms() {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
-    const auto source = root / "main.zith";
+    const auto source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "fn sum(rest: [...]i32): i32 {\n"
@@ -1514,7 +1514,7 @@ void test_vm_v2_hello_stdlib_import_print() {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
-    const auto source = root / "main.zith";
+    const auto source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "from std/io/console\n"
@@ -1547,7 +1547,7 @@ auto runVmSource(std::string_view name, std::string_view program, std::int64_t e
     -> void {
     const auto root = std::filesystem::temp_directory_path() / "zith-vm-v2-struct-tests";
     std::filesystem::create_directories(root);
-    const auto source = root / (std::string(name) + ".zith");
+    const auto source = root / (std::string(name) + ".zithm");
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << program;
@@ -1588,7 +1588,7 @@ void test_vm_v2_external_global_fallback() {
 
     const auto runLowering = [&](std::string_view name, std::string_view program,
                                  const bool expectedSuccess) {
-        const auto source = root / (std::string(name) + ".zith");
+        const auto source = root / (std::string(name) + ".zithm");
         {
             std::ofstream output(source, std::ios::binary | std::ios::trunc);
             output << program;
@@ -1637,7 +1637,7 @@ void test_vm_v2_external_global_fallback() {
                 "fn main(): i32 { zith_vm_external_value = 9; return 0; }\n",
                 false);
 
-    const auto checkSource = root / "check.zith";
+    const auto checkSource = root / "check.zithm";
     {
         std::ofstream output(checkSource, std::ios::binary | std::ios::trunc);
         output << "import \"external-global.h\"\n"
@@ -1890,7 +1890,7 @@ void test_vm_v2_slot_alloca_hoisted_out_of_loop() {
     // first control-flow instruction, so no loop body re-allocates.
     const auto root = std::filesystem::temp_directory_path() / "zith-vm-v2-slot-loop";
     std::filesystem::create_directories(root);
-    const auto source = root / "main.zith";
+    const auto source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "fn main(): i32 {\n"
@@ -1954,7 +1954,7 @@ void test_vm_v2_slot_alloca_hoisted_out_of_loop() {
 void test_vm_v2_explicit_array_binding_alignment() {
     const auto root = std::filesystem::temp_directory_path() / "zith-vm-v2-explicit-alignment";
     std::filesystem::create_directories(root);
-    const auto source = root / "main.zith";
+    const auto source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "fn plain(): i32 {\n"
@@ -2044,7 +2044,7 @@ void test_vm_v2_bitwise_and_shifts() {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
-    const auto source = root / "main.zith";
+    const auto source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "fn main(): i32 {\n"
@@ -2155,7 +2155,7 @@ void test_vm_v2_hir_control_flow_and_dynamic_array_index() {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
-    const auto source = root / "main.zith";
+    const auto source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "fn main(): i32 {\n"
@@ -2198,7 +2198,7 @@ void test_vm_v2_dynamic_array_index_traps() {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
-    const auto source = root / "main.zith";
+    const auto source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "fn main(): i32 {\n"

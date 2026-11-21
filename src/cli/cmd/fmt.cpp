@@ -1,6 +1,7 @@
 #include "cli/commands.hpp"
 #include "cli/terminal.hpp"
 #include "session/compilation-session.hpp"
+#include "support/source-extension.hpp"
 
 #include <cstdio>
 #include <filesystem>
@@ -37,7 +38,7 @@ static std::vector<std::string> findZithFiles(const std::string &dir) {
     if (!fs::is_directory(dir, ec))
         return files;
     for (const auto &entry : fs::recursive_directory_iterator(dir, ec)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".zith")
+        if (entry.is_regular_file() && support::isZithmSource(entry.path()))
             files.push_back(entry.path().string());
     }
     return files;
@@ -88,7 +89,8 @@ int fmt(const Options &opts) {
             files = findZithFiles(".");
             if (files.empty()) {
                 err.red("[error]");
-                std::fprintf(stderr, " no .zith files found\n");
+                std::fprintf(stderr, " no %s files found\n",
+                             std::string(support::kZithmSourceExtension).c_str());
                 return 1;
             }
         }

@@ -29,7 +29,7 @@ uint64_t internFunctionKey(memory::StringInterner &interner, std::string_view mo
                            frontend::DeclId decl);
 
 /// Dot-separated module namespace for `module_key`, derived from the longest
-/// configured root that prefixes it: `stdlib/std/io/console.zith` under the
+/// configured root that prefixes it: `stdlib/std/io/console.zithm` under the
 /// stdlib root `stdlib` becomes `std.io.console`.  Falls back to the file stem.
 std::string moduleNamespace(std::string_view module_key, const session::CacheKey &cache_key);
 

@@ -62,7 +62,7 @@ jobs:
           bash scripts/install.sh "$ZITH_RELEASE_TAG" --lsp
           test -x "$ZITH_INSTALL_ROOT/bin/zithc"
           test -x "$ZITH_INSTALL_ROOT/bin/zith-lsp"
-          test -f "$ZITH_INSTALL_ROOT/share/zith/stdlib/std/io/console.zith"
+          test -f "$ZITH_INSTALL_ROOT/share/zith/stdlib/std/io/console.zithm"
           if [ "$(uname -s)" = "Darwin" ]; then
             test -s "$ZITH_INSTALL_ROOT/share/zith/runtime-manifest.json"
             test -n "$(find "$ZITH_INSTALL_ROOT/share/zith/lib" -maxdepth 1 -type f -name '*.dylib' -print -quit)"
@@ -78,7 +78,7 @@ jobs:
           ZITH_INSTALL_ROOT: ${{ runner.temp }}/zith-install
         run: |
           "$ZITH_INSTALL_ROOT/bin/zithc" --help >/dev/null
-          "$ZITH_INSTALL_ROOT/bin/zithc" check examples/loops-simple.zith
+          "$ZITH_INSTALL_ROOT/bin/zithc" check examples/loops-simple.zithm
 
   smoke-installer-windows:
     needs: [validate-inputs]
@@ -105,7 +105,7 @@ jobs:
           if (-not (Test-Path "$env:ZITH_INSTALL_ROOT\bin\zith-lsp.exe")) {
             throw "installed language server was not found"
           }
-          if (-not (Test-Path "$env:ZITH_INSTALL_ROOT\share\zith\stdlib\std\io\console.zith")) {
+          if (-not (Test-Path "$env:ZITH_INSTALL_ROOT\share\zith\stdlib\std\io\console.zithm")) {
             throw "installed stdlib was not found"
           }
 
@@ -115,7 +115,7 @@ jobs:
           ZITH_INSTALL_ROOT: ${{ runner.temp }}\zith-install
         run: |
           & "$env:ZITH_INSTALL_ROOT\bin\zithc.exe" --help | Out-Null
-          & "$env:ZITH_INSTALL_ROOT\bin\zithc.exe" check examples\loops-simple.zith
+          & "$env:ZITH_INSTALL_ROOT\bin\zithc.exe" check examples\loops-simple.zithm
           if ($LASTEXITCODE -ne 0) {
             throw "installed compiler failed the language smoke test"
           }

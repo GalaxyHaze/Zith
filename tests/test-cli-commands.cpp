@@ -192,7 +192,7 @@ static void test_run_emit_vir_still_executes_program() {
 #ifdef ZITHC_BINARY
     CliCapture capture;
     std::filesystem::create_directories(capture.root);
-    const auto source = capture.root / "main.zith";
+    const auto source = capture.root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "fn main(): i32 { return 7; }\n";
@@ -220,7 +220,7 @@ static void test_run_virtual_machine_executes_program() {
 #ifdef ZITHC_BINARY
     CliCapture capture;
     std::filesystem::create_directories(capture.root);
-    const auto source = capture.root / "main.zith";
+    const auto source = capture.root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "fn main(): i32 { return 9; }\n";
@@ -427,7 +427,7 @@ static void test_completion_command_emits_updated_shell_options() {
 static void test_docs_error_policy() {
     CliCapture capture;
     std::filesystem::create_directories(capture.root);
-    const auto source = capture.root / "main.zith";
+    const auto source = capture.root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "pub fn documented(): i32 { return 7; }\n"
@@ -486,7 +486,7 @@ static void test_docs_parse_and_import_error_policy() {
     };
 
     for (const auto &errorCase : cases) {
-        const auto source = capture.root / (errorCase.name + ".zith");
+        const auto source = capture.root / (errorCase.name + ".zithm");
         {
             std::ofstream output(source, std::ios::binary | std::ios::trunc);
             output << errorCase.sourceText;
@@ -519,7 +519,7 @@ static void test_docs_stdout_file_and_index_outputs() {
 #ifdef ZITHC_BINARY
     CliCapture capture;
     std::filesystem::create_directories(capture.root);
-    const auto source = capture.root / "main.zith";
+    const auto source = capture.root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "pub fn documented(): i32 { return 7; }\n";
@@ -584,7 +584,7 @@ static void test_deps_resolve_writes_deterministic_lockfile() {
         CHECK(manifest.good(), "dependency manifest fixture is written");
     }
     {
-        std::ofstream source(projectRoot / "vendor" / "logging" / "src" / "logging.zith",
+        std::ofstream source(projectRoot / "vendor" / "logging" / "src" / "logging.zithm",
                              std::ios::binary);
         source << "pub fn log() {}\n";
         CHECK(source.good(), "dependency module fixture is written");
@@ -828,15 +828,15 @@ static void test_legacy_and_malformed_project_manifest_gate_behavior() {
         fs::create_directories(projectRoot / "src");
         {
             std::ofstream manifest(projectRoot / "ZithProject.toml", std::ios::binary);
-            manifest << "[build]\nentry = \"src/main.zith\"\n";
+            manifest << "[build]\nentry = \"src/main.zithm\"\n";
         }
         {
-            std::ofstream source(projectRoot / "src" / "main.zith", std::ios::binary);
+            std::ofstream source(projectRoot / "src" / "main.zithm", std::ios::binary);
             source << "fn main(): i32 { return 0; }\n";
         }
 
         CurrentDirectory currentDirectory(projectRoot);
-        const auto result = capture.run("check src/main.zith");
+        const auto result = capture.run("check src/main.zithm");
         CHECK_EQ(result.exitCode, 0,
                  "legacy project without package metadata remains usable without Zith.lock");
         CHECK(!fs::exists(projectRoot / "Zith.lock"),
@@ -1029,7 +1029,7 @@ static void test_system_includes_flag() {
 
     char program[]    = "zithc";
     char command[]    = "check";
-    char input[]      = "main.zith";
+    char input[]      = "main.zithm";
     char no_sysinc[]  = "--no-system-includes";
     char *without[]   = {program, command, input};
     char *with_flag[] = {program, command, no_sysinc, input};
@@ -1050,7 +1050,7 @@ static void test_debug_sema_flag() {
 
     char program[] = "zithc";
     char command[] = "check";
-    char input[]   = "main.zith";
+    char input[]   = "main.zithm";
     char flag[]    = "--debug-sema";
     char *argv[]   = {program, command, flag, input};
 
@@ -1080,7 +1080,7 @@ static void test_test_command_filters_and_executes_tests() {
         project << "[paths]\ntest_dir = \"tests\"\n";
     }
     {
-        std::ofstream tests(capture.root / "tests" / "runner.zith", std::ios::binary);
+        std::ofstream tests(capture.root / "tests" / "runner.zithm", std::ios::binary);
         tests << "macro assertViaMacro(condition: expr) {\n"
                  "    @assert(condition);\n"
                  "}\n"
@@ -1142,7 +1142,7 @@ static void test_test_command_filters_and_executes_tests() {
           "unfiltered run reports both per-test results");
     CHECK(unfiltered.stdoutText.find("excluded-log") != std::string::npos,
           "logs from the failing test are relayed");
-    CHECK(unfiltered.stderrText.find((capture.root / "tests" / "runner.zith").string() + ":13:") !=
+    CHECK(unfiltered.stderrText.find((capture.root / "tests" / "runner.zithm").string() + ":13:") !=
               std::string::npos,
           "failed assertion reports its source line");
 
@@ -1163,7 +1163,7 @@ static void test_test_command_filters_and_executes_tests() {
     {
         std::ofstream project(no_test_root / "ZithProject.toml", std::ios::binary);
         project << "[paths]\ntest_dir = \"tests\"\n";
-        std::ofstream source(no_test_root / "tests" / "utility.zith", std::ios::binary);
+        std::ofstream source(no_test_root / "tests" / "utility.zithm", std::ios::binary);
         source << "fn helper() {}\n";
     }
     const auto no_tests = capture.run("test \"" + no_test_root.string() + "\"");
@@ -1179,7 +1179,7 @@ static void test_test_command_filters_and_executes_tests() {
     }
     const auto empty_directory = capture.run("test \"" + empty_root.string() + "\"");
     CHECK(empty_directory.exitCode == 1, "an empty test directory is reported as an error");
-    CHECK(empty_directory.stderrText.find("no .zith test files found") != std::string::npos,
+    CHECK(empty_directory.stderrText.find("no .zithm test files found") != std::string::npos,
           "an empty test directory gets a specific diagnostic");
 
     const auto trap_root = capture.root / "trap-project";
@@ -1187,7 +1187,7 @@ static void test_test_command_filters_and_executes_tests() {
     {
         std::ofstream project(trap_root / "ZithProject.toml", std::ios::binary);
         project << "[paths]\ntest_dir = \"tests\"\n";
-        std::ofstream source(trap_root / "tests" / "helper.zith", std::ios::binary);
+        std::ofstream source(trap_root / "tests" / "helper.zithm", std::ios::binary);
         source << "fn ordinary_helper() {\n"
                   "    @assert(false);\n"
                   "}\n"
@@ -1197,7 +1197,7 @@ static void test_test_command_filters_and_executes_tests() {
                   "}\n";
     }
     {
-        std::ofstream source(trap_root / "tests" / "check-helper.zith", std::ios::binary);
+        std::ofstream source(trap_root / "tests" / "check-helper.zithm", std::ios::binary);
         source << "fn ordinary_helper() {\n"
                   "    @check(false);\n"
                   "}\n"
@@ -1210,7 +1210,7 @@ static void test_test_command_filters_and_executes_tests() {
     CHECK(trap.exitCode == 1, "a trap in a helper fails the test process");
     CHECK(trap.stderrText.find("test process failed") != std::string::npos,
           "a trapped test process gets an execution-failure diagnostic");
-    CHECK(trap.stderrText.find("check-helper.zith") != std::string::npos,
+    CHECK(trap.stderrText.find("check-helper.zithm") != std::string::npos,
           "@check in an ordinary helper traps outside lexical test context");
 
     const auto error_root = capture.root / "compile-error-project";
@@ -1218,7 +1218,7 @@ static void test_test_command_filters_and_executes_tests() {
     {
         std::ofstream project(error_root / "ZithProject.toml", std::ios::binary);
         project << "[paths]\ntest_dir = \"tests\"\n";
-        std::ofstream source(error_root / "tests" / "broken.zith", std::ios::binary);
+        std::ofstream source(error_root / "tests" / "broken.zithm", std::ios::binary);
         source << "#[test]\nfn broken() {\n    @assert(1);\n}\n"
                   "#[test]\nfn broken_check() {\n    @check(1);\n}\n";
     }

@@ -570,7 +570,7 @@ void test_stdlib_parity() {
     for (const ParityCase &testCase : kCases) {
         const fs::path workdir = root / testCase.name;
         fs::create_directories(workdir, ec);
-        const fs::path source = workdir / "main.zith";
+        const fs::path source = workdir / "main.zithm";
         {
             std::ofstream out(source, std::ios::binary | std::ios::trunc);
             out << testCase.source;

@@ -65,7 +65,7 @@ Result runStage(const Workspace &workspace, session::Stage stage) {
     config.compilerVersion    = "test";
     auto context              = std::make_shared<session::FrontendContext>(config);
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string(), context);
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string(), context);
     session.setBuffered(true);
 
     Result result;
@@ -97,7 +97,7 @@ Result check(const Workspace &workspace) {
 
 void externVariadicAcceptsTailArguments() {
     Workspace workspace;
-    workspace.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+    workspace.write("main.zithm", "extern fn printf(fmt: *char, ...): i32\n"
                                  "fn main(): i32 {\n"
                                  "    _ = printf(\"n=%d\\n\", 7, 1.5);\n"
                                  "    return 0;\n"
@@ -108,7 +108,7 @@ void externVariadicAcceptsTailArguments() {
 
 void externVariadicRequiresFixedArguments() {
     Workspace workspace;
-    workspace.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+    workspace.write("main.zithm", "extern fn printf(fmt: *char, ...): i32\n"
                                  "fn main(): i32 {\n"
                                  "    _ = printf();\n"
                                  "    return 0;\n"
@@ -121,7 +121,7 @@ void externVariadicRequiresFixedArguments() {
 
 void variadicRequiresExtern() {
     Workspace workspace;
-    workspace.write("main.zith", "fn variadic(x: i32, ...): i32 { return x; }\n");
+    workspace.write("main.zithm", "fn variadic(x: i32, ...): i32 { return x; }\n");
     auto r = check(workspace);
     CHECK(!r.ok, "a non-extern function cannot declare a variadic tail");
     CHECK(r.hasErrorCode(diagnostics::err::ExpectedExpr),
@@ -130,14 +130,14 @@ void variadicRequiresExtern() {
 
 void variadicMustBeLast() {
     Workspace workspace;
-    workspace.write("main.zith", "extern fn bad(fmt: *char, ..., x: i32): i32\n");
+    workspace.write("main.zithm", "extern fn bad(fmt: *char, ..., x: i32): i32\n");
     auto r = check(workspace);
     CHECK(!r.ok, "a variadic tail followed by another parameter is rejected");
 }
 
 void variadicLoweredFlag() {
     Workspace workspace;
-    workspace.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+    workspace.write("main.zithm", "extern fn printf(fmt: *char, ...): i32\n"
                                  "fn main(): i32 { return 0; }\n");
     auto r = runStage(workspace, session::Stage::HirLowered);
     CHECK(r.ok, "extern variadic declaration lowers to HIR");

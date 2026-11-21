@@ -44,7 +44,7 @@ struct Workspace {
 
     void writeProjectManifest() const {
         write("ZithProject.toml", "[build]\n"
-                                  "entry = \"src/main.zith\"\n"
+                                  "entry = \"src/main.zithm\"\n"
                                   "\n"
                                   "[paths]\n"
                                   "src_dir = [\"src\"]\n");
@@ -52,10 +52,10 @@ struct Workspace {
 
     void writeGraphFixture() const {
         writeProjectManifest();
-        write("src/main.zith", "from middle\npub fn entry() { }\n");
-        write("src/middle.zith", "from leaf\npub fn middle_fn() { }\n");
-        write("src/leaf.zith", "pub fn leaf_fn() { }\n");
-        write("src/orphan.zith", "pub fn orphan_fn() { }\n");
+        write("src/main.zithm", "from middle\npub fn entry() { }\n");
+        write("src/middle.zithm", "from leaf\npub fn middle_fn() { }\n");
+        write("src/leaf.zithm", "pub fn leaf_fn() { }\n");
+        write("src/orphan.zithm", "pub fn orphan_fn() { }\n");
     }
 };
 
@@ -66,14 +66,14 @@ std::string readText(const fs::path &path) {
 
 cli::docs::DocModel makeOutputModel() {
     cli::docs::DocModel model;
-    model.entryModule = "src/main.zith";
+    model.entryModule = "src/main.zithm";
 
     cli::docs::DocSymbol reexport;
     reexport.kind         = frontend::DeclKind::Function;
     reexport.visibility   = frontend::Visibility::Public;
     reexport.name         = "exposed";
     reexport.signature    = "fn exposed(): i32";
-    reexport.originModule = "vendor/dep.zith";
+    reexport.originModule = "vendor/dep.zithm";
     reexport.isReexport   = true;
 
     cli::docs::DocSymbol entry;
@@ -81,14 +81,14 @@ cli::docs::DocModel makeOutputModel() {
     entry.visibility   = frontend::Visibility::Public;
     entry.name         = "main";
     entry.signature    = "fn main(): i32";
-    entry.originModule = "src/main.zith";
+    entry.originModule = "src/main.zithm";
 
     cli::docs::DocSymbol dependencySymbol = reexport;
     dependencySymbol.isReexport           = false;
 
     model.modules = {
-        {"src/main.zith", false, {entry, reexport}},
-        {"vendor/dep.zith", true, {dependencySymbol}},
+        {"src/main.zithm", false, {entry, reexport}},
+        {"vendor/dep.zithm", true, {dependencySymbol}},
     };
     return model;
 }
@@ -124,20 +124,20 @@ void test_project_graph_contains_only_reachable_zith_modules() {
     CHECK(std::find(keys.begin(), keys.end(), snapshot->rootModuleKey()) != keys.end(),
           "graph contains the configured entry module");
     CHECK(std::any_of(keys.begin(), keys.end(),
-                      [](const std::string &key) { return key.ends_with("/middle.zith"); }),
+                      [](const std::string &key) { return key.ends_with("/middle.zithm"); }),
           "graph contains the direct import");
     CHECK(std::any_of(keys.begin(), keys.end(),
-                      [](const std::string &key) { return key.ends_with("/leaf.zith"); }),
+                      [](const std::string &key) { return key.ends_with("/leaf.zithm"); }),
           "graph contains the transitive import");
     CHECK(std::none_of(keys.begin(), keys.end(),
-                       [](const std::string &key) { return key.ends_with("/orphan.zith"); }),
+                       [](const std::string &key) { return key.ends_with("/orphan.zithm"); }),
           "graph excludes an unreachable source under src_dir");
 }
 
 void test_docs_defaults_to_configured_project_entry() {
     Workspace workspace;
     workspace.writeProjectManifest();
-    workspace.write("src/main.zith", "pub fn configured_entry() { }\n");
+    workspace.write("src/main.zithm", "pub fn configured_entry() { }\n");
 
     const auto original_directory = fs::current_path();
     fs::current_path(workspace.root);
@@ -160,7 +160,7 @@ void test_docs_defaults_to_configured_project_entry() {
 
 void test_doc_model_preserves_docs_overloads_and_visibility_modes() {
     Workspace workspace;
-    workspace.write("main.zith", "/** Converts a value.\n"
+    workspace.write("main.zithm", "/** Converts a value.\n"
                                  " * Keeps **Markdown** intact.\n"
                                  " *     example();\n"
                                  " */\n"
@@ -177,7 +177,7 @@ void test_doc_model_preserves_docs_overloads_and_visibility_modes() {
     Options options(arena);
     options.targetStage = session::Stage::Imported;
 
-    session::CompilationSession compilation(options, workspace.root.string() + "/main.zith");
+    session::CompilationSession compilation(options, workspace.root.string() + "/main.zithm");
     compilation.setBuffered(true);
     CHECK(compilation.runTo(session::Stage::Imported),
           "document model fixture compiles through frontend import");
@@ -251,7 +251,7 @@ void test_doc_model_preserves_docs_overloads_and_visibility_modes() {
 
 void test_doc_model_preserves_declaration_categories_and_members() {
     Workspace workspace;
-    workspace.write("main.zith", "pub type UserId = i32\n"
+    workspace.write("main.zithm", "pub type UserId = i32\n"
                                  "pub alias Callback = fn(i32): i32\n"
                                  "pub extern fn puts(msg: *char): i32\n"
                                  "pub raw macro swap(a: identifier, b: identifier) { }\n"
@@ -264,7 +264,7 @@ void test_doc_model_preserves_declaration_categories_and_members() {
     Options options(arena);
     options.targetStage = session::Stage::Imported;
 
-    session::CompilationSession compilation(options, workspace.root.string() + "/main.zith");
+    session::CompilationSession compilation(options, workspace.root.string() + "/main.zithm");
     compilation.setBuffered(true);
     CHECK(compilation.runTo(session::Stage::Imported),
           "declaration-category fixture parses through frontend import");
@@ -391,7 +391,7 @@ void test_doc_model_preserves_declaration_categories_and_members() {
 
 void test_doc_model_preserves_implemented_methods_and_owners() {
     Workspace workspace;
-    workspace.write("main.zith", "pub struct Counter { value: i32 }\n"
+    workspace.write("main.zithm", "pub struct Counter { value: i32 }\n"
                                  "implement Counter {\n"
                                  "    /// Returns the current value.\n"
                                  "    pub fn get(self): i32 { return self.value; }\n"
@@ -401,7 +401,7 @@ void test_doc_model_preserves_implemented_methods_and_owners() {
     Options options(arena);
     options.targetStage = session::Stage::Imported;
 
-    session::CompilationSession compilation(options, workspace.root.string() + "/main.zith");
+    session::CompilationSession compilation(options, workspace.root.string() + "/main.zithm");
     compilation.setBuffered(true);
     CHECK(compilation.runTo(session::Stage::Imported),
           "implemented-method fixture parses through frontend import");
@@ -435,9 +435,9 @@ void test_doc_model_preserves_implemented_methods_and_owners() {
 void test_doc_model_limits_dependency_symbols_to_used_ones() {
     Workspace workspace;
     Workspace dependency_workspace;
-    workspace.write("main.zith", "from dep\n"
+    workspace.write("main.zithm", "from dep\n"
                                  "pub fn entry(): i32 { return used(); }\n");
-    dependency_workspace.write("dep.zith", "pub fn used(): i32 { return 1; }\n"
+    dependency_workspace.write("dep.zithm", "pub fn used(): i32 { return 1; }\n"
                                            "pub fn unused(): i32 { return 2; }\n"
                                            "fn private_dep(): i32 { return 3; }\n");
 
@@ -446,7 +446,7 @@ void test_doc_model_limits_dependency_symbols_to_used_ones() {
     options.targetStage = session::Stage::Imported;
     options.includeDirs.push(dependency_workspace.root.string());
 
-    session::CompilationSession compilation(options, workspace.root.string() + "/main.zith");
+    session::CompilationSession compilation(options, workspace.root.string() + "/main.zithm");
     compilation.setBuffered(true);
     CHECK(compilation.runTo(session::Stage::Imported),
           "dependency usage fixture compiles through frontend import");
@@ -471,7 +471,7 @@ void test_doc_model_limits_dependency_symbols_to_used_ones() {
     const auto model      = cli::docs::buildDocModel(*snapshot, graph, cli::docs::DocsMode::Spec);
     const auto dependency = std::find_if(
         model.modules.begin(), model.modules.end(),
-        [](const cli::docs::DocModule &module) { return module.key.ends_with("/dep.zith"); });
+        [](const cli::docs::DocModule &module) { return module.key.ends_with("/dep.zithm"); });
     CHECK(dependency != model.modules.end(), "dependency is present in the reachable graph");
     if (dependency == model.modules.end())
         return;
@@ -485,12 +485,12 @@ void test_doc_model_limits_dependency_symbols_to_used_ones() {
 void test_doc_model_includes_dependency_types_used_in_signatures() {
     Workspace workspace;
     Workspace dependency_workspace;
-    workspace.write("main.zith", "from dep\n"
+    workspace.write("main.zithm", "from dep\n"
                                  "import dep as d\n"
                                  "pub fn entry(value: UsedType, items: []d.OtherUsedType): i32 {\n"
                                  "    return 0;\n"
                                  "}\n");
-    dependency_workspace.write("dep.zith", "pub struct UsedType { value: i32 }\n"
+    dependency_workspace.write("dep.zithm", "pub struct UsedType { value: i32 }\n"
                                            "pub struct OtherUsedType { value: i32 }\n"
                                            "pub struct UnusedType { value: i32 }\n");
 
@@ -499,7 +499,7 @@ void test_doc_model_includes_dependency_types_used_in_signatures() {
     options.targetStage = session::Stage::Imported;
     options.includeDirs.push(dependency_workspace.root.string());
 
-    session::CompilationSession compilation(options, workspace.root.string() + "/main.zith");
+    session::CompilationSession compilation(options, workspace.root.string() + "/main.zithm");
     compilation.setBuffered(true);
     CHECK(compilation.runTo(session::Stage::Imported),
           "dependency type-usage fixture compiles through frontend import");
@@ -512,7 +512,7 @@ void test_doc_model_includes_dependency_types_used_in_signatures() {
     const auto model      = cli::docs::buildDocModel(*snapshot, graph, cli::docs::DocsMode::Spec);
     const auto dependency = std::find_if(
         model.modules.begin(), model.modules.end(),
-        [](const cli::docs::DocModule &module) { return module.key.ends_with("/dep.zith"); });
+        [](const cli::docs::DocModule &module) { return module.key.ends_with("/dep.zithm"); });
     CHECK(dependency != model.modules.end(), "type dependency is present in the reachable graph");
     if (dependency == model.modules.end())
         return;
@@ -530,15 +530,15 @@ void test_doc_model_includes_dependency_types_used_in_signatures() {
 
 void test_doc_model_records_reexports_with_their_origin() {
     Workspace workspace;
-    workspace.write("main.zith", "export middle\n");
-    workspace.write("middle.zith", "export dep\n");
-    workspace.write("dep.zith", "pub fn reexported(): i32 { return 1; }\n");
+    workspace.write("main.zithm", "export middle\n");
+    workspace.write("middle.zithm", "export dep\n");
+    workspace.write("dep.zithm", "pub fn reexported(): i32 { return 1; }\n");
 
     memory::Arena arena;
     Options options(arena);
     options.targetStage = session::Stage::Imported;
 
-    session::CompilationSession compilation(options, workspace.root.string() + "/main.zith");
+    session::CompilationSession compilation(options, workspace.root.string() + "/main.zithm");
     compilation.setBuffered(true);
     CHECK(compilation.runTo(session::Stage::Imported),
           "reexport fixture compiles through frontend import");
@@ -561,13 +561,13 @@ void test_doc_model_records_reexports_with_their_origin() {
                                        });
     CHECK(reexport != entry->symbols.end(), "interface contains the reexported symbol");
     if (reexport != entry->symbols.end())
-        CHECK(reexport->originModule.ends_with("/dep.zith"),
+        CHECK(reexport->originModule.ends_with("/dep.zithm"),
               "reexport records the defining module as its origin");
 }
 
 void test_markdown_renderer_is_complete_and_deterministic() {
     cli::docs::DocModel model;
-    model.entryModule = "src/main.zith";
+    model.entryModule = "src/main.zithm";
 
     cli::docs::DocSymbol sum;
     sum.kind          = frontend::DeclKind::Function;
@@ -575,7 +575,7 @@ void test_markdown_renderer_is_complete_and_deterministic() {
     sum.name          = "sum";
     sum.signature     = "fn sum(left: i32, right: i32): i32";
     sum.documentation = "Sum two integers.";
-    sum.originModule  = "src/math.zith";
+    sum.originModule  = "src/math.zithm";
     sum.isReexport    = true;
 
     cli::docs::DocSymbol main;
@@ -584,7 +584,7 @@ void test_markdown_renderer_is_complete_and_deterministic() {
     main.name          = "main";
     main.signature     = "fn main(): i32";
     main.documentation = "Entry point.";
-    main.originModule  = "src/main.zith";
+    main.originModule  = "src/main.zithm";
 
     cli::docs::DocSymbol box;
     box.kind          = frontend::DeclKind::Struct;
@@ -592,45 +592,45 @@ void test_markdown_renderer_is_complete_and_deterministic() {
     box.name          = "Box";
     box.signature     = "Box<T>";
     box.documentation = "A value container.";
-    box.originModule  = "src/main.zith";
+    box.originModule  = "src/main.zithm";
     box.members.push_back(
         {"field", "value", "T", {}, "Stored value.", frontend::Visibility::Public});
 
     cli::docs::DocSymbol mathSum = sum;
     mathSum.isReexport           = false;
-    mathSum.originModule         = "src/math.zith";
+    mathSum.originModule         = "src/math.zithm";
 
     model.modules = {
-        {"src/math.zith", true, {mathSum}},
-        {"src/main.zith", false, {box, sum, main}},
+        {"src/math.zithm", true, {mathSum}},
+        {"src/main.zithm", false, {box, sum, main}},
     };
 
     const std::string expected = "# API Reference\n"
                                  "\n"
-                                 "Entry module: `src/main.zith`\n"
+                                 "Entry module: `src/main.zithm`\n"
                                  "\n"
                                  "## Reachable Modules\n"
                                  "\n"
-                                 "- `src/main.zith` (entry)\n"
-                                 "- `src/math.zith` (dependency)\n"
+                                 "- `src/main.zithm` (entry)\n"
+                                 "- `src/math.zithm` (dependency)\n"
                                  "\n"
                                  "## Modules\n"
                                  "\n"
-                                 "### `src/main.zith` (entry)\n"
+                                 "### `src/main.zithm` (entry)\n"
                                  "\n"
                                  "#### Functions\n"
                                  "\n"
                                  "##### `fn main(): i32`\n"
                                  "\n"
                                  "- Visibility: public\n"
-                                 "- Origin: local to `src/main.zith`\n"
+                                 "- Origin: local to `src/main.zithm`\n"
                                  "\n"
                                  "Entry point.\n"
                                  "\n"
                                  "##### `fn sum(left: i32, right: i32): i32`\n"
                                  "\n"
                                  "- Visibility: public\n"
-                                 "- Origin: re-exported from `src/math.zith`\n"
+                                 "- Origin: re-exported from `src/math.zithm`\n"
                                  "\n"
                                  "Sum two integers.\n"
                                  "\n"
@@ -639,7 +639,7 @@ void test_markdown_renderer_is_complete_and_deterministic() {
                                  "##### `Box<T>`\n"
                                  "\n"
                                  "- Visibility: public\n"
-                                 "- Origin: local to `src/main.zith`\n"
+                                 "- Origin: local to `src/main.zithm`\n"
                                  "\n"
                                  "A value container.\n"
                                  "\n"
@@ -649,14 +649,14 @@ void test_markdown_renderer_is_complete_and_deterministic() {
                                  "\n"
                                  "Stored value.\n"
                                  "\n"
-                                 "### `src/math.zith` (dependency)\n"
+                                 "### `src/math.zithm` (dependency)\n"
                                  "\n"
                                  "#### Functions\n"
                                  "\n"
                                  "##### `fn sum(left: i32, right: i32): i32`\n"
                                  "\n"
                                  "- Visibility: public\n"
-                                 "- Origin: local to `src/math.zith`\n"
+                                 "- Origin: local to `src/math.zithm`\n"
                                  "\n"
                                  "Sum two integers.\n";
 
@@ -672,17 +672,17 @@ void test_markdown_renderer_is_complete_and_deterministic() {
 void test_output_writer_resolves_default_destinations() {
     Workspace project;
     project.writeProjectManifest();
-    project.write("src/main.zith", "pub fn main() { }\n");
-    CHECK_EQ(cli::docs::resolveDocsOutputDirectory(project.root / "src/main.zith"),
+    project.write("src/main.zithm", "pub fn main() { }\n");
+    CHECK_EQ(cli::docs::resolveDocsOutputDirectory(project.root / "src/main.zithm"),
              project.root / "docs", "project input defaults to the project docs directory");
 
     Workspace isolated;
-    isolated.write("main.zith", "pub fn main() { }\n");
-    CHECK_EQ(cli::docs::resolveDocsOutputDirectory(isolated.root / "main.zith"),
+    isolated.write("main.zithm", "pub fn main() { }\n");
+    CHECK_EQ(cli::docs::resolveDocsOutputDirectory(isolated.root / "main.zithm"),
              isolated.root / "docs", "isolated input defaults to a sibling docs directory");
 
     const auto explicitPath = project.root / "generated";
-    CHECK_EQ(cli::docs::resolveDocsOutputDirectory(project.root / "src/main.zith", explicitPath),
+    CHECK_EQ(cli::docs::resolveDocsOutputDirectory(project.root / "src/main.zithm", explicitPath),
              explicitPath, "an explicit output path is used as the output directory");
 }
 
@@ -717,7 +717,7 @@ void test_output_writer_enforces_overwrite_policy() {
 void test_output_writer_index_preserves_unrelated_files_and_detects_collisions() {
     Workspace workspace;
     const auto outputDirectory = workspace.root / "generated";
-    const auto entryPage       = outputDirectory / "modules/module-src-main-zith.md";
+    const auto entryPage       = outputDirectory / "modules/module-src-main-zithm.md";
     fs::create_directories(entryPage.parent_path());
     const auto unrelatedPath = outputDirectory / "notes.txt";
     {
@@ -743,10 +743,10 @@ void test_output_writer_index_preserves_unrelated_files_and_detects_collisions()
     CHECK(result.ok, "force writes an index and one page per module");
     CHECK(fs::exists(outputDirectory / "README.md"), "index mode creates README.md");
     CHECK(fs::exists(entryPage), "index mode creates a safe entry-module page");
-    CHECK(fs::exists(outputDirectory / "modules/module-vendor-dep-zith.md"),
+    CHECK(fs::exists(outputDirectory / "modules/module-vendor-dep-zithm.md"),
           "index mode creates a safe dependency page");
     const auto readme = readText(outputDirectory / "README.md");
-    CHECK(readme.find("modules/module-src-main-zith.md") != std::string::npos,
+    CHECK(readme.find("modules/module-src-main-zithm.md") != std::string::npos,
           "README links to generated module pages");
     CHECK(readme.find("exposed") != std::string::npos, "README includes re-exported symbol links");
     CHECK(readme.find("## Errors") != std::string::npos,

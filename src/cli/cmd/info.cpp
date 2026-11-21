@@ -126,9 +126,9 @@ int help(FILE *dest) {
     std::fprintf(dest, "\n");
     p.section("EXAMPLES:");
     std::fprintf(dest, "    zithc build\n"
-                       "    zithc run main.zith -m release\n"
-                       "    zithc run main.zith         # build + execute\n"
-                       "    zithc execute main.zith     # execute a pre-compiled binary\n"
+                       "    zithc run main.zithm -m release\n"
+                       "    zithc run main.zithm         # build + execute\n"
+                       "    zithc execute main.zithm     # execute a pre-compiled binary\n"
                        "    zithc docs --spec --out\n"
                        "    zithc docs --index --out=docs/api\n");
     return 0;

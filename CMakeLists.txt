@@ -581,7 +581,7 @@ if(BUILD_TESTING AND NOT ZITH_IS_WASM)
             add_dependencies(test-stdlib-parity zithc)
             set_tests_properties(test-stdlib-parity PROPERTIES SKIP_RETURN_CODE 77)
 
-            # Language corpus: every `.zith` under tests/lang/ is run through
+            # Language corpus: every `.zithm` under tests/lang/ is run through
             # `zithc test`, so language-level regressions can be added as data
             # without a new C++ harness.
             add_zith_test(test-lang-corpus tests/test-lang-corpus.cpp)
@@ -608,7 +608,7 @@ endif()
 
 install(DIRECTORY stdlib/
     DESTINATION ${CMAKE_INSTALL_DATADIR}/zith/stdlib
-    FILES_MATCHING PATTERN "*.zith"
+    FILES_MATCHING PATTERN "*.zithm"
 )
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format clang-format-18 clang-format-17 clang-format-16)

@@ -49,7 +49,7 @@ struct GenericEnumUnionTest {
     };
 
     Result run(std::string_view input, session::Stage target = session::Stage::HirLowered) {
-        const auto path = root / "main.zith";
+        const auto path = root / "main.zithm";
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
         file << input;
         file.close();

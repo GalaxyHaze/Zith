@@ -38,7 +38,7 @@ struct Workspace {
 
 void test_default_session_uses_modern_pipeline() {
     Workspace workspace;
-    workspace.write("main.zith", "extern fn puts(msg: *char)\n"
+    workspace.write("main.zithm", "extern fn puts(msg: *char)\n"
                                  "fn main() {\n"
                                  "    puts(\"hello\");\n"
                                  "}\n");
@@ -47,7 +47,7 @@ void test_default_session_uses_modern_pipeline() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "session lowers through the modern frontend path by default");
@@ -58,8 +58,8 @@ void test_default_session_uses_modern_pipeline() {
 
 void test_shared_context_reuses_frontend_cache() {
     Workspace workspace;
-    workspace.write("dep.zith", "pub fn dep_fn(): i32 { 7 }\n");
-    workspace.write("main.zith", "from dep\n"
+    workspace.write("dep.zithm", "pub fn dep_fn(): i32 { 7 }\n");
+    workspace.write("main.zithm", "from dep\n"
                                  "fn main(): i32 {\n"
                                  "    dep_fn()\n"
                                  "}\n");
@@ -74,12 +74,12 @@ void test_shared_context_reuses_frontend_cache() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession first(options, (workspace.root / "main.zith").string(), context);
+    session::CompilationSession first(options, (workspace.root / "main.zithm").string(), context);
     first.setBuffered(true);
     CHECK(first.runTo(session::Stage::HirLowered), "first shared-context build succeeds");
     const auto first_hits = context->metrics().cache.hits;
 
-    session::CompilationSession second(options, (workspace.root / "main.zith").string(), context);
+    session::CompilationSession second(options, (workspace.root / "main.zithm").string(), context);
     second.setBuffered(true);
     CHECK(second.runTo(session::Stage::HirLowered), "second shared-context build succeeds");
     CHECK(context->metrics().cache.hits > first_hits,
@@ -88,7 +88,7 @@ void test_shared_context_reuses_frontend_cache() {
 
 void test_pipeline_error_surfaces_diagnostic() {
     Workspace workspace;
-    workspace.write("main.zith", "fn main(): bool {\n"
+    workspace.write("main.zithm", "fn main(): bool {\n"
                                  "    42\n"
                                  "}\n");
 
@@ -96,7 +96,7 @@ void test_pipeline_error_surfaces_diagnostic() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(!session.runTo(session::Stage::HirLowered),
           "modern pipeline fails when the body type does not match the declared return type");
@@ -106,7 +106,7 @@ void test_pipeline_error_surfaces_diagnostic() {
 
 void test_inferred_return_type_is_available_to_earlier_callers() {
     Workspace workspace;
-    workspace.write("main.zith", "fn main(): i32 {\n"
+    workspace.write("main.zithm", "fn main(): i32 {\n"
                                  "    add(20, 22)\n"
                                  "}\n"
                                  "fn add(a: i32, b: i32) {\n"
@@ -117,7 +117,7 @@ void test_inferred_return_type_is_available_to_earlier_callers() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "caller can use the inferred return type of a later declaration");
@@ -125,18 +125,18 @@ void test_inferred_return_type_is_available_to_earlier_callers() {
 
 void test_pipeline_discard_non_void_call_result() {
     Workspace workspace;
-    workspace.write("bad.zith", "fn make(): i32 { return 1; }\n"
+    workspace.write("bad.zithm", "fn make(): i32 { return 1; }\n"
                                 "fn main(): i32 {\n"
                                 "    make();\n"
                                 "    return 0;\n"
                                 "}\n");
-    workspace.write("good.zith", "fn make(): i32 { return 1; }\n"
+    workspace.write("good.zithm", "fn make(): i32 { return 1; }\n"
                                  "fn main(): i32 {\n"
                                  "    _ = make();\n"
                                  "    _ = make();\n"
                                  "    return 0;\n"
                                  "}\n");
-    workspace.write("assigned.zith", "fn make(): i32 { return 1; }\n"
+    workspace.write("assigned.zithm", "fn make(): i32 { return 1; }\n"
                                      "fn main(): i32 {\n"
                                      "    let value: i32 = make();\n"
                                      "    return value;\n"
@@ -146,7 +146,7 @@ void test_pipeline_discard_non_void_call_result() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession bad(options, (workspace.root / "bad.zith").string());
+    session::CompilationSession bad(options, (workspace.root / "bad.zithm").string());
     bad.setBuffered(true);
     CHECK(!bad.runTo(session::Stage::HirLowered),
           "non-void call expression statement fails sema");
@@ -159,12 +159,12 @@ void test_pipeline_discard_non_void_call_result() {
     CHECK(saw_discarded_result,
           "plain non-void call statement reports DiscardedResult");
 
-    session::CompilationSession good(options, (workspace.root / "good.zith").string());
+    session::CompilationSession good(options, (workspace.root / "good.zithm").string());
     good.setBuffered(true);
     CHECK(good.runTo(session::Stage::HirLowered),
           "explicit `_ = call();` discard lowers through the pipeline");
 
-    session::CompilationSession assigned(options, (workspace.root / "assigned.zith").string());
+    session::CompilationSession assigned(options, (workspace.root / "assigned.zithm").string());
     assigned.setBuffered(true);
     CHECK(assigned.runTo(session::Stage::HirLowered),
           "call result used in a binding initializer remains legal");
@@ -172,7 +172,7 @@ void test_pipeline_discard_non_void_call_result() {
 
 void test_pipeline_discardable_attribute_allows_call() {
     Workspace workspace;
-    workspace.write("main.zith", "#[discardable] fn make(): i32 { return 1; }\n"
+    workspace.write("main.zithm", "#[discardable] fn make(): i32 { return 1; }\n"
                                  "fn main(): i32 {\n"
                                  "    make();\n"
                                  "    return 0;\n"
@@ -182,7 +182,7 @@ void test_pipeline_discardable_attribute_allows_call() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "discardable call expression statement lowers through the pipeline");
@@ -192,7 +192,7 @@ void test_pipeline_discardable_attribute_allows_call() {
 
 void test_pipeline_unknown_attribute_warns_and_targets_are_checked() {
     Workspace workspace;
-    workspace.write("main.zith", "#[unknown] fn f(): i32 { return 1; }\n"
+    workspace.write("main.zithm", "#[unknown] fn f(): i32 { return 1; }\n"
                                  "#[discardable] struct Bad { value: i32 }\n"
                                  "fn main(): i32 { return f(); }\n");
 
@@ -200,7 +200,7 @@ void test_pipeline_unknown_attribute_warns_and_targets_are_checked() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "unknown and misplaced attributes are warnings, not hard failures");
@@ -220,7 +220,7 @@ void test_pipeline_unknown_attribute_warns_and_targets_are_checked() {
 
 void test_imported_console_void_main_discardable() {
     Workspace workspace;
-    workspace.write("main.zith", "from std/io/console\n"
+    workspace.write("main.zithm", "from std/io/console\n"
                                  "from soon/memory\n"
                                  "fn main() {\n"
                                  "    let heap = HeapAllocator {};\n"
@@ -240,7 +240,7 @@ void test_imported_console_void_main_discardable() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string(),
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string(),
                                         context);
     session.setBuffered(true);
     const bool lowered = session.runTo(session::Stage::HirLowered);
@@ -267,7 +267,7 @@ void test_imported_console_void_main_discardable() {
 
 void test_untyped_uninitialized_binding_is_rejected() {
     Workspace workspace;
-    workspace.write("bad.zith", "fn main() {\n"
+    workspace.write("bad.zithm", "fn main() {\n"
                                 "    let error;\n"
                                 "}\n");
 
@@ -275,7 +275,7 @@ void test_untyped_uninitialized_binding_is_rejected() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "bad.zith").string());
+    session::CompilationSession session(options, (workspace.root / "bad.zithm").string());
     session.setBuffered(true);
     CHECK(!session.runTo(session::Stage::HirLowered),
           "untyped uninitialized binding fails before HIR lowering");
@@ -290,7 +290,7 @@ void test_untyped_uninitialized_binding_is_rejected() {
 
 void test_typed_uninitialized_binding_with_later_assignment_lowers() {
     Workspace workspace;
-    workspace.write("main.zith", "struct Foo {\n"
+    workspace.write("main.zithm", "struct Foo {\n"
                                  "    x: i32\n"
                                  "}\n"
                                  "fn main() {\n"
@@ -302,7 +302,7 @@ void test_typed_uninitialized_binding_with_later_assignment_lowers() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "typed binding without an initializer lowers when assigned before use");
@@ -313,7 +313,7 @@ void test_typed_scalar_binding_first_assignment_with_explicit_return_lowers() {
     // return type, so it skips return-type inference. The first assignment to a
     // typed `let` must stay legal after the provisional probe pass.
     Workspace workspace;
-    workspace.write("main.zith", "fn main(): i32 {\n"
+    workspace.write("main.zithm", "fn main(): i32 {\n"
                                  "    let q: i32;\n"
                                  "    q = 42;\n"
                                  "    q\n"
@@ -323,7 +323,7 @@ void test_typed_scalar_binding_first_assignment_with_explicit_return_lowers() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "first assignment to a typed let is legal in a function with an explicit return type");
@@ -331,7 +331,7 @@ void test_typed_scalar_binding_first_assignment_with_explicit_return_lowers() {
 
 void test_typed_scalar_binding_second_assignment_is_rejected() {
     Workspace workspace;
-    workspace.write("bad.zith", "fn main(): i32 {\n"
+    workspace.write("bad.zithm", "fn main(): i32 {\n"
                                 "    let q: i32;\n"
                                 "    q = 42;\n"
                                 "    q = 43;\n"
@@ -342,7 +342,7 @@ void test_typed_scalar_binding_second_assignment_is_rejected() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "bad.zith").string());
+    session::CompilationSession session(options, (workspace.root / "bad.zithm").string());
     session.setBuffered(true);
     CHECK(!session.runTo(session::Stage::HirLowered),
           "second assignment to an immutable let is rejected");
@@ -360,7 +360,7 @@ void test_typed_scalar_binding_second_assignment_is_rejected() {
 
 void test_typed_uninitialized_unused_binding_lowers() {
     Workspace workspace;
-    workspace.write("main.zith", "struct Foo {\n"
+    workspace.write("main.zithm", "struct Foo {\n"
                                  "    x: i32\n"
                                  "}\n"
                                  "fn main() {\n"
@@ -371,7 +371,7 @@ void test_typed_uninitialized_unused_binding_lowers() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "typed binding without an initializer is legal when it is never read");
@@ -379,7 +379,7 @@ void test_typed_uninitialized_unused_binding_lowers() {
 
 void test_typed_uninitialized_binding_use_before_assignment_fails() {
     Workspace workspace;
-    workspace.write("bad.zith", "struct Foo {\n"
+    workspace.write("bad.zithm", "struct Foo {\n"
                                 "    x: i32\n"
                                 "}\n"
                                 "fn main() {\n"
@@ -391,7 +391,7 @@ void test_typed_uninitialized_binding_use_before_assignment_fails() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "bad.zith").string());
+    session::CompilationSession session(options, (workspace.root / "bad.zithm").string());
     session.setBuffered(true);
     CHECK(!session.runTo(session::Stage::HirLowered),
           "typed binding read before assignment fails sema");
@@ -407,7 +407,7 @@ void test_typed_uninitialized_binding_use_before_assignment_fails() {
 
 void test_inferred_return_type_from_value_tail() {
     Workspace workspace;
-    workspace.write("main.zith", "fn foo() {\n"
+    workspace.write("main.zithm", "fn foo() {\n"
                                  "    5\n"
                                  "}\n"
                                  "fn main(): i32 {\n"
@@ -418,7 +418,7 @@ void test_inferred_return_type_from_value_tail() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "value tail infers a non-void function return type");
@@ -426,7 +426,7 @@ void test_inferred_return_type_from_value_tail() {
 
 void test_inferred_return_type_ignores_terminated_assignment_tail() {
     Workspace workspace;
-    workspace.write("main.zith", "fn clear(var value: i32) {\n"
+    workspace.write("main.zithm", "fn clear(var value: i32) {\n"
                                  "    value = 0;\n"
                                  "}\n"
                                  "fn main(): i32 {\n"
@@ -438,7 +438,7 @@ void test_inferred_return_type_ignores_terminated_assignment_tail() {
     Options options(arena);
     options.targetStage = session::Stage::TypeChecked;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::TypeChecked),
           "a semicolon-terminated assignment tail infers void");
@@ -446,7 +446,7 @@ void test_inferred_return_type_ignores_terminated_assignment_tail() {
 
 void test_inferred_return_type_from_explicit_returns() {
     Workspace workspace;
-    workspace.write("main.zith", "fn choose(flag: bool) {\n"
+    workspace.write("main.zithm", "fn choose(flag: bool) {\n"
                                  "    if (flag) { return 17; }\n"
                                  "    return 23;\n"
                                  "}\n"
@@ -458,7 +458,7 @@ void test_inferred_return_type_from_explicit_returns() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "return statements infer a type used by callers");
@@ -466,7 +466,7 @@ void test_inferred_return_type_from_explicit_returns() {
 
 void test_inferred_return_type_rejects_direct_recursion() {
     Workspace workspace;
-    workspace.write("bad.zith", "fn recurse(n: i32) {\n"
+    workspace.write("bad.zithm", "fn recurse(n: i32) {\n"
                                 "    if (n == 0) { return 0; }\n"
                                 "    recurse(n - 1)\n"
                                 "}\n"
@@ -476,7 +476,7 @@ void test_inferred_return_type_rejects_direct_recursion() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "bad.zith").string());
+    session::CompilationSession session(options, (workspace.root / "bad.zithm").string());
     session.setBuffered(true);
     CHECK(!session.runTo(session::Stage::HirLowered),
           "direct recursion requires an explicit return type");
@@ -493,7 +493,7 @@ void test_inferred_return_type_rejects_direct_recursion() {
 
 void test_inferred_return_type_rejects_method_recursion() {
     Workspace workspace;
-    workspace.write("bad.zith", "struct Counter { value: i32 }\n"
+    workspace.write("bad.zithm", "struct Counter { value: i32 }\n"
                                 "implement Counter {\n"
                                 "    fn recurse(self) { self.recurse() }\n"
                                 "}\n"
@@ -507,7 +507,7 @@ void test_inferred_return_type_rejects_method_recursion() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "bad.zith").string());
+    session::CompilationSession session(options, (workspace.root / "bad.zithm").string());
     session.setBuffered(true);
     CHECK(!session.runTo(session::Stage::HirLowered),
           "method recursion requires an explicit return type");
@@ -524,7 +524,7 @@ void test_inferred_return_type_rejects_method_recursion() {
 
 void test_inferred_return_type_rejects_indirect_recursion() {
     Workspace workspace;
-    workspace.write("bad.zith", "fn first(n: i32) {\n"
+    workspace.write("bad.zithm", "fn first(n: i32) {\n"
                                 "    if (n == 0) { return 0; }\n"
                                 "    second(n - 1)\n"
                                 "}\n"
@@ -535,7 +535,7 @@ void test_inferred_return_type_rejects_indirect_recursion() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "bad.zith").string());
+    session::CompilationSession session(options, (workspace.root / "bad.zithm").string());
     session.setBuffered(true);
     CHECK(!session.runTo(session::Stage::HirLowered),
           "indirect recursion requires explicit return types");
@@ -552,7 +552,7 @@ void test_inferred_return_type_rejects_indirect_recursion() {
 
 void test_inferred_return_type_rejects_incompatible_returns() {
     Workspace workspace;
-    workspace.write("bad.zith", "fn choose(flag: bool) {\n"
+    workspace.write("bad.zithm", "fn choose(flag: bool) {\n"
                                 "    if (flag) { return 1; }\n"
                                 "    return true;\n"
                                 "}\n"
@@ -562,7 +562,7 @@ void test_inferred_return_type_rejects_incompatible_returns() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "bad.zith").string());
+    session::CompilationSession session(options, (workspace.root / "bad.zithm").string());
     session.setBuffered(true);
     CHECK(!session.runTo(session::Stage::HirLowered),
           "incompatible explicit returns fail inferred return analysis");
@@ -579,8 +579,8 @@ void test_inferred_return_type_rejects_incompatible_returns() {
 
 void test_pipeline_multifile_module_dependency() {
     Workspace workspace;
-    workspace.write("math.zith", "pub fn add(a: i32, b: i32): i32 { a + b }\n");
-    workspace.write("main.zith", "from math\n"
+    workspace.write("math.zithm", "pub fn add(a: i32, b: i32): i32 { a + b }\n");
+    workspace.write("main.zithm", "from math\n"
                                  "fn main(): i32 {\n"
                                  "    var x: i32 = add(3, 4);\n"
                                  "    x\n"
@@ -590,7 +590,7 @@ void test_pipeline_multifile_module_dependency() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "modern pipeline lowers a multi-file module graph");
@@ -600,17 +600,17 @@ void test_pipeline_multifile_module_dependency() {
 
 void test_pipeline_export_platform_import() {
     Workspace workspace;
-    workspace.write("entry.zith", "export platform\n");
-    workspace.write("main.zith", "from entry\n"
+    workspace.write("entry.zithm", "export platform\n");
+    workspace.write("main.zithm", "from entry\n"
                                  "fn main(): i32 { platform.platform_value() }\n");
-    workspace.write("platform.x86_64.linux.zith", "pub fn platform_value(): i32 { 7 }\n");
+    workspace.write("platform.x86_64.linux.zithm", "pub fn platform_value(): i32 { 7 }\n");
 
     memory::Arena arena;
     Options options(arena);
     options.targetStage  = session::Stage::HirLowered;
     options.targetTriple = "x86_64-unknown-linux-gnu";
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "modern pipeline re-exports the target-specific platform module");
@@ -623,7 +623,7 @@ void test_pipeline_export_platform_import() {
             for (const auto &target : edge.targets)
                 saw_platform_variant |=
                     target == session::SourceCatalog::canonicalPath(
-                                  (workspace.root / "platform.x86_64.linux.zith").string());
+                                  (workspace.root / "platform.x86_64.linux.zithm").string());
         }
     }
     CHECK(saw_platform_variant, "export edge points at the resolved platform-specific module");
@@ -631,18 +631,18 @@ void test_pipeline_export_platform_import() {
 
 void test_pipeline_export_shared_prefix() {
     Workspace workspace;
-    workspace.write("lib/one.zith", "pub fn one(): i32 { return 1; }\n");
-    workspace.write("lib/two.zith", "pub fn two(): i32 { return 2; }\n");
-    workspace.write("facade.zith", "export lib/one\n"
+    workspace.write("lib/one.zithm", "pub fn one(): i32 { return 1; }\n");
+    workspace.write("lib/two.zithm", "pub fn two(): i32 { return 2; }\n");
+    workspace.write("facade.zithm", "export lib/one\n"
                                    "export lib/two\n");
-    workspace.write("main.zith", "from facade\n"
+    workspace.write("main.zithm", "from facade\n"
                                  "fn main(): i32 { one() + two() }\n");
 
     memory::Arena arena;
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "facade exports both modules that share a namespace prefix");
@@ -650,7 +650,7 @@ void test_pipeline_export_shared_prefix() {
 
 void test_pipeline_while_loop_lowers() {
     Workspace workspace;
-    workspace.write("main.zith", "fn main(): i32 {\n"
+    workspace.write("main.zithm", "fn main(): i32 {\n"
                                  "    var i: i32 = 0;\n"
                                  "    while (i < 10) {\n"
                                  "        i = i + 1;\n"
@@ -662,7 +662,7 @@ void test_pipeline_while_loop_lowers() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "modern pipeline lowers a while loop without errors");
@@ -670,7 +670,7 @@ void test_pipeline_while_loop_lowers() {
 
 void test_pipeline_if_else_lowers() {
     Workspace workspace;
-    workspace.write("main.zith", "fn pick(n: i32): i32 {\n"
+    workspace.write("main.zithm", "fn pick(n: i32): i32 {\n"
                                  "    if (n > 0) {\n"
                                  "        1\n"
                                  "    } else {\n"
@@ -682,7 +682,7 @@ void test_pipeline_if_else_lowers() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "modern pipeline lowers if/else with no errors");
@@ -702,14 +702,14 @@ const hir::HirFunction *findHirFunction(session::CompilationSession &session,
 void test_c_header_import_lowers_external_function() {
     Workspace workspace;
     workspace.write("fixture.h", "int c_add(int left, int right);\n");
-    workspace.write("main.zith", "import \"fixture.h\"\n"
+    workspace.write("main.zithm", "import \"fixture.h\"\n"
                                  "fn main(): i32 { c_add(20, 22) }\n");
 
     memory::Arena arena;
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     const bool ok = session.runTo(session::Stage::HirLowered);
 
@@ -741,7 +741,7 @@ void test_c_header_import_lowers_macro_constants() {
                                  "#define YES true\n"
                                  "#define LETTER 'A'\n"
                                  "int next(int value);\n");
-    workspace.write("main.zith", "import \"fixture.h\"\n"
+    workspace.write("main.zithm", "import \"fixture.h\"\n"
                                  "fn main(): i32 {\n"
                                  "    let answer: i32 = ANSWER;\n"
                                  "    let ratio: f64 = RATIO;\n"
@@ -754,7 +754,7 @@ void test_c_header_import_lowers_macro_constants() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     const bool ok = session.runTo(session::Stage::HirLowered);
 
@@ -795,7 +795,7 @@ void test_c_header_globals_bind_and_lower_to_external_addresses() {
                                  "extern const int *pointee_const;\n"
                                  "extern int *const object_const;\n"
                                  "extern const int immutable_value;\n");
-    workspace.write("main.zith", "import \"fixture.h\"\n"
+    workspace.write("main.zithm", "import \"fixture.h\"\n"
                                  "extern var manual: i32 = extern c_manual;\n"
                                  "fn accepts_file(file: *FILE) {}\n"
                                  "fn main(): i32 {\n"
@@ -809,7 +809,7 @@ void test_c_header_globals_bind_and_lower_to_external_addresses() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     const bool ok = session.runTo(session::Stage::HirLowered);
     std::string message = "C globals, aliases, and reachable typedefs lower through HIR";
@@ -851,11 +851,11 @@ void test_c_header_globals_bind_and_lower_to_external_addresses() {
     CHECK(saw_address, "referenced external globals lower to addressable HIR");
     CHECK(saw_read, "external global reads lower through an address and load");
 
-    workspace.write("bad.zith", "import \"fixture.h\"\n"
+    workspace.write("bad.zithm", "import \"fixture.h\"\n"
                                 "fn main() {\n"
                                 "    immutable_value = 1;\n"
                                 "}\n");
-    session::CompilationSession immutable(options, (workspace.root / "bad.zith").string());
+    session::CompilationSession immutable(options, (workspace.root / "bad.zithm").string());
     immutable.setBuffered(true);
     CHECK(!immutable.runTo(session::Stage::HirLowered),
           "assignment to an imported const C global is rejected");
@@ -865,22 +865,22 @@ void test_c_header_globals_bind_and_lower_to_external_addresses() {
             found_const_error || diagnostic.message.find("const C global") != std::string::npos;
     CHECK(found_const_error, "const global diagnostic identifies the immutable C object");
 
-    workspace.write("bad-pointer.zith", "import \"fixture.h\"\n"
+    workspace.write("bad-pointer.zithm", "import \"fixture.h\"\n"
                                         "fn main() {\n"
                                         "    object_const = null;\n"
                                         "}\n");
     session::CompilationSession const_pointer(options,
-                                               (workspace.root / "bad-pointer.zith").string());
+                                               (workspace.root / "bad-pointer.zithm").string());
     const_pointer.setBuffered(true);
     CHECK(!const_pointer.runTo(session::Stage::HirLowered),
           "top-level const pointer object is immutable");
 
-    workspace.write("mutable-pointer.zith", "import \"fixture.h\"\n"
+    workspace.write("mutable-pointer.zithm", "import \"fixture.h\"\n"
                                             "fn main() {\n"
                                             "    pointee_const = pointee_const;\n"
                                             "}\n");
     session::CompilationSession mutable_pointer(
-        options, (workspace.root / "mutable-pointer.zith").string());
+        options, (workspace.root / "mutable-pointer.zithm").string());
     mutable_pointer.setBuffered(true);
     CHECK(mutable_pointer.runTo(session::Stage::HirLowered),
           "const pointee qualification does not make the pointer object immutable");
@@ -895,7 +895,7 @@ void test_external_const_declaration_needs_no_initializer() {
     // requires a constant initializer. Regression for the sema check that
     // rejected the documented form.
     Workspace workspace;
-    workspace.write("main.zith", "extern const rate: f64;\n"
+    workspace.write("main.zithm", "extern const rate: f64;\n"
                                  "extern var counter: i32;\n"
                                  "fn read_rate(): f64 { return rate; }\n"
                                  "fn bump(): i32 { counter = counter + 1; return counter; }\n"
@@ -905,7 +905,7 @@ void test_external_const_declaration_needs_no_initializer() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     const bool ok = session.runTo(session::Stage::HirLowered);
     if (!ok) {
@@ -920,7 +920,7 @@ void test_external_const_declaration_needs_no_initializer() {
 void test_c_header_constant_duplicate_diagnostic() {
     Workspace workspace;
     workspace.write("fixture.h", "#define ANSWER 42\n");
-    workspace.write("main.zith", "import \"fixture.h\"\n"
+    workspace.write("main.zithm", "import \"fixture.h\"\n"
                                  "fn ANSWER(): i32 { 1 }\n"
                                  "fn main(): i32 { ANSWER() }\n");
 
@@ -928,7 +928,7 @@ void test_c_header_constant_duplicate_diagnostic() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     (void)session.runTo(session::Stage::HirLowered);
 #ifdef ZITH_ENABLE_C_INTEROP
@@ -951,7 +951,7 @@ void test_c_header_constant_duplicate_diagnostic() {
 void test_c_header_constant_let_duplicate_diagnostic() {
     Workspace workspace;
     workspace.write("fixture.h", "#define JOINED 1\n");
-    workspace.write("main.zith", "import \"fixture.h\"\n"
+    workspace.write("main.zithm", "import \"fixture.h\"\n"
                                  "const JOINED: i32 = 2;\n"
                                  "fn main(): i32 { JOINED }\n");
 
@@ -959,7 +959,7 @@ void test_c_header_constant_let_duplicate_diagnostic() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     (void)session.runTo(session::Stage::HirLowered);
 #ifdef ZITH_ENABLE_C_INTEROP
@@ -981,7 +981,7 @@ void test_c_header_constant_let_duplicate_diagnostic() {
 
 void test_pipeline_macro_expansion_lowers() {
     Workspace workspace;
-    workspace.write("main.zith", "macro twice(v: expr) { v + v }\n"
+    workspace.write("main.zithm", "macro twice(v: expr) { v + v }\n"
                                  "macro mk(v: expr) { let inner = v; inner }\n"
                                  "fn add_one(n: i32): i32 { n + 1 }\n"
                                  "macro call1(x: expr) { add_one(x) }\n"
@@ -997,7 +997,7 @@ void test_pipeline_macro_expansion_lowers() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "macro expansion survives sema and lowers to HIR");
@@ -1009,7 +1009,7 @@ void test_pipeline_macro_expansion_lowers() {
 
 void test_pipeline_raw_macro_lowers() {
     Workspace workspace;
-    workspace.write("main.zith", "raw macro swap(a: identifier, b: identifier) {\n"
+    workspace.write("main.zithm", "raw macro swap(a: identifier, b: identifier) {\n"
                                  "    let tmp = a;\n"
                                  "    a = b;\n"
                                  "    b = tmp;\n"
@@ -1025,7 +1025,7 @@ void test_pipeline_raw_macro_lowers() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "raw macro statements splice and lower through the modern pipeline");
@@ -1035,7 +1035,7 @@ void test_pipeline_raw_macro_lowers() {
 
 void test_pipeline_normal_macro_hygiene_and_call_site_scope() {
     Workspace workspace;
-    workspace.write("main.zith", "const base: i32 = 100;\n"
+    workspace.write("main.zithm", "const base: i32 = 100;\n"
                                  "const inner: i32 = 9;\n"
                                  "macro norm() { base }\n"
                                  "macro inject() { let inner = 99; inner }\n"
@@ -1050,7 +1050,7 @@ void test_pipeline_normal_macro_hygiene_and_call_site_scope() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "normal macro resolution prefers call-site scope and keeps bindings hygienic");
@@ -1060,7 +1060,7 @@ void test_pipeline_normal_macro_hygiene_and_call_site_scope() {
 
 void test_pipeline_raw_macro_sees_call_site_then_module() {
     Workspace workspace;
-    workspace.write("main.zith", "const base: i32 = 10;\n"
+    workspace.write("main.zithm", "const base: i32 = 10;\n"
                                  "raw macro pick_raw() { target = base }\n"
                                  "raw macro inject() { let inner = 99; inner }\n"
                                  "fn main(): i32 {\n"
@@ -1075,7 +1075,7 @@ void test_pipeline_raw_macro_sees_call_site_then_module() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "raw macro body resolves from its splice scope and can see the module fallback");
@@ -1085,7 +1085,7 @@ void test_pipeline_raw_macro_sees_call_site_then_module() {
 
 void test_pipeline_tag_macro_is_rejected() {
     Workspace workspace;
-    workspace.write("main.zith", "tag macro RunTwice(attributes, body: body) {\n"
+    workspace.write("main.zithm", "tag macro RunTwice(attributes, body: body) {\n"
                                  "    let title = attributes.title;\n"
                                  "    body;\n"
                                  "    body;\n"
@@ -1102,7 +1102,7 @@ void test_pipeline_tag_macro_is_rejected() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(!session.runTo(session::Stage::HirLowered),
           "tag macros are rejected in the Zith-- pipeline");
@@ -1112,13 +1112,13 @@ void test_pipeline_tag_macro_is_rejected() {
 
 void test_pipeline_imported_state_machine_lowers() {
     Workspace workspace;
-    workspace.write("helper.zith", "pub state target(v: i32): i32 {\n"
+    workspace.write("helper.zithm", "pub state target(v: i32): i32 {\n"
                                    "    if (v < 1) {\n"
                                    "        jump target(v + 1);\n"
                                    "    }\n"
                                    "    return v;\n"
                                    "}\n");
-    workspace.write("main.zith", "from helper\n"
+    workspace.write("main.zithm", "from helper\n"
                                  "fn main(): i32 {\n"
                                  "    return dock target(0);\n"
                                  "}\n");
@@ -1127,7 +1127,7 @@ void test_pipeline_imported_state_machine_lowers() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     const bool lowered_ok = session.runTo(session::Stage::HirLowered);
     CHECK(lowered_ok, "imported state machine lowers through the modern pipeline");
@@ -1137,11 +1137,11 @@ void test_pipeline_imported_state_machine_lowers() {
 
 void test_modern_imported_static_method_hir() {
     Workspace workspace;
-    workspace.write("lib.zith", "pub struct Box { pub value: i32 }\n"
+    workspace.write("lib.zithm", "pub struct Box { pub value: i32 }\n"
                                 "implement Box {\n"
                                 "    fn make(v: i32): Box { Box { value: v } }\n"
                                 "}\n");
-    workspace.write("main.zith", "from lib\n"
+    workspace.write("main.zithm", "from lib\n"
                                  "fn main(): i32 {\n"
                                  "    let b = Box.make(42);\n"
                                  "    b.value\n"
@@ -1151,7 +1151,7 @@ void test_modern_imported_static_method_hir() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "imported static method lowers through the modern pipeline");
@@ -1160,11 +1160,11 @@ void test_modern_imported_static_method_hir() {
 
 void test_modern_imported_receiver_method_hir() {
     Workspace workspace;
-    workspace.write("lib.zith", "pub struct Counter { pub value: i32 }\n"
+    workspace.write("lib.zithm", "pub struct Counter { pub value: i32 }\n"
                                 "implement Counter {\n"
                                 "    fn get(self: view Counter): i32 { self.value }\n"
                                 "}\n");
-    workspace.write("main.zith", "from lib\n"
+    workspace.write("main.zithm", "from lib\n"
                                  "fn main(): i32 {\n"
                                  "    let c = Counter { value: 42 };\n"
                                  "    c.get()\n"
@@ -1174,7 +1174,7 @@ void test_modern_imported_receiver_method_hir() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "imported receiver method lowers through the modern pipeline");
@@ -1184,12 +1184,12 @@ void test_modern_imported_receiver_method_hir() {
 
 void test_modern_imported_external_symbol_method_hir() {
     Workspace workspace;
-    workspace.write("video.zith",
+    workspace.write("video.zithm",
                     "pub struct Window {}\n"
                     "implement Window {\n"
                     "    pub fn destroy(self: lend Window): void = extern SDL_DestroyWindow;\n"
                     "}\n");
-    workspace.write("main.zith", "from video\n"
+    workspace.write("main.zithm", "from video\n"
                                  "fn main(): i32 {\n"
                                  "    var w: Window = Window {};\n"
                                  "    w.destroy();\n"
@@ -1200,7 +1200,7 @@ void test_modern_imported_external_symbol_method_hir() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "imported external symbol method lowers to HIR");
@@ -1222,11 +1222,11 @@ void test_modern_imported_external_symbol_method_hir() {
 
 void test_modern_imported_method_struct_literal_body_hir() {
     Workspace workspace;
-    workspace.write("lib.zith", "pub struct Box { pub value: i32 }\n"
+    workspace.write("lib.zithm", "pub struct Box { pub value: i32 }\n"
                                 "implement Box {\n"
                                 "    fn make(v: i32): Box { Box { value: v } }\n"
                                 "}\n");
-    workspace.write("main.zith", "from lib\n"
+    workspace.write("main.zithm", "from lib\n"
                                  "fn main(): i32 {\n"
                                  "    let b = Box.make(42);\n"
                                  "    b.value\n"
@@ -1236,7 +1236,7 @@ void test_modern_imported_method_struct_literal_body_hir() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "imported method body with a struct literal lowers through the modern pipeline");
@@ -1246,11 +1246,11 @@ void test_modern_imported_method_struct_literal_body_hir() {
 
 void test_modern_optional_method_narrowing_hir() {
     Workspace workspace;
-    workspace.write("lib.zith", "pub struct Box { pub value: i32 }\n"
+    workspace.write("lib.zithm", "pub struct Box { pub value: i32 }\n"
                                 "implement Box {\n"
                                 "    fn get(self: view Box): i32 { self.value }\n"
                                 "}\n");
-    workspace.write("main.zith", "from lib\n"
+    workspace.write("main.zithm", "from lib\n"
                                  "fn main(): i32 {\n"
                                  "    var b: ?Box = null;\n"
                                  "    if (b is null) { return 1; }\n"
@@ -1261,7 +1261,7 @@ void test_modern_optional_method_narrowing_hir() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "optional method after 'is null' lowers through the modern pipeline");
@@ -1293,11 +1293,11 @@ void test_modern_optional_method_narrowing_hir() {
 
 void test_modern_optional_method_not_is_null_narrowing_hir() {
     Workspace workspace;
-    workspace.write("lib.zith", "pub struct Box { pub value: i32 }\n"
+    workspace.write("lib.zithm", "pub struct Box { pub value: i32 }\n"
                                 "implement Box {\n"
                                 "    fn get(self: view Box): i32 { self.value }\n"
                                 "}\n");
-    workspace.write("main.zith", "from lib\n"
+    workspace.write("main.zithm", "from lib\n"
                                  "fn main(): i32 {\n"
                                  "    var b: ?Box = null;\n"
                                  "    if not (b is null) { return b.get(); }\n"
@@ -1308,7 +1308,7 @@ void test_modern_optional_method_not_is_null_narrowing_hir() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "optional method after 'not (is null)' lowers through the modern pipeline");
@@ -1340,12 +1340,12 @@ void test_modern_optional_method_not_is_null_narrowing_hir() {
 
 void test_modern_optional_pointer_external_method_hir() {
     Workspace workspace;
-    workspace.write("video.zith",
+    workspace.write("video.zithm",
                     "pub struct Window {}\n"
                     "implement Window {\n"
                     "    pub fn destroy(self: lend Window): void = extern SDL_DestroyWindow;\n"
                     "}\n");
-    workspace.write("main.zith", "from video\n"
+    workspace.write("main.zithm", "from video\n"
                                  "fn main(): i32 {\n"
                                  "    var window: ?*Window = null;\n"
                                  "    if (window is null) { return 1; }\n"
@@ -1357,7 +1357,7 @@ void test_modern_optional_pointer_external_method_hir() {
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "optional pointer receiver external method lowers through the modern pipeline");
@@ -1393,16 +1393,16 @@ void test_modern_optional_pointer_external_method_hir() {
 
 void test_pipeline_imported_macro_lowers() {
     Workspace workspace;
-    workspace.write("helper.zith", "pub macro twice(v: expr) { v + v }\n"
+    workspace.write("helper.zithm", "pub macro twice(v: expr) { v + v }\n"
                                    "pub macro qualify(v: expr) { v }\n");
-    workspace.write("main.zith", "from helper\n"
+    workspace.write("main.zithm", "from helper\n"
                                  "fn main(): i32 { @twice(21) }\n");
 
     memory::Arena arena;
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "imported public macros expand and lower through the modern pipeline");
@@ -1412,14 +1412,14 @@ void test_pipeline_imported_macro_lowers() {
 
 void test_imported_macro_unknown_without_import() {
     Workspace workspace;
-    workspace.write("helper.zith", "pub macro twice(v: expr) { v + v }\n");
-    workspace.write("main.zith", "fn main(): i32 { @twice(21) }\n");
+    workspace.write("helper.zithm", "pub macro twice(v: expr) { v + v }\n");
+    workspace.write("main.zithm", "fn main(): i32 { @twice(21) }\n");
 
     memory::Arena arena;
     Options options(arena);
     options.targetStage = session::Stage::Imported;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     (void)session.runTo(session::Stage::Imported);
     CHECK(session.snapshot() != nullptr, "macro-unknown snapshot still materializes");
@@ -1435,15 +1435,15 @@ void test_imported_macro_unknown_without_import() {
 
 void test_imported_macro_selector_alias() {
     Workspace workspace;
-    workspace.write("helper.zith", "pub macro twice(v: expr) { v + v }\n");
-    workspace.write("main.zith", "from helper { twice as double }\n"
+    workspace.write("helper.zithm", "pub macro twice(v: expr) { v + v }\n");
+    workspace.write("main.zithm", "from helper { twice as double }\n"
                                  "fn main(): i32 { @double(10) }\n");
 
     memory::Arena arena;
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "selective imported macro alias expands and lowers");
@@ -1453,15 +1453,15 @@ void test_imported_macro_selector_alias() {
 
 void test_imported_macro_namespace_alias() {
     Workspace workspace;
-    workspace.write("helper.zith", "pub macro twice(v: expr) { v + v }\n");
-    workspace.write("main.zith", "import helper as h\n"
+    workspace.write("helper.zithm", "pub macro twice(v: expr) { v + v }\n");
+    workspace.write("main.zithm", "import helper as h\n"
                                  "fn main(): i32 { @h.twice(10) }\n");
 
     memory::Arena arena;
     Options options(arena);
     options.targetStage = session::Stage::HirLowered;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "imported macro under namespace alias expands and lowers");
@@ -1471,8 +1471,8 @@ void test_imported_macro_namespace_alias() {
 
 void test_imported_macro_duplicate_diagnostic() {
     Workspace workspace;
-    workspace.write("helper.zith", "pub macro twice(v: expr) { v + v }\n");
-    workspace.write("main.zith", "from helper { twice }\n"
+    workspace.write("helper.zithm", "pub macro twice(v: expr) { v + v }\n");
+    workspace.write("main.zithm", "from helper { twice }\n"
                                  "macro twice(v: expr) { v }\n"
                                  "fn main(): i32 { @twice(1) }\n");
 
@@ -1480,7 +1480,7 @@ void test_imported_macro_duplicate_diagnostic() {
     Options options(arena);
     options.targetStage = session::Stage::Imported;
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     (void)session.runTo(session::Stage::Imported);
     CHECK(session.snapshot() != nullptr, "duplicate-macro snapshot materializes");

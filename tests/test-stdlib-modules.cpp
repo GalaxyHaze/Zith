@@ -4,7 +4,7 @@
 // existing test compiled each module in isolation, so syntax and semantic
 // regressions (missing `return expr;` terminators, `mod(N)` on a top-level
 // function, nullable-to-non-nullable field writes) could sit undetected. This
-// test walks `stdlib/**.zith` and runs the real frontend/sema pipeline to the
+// test walks `stdlib/**.zithm` and runs the real frontend/sema pipeline to the
 // type-checked stage, failing on the first module that reports an error.
 
 #include "diagnostics/error-codes.hpp"
@@ -37,7 +37,7 @@ std::vector<fs::path> stdlibModules(const fs::path &root) {
     for (const auto &entry : fs::recursive_directory_iterator(root)) {
         if (!entry.is_regular_file())
             continue;
-        if (entry.path().extension() != ".zith")
+        if (entry.path().extension() != ".zithm")
             continue;
         modules.push_back(entry.path());
     }
@@ -82,7 +82,7 @@ CheckResult checkModule(const fs::path &module, const std::string &stdlibDir) {
 void test_all_stdlib_modules_type_check() {
     const fs::path root{ZITH_STDLIB_DIR};
     const auto modules = stdlibModules(root);
-    CHECK(!modules.empty(), "the stdlib tree contains .zith modules");
+    CHECK(!modules.empty(), "the stdlib tree contains .zithm modules");
 
     for (const auto &module : modules) {
         const auto relative = fs::relative(module, root).generic_string();

@@ -8,8 +8,8 @@ category of each token is visible.
 
 Usage:
     python3 scripts/zith-ascii.py --string 'fn main() { printf("hi"); }'
-    python3 scripts/zith-ascii.py examples/hello-world.zith
-    cat examples/arrays.zith | python3 scripts/zith-ascii.py
+    python3 scripts/zith-ascii.py examples/hello-world.zithm
+    cat examples/arrays.zithm | python3 scripts/zith-ascii.py
 """
 
 from __future__ import annotations

@@ -12,7 +12,7 @@ every intermediate namespace segment, not only the first deduplicated root.
 - Worktree: {REPO}/.awt/{AGENT} (branch awt/{AGENT}).
 - Follow `docs/implementation-debt.md` section 11 and
   `docs/impl-status.md` under `Import resolution` and `Known Debt`.
-- `stdlib/std/memory.zith` re-exports `in-place`, `allocator`, `heap`, and `new`
+- `stdlib/std/memory.zithm` re-exports `in-place`, `allocator`, `heap`, and `new`
   from `from std/memory`.
 - Current behavior keeps one `ResolutionKind::ModuleAlias` per root prefix,
   e.g. `std`, when multiple exports share it. The requested future action is
@@ -46,7 +46,7 @@ Owned files for implementation:
   `tests/test-interface-satisfaction.cpp`, or an existing CTest that can host a
   temporary-workdir fixture; do not add new executables unless unavoidable.
 - Stdlib only where the missing alias prevents a covered path:
-  `stdlib/std/memory.zith` when the fix proves the alembic is incomplete.
+  `stdlib/std/memory.zithm` when the fix proves the alembic is incomplete.
 - Docs/memory: `docs/implementation-debt.md`, `docs/impl-status.md`,
   `memory/stdlib-allocator-ownership.md` if it records the facade behavior.
   Edit only the section/line for this item in each shared file.

@@ -770,13 +770,13 @@ jobs:
           }
 
           $installer = Join-Path $env:GITHUB_WORKSPACE 'scripts/install.ps1'
-          $source = Join-Path $env:GITHUB_WORKSPACE 'examples/loops-simple.zith'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'examples/loops-simple.zithm'
 
           $versionedRoot = Join-Path $env:RUNNER_TEMP 'zith-versioned'
           $env:ZITH_INSTALL_ROOT = $versionedRoot
           & $installer -Version $expectedTag
           $versionedCompiler = Join-Path $versionedRoot 'bin/zithc.exe'
-          $versionedStdlib = Join-Path $versionedRoot 'share/zith/stdlib/std/io/console.zith'
+          $versionedStdlib = Join-Path $versionedRoot 'share/zith/stdlib/std/io/console.zithm'
           if (-not (Test-Path $versionedCompiler) -or -not (Test-Path $versionedStdlib)) {
             throw 'The versioned installer did not install the compiler and stdlib'
           }
@@ -789,7 +789,7 @@ jobs:
           $env:ZITH_INSTALL_ROOT = $latestRoot
           & $installer
           $latestCompiler = Join-Path $latestRoot 'bin/zithc.exe'
-          $latestStdlib = Join-Path $latestRoot 'share/zith/stdlib/std/io/console.zith'
+          $latestStdlib = Join-Path $latestRoot 'share/zith/stdlib/std/io/console.zithm'
           if (-not (Test-Path $latestCompiler) -or -not (Test-Path $latestStdlib)) {
             throw 'The latest installer did not install the compiler and stdlib'
           }
@@ -956,7 +956,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) {
               throw "Scoop-installed compiler failed to start"
             }
-            zithc check examples\loops-simple.zith
+            zithc check examples\loops-simple.zithm
             if ($LASTEXITCODE -ne 0) {
               throw "Scoop-installed compiler failed the language smoke test"
             }

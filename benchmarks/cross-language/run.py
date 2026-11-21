@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 LANGUAGES = ("c", "rust", "zith")
-SOURCE_SUFFIXES = {"c": ".c", "rust": ".rs", "zith": ".zith"}
+SOURCE_SUFFIXES = {"c": ".c", "rust": ".rs", "zith": ".zithm"}
 WORKLOADS = ("xorshift64", "branch-count")
 MASK64 = (1 << 64) - 1
 

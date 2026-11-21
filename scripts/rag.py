@@ -35,7 +35,7 @@ from typing import Any, Iterable
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_INDEX_DIR = DEFAULT_ROOT / ".rag-index"
 
-CODE_EXTS = frozenset({".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hxx", ".zith"})
+CODE_EXTS = frozenset({".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hxx", ".zithm"})
 SOURCE_EXTS = frozenset({".md", ".markdown"})
 
 EXCLUDE_DIRS = frozenset(

@@ -12,8 +12,8 @@ language `Zith--`; do not implement features specified only for Zith.
 - Worktree: {REPO}/.awt/{AGENT} (branch awt/{AGENT}).
 - Primary files: `src/session/frontend-context.{hpp,cpp}`,
   `tests/test-frontend-context.cpp`, and `tests/test-frontend-modern-pipeline.cpp`.
-- The resolver candidates are `foo.<arch>.<os>.zith`, `foo.<arch>.zith`,
-  `foo.<os>.zith`, then `foo.zith`.
+- The resolver candidates are `foo.<arch>.<os>.zithm`, `foo.<arch>.zithm`,
+  `foo.<os>.zithm`, then `foo.zithm`.
 - Cache keys already include `targetTriple`; keep generic-vs-variant behavior
   deterministic and LLVM-independent where possible.
 
@@ -41,7 +41,7 @@ Out of scope:
 
 - Candidate order matches the plan exactly.
 - Generic fallback remains mandatory; no variant can replace the absence of
-  `foo.zith`.
+  `foo.zithm`.
 - No parser or sema behavior changes outside import resolution.
 - Target-specific import tests pass and diagnostics are actionable.
 

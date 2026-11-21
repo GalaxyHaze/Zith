@@ -8,7 +8,7 @@ from soon/memory/allocators/allocator
 /// `HashMap<K, V>` and its nested `Entry<K, V>` field reify from another
 /// module, `Hashable` bounds propagate through the generic fields, and the
 /// imported instantiation path is covered by `tests/test-generic-hashmap.cpp`
-/// and `examples/hash-map.zith`. See
+/// and `examples/hash-map.zithm`. See
 /// `docs/adr/0020-imported-generic-instantiation.md`.
 pub struct HashMap<K, V> {
     count: u64 = 0,

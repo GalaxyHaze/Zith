@@ -19,7 +19,7 @@ void test_abi_exec_09_hello_world() {
     fs::remove_all(root);
     fs::create_directories(root);
 
-    const fs::path source = root / "main.zith";
+    const fs::path source = root / "main.zithm";
     std::ofstream output(source, std::ios::binary | std::ios::trunc);
     output << "extern fn puts(msg: *char)\n"
               "\n"
@@ -59,7 +59,7 @@ void test_abi_exec_10_control_flow() {
     fs::remove_all(root);
     fs::create_directories(root);
 
-    const fs::path source = root / "main.zith";
+    const fs::path source = root / "main.zithm";
     std::ofstream output(source, std::ios::binary | std::ios::trunc);
     output << "fn pick(v: i32): i32 {\n"
               "    if (v > 3) { return 7; }\n"
@@ -93,7 +93,7 @@ void test_abi_exec_11_broadcast_initialization() {
     fs::remove_all(root);
     fs::create_directories(root);
 
-    const fs::path source = root / "main.zith";
+    const fs::path source = root / "main.zithm";
     std::ofstream output(source, std::ios::binary | std::ios::trunc);
     output << "alias Pair = |first: i32, second: i32|;\n"
               "alias Count = i32;\n"
@@ -143,7 +143,7 @@ void test_abi_exec_02_cli_interpreted() {
     fs::remove_all(root);
     fs::create_directories(root);
 
-    const fs::path source = root / "main.zith";
+    const fs::path source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "extern fn puts(msg: *char)\n"

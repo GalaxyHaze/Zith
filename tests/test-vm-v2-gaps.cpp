@@ -45,7 +45,7 @@ void test_runtime_state_transfers_are_stackless();
 auto runVmProgram(std::string_view name, std::string_view source) -> VmOutcome {
     const auto root = std::filesystem::temp_directory_path() / "zith-vm-v2-gap-tests" / name;
     std::filesystem::create_directories(root);
-    const auto sourcePath = root / "main.zith";
+    const auto sourcePath = root / "main.zithm";
     {
         std::ofstream output(sourcePath, std::ios::binary | std::ios::trunc);
         output << source;
@@ -86,7 +86,7 @@ auto runVmProgram(std::string_view name, std::string_view source) -> VmOutcome {
 void test_vm_v2_gaps() {
     const auto root = std::filesystem::temp_directory_path() / "zith-vm-v2-gap-tests";
     std::filesystem::create_directories(root);
-    const auto source = root / "main.zith";
+    const auto source = root / "main.zithm";
     {
         std::ofstream output(source, std::ios::binary | std::ios::trunc);
         output << "fn main(): i32 { return 7; }\n";

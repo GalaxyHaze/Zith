@@ -27,7 +27,7 @@ ContentFingerprint makeFingerprint(uint64_t primary) {
 
 static void test_artifact_validation_separates_frontend_and_semantics() {
     Artifact artifact;
-    artifact.canonical_path = "/test/shared.zith";
+    artifact.canonical_path = "/test/shared.zithm";
     artifact.module_identity = {artifact.canonical_path};
     artifact.semantic_profile = sharedHirProfile();
     artifact.frontend_identity = {"Zith--", "legacy-frontend", "0.1"};
@@ -53,7 +53,7 @@ static void test_store_does_not_persist_unencodable_artifacts() {
 
     Store store(root.string(), sharedHirProfile());
     Artifact artifact;
-    artifact.canonical_path = "/test/invalid.zith";
+    artifact.canonical_path = "/test/invalid.zithm";
     artifact.module_identity = {artifact.canonical_path};
     artifact.semantic_profile = sharedHirProfile();
     artifact.vtables.push_back({0, {0}, {}});
@@ -73,7 +73,7 @@ static void test_stale_vir_section_does_not_invalidate_hir() {
 
     Store store(root.string(), sharedHirProfile());
     Artifact artifact;
-    artifact.canonical_path = "/test/stale-vir.zith";
+    artifact.canonical_path = "/test/stale-vir.zithm";
     artifact.module_name = "stale-vir";
     artifact.module_identity = {artifact.canonical_path};
     artifact.semantic_profile = sharedHirProfile();
@@ -115,26 +115,26 @@ static void test_transitive_invalidation() {
 
     // Module A (no dependencies)
     ManifestEntry entryA;
-    entryA.canonical_path = "/test/a.zith";
+    entryA.canonical_path = "/test/a.zithm";
     entryA.artifact_path  = (root / "a.zirl").string();
     entryA.public_abi_hi  = 1;
     entryA.public_abi_lo  = 2;
 
     // Module B (depends on A)
     ManifestEntry entryB;
-    entryB.canonical_path = "/test/b.zith";
+    entryB.canonical_path = "/test/b.zithm";
     entryB.artifact_path  = (root / "b.zirl").string();
     entryB.public_abi_hi  = 3;
     entryB.public_abi_lo  = 4;
-    entryB.dependencies   = {"/test/a.zith"};
+    entryB.dependencies   = {"/test/a.zithm"};
 
     // Module C (depends on B)
     ManifestEntry entryC;
-    entryC.canonical_path = "/test/c.zith";
+    entryC.canonical_path = "/test/c.zithm";
     entryC.artifact_path  = (root / "c.zirl").string();
     entryC.public_abi_hi  = 5;
     entryC.public_abi_lo  = 6;
-    entryC.dependencies   = {"/test/b.zith"};
+    entryC.dependencies   = {"/test/b.zithm"};
 
     // Build manifest
     Manifest manifest(root.string());
@@ -143,22 +143,22 @@ static void test_transitive_invalidation() {
     manifest.upsert(entryC);
 
     // dependentsOf should return transitive dependents
-    auto deps_of_a = manifest.dependentsOf("/test/a.zith");
+    auto deps_of_a = manifest.dependentsOf("/test/a.zithm");
     CHECK(deps_of_a.size() >= 2, "A has at least B and C as transitive dependents");
 
     bool found_b = false;
     bool found_c = false;
     for (auto &d : deps_of_a) {
-        if (d == "/test/b.zith")
+        if (d == "/test/b.zithm")
             found_b = true;
-        if (d == "/test/c.zith")
+        if (d == "/test/c.zithm")
             found_c = true;
     }
     CHECK(found_b, "B is a transitive dependent of A");
     CHECK(found_c, "C is a transitive dependent of A");
 
     // dependentsOf for C should have nothing (leaf)
-    auto deps_of_c = manifest.dependentsOf("/test/c.zith");
+    auto deps_of_c = manifest.dependentsOf("/test/c.zithm");
     CHECK(deps_of_c.empty(), "C has no dependents (leaf module)");
 
     fs::remove_all(root);
@@ -175,22 +175,22 @@ static void test_cycle_idempotence() {
     Manifest manifest(root.string());
 
     ManifestEntry entryA;
-    entryA.canonical_path = "/test/cycle_a.zith";
+    entryA.canonical_path = "/test/cycle_a.zithm";
     entryA.artifact_path  = (root / "cycle_a.zirl").string();
-    entryA.dependencies   = {"/test/cycle_b.zith"};
+    entryA.dependencies   = {"/test/cycle_b.zithm"};
 
     ManifestEntry entryB;
-    entryB.canonical_path = "/test/cycle_b.zith";
+    entryB.canonical_path = "/test/cycle_b.zithm";
     entryB.artifact_path  = (root / "cycle_b.zirl").string();
-    entryB.dependencies   = {"/test/cycle_a.zith"};
+    entryB.dependencies   = {"/test/cycle_a.zithm"};
 
     manifest.upsert(entryA);
     manifest.upsert(entryB);
 
-    auto deps_of_a = manifest.dependentsOf("/test/cycle_a.zith");
+    auto deps_of_a = manifest.dependentsOf("/test/cycle_a.zithm");
     CHECK(deps_of_a.size() <= 2, "cycle dependents terminate (no unbounded growth)");
 
-    auto deps_of_b = manifest.dependentsOf("/test/cycle_b.zith");
+    auto deps_of_b = manifest.dependentsOf("/test/cycle_b.zithm");
     CHECK(deps_of_b.size() <= 2, "cycle dependents terminate for B too");
 
     fs::remove_all(root);
@@ -206,13 +206,13 @@ static void test_manifest_round_trip() {
     {
         Manifest manifest(root.string());
         ManifestEntry e;
-        e.canonical_path = "/test/mod.zith";
+        e.canonical_path = "/test/mod.zithm";
         e.artifact_path  = (root / "mod.zirl").string();
         e.public_abi_hi  = 0xAABB;
         e.public_abi_lo  = 0xCCDD;
         e.source_fp_hi   = 0x1111;
         e.source_fp_lo   = 0x2222;
-        e.dependencies   = {"/test/dep.zith"};
+        e.dependencies   = {"/test/dep.zithm"};
         manifest.upsert(e);
         manifest.save();
     }
@@ -220,9 +220,9 @@ static void test_manifest_round_trip() {
     {
         Manifest manifest(root.string());
         manifest.load();
-        auto found = manifest.find("/test/mod.zith");
+        auto found = manifest.find("/test/mod.zithm");
         CHECK(found.has_value(), "Manifest round-trip: entry found after load");
-        CHECK(found->canonical_path == "/test/mod.zith", "Manifest round-trip: path preserved");
+        CHECK(found->canonical_path == "/test/mod.zithm", "Manifest round-trip: path preserved");
         CHECK(found->public_abi_hi == 0xAABB, "Manifest round-trip: abi_hi preserved");
         CHECK(found->public_abi_lo == 0xCCDD, "Manifest round-trip: abi_lo preserved");
     }
@@ -240,26 +240,26 @@ static void test_manifest_remove_clears_dependents() {
     Manifest manifest(root.string());
 
     ManifestEntry dep;
-    dep.canonical_path = "/test/dep.zith";
+    dep.canonical_path = "/test/dep.zithm";
     dep.artifact_path  = (root / "dep.zirl").string();
     manifest.upsert(dep);
 
     ManifestEntry user;
-    user.canonical_path = "/test/user.zith";
+    user.canonical_path = "/test/user.zithm";
     user.artifact_path  = (root / "user.zirl").string();
-    user.dependencies   = {"/test/dep.zith"};
+    user.dependencies   = {"/test/dep.zithm"};
     manifest.upsert(user);
 
-    auto deps = manifest.dependentsOf("/test/dep.zith");
+    auto deps = manifest.dependentsOf("/test/dep.zithm");
     CHECK(deps.size() == 1, "one dependent before remove");
 
-    manifest.remove("/test/user.zith");
+    manifest.remove("/test/user.zithm");
 
-    deps = manifest.dependentsOf("/test/dep.zith");
+    deps = manifest.dependentsOf("/test/dep.zithm");
     CHECK(deps.empty(), "no dependents after removing user");
 
     // Removing a non-existent entry is a no-op (no crash)
-    manifest.remove("/test/does-not-exist.zith");
+    manifest.remove("/test/does-not-exist.zithm");
 
     fs::remove_all(root);
 }
@@ -281,7 +281,7 @@ static void test_store_metrics_exposed() {
     CHECK(m.evictions == 0, "metrics start at zero evictions");
 
     auto fp = makeFingerprint(0xAAAA);
-    CHECK(!store.load(CanonicalModuleIdentity{"/test/nonexistent.zith"}, fp),
+    CHECK(!store.load(CanonicalModuleIdentity{"/test/nonexistent.zithm"}, fp),
           "missing cache entry returns no artifact");
     m = store.metrics();
     CHECK(m.misses > 0, "miss increments after failed load");

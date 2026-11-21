@@ -2,6 +2,7 @@
 #include "session/frontend-context.hpp"
 
 #include "diagnostics/error-codes.hpp"
+#include "support/source-extension.hpp"
 
 #ifdef ZITH_HAS_LLVM
 #include "llvm/TargetParser/Host.h"
@@ -61,8 +62,8 @@ struct TargetComponents {
 }
 #endif
 
-[[maybe_unused]] [[nodiscard]] bool isZithFile(const fs::path &path) {
-    return path.extension() == ".zith";
+[[maybe_unused]] [[nodiscard]] bool isZithmFile(const fs::path &path) {
+    return support::isZithmSource(path);
 }
 
 [[maybe_unused]] [[nodiscard]] bool isHeaderFile(const fs::path &path) {
@@ -211,7 +212,7 @@ std::vector<std::string> FrontendContext::collectDirectoryModules(const std::str
                 continue;
             }
         }
-        if (iterator->is_regular_file(error) && isZithFile(iterator->path()))
+        if (iterator->is_regular_file(error) && isZithmFile(iterator->path()))
             paths.push_back(SourceCatalog::canonicalPath(iterator->path().generic_string()));
     }
 #else
@@ -232,7 +233,8 @@ FrontendContext::resolveImport(const ModuleArtifact &artifact, const ImportReque
             (void)visible_roots;
             return {};
         }
-        const std::string header_path = request.headerPath + ".zith";
+        const std::string header_path =
+            request.headerPath + std::string(support::kZithmSourceExtension);
         for (const auto &root : visible_roots) {
             const auto path = root + "/" + header_path;
             if (sourceForPath(path))
@@ -241,9 +243,10 @@ FrontendContext::resolveImport(const ModuleArtifact &artifact, const ImportReque
         return {};
     }
     const std::string import_path = request.importKey();
+    const std::string source_extension(support::kZithmSourceExtension);
     const std::vector<std::string> candidates = {
-        import_path + ".zith",
-        import_path + "/mod.zith",
+        import_path + source_extension,
+        import_path + "/mod" + source_extension,
     };
     for (const auto &root : visible_roots) {
         for (const auto &candidate : candidates) {
@@ -290,7 +293,8 @@ FrontendContext::resolveImport(const ModuleArtifact &artifact, const ImportReque
         for (const auto &suffix : suffixes) {
             const auto &last = request.path.back();
             auto variant     = import_path;
-            variant          = variant.parent_path() / fs::path(last + suffix + ".zith");
+            variant = variant.parent_path() /
+                      fs::path(last + suffix + std::string(support::kZithmSourceExtension));
             variant_paths.push_back(variant);
             considered_platform_variants = true;
         }
@@ -324,7 +328,8 @@ FrontendContext::resolveImport(const ModuleArtifact &artifact, const ImportReque
             if (imported)
                 break;
             error.clear();
-            const auto generic = root / (import_path.string() + ".zith");
+            const auto generic =
+                root / (import_path.string() + std::string(support::kZithmSourceExtension));
             if (fs::is_regular_file(generic, error)) {
                 imported = generic;
                 break;
@@ -337,7 +342,8 @@ FrontendContext::resolveImport(const ModuleArtifact &artifact, const ImportReque
                 break;
             }
             error.clear();
-            const auto module_file = root / import_path / "mod.zith";
+            const auto module_file =
+                root / import_path / ("mod" + std::string(support::kZithmSourceExtension));
             if (fs::is_regular_file(module_file, error)) {
                 imported = module_file;
                 break;
@@ -360,7 +366,7 @@ FrontendContext::resolveImport(const ModuleArtifact &artifact, const ImportReque
     if (fs::is_directory(resolved))
         return {collectDirectoryModules(resolved.generic_string(), request.depth),
                 ImportTargetKind::Directory, true};
-    if (!isZithFile(resolved))
+    if (!isZithmFile(resolved))
         return {};
     return {
         {SourceCatalog::canonicalPath(resolved.generic_string())}, ImportTargetKind::Zith, true};

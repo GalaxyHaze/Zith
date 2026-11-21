@@ -44,7 +44,7 @@ struct TestWorkspace {
 
         const auto portableTests = portableProject / "tests";
         fs::create_directories(portableTests);
-        std::ofstream smoke(portableTests / "smoke.zith", std::ios::binary);
+        std::ofstream smoke(portableTests / "smoke.zithm", std::ios::binary);
         smoke << "#[test]\n"
                  "fn portable_pass() {\n"
                  "    @log(\"passing portable log sentinel\");\n"
@@ -64,7 +64,7 @@ struct TestWorkspace {
                           "test_dir = \"tests\"\n";
         CHECK(checksManifest.good(), "check intrinsic project manifest is written");
 
-        std::ofstream checks(checksProject / "tests" / "checks.zith", std::ios::binary);
+        std::ofstream checks(checksProject / "tests" / "checks.zithm", std::ios::binary);
         checks << "from std/test\n"
                   "\n"
                   "#[test]\n"
@@ -119,7 +119,7 @@ struct TestWorkspace {
                             "test_dir = \"tests\"\n";
         CHECK(sequenceManifest.good(), "sequential test project manifest is written");
 
-        std::ofstream assertSequence(sequenceProject / "tests" / "assert-sequence.zith",
+        std::ofstream assertSequence(sequenceProject / "tests" / "assert-sequence.zithm",
                                      std::ios::binary);
         assertSequence << "from std/test\n"
                           "\n"
@@ -137,7 +137,7 @@ struct TestWorkspace {
                           "}\n";
         CHECK(assertSequence.good(), "sequential assert fixture is written");
 
-        std::ofstream oneOfSequence(sequenceProject / "tests" / "one-of-sequence.zith",
+        std::ofstream oneOfSequence(sequenceProject / "tests" / "one-of-sequence.zithm",
                                     std::ios::binary);
         oneOfSequence << "from std/test\n"
                          "\n"
@@ -164,7 +164,7 @@ struct TestWorkspace {
                         "test_dir = \"tests\"\n";
         CHECK(logsManifest.good(), "bounded log project manifest is written");
 
-        std::ofstream logs(logsProject / "tests" / "logs.zith", std::ios::binary);
+        std::ofstream logs(logsProject / "tests" / "logs.zithm", std::ios::binary);
         logs << "fn helper_log() {\n"
                 "    @log(\"helper log sentinel\");\n"
                 "}\n"
@@ -298,11 +298,11 @@ CliResult test_backend(const TestWorkspace &workspace, const std::string &backen
           (label + " reports all test results").c_str());
     CHECK(all.stderrText.find("no #[test] functions") != std::string::npos,
           (label + " notes the file with no tests as skipped").c_str());
-    CHECK(all.stderrText.find("assertions.zith:16:") != std::string::npos,
+    CHECK(all.stderrText.find("assertions.zithm:16:") != std::string::npos,
           (label + " reports the failing assert source location").c_str());
-    CHECK(all.stderrText.find("floating.zith:") != std::string::npos,
+    CHECK(all.stderrText.find("floating.zithm:") != std::string::npos,
           (label + " reports the failing float assertion source location").c_str());
-    CHECK(all.stderrText.find("collection_optional.zith:") != std::string::npos,
+    CHECK(all.stderrText.find("collection_optional.zithm:") != std::string::npos,
           (label + " reports the failing collection assertion source location").c_str());
     return all;
 }
@@ -333,7 +333,7 @@ void test_portable_backend(const TestWorkspace &workspace, const std::string &ba
         (label + " reports both backend-compatible test results\n" + describeResult(all)).c_str());
     CHECK(all.stdoutText.find("failing portable log sentinel") != std::string::npos,
           (label + " shows failed-test logs by default").c_str());
-    CHECK(all.stderrText.find("smoke.zith:9:") != std::string::npos,
+    CHECK(all.stderrText.find("smoke.zithm:9:") != std::string::npos,
           (label + " reports the backend-compatible assert location").c_str());
 }
 
@@ -375,22 +375,22 @@ void test_check_backend(const TestWorkspace &workspace, const std::string &backe
     CHECK(result.stdoutText.find("  allowed value: 1") != std::string::npos &&
               result.stdoutText.find("  allowed value: 3") != std::string::npos,
           (label + " lists the allowed values for each mismatch").c_str());
-    CHECK(result.stderrText.find("checks.zith:6:") != std::string::npos,
+    CHECK(result.stderrText.find("checks.zithm:6:") != std::string::npos,
           (label + " reports the first failed check location").c_str());
-    CHECK(result.stderrText.find("checks.zith:7:") != std::string::npos,
+    CHECK(result.stderrText.find("checks.zithm:7:") != std::string::npos,
           (label + " reports the second failed check location").c_str());
-    CHECK(result.stderrText.find("checks.zith:13:") != std::string::npos,
+    CHECK(result.stderrText.find("checks.zithm:13:") != std::string::npos,
           (label + " reports the failed checkEq location").c_str());
-    CHECK(result.stderrText.find("checks.zith:14:") != std::string::npos,
+    CHECK(result.stderrText.find("checks.zithm:14:") != std::string::npos,
           (label + " reports the failed checkTrue location").c_str());
-    CHECK(result.stderrText.find("checks.zith:20:") != std::string::npos,
+    CHECK(result.stderrText.find("checks.zithm:20:") != std::string::npos,
           (label + " preserves the assert failure location").c_str());
-    CHECK(result.stderrText.find("checks.zith:34:") != std::string::npos,
+    CHECK(result.stderrText.find("checks.zithm:34:") != std::string::npos,
           (label + " reports a check before a later assert").c_str());
-    CHECK(result.stderrText.find("checks.zith:35:") != std::string::npos,
+    CHECK(result.stderrText.find("checks.zithm:35:") != std::string::npos,
           (label + " reports the assert after a failed check").c_str());
-    const auto earlierCheck = result.stderrText.find("checks.zith:34:");
-    const auto laterAssert  = result.stderrText.find("checks.zith:35:");
+    const auto earlierCheck = result.stderrText.find("checks.zithm:34:");
+    const auto laterAssert  = result.stderrText.find("checks.zithm:35:");
     CHECK(earlierCheck != std::string::npos && laterAssert != std::string::npos &&
               earlierCheck < laterAssert,
           (label + " reports failures in execution order").c_str());
@@ -406,7 +406,7 @@ void test_interpreted_check_backend(const TestWorkspace &workspace) {
           "HIR interpreter recognizes the check intrinsic");
     CHECK(result.stdoutText.find("continued after checks") != std::string::npos,
           "HIR interpreter continues after a failed check");
-    CHECK(result.stderrText.find("checks.zith:6:") != std::string::npos,
+    CHECK(result.stderrText.find("checks.zithm:6:") != std::string::npos,
           "HIR interpreter reports the failed check location");
 }
 

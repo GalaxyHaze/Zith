@@ -6,9 +6,9 @@ Executa a partir da raiz do repositório:
 ./build/zithc --include stdlib test examples/test-command-demo
 ```
 
-O comando descobre os ficheiros `.zith` em `tests/`, executa cada função
+O comando descobre os ficheiros `.zithm` em `tests/`, executa cada função
 marcada com `#[test]` e mostra um resumo. Um teste falha de propósito em
-`intentional-failure.zith`, por isso a execução completa termina com código
+`intentional-failure.zithm`, por isso a execução completa termina com código
 `1` e mostra a localização do `@assert` que falhou.
 
 Para ver apenas os testes aprovados:

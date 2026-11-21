@@ -68,17 +68,17 @@ std::vector<std::string> diagnosticKeys(const CompilationSnapshot &snapshot) {
 
 void test_worker_counts_and_determinism() {
     Workspace workspace;
-    workspace.write("main.zith", "from dep\nfn main() { dep_fn() }\n");
-    workspace.write("dep.zith", "fn dep_fn() { }\n");
+    workspace.write("main.zithm", "from dep\nfn main() { dep_fn() }\n");
+    workspace.write("dep.zithm", "fn dep_fn() { }\n");
 
     FrontendContext serial(workspace.config(1));
-    auto serial_result = serial.analyzeFile(workspace.path("main.zith"));
+    auto serial_result = serial.analyzeFile(workspace.path("main.zithm"));
     CHECK(serial_result.isOk(), "serial frontend analysis succeeds");
     if (!serial_result)
         return;
 
     FrontendContext parallel(workspace.config(2));
-    auto parallel_result = parallel.analyzeFile(workspace.path("main.zith"));
+    auto parallel_result = parallel.analyzeFile(workspace.path("main.zithm"));
     CHECK(parallel_result.isOk(), "parallel frontend analysis succeeds");
     if (!parallel_result)
         return;
@@ -95,46 +95,46 @@ void test_worker_counts_and_determinism() {
 
 void test_cache_invalidation_and_overlays() {
     Workspace workspace;
-    workspace.write("main.zith", "from dep\nfn main() { dep_fn() }\n");
-    workspace.write("dep.zith", "fn dep_fn() { }\n");
+    workspace.write("main.zithm", "from dep\nfn main() { dep_fn() }\n");
+    workspace.write("dep.zithm", "fn dep_fn() { }\n");
 
     FrontendContext context(workspace.config(2));
-    auto first = context.analyzeFile(workspace.path("main.zith"));
+    auto first = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(first.isOk(), "initial cached analysis succeeds");
     if (!first)
         return;
     const auto first_metrics = context.metrics().cache;
 
-    auto second = context.analyzeFile(workspace.path("main.zith"));
+    auto second = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(second.isOk(), "repeated analysis succeeds");
     CHECK(context.metrics().cache.hits > first_metrics.hits,
           "repeated revision reuses module artifacts");
 
-    workspace.write("dep.zith", "fn dep_fn() { }\nfn changed() { }\n");
-    context.invalidatePath(workspace.path("dep.zith"));
-    auto changed = context.analyzeFile(workspace.path("main.zith"));
+    workspace.write("dep.zithm", "fn dep_fn() { }\nfn changed() { }\n");
+    context.invalidatePath(workspace.path("dep.zithm"));
+    auto changed = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(changed.isOk(), "transitively invalidated analysis succeeds");
     CHECK(context.metrics().cache.invalidated >= 2u,
           "dependency invalidation removes the dependency and its root dependent");
 
-    context.setOverlay(workspace.path("dep.zith"), "fn overlay() { }\n");
-    auto overlay = context.analyzeFile(workspace.path("main.zith"));
+    context.setOverlay(workspace.path("dep.zithm"), "fn overlay() { }\n");
+    auto overlay = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(overlay.isOk(), "open-document overlay analysis succeeds");
     if (overlay) {
         const auto *dep =
-            overlay.value()->findModule(SourceCatalog::canonicalPath(workspace.path("dep.zith")));
+            overlay.value()->findModule(SourceCatalog::canonicalPath(workspace.path("dep.zithm")));
         CHECK(dep != nullptr, "overlay dependency is in snapshot");
         if (dep)
             CHECK(dep->source->text.find("overlay") != std::string::npos,
                   "open document content takes precedence over disk");
     }
 
-    context.removeOverlay(workspace.path("dep.zith"));
-    auto closed = context.analyzeFile(workspace.path("main.zith"));
+    context.removeOverlay(workspace.path("dep.zithm"));
+    auto closed = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(closed.isOk(), "analysis after closing overlay succeeds");
     if (closed) {
         const auto *dep =
-            closed.value()->findModule(SourceCatalog::canonicalPath(workspace.path("dep.zith")));
+            closed.value()->findModule(SourceCatalog::canonicalPath(workspace.path("dep.zithm")));
         CHECK(dep != nullptr, "disk dependency remains in snapshot after close");
         if (dep)
             CHECK(dep->source->text.find("changed") != std::string::npos,
@@ -144,20 +144,20 @@ void test_cache_invalidation_and_overlays() {
 
 void test_partial_artifact_cycle_and_session_snapshot() {
     Workspace workspace;
-    workspace.write("a.zith", "from b\nfn a() { }\n");
-    workspace.write("b.zith", "from a\nfn b() { }\n");
+    workspace.write("a.zithm", "from b\nfn a() { }\n");
+    workspace.write("b.zithm", "from a\nfn b() { }\n");
 
     auto context = std::make_shared<FrontendContext>(workspace.config(2));
-    auto cycle   = context->analyzeFile(workspace.path("a.zith"));
+    auto cycle   = context->analyzeFile(workspace.path("a.zithm"));
     CHECK(cycle.isOk(), "cycle analysis returns a partial snapshot");
     if (cycle) {
         CHECK(cycle.value()->hasErrors(), "cycle diagnostic is recorded in snapshot");
         bool saw_cycle = false;
         for (const auto &diag : cycle.value()->diagnostics()) {
             if (diag.code == diagnostics::err::CircularImport &&
-                diag.message.find("/tmp/zith-frontend-context-tests/a.zith -> "
-                                  "/tmp/zith-frontend-context-tests/b.zith -> "
-                                  "/tmp/zith-frontend-context-tests/a.zith") != std::string::npos) {
+                diag.message.find("/tmp/zith-frontend-context-tests/a.zithm -> "
+                                  "/tmp/zith-frontend-context-tests/b.zithm -> "
+                                  "/tmp/zith-frontend-context-tests/a.zithm") != std::string::npos) {
                 saw_cycle = true;
                 break;
             }
@@ -165,7 +165,7 @@ void test_partial_artifact_cycle_and_session_snapshot() {
         CHECK(saw_cycle, "cycle diagnostic names the complete import path");
     }
 
-    auto bad = context->analyzeText(workspace.path("broken.zith"), "fn broken( {\n");
+    auto bad = context->analyzeText(workspace.path("broken.zithm"), "fn broken( {\n");
     CHECK(bad.isOk(), "syntax failure still produces a cacheable partial artifact");
     if (bad)
         CHECK(bad.value()->hasErrors(), "partial artifact retains syntax diagnostics");
@@ -173,7 +173,7 @@ void test_partial_artifact_cycle_and_session_snapshot() {
     memory::Arena arena;
     Options options(arena);
     options.targetStage = Stage::Scanned;
-    CompilationSession session(options, workspace.path("a.zith"), context);
+    CompilationSession session(options, workspace.path("a.zithm"), context);
     session.setBuffered(true);
     (void)session.runTo(Stage::Scanned);
     CHECK(session.snapshot() != nullptr, "session exposes shared immutable frontend snapshot");
@@ -181,18 +181,18 @@ void test_partial_artifact_cycle_and_session_snapshot() {
 
 void test_import_graph_and_resolution_table() {
     Workspace workspace;
-    workspace.write("main.zith", "from dep { public_fn as renamed }\n"
+    workspace.write("main.zithm", "from dep { public_fn as renamed }\n"
                                  "import package as namespace\n"
                                  "from assets/data.txt as Data\n"
                                  "fn main() { renamed() }\n");
-    workspace.write("dep.zith", "pub fn public_fn() { }\n");
-    workspace.write("package.zith", "pub fn exported() { }\n");
+    workspace.write("dep.zithm", "pub fn public_fn() { }\n");
+    workspace.write("package.zithm", "pub fn exported() { }\n");
     workspace.write("assets/data.txt", "asset contents\n");
 
     auto config = workspace.config(1);
     config.assetRoots.push_back((workspace.root / "assets").string());
     FrontendContext context(std::move(config));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "frontend import graph analysis succeeds");
     if (!result)
         return;
@@ -218,7 +218,7 @@ void test_import_graph_and_resolution_table() {
     CHECK(saw_namespace, "module alias edge has its canonical target");
 
     const auto *resolution =
-        snapshot.findResolution(SourceCatalog::canonicalPath(workspace.path("main.zith")));
+        snapshot.findResolution(SourceCatalog::canonicalPath(workspace.path("main.zithm")));
     CHECK(resolution != nullptr, "root module has a resolution table");
     if (!resolution)
         return;
@@ -234,15 +234,15 @@ void test_import_graph_and_resolution_table() {
 
 void test_default_import_exposes_full_path_namespace() {
     Workspace workspace;
-    workspace.write("string.zith", "pub struct string { pub data: i32 }\n"
+    workspace.write("string.zithm", "pub struct string { pub data: i32 }\n"
                                    "implement string {\n"
                                    "    pub fn make(): string { string { data: 1 } }\n"
                                    "}\n");
-    workspace.write("main.zith", "import string\n"
+    workspace.write("main.zithm", "import string\n"
                                  "fn main() { return string.string.make().data; }\n");
 
     FrontendContext context(workspace.config(1));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "frontend import graph analysis succeeds");
     if (!result)
         return;
@@ -250,7 +250,7 @@ void test_default_import_exposes_full_path_namespace() {
     const auto &snapshot = *result.value();
     CHECK(!snapshot.hasErrors(), "colliding default import has no frontend diagnostics");
     const auto *resolution =
-        snapshot.findResolution(SourceCatalog::canonicalPath(workspace.path("main.zith")));
+        snapshot.findResolution(SourceCatalog::canonicalPath(workspace.path("main.zithm")));
     CHECK(resolution != nullptr, "root module has a resolution table");
     if (!resolution)
         return;
@@ -270,11 +270,11 @@ void test_default_import_exposes_full_path_namespace() {
 
 void test_export_shared_prefix_fans_out_to_every_submodule() {
     Workspace workspace;
-    workspace.write("p/facade.zith", "export p/t1\n"
+    workspace.write("p/facade.zithm", "export p/t1\n"
                                      "export p/t2\n");
-    workspace.write("p/t1.zith", "pub struct TypeA { pub x: i32 }\n");
-    workspace.write("p/t2.zith", "pub struct TypeB { pub y: i32 }\n");
-    workspace.write("main.zith", "import p/facade\n"
+    workspace.write("p/t1.zithm", "pub struct TypeA { pub x: i32 }\n");
+    workspace.write("p/t2.zithm", "pub struct TypeB { pub y: i32 }\n");
+    workspace.write("main.zithm", "import p/facade\n"
                                  "fn main(): i32 {\n"
                                  "    let a: p.t1.TypeA = p.t1.TypeA { x: 1 };\n"
                                  "    let b: p.t2.TypeB = p.t2.TypeB { y: 2 };\n"
@@ -282,7 +282,7 @@ void test_export_shared_prefix_fans_out_to_every_submodule() {
                                  "}\n");
 
     FrontendContext context(workspace.config(1));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "facade export analysis succeeds");
     if (!result)
         return;
@@ -290,7 +290,7 @@ void test_export_shared_prefix_fans_out_to_every_submodule() {
 
     const auto &snapshot = *result.value();
     const auto *resolution =
-        snapshot.findResolution(SourceCatalog::canonicalPath(workspace.path("main.zith")));
+        snapshot.findResolution(SourceCatalog::canonicalPath(workspace.path("main.zithm")));
     CHECK(resolution != nullptr, "root module has a resolution table");
     if (resolution == nullptr)
         return;
@@ -312,15 +312,15 @@ void test_export_shared_prefix_fans_out_to_every_submodule() {
     for (const auto &binding : resolution->bindings) {
         if (binding.kind != ResolutionKind::ModuleAlias || binding.name != "p")
             continue;
-        const auto t1_key = SourceCatalog::canonicalPath(workspace.path("p/t1.zith"));
-        const auto t2_key = SourceCatalog::canonicalPath(workspace.path("p/t2.zith"));
+        const auto t1_key = SourceCatalog::canonicalPath(workspace.path("p/t1.zithm"));
+        const auto t2_key = SourceCatalog::canonicalPath(workspace.path("p/t2.zithm"));
         if (binding.modulePath == std::vector<std::string>{"p", "t1"})
             CHECK_EQ(binding.target.module, t1_key, "first fanout alias targets its own module");
         if (binding.modulePath == std::vector<std::string>{"p", "t2"})
             CHECK_EQ(binding.target.module, t2_key, "second fanout alias targets its own module");
     }
 
-    const auto cached = context.analyzeFile(workspace.path("main.zith"));
+    const auto cached = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(cached.isOk(), "repeated facade analysis succeeds from the populated cache");
     if (cached)
         CHECK(!cached.value()->hasErrors(),
@@ -331,7 +331,7 @@ void test_export_shared_prefix_fans_out_to_every_submodule() {
     options.includeDirs.push(workspace.root.string());
     options.targetStage  = Stage::HirLowered;
     auto session_context = std::make_shared<FrontendContext>(workspace.config(1));
-    CompilationSession session(options, workspace.path("main.zith"), std::move(session_context));
+    CompilationSession session(options, workspace.path("main.zithm"), std::move(session_context));
     session.setBuffered(true);
     CHECK(session.runTo(Stage::HirLowered),
           "shared-prefix facade type expressions and struct literals lower to HIR");
@@ -341,16 +341,16 @@ void test_export_shared_prefix_fans_out_to_every_submodule() {
 
 void test_session_materializes_dependency_overlays() {
     Workspace workspace;
-    workspace.write("main.zith", "from dep\nfn main() { overlay_fn() }\n");
-    workspace.write("dep.zith", "pub fn disk_fn() { }\n");
+    workspace.write("main.zithm", "from dep\nfn main() { overlay_fn() }\n");
+    workspace.write("dep.zithm", "pub fn disk_fn() { }\n");
 
     auto context = std::make_shared<FrontendContext>(workspace.config(1));
-    context->setOverlay(workspace.path("dep.zith"), "pub fn overlay_fn() { }\n");
+    context->setOverlay(workspace.path("dep.zithm"), "pub fn overlay_fn() { }\n");
 
     memory::Arena arena;
     Options options(arena);
     options.targetStage = Stage::Imported;
-    CompilationSession session(options, workspace.path("main.zith"), context);
+    CompilationSession session(options, workspace.path("main.zithm"), context);
     session.setBuffered(true);
     CHECK(session.runTo(Stage::Imported), "session import stage accepts a frontend snapshot");
     CHECK(session.symbolTable().lookup("overlay_fn") != symbols::kInvalidSym,
@@ -370,16 +370,16 @@ size_t duplicateDeclCount(const CompilationSnapshot &snapshot) {
 
 const ModuleResolution *rootResolution(const CompilationSnapshot &snapshot,
                                        const Workspace &workspace) {
-    return snapshot.findResolution(SourceCatalog::canonicalPath(workspace.path("main.zith")));
+    return snapshot.findResolution(SourceCatalog::canonicalPath(workspace.path("main.zithm")));
 }
 
 void test_parameter_names_are_scoped_per_function() {
     Workspace workspace;
-    workspace.write("main.zith",
+    workspace.write("main.zithm",
                     "fn f(x: i32): i32 { return x; }\nfn g(x: i32): i32 { return x; }\n");
 
     FrontendContext context(workspace.config(1));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "analysis of two functions with the same parameter name succeeds");
     if (!result)
         return;
@@ -406,11 +406,11 @@ void test_parameter_names_are_scoped_per_function() {
 
 void test_local_bindings_are_scoped() {
     Workspace workspace;
-    workspace.write("main.zith", "fn f(): i32 { let v = 1\nreturn v; }\n"
+    workspace.write("main.zithm", "fn f(): i32 { let v = 1\nreturn v; }\n"
                                  "fn g(): i32 { let v = 2\nreturn v; }\n");
 
     FrontendContext context(workspace.config(1));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "analysis of the same local name in two functions succeeds");
     if (!result)
         return;
@@ -418,9 +418,9 @@ void test_local_bindings_are_scoped() {
              "the same local name in two functions is not a duplicate declaration");
 
     Workspace duplicate;
-    duplicate.write("main.zith", "fn f(): i32 { let v = 1\nlet v = 2\nreturn v; }\n");
+    duplicate.write("main.zithm", "fn f(): i32 { let v = 1\nlet v = 2\nreturn v; }\n");
     FrontendContext duplicate_context(duplicate.config(1));
-    auto duplicate_result = duplicate_context.analyzeFile(duplicate.path("main.zith"));
+    auto duplicate_result = duplicate_context.analyzeFile(duplicate.path("main.zithm"));
     CHECK(duplicate_result.isOk(), "analysis still produces a snapshot for duplicate locals");
     if (!duplicate_result)
         return;
@@ -430,10 +430,10 @@ void test_local_bindings_are_scoped() {
 
 void test_nested_block_shadowing_is_allowed() {
     Workspace workspace;
-    workspace.write("main.zith", "fn f(): i32 { let v = 1\n{ let v = 2\n}\nreturn v; }\n");
+    workspace.write("main.zithm", "fn f(): i32 { let v = 1\n{ let v = 2\n}\nreturn v; }\n");
 
     FrontendContext context(workspace.config(1));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "analysis of a shadowing nested block succeeds");
     if (!result)
         return;
@@ -443,10 +443,10 @@ void test_nested_block_shadowing_is_allowed() {
 
 void test_parameter_shadowing_in_body_is_a_duplicate() {
     Workspace workspace;
-    workspace.write("main.zith", "fn f(x: i32): i32 { let x = 2\nreturn x; }\n");
+    workspace.write("main.zithm", "fn f(x: i32): i32 { let x = 2\nreturn x; }\n");
 
     FrontendContext context(workspace.config(1));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "analysis still produces a snapshot when a parameter is shadowed");
     if (!result)
         return;
@@ -458,10 +458,10 @@ void test_lookup_binding_walks_module_fallback() {
     // Regression for the macro/scope wave: the internal helper must keep the
     // nearest-scope-first contract used by expanded macro names.
     Workspace workspace;
-    workspace.write("main.zith", "fn f(x: i32): i32 { x }\n");
+    workspace.write("main.zithm", "fn f(x: i32): i32 { x }\n");
 
     FrontendContext context(workspace.config(1));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "analysis succeeds");
     if (!result)
         return;
@@ -472,7 +472,7 @@ void test_lookup_binding_walks_module_fallback() {
         return;
 
     const auto *module =
-        result.value()->findModule(SourceCatalog::canonicalPath(workspace.path("main.zith")));
+        result.value()->findModule(SourceCatalog::canonicalPath(workspace.path("main.zithm")));
     CHECK(module != nullptr, "root module artifact exists");
     if (!module || module->frontend == nullptr)
         return;
@@ -488,12 +488,12 @@ void test_lookup_binding_walks_module_fallback() {
 
 void test_system_include_roots() {
     Workspace workspace;
-    workspace.write("main.zith", "import \"stdint.h\"\nfn main() { }\n");
+    workspace.write("main.zithm", "import \"stdint.h\"\nfn main() { }\n");
 
     auto disabled_cfg                  = workspace.config(1);
     disabled_cfg.useSystemIncludeRoots = false;
     FrontendContext disabled(std::move(disabled_cfg));
-    auto disabled_result = disabled.analyzeFile(workspace.path("main.zith"));
+    auto disabled_result = disabled.analyzeFile(workspace.path("main.zithm"));
     CHECK(disabled_result.isOk(), "analysis runs with system includes disabled");
     if (!disabled_result)
         return;
@@ -513,7 +513,7 @@ void test_system_include_roots() {
           "disabling clears the system include roots");
 
 #ifdef ZITH_ENABLE_C_INTEROP
-    auto enabled_result = enabled.analyzeFile(workspace.path("main.zith"));
+    auto enabled_result = enabled.analyzeFile(workspace.path("main.zithm"));
     CHECK(enabled_result.isOk(), "analysis runs with system includes enabled");
     if (!enabled_result)
         return;
@@ -527,11 +527,11 @@ void test_system_include_roots() {
 
 void test_workspace_header_shadows_system_header() {
     Workspace workspace;
-    workspace.write("main.zith", "import \"stdint.h\"\nfn main() { }\n");
+    workspace.write("main.zithm", "import \"stdint.h\"\nfn main() { }\n");
     workspace.write("stdint.h", "int zith_local_marker(void);\n");
 
     FrontendContext context(workspace.config(1));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "analysis with a workspace-local header succeeds");
     if (!result)
         return;
@@ -549,16 +549,16 @@ void test_workspace_header_shadows_system_header() {
 
 void test_platform_import_resolution_order() {
     Workspace workspace;
-    workspace.write("main.zith", "from platform\nfn main() { }\n");
-    workspace.write("platform.x86_64.linux.zith", "pub fn exact() { }\n");
-    workspace.write("platform.x86_64.zith", "pub fn arch_only() { }\n");
-    workspace.write("platform.linux.zith", "pub fn os_only() { }\n");
-    workspace.write("platform.zith", "pub fn generic() { }\n");
+    workspace.write("main.zithm", "from platform\nfn main() { }\n");
+    workspace.write("platform.x86_64.linux.zithm", "pub fn exact() { }\n");
+    workspace.write("platform.x86_64.zithm", "pub fn arch_only() { }\n");
+    workspace.write("platform.linux.zithm", "pub fn os_only() { }\n");
+    workspace.write("platform.zithm", "pub fn generic() { }\n");
 
     auto config         = workspace.config(1);
     config.targetTriple = "x86_64-unknown-linux-gnu";
     FrontendContext context(std::move(config));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "platform import analysis succeeds");
     if (!result)
         return;
@@ -567,7 +567,7 @@ void test_platform_import_resolution_order() {
     for (const auto &edge : result.value()->importGraph()) {
         for (const auto &target : edge.targets)
             saw_exact |= target ==
-                         SourceCatalog::canonicalPath(workspace.path("platform.x86_64.linux.zith"));
+                         SourceCatalog::canonicalPath(workspace.path("platform.x86_64.linux.zithm"));
     }
     CHECK(saw_exact, "exact arch.os variant wins over generic import");
     CHECK(!result.value()->hasErrors(), "resolved platform import has no diagnostics");
@@ -575,15 +575,15 @@ void test_platform_import_resolution_order() {
 
 void test_platform_import_arch_only() {
     Workspace workspace;
-    workspace.write("main.zith", "from platform\nfn main() { }\n");
-    workspace.write("platform.x86_64.zith", "pub fn arch_only() { }\n");
-    workspace.write("platform.linux.zith", "pub fn os_only() { }\n");
-    workspace.write("platform.zith", "pub fn generic() { }\n");
+    workspace.write("main.zithm", "from platform\nfn main() { }\n");
+    workspace.write("platform.x86_64.zithm", "pub fn arch_only() { }\n");
+    workspace.write("platform.linux.zithm", "pub fn os_only() { }\n");
+    workspace.write("platform.zithm", "pub fn generic() { }\n");
 
     auto config         = workspace.config(1);
     config.targetTriple = "x86_64-unknown-linux-gnu";
     FrontendContext context(std::move(config));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "arch-only platform import analysis succeeds");
     if (!result)
         return;
@@ -593,8 +593,8 @@ void test_platform_import_arch_only() {
     for (const auto &edge : result.value()->importGraph()) {
         for (const auto &target : edge.targets) {
             saw_arch |=
-                target == SourceCatalog::canonicalPath(workspace.path("platform.x86_64.zith"));
-            saw_os |= target == SourceCatalog::canonicalPath(workspace.path("platform.linux.zith"));
+                target == SourceCatalog::canonicalPath(workspace.path("platform.x86_64.zithm"));
+            saw_os |= target == SourceCatalog::canonicalPath(workspace.path("platform.linux.zithm"));
         }
     }
     CHECK(saw_arch, "arch-only variant wins when exact arch.os is absent");
@@ -603,14 +603,14 @@ void test_platform_import_arch_only() {
 
 void test_platform_import_os_only() {
     Workspace workspace;
-    workspace.write("main.zith", "from platform\nfn main() { }\n");
-    workspace.write("platform.linux.zith", "pub fn os_only() { }\n");
-    workspace.write("platform.zith", "pub fn generic() { }\n");
+    workspace.write("main.zithm", "from platform\nfn main() { }\n");
+    workspace.write("platform.linux.zithm", "pub fn os_only() { }\n");
+    workspace.write("platform.zithm", "pub fn generic() { }\n");
 
     auto config         = workspace.config(1);
     config.targetTriple = "x86_64-unknown-linux-gnu";
     FrontendContext context(std::move(config));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "os-only platform import analysis succeeds");
     if (!result)
         return;
@@ -618,20 +618,20 @@ void test_platform_import_os_only() {
     bool saw_os = false;
     for (const auto &edge : result.value()->importGraph()) {
         for (const auto &target : edge.targets)
-            saw_os |= target == SourceCatalog::canonicalPath(workspace.path("platform.linux.zith"));
+            saw_os |= target == SourceCatalog::canonicalPath(workspace.path("platform.linux.zithm"));
     }
     CHECK(saw_os, "os-only variant wins when arch variants are absent");
 }
 
 void test_platform_import_generic_fallback() {
     Workspace workspace;
-    workspace.write("main.zith", "from platform\nfn main() { }\n");
-    workspace.write("platform.zith", "pub fn generic() { }\n");
+    workspace.write("main.zithm", "from platform\nfn main() { }\n");
+    workspace.write("platform.zithm", "pub fn generic() { }\n");
 
     auto config         = workspace.config(1);
     config.targetTriple = "aarch64-unknown-darwin";
     FrontendContext context(std::move(config));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "generic platform import analysis succeeds");
     if (!result)
         return;
@@ -639,19 +639,19 @@ void test_platform_import_generic_fallback() {
     bool saw_generic = false;
     for (const auto &edge : result.value()->importGraph()) {
         for (const auto &target : edge.targets)
-            saw_generic |= target == SourceCatalog::canonicalPath(workspace.path("platform.zith"));
+            saw_generic |= target == SourceCatalog::canonicalPath(workspace.path("platform.zithm"));
     }
     CHECK(saw_generic, "generic module is chosen when no variant matches");
 }
 
 void test_platform_import_missing_diagnostic() {
     Workspace workspace;
-    workspace.write("main.zith", "from platform\nfn main() { }\n");
+    workspace.write("main.zithm", "from platform\nfn main() { }\n");
 
     auto config         = workspace.config(1);
     config.targetTriple = "x86_64-unknown-linux-gnu";
     FrontendContext context(std::move(config));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "missing platform import still produces a snapshot");
     if (!result)
         return;
@@ -667,10 +667,10 @@ void test_platform_import_missing_diagnostic() {
 
 void test_missing_module_import_diagnostic() {
     Workspace workspace;
-    workspace.write("main.zith", "from missing/module\nfn main() { }\n");
+    workspace.write("main.zithm", "from missing/module\nfn main() { }\n");
 
     FrontendContext context(workspace.config(1));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "missing module import still produces a snapshot");
     if (!result)
         return;
@@ -690,12 +690,12 @@ void test_missing_module_import_diagnostic() {
 
 void test_missing_header_and_asset_import_diagnostics() {
     Workspace workspace;
-    workspace.write("main.zith", "import \"missing.h\"\n"
+    workspace.write("main.zithm", "import \"missing.h\"\n"
                                  "from assets/missing.json as Missing\n"
                                  "fn main() { }\n");
 
     FrontendContext context(workspace.config(1));
-    auto result = context.analyzeFile(workspace.path("main.zith"));
+    auto result = context.analyzeFile(workspace.path("main.zithm"));
     CHECK(result.isOk(), "missing header and asset imports still produce a snapshot");
     if (!result)
         return;
@@ -720,11 +720,11 @@ void test_missing_header_and_asset_import_diagnostics() {
 
 void test_platform_import_cache_key_separation() {
     Workspace workspace;
-    workspace.write("main.zith", "from platform\n"
+    workspace.write("main.zithm", "from platform\n"
                                  "fn main(): i32 { platform_fn() }\n");
-    workspace.write("platform.x86_64.linux.zith", "pub fn platform_fn(): i32 { 11 }\n");
-    workspace.write("platform.aarch64.darwin.zith", "pub fn platform_fn(): i32 { 22 }\n");
-    workspace.write("platform.zith", "pub fn platform_fn(): i32 { 33 }\n");
+    workspace.write("platform.x86_64.linux.zithm", "pub fn platform_fn(): i32 { 11 }\n");
+    workspace.write("platform.aarch64.darwin.zithm", "pub fn platform_fn(): i32 { 22 }\n");
+    workspace.write("platform.zithm", "pub fn platform_fn(): i32 { 33 }\n");
 
     auto linux_config          = workspace.config(1);
     linux_config.targetTriple  = "x86_64-unknown-linux-gnu";
@@ -732,21 +732,21 @@ void test_platform_import_cache_key_separation() {
     darwin_config.targetTriple = "aarch64-apple-darwin";
 
     FrontendContext linux_context(std::move(linux_config));
-    auto linux_result = linux_context.analyzeFile(workspace.path("main.zith"));
+    auto linux_result = linux_context.analyzeFile(workspace.path("main.zithm"));
     CHECK(linux_result.isOk(), "linux-target platform import analysis succeeds");
     if (!linux_result)
         return;
 
     FrontendContext darwin_context(std::move(darwin_config));
-    auto darwin_result = darwin_context.analyzeFile(workspace.path("main.zith"));
+    auto darwin_result = darwin_context.analyzeFile(workspace.path("main.zithm"));
     CHECK(darwin_result.isOk(), "darwin-target platform import analysis succeeds");
     if (!darwin_result)
         return;
 
     const auto linux_first_metrics  = linux_context.metrics().cache;
     const auto darwin_first_metrics = darwin_context.metrics().cache;
-    (void)linux_context.analyzeFile(workspace.path("main.zith"));
-    (void)darwin_context.analyzeFile(workspace.path("main.zith"));
+    (void)linux_context.analyzeFile(workspace.path("main.zithm"));
+    (void)darwin_context.analyzeFile(workspace.path("main.zithm"));
     CHECK(linux_context.metrics().cache.hits > linux_first_metrics.hits,
           "linux context reuses its own target cache entries");
     CHECK(darwin_context.metrics().cache.hits > darwin_first_metrics.hits,
@@ -757,24 +757,24 @@ void test_platform_import_cache_key_separation() {
     for (const auto &edge : linux_result.value()->importGraph())
         for (const auto &target : edge.targets)
             saw_linux |= target ==
-                         SourceCatalog::canonicalPath(workspace.path("platform.x86_64.linux.zith"));
+                         SourceCatalog::canonicalPath(workspace.path("platform.x86_64.linux.zithm"));
     for (const auto &edge : darwin_result.value()->importGraph())
         for (const auto &target : edge.targets)
             saw_darwin |= target == SourceCatalog::canonicalPath(
-                                        workspace.path("platform.aarch64.darwin.zith"));
+                                        workspace.path("platform.aarch64.darwin.zithm"));
     CHECK(saw_linux, "linux target resolves the linux platform variant");
     CHECK(saw_darwin, "darwin target resolves the darwin platform variant");
 }
 
 void test_syntax_errors_reach_the_diagnostic_engine() {
     Workspace workspace;
-    workspace.write("main.zith", "fn f( {\n");
+    workspace.write("main.zithm", "fn f( {\n");
 
     auto context = std::make_shared<FrontendContext>(workspace.config(1));
     memory::Arena arena;
     Options options(arena);
     options.targetStage = Stage::TypeChecked;
-    CompilationSession session(options, workspace.path("main.zith"), context);
+    CompilationSession session(options, workspace.path("main.zithm"), context);
     session.setBuffered(true);
     CHECK(!session.runTo(Stage::TypeChecked), "a syntax error fails the sema stage");
 

@@ -39,7 +39,7 @@ struct SessionRunner {
 
     bool run(std::string_view input, session::Stage target = session::Stage::TypeChecked,
              const std::function<bool(const session::CompilationSession &)> &inspect = {}) {
-        const auto path = root / "main.zith";
+        const auto path = root / "main.zithm";
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
         file << input;
         file.close();
@@ -97,7 +97,7 @@ void test_reified_struct_reuses_args_identity() {
 
 void test_imported_generic_functions_resolve_explicit_arguments() {
     SessionRunner t;
-    std::ofstream module(t.root / "generic_helper.zith", std::ios::binary | std::ios::trunc);
+    std::ofstream module(t.root / "generic_helper.zithm", std::ios::binary | std::ios::trunc);
     module << "from soon/memory\n"
               "pub fn echo<T>(value: T): T { return value; }\n"
               "pub fn create<T>(allocator: dyn Allocator): i32 { return 42; }\n";
@@ -138,7 +138,7 @@ void test_imported_generic_layout_intrinsic_lowers_with_module_context() {
 
 void test_imported_generic_call_with_explicit_self_lowers() {
     SessionRunner t;
-    std::ofstream module(t.root / "generic_helper.zith", std::ios::binary | std::ios::trunc);
+    std::ofstream module(t.root / "generic_helper.zithm", std::ios::binary | std::ios::trunc);
     module << "pub fn reserve<T>(self: i32, value: T): bool { return true; }\n"
               "pub fn grow<T>(value: T): bool { return reserve<T>(0, value); }\n";
     module.close();

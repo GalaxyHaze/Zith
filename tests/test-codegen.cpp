@@ -128,7 +128,7 @@ struct ModernFileCodegenTest {
         }
     };
 
-    Result run(std::string_view main_name = "main.zith") {
+    Result run(std::string_view main_name = "main.zithm") {
         session::CompilationSession session(opts, (root / main_name).string());
         session.setBuffered(true);
         session.setAlwaysEmitObject(true);
@@ -162,7 +162,7 @@ struct ModernFileCodegenTest {
 
 static void test_return_literal() {
     CodegenTest t;
-    auto r = t.run("codegen-return-literal.zith", "fn main(): i32 {\n"
+    auto r = t.run("codegen-return-literal.zithm", "fn main(): i32 {\n"
                                                   "    return 7;\n"
                                                   "}\n");
     CHECK(r.ok, "Literal return reaches executable");
@@ -171,7 +171,7 @@ static void test_return_literal() {
 
 static void test_void_main_implicit_return_exits_zero() {
     CodegenTest t;
-    auto r = t.run("codegen-void-main.zith", "#[discardable] extern fn putchar(c: i32): i32\n"
+    auto r = t.run("codegen-void-main.zithm", "#[discardable] extern fn putchar(c: i32): i32\n"
                                              "fn main() {\n"
                                              "    putchar(65);\n"
                                              "}\n");
@@ -181,7 +181,7 @@ static void test_void_main_implicit_return_exits_zero() {
 
 static void test_void_main_bare_return_exits_zero() {
     CodegenTest t;
-    auto r = t.run("codegen-void-main-return.zith", "fn main() {\n"
+    auto r = t.run("codegen-void-main-return.zithm", "fn main() {\n"
                                                     "    if (true) { return; }\n"
                                                     "    return;\n"
                                                     "}\n");
@@ -191,7 +191,7 @@ static void test_void_main_bare_return_exits_zero() {
 
 static void test_ref_deref_local() {
     CodegenTest t;
-    auto r = t.run("codegen-ref-deref-local.zith", "fn main(): i32 {\n"
+    auto r = t.run("codegen-ref-deref-local.zithm", "fn main(): i32 {\n"
                                                    "    var x: i32 = 41;\n"
                                                    "    var p: *i32 = &x;\n"
                                                    "    return *p;\n"
@@ -202,7 +202,7 @@ static void test_ref_deref_local() {
 
 static void test_ref_deref_param() {
     CodegenTest t;
-    auto r = t.run("codegen-ref-deref-param.zith", "fn reflect(x: i32): i32 {\n"
+    auto r = t.run("codegen-ref-deref-param.zithm", "fn reflect(x: i32): i32 {\n"
                                                    "    var p: *i32 = &x;\n"
                                                    "    return *p;\n"
                                                    "}\n"
@@ -215,7 +215,7 @@ static void test_ref_deref_param() {
 
 static void test_pointer_parameter_call() {
     CodegenTest t;
-    auto r = t.run("codegen-pointer-param-call.zith", "fn load(p: *i32): i32 {\n"
+    auto r = t.run("codegen-pointer-param-call.zithm", "fn load(p: *i32): i32 {\n"
                                                       "    return *p;\n"
                                                       "}\n"
                                                       "fn main(): i32 {\n"
@@ -228,7 +228,7 @@ static void test_pointer_parameter_call() {
 
 static void test_double_pointer_roundtrip() {
     CodegenTest t;
-    auto r = t.run("codegen-double-pointer-roundtrip.zith", "fn main(): i32 {\n"
+    auto r = t.run("codegen-double-pointer-roundtrip.zithm", "fn main(): i32 {\n"
                                                             "    var x: i32 = 9;\n"
                                                             "    var p: *i32 = &x;\n"
                                                             "    var pp: **i32 = &p;\n"
@@ -240,7 +240,7 @@ static void test_double_pointer_roundtrip() {
 
 static void test_deref_ref_expression_chain() {
     CodegenTest t;
-    auto r = t.run("codegen-deref-ref-expression-chain.zith", "fn main(): i32 {\n"
+    auto r = t.run("codegen-deref-ref-expression-chain.zithm", "fn main(): i32 {\n"
                                                               "    var x: i32 = 12;\n"
                                                               "    return *&x;\n"
                                                               "}\n");
@@ -250,7 +250,7 @@ static void test_deref_ref_expression_chain() {
 
 static void test_unsigned_comparison() {
     CodegenTest t;
-    auto r = t.run("codegen-unsigned-cmp.zith", "fn main(): i32 {\n"
+    auto r = t.run("codegen-unsigned-cmp.zithm", "fn main(): i32 {\n"
                                                 "    var x: u32 = 4294967295;\n"
                                                 "    var y: u32 = 1;\n"
                                                 "    if (x > y) { return 1; }\n"
@@ -262,7 +262,7 @@ static void test_unsigned_comparison() {
 
 static void test_forward_reference() {
     CodegenTest t;
-    auto r = t.run("codegen-forward-ref.zith", "fn main(): i32 {\n"
+    auto r = t.run("codegen-forward-ref.zithm", "fn main(): i32 {\n"
                                                "    return helper();\n"
                                                "}\n"
                                                "fn helper(): i32 {\n"
@@ -274,7 +274,7 @@ static void test_forward_reference() {
 
 static void test_array_variable_indexing() {
     CodegenTest t;
-    auto r = t.run("codegen-array-indexing.zith", "fn main(): i32 {\n"
+    auto r = t.run("codegen-array-indexing.zithm", "fn main(): i32 {\n"
                                                   "    var arr: [5]i32 = [0, 0, 0, 0, 0];\n"
                                                   "    arr[0] = 10;\n"
                                                   "    arr[1] = 20;\n"
@@ -287,7 +287,7 @@ static void test_array_variable_indexing() {
 
 static void test_pointer_index() {
     CodegenTest t;
-    auto r = t.run("codegen-pointer-index.zith",
+    auto r = t.run("codegen-pointer-index.zithm",
                    "fn main(): i32 { var x: i32 = 42; var p: *i32 = &x; return p[0]; }");
     CHECK(r.ok, "Pointer indexing compiles and runs");
     CHECK_EQ(r.exitCode, 42, "p[0] returns the correct value");
@@ -295,7 +295,7 @@ static void test_pointer_index() {
 
 static void test_optional_pointer_narrowing_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "struct S { value: i32 }\n"
+    t.write("main.zithm", "struct S { value: i32 }\n"
                          "fn read(p: *i32): i32 { return *p; }\n"
                          "fn arrow(p: ?*S): i32 {\n"
                          "    for (not (p is null)) { return p->value; }\n"
@@ -328,7 +328,7 @@ static void test_optional_pointer_narrowing_runtime() {
 
 static void test_optional_aggregate_narrowing_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "struct S { n: i32 }\n"
+    t.write("main.zithm", "struct S { n: i32 }\n"
                          "fn field(x: ?S): i32 {\n"
                          "    if (x is null) { return 0; }\n"
                          "    return x.n;\n"
@@ -366,7 +366,7 @@ static void test_optional_aggregate_narrowing_runtime() {
 // wrong width and segfaults.
 static void test_pack_literal_erased_into_opaque_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "struct Pair { a: u64, b: u64 }\n"
+    t.write("main.zithm", "struct Pair { a: u64, b: u64 }\n"
                          "struct One { a: u64 }\n"
                          "fn readStruct(x: opaque): u64 {\n"
                          "    let p = x as Pair;\n"
@@ -403,7 +403,7 @@ static void test_pack_literal_erased_into_opaque_runtime() {
 // `null as ?T` spelling covers the unannotated call-site case.
 static void test_null_member_in_pack_literal_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith",
+    t.write("main.zithm",
             "fn readAnnotated(x: opaque): u64 {\n"
             "    let p = x as |bytes: ?*u8, len: u64|;\n"
             "    if (p is null) { return 0u64; }\n"
@@ -432,7 +432,7 @@ static void test_null_member_in_pack_literal_runtime() {
     // Without any annotation the member has no type; the compiler must report a
     // diagnostic instead of emitting a malformed aggregate or an ICE.
     ModernFileCodegenTest rejected;
-    rejected.write("main.zith", "fn g(x: opaque): i32 { return 0; }\n"
+    rejected.write("main.zithm", "fn g(x: opaque): i32 { return 0; }\n"
                                 "fn main(): i32 { return g(|null, 7u64|); }\n");
     auto bad = rejected.run();
     CHECK(!bad.ok && bad.errorCount > 0,
@@ -442,7 +442,7 @@ static void test_null_member_in_pack_literal_runtime() {
     // reach LLVM codegen with a `void` member and hang at 100% CPU. It must be
     // rejected during sema instead.
     ModernFileCodegenTest direct;
-    direct.write("main.zith", "fn main(): i32 { let t = |null, 7u64|; return 5; }\n");
+    direct.write("main.zithm", "fn main(): i32 { let t = |null, 7u64|; return 5; }\n");
     auto hung = direct.run();
     CHECK(!hung.ok && hung.errorCount > 0,
           "a directly bound bare null pack literal is rejected without hanging codegen");
@@ -455,7 +455,7 @@ static void test_null_member_in_pack_literal_runtime() {
 // trapping so a `panic(message)` keeps its text.
 static void test_runtime_panic_flushes_buffered_output() {
     ModernFileCodegenTest t;
-    t.write("main.zith",
+    t.write("main.zithm",
             "fn main(): i32 {\n"
             "    @log(\"panic: boom\");\n"
             "    @assert(false);\n"
@@ -471,7 +471,7 @@ static void test_runtime_panic_flushes_buffered_output() {
 
 static void test_shifts() {
     CodegenTest t;
-    auto r = t.run("codegen-shifts.zith", "fn arithmetic(): i32 {\n"
+    auto r = t.run("codegen-shifts.zithm", "fn arithmetic(): i32 {\n"
                                           "    var signed: i32 = -8;\n"
                                           "    return signed >> 1;\n"
                                           "}\n"
@@ -492,7 +492,7 @@ static void test_shifts() {
 static void test_compound_assign_runtime() {
     CodegenTest t;
     // 1 -> 3 (+=2) -> 6 (<<=1) -> 2 (&=3); then 2 |. 4 == 6, so 2 + 6 == 8.
-    auto r = t.run("codegen-compound-assign.zith", "fn main(): i32 {\n"
+    auto r = t.run("codegen-compound-assign.zithm", "fn main(): i32 {\n"
                                                    "    var x: i32 = 1;\n"
                                                    "    x += 2;\n"
                                                    "    x <<= 1;\n"
@@ -506,7 +506,7 @@ static void test_compound_assign_runtime() {
 
 static void test_logical_operator_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn main(): i32 {\n"
+    t.write("main.zithm", "fn main(): i32 {\n"
                          "    var a: bool = true;\n"
                          "    var b: bool = false;\n"
                          "    if not (a and b) { } else { return 1; }\n"
@@ -522,7 +522,7 @@ static void test_logical_operator_runtime() {
 
 static void test_optional_condition_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn main(): i32 {\n"
+    t.write("main.zithm", "fn main(): i32 {\n"
                          "    var p: ?i32 = 7;\n"
                          "    if (p) { } else { return 1; }\n"
                          "    var null_v: ?i32 = null;\n"
@@ -536,7 +536,7 @@ static void test_optional_condition_runtime() {
 
 static void test_raw_opaque_round_trip_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-raw-opaque.zith", "fn thru(p: raw opaque): *i32 {\n"
+    auto r = t.run("codegen-raw-opaque.zithm", "fn thru(p: raw opaque): *i32 {\n"
                                               "    return p as *i32;\n"
                                               "}\n"
                                               "fn main(): i32 {\n"
@@ -552,7 +552,7 @@ static void test_raw_opaque_round_trip_runtime() {
 
 static void test_bare_opaque_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "struct Box { value: i32 }\n"
+    t.write("main.zithm", "struct Box { value: i32 }\n"
                          "implement Box {\n"
                          "    fn get(self: view Box): i32 { self.value }\n"
                          "}\n"
@@ -580,7 +580,7 @@ static void test_bare_opaque_runtime() {
 
 static void test_bare_opaque_raw_and_mismatch_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "struct Box { value: i32 }\n"
+    t.write("main.zithm", "struct Box { value: i32 }\n"
                          "fn main(): i32 {\n"
                          "    var v: i32 = 41;\n"
                          "    let h: opaque = v as opaque;\n"
@@ -601,7 +601,7 @@ static void test_bare_opaque_raw_and_mismatch_runtime() {
 
 static void test_bare_opaque_raw_pointer_same_payload_same_allocation_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn main(): i32 {\n"
+    t.write("main.zithm", "fn main(): i32 {\n"
                          "    var v: i32 = 41;\n"
                          "    let a: opaque = v as opaque;\n"
                          "    let p0: raw opaque = a as raw opaque;\n"
@@ -618,7 +618,7 @@ static void test_bare_opaque_raw_pointer_same_payload_same_allocation_runtime() 
 
 static void test_bare_opaque_raw_pointer_different_payload_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn main(): i32 {\n"
+    t.write("main.zithm", "fn main(): i32 {\n"
                          "    var first: i32 = 1;\n"
                          "    var second: i32 = 2;\n"
                          "    let a: opaque = first as opaque;\n"
@@ -635,7 +635,7 @@ static void test_bare_opaque_raw_pointer_different_payload_runtime() {
 
 static void test_bare_opaque_raw_pointer_literal_after_narrow_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn printOpaque(value: opaque): i32 {\n"
+    t.write("main.zithm", "fn printOpaque(value: opaque): i32 {\n"
                          "    if (value is *char) {\n"
                          "        if ((value as raw opaque) != (\"hello,\" as raw opaque)) {\n"
                          "            return 9;\n"
@@ -658,7 +658,7 @@ static void test_bare_opaque_raw_pointer_literal_after_narrow_runtime() {
 static void test_implicit_opaque_coercion_and_narrow_runtime() {
     printf("Running test_implicit_opaque_coercion_and_narrow_runtime\n");
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn consumeInt(v: opaque): i32 {\n"
+    t.write("main.zithm", "fn consumeInt(v: opaque): i32 {\n"
                          "    if (v is u32) { let x: u32 = v; if (x == 5u32) { return 0; } }\n"
                          "    return 1;\n"
                          "}\n"
@@ -698,7 +698,7 @@ static void test_implicit_opaque_coercion_and_narrow_runtime() {
 
 static void test_struct_fields_and_parameter() {
     CodegenTest t;
-    auto r = t.run("codegen-struct-fields.zith",
+    auto r = t.run("codegen-struct-fields.zithm",
                    "struct Pair { left: i32, right: i32 }\n"
                    "fn sum(pair: Pair): i32 { return pair.left + pair.right; }\n"
                    "fn main(): i32 {\n"
@@ -713,7 +713,7 @@ static void test_struct_fields_and_parameter() {
 
 static void test_array_of_structs() {
     CodegenTest t;
-    auto r = t.run("codegen-array-of-structs.zith",
+    auto r = t.run("codegen-array-of-structs.zithm",
                    "struct Pair { left: i32, right: i32 }\n"
                    "fn main(): i32 {\n"
                    "    var items: [2]Pair = [Pair{0, 0}, Pair{0, 0}];\n"
@@ -727,13 +727,13 @@ static void test_array_of_structs() {
 
 static void test_enum_values() {
     CodegenTest t;
-    auto r = t.run("codegen-enum-values.zith", "enum Color: u8 { Red = 2, Green }\n"
+    auto r = t.run("codegen-enum-values.zithm", "enum Color: u8 { Red = 2, Green }\n"
                                                "fn main(): i32 {\n"
                                                "    if (Color.Green == Color.Green) { return 3; }\n"
                                                "    return 0;\n"
                                                "}\n");
 
-    auto r2 = t.run("codegen-enum-cast.zith", "enum Color: u8 { Red = 10, Green = 20 }\n"
+    auto r2 = t.run("codegen-enum-cast.zithm", "enum Color: u8 { Red = 10, Green = 20 }\n"
                                               "fn main(): i32 {\n"
                                               "    let c: Color = Color.Green;\n"
                                               "    return c as i32;\n"
@@ -744,7 +744,7 @@ static void test_enum_values() {
 
 static void test_offsetof_and_alignof_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-offsetof-alignof.zith", "struct Padded { left: u8, right: u32 }\n"
+    auto r = t.run("codegen-offsetof-alignof.zithm", "struct Padded { left: u8, right: u32 }\n"
                                                     "fn main(): i32 {\n"
                                                     "    if (@offsetOf(Padded, right) == 4) {\n"
                                                     "        return @alignOf(Padded);\n"
@@ -758,7 +758,7 @@ static void test_offsetof_and_alignof_runtime() {
 
 static void test_sizeof_intrinsic_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-sizeof.zith", "struct Padded { left: u8, right: u32 }\n"
+    auto r = t.run("codegen-sizeof.zithm", "struct Padded { left: u8, right: u32 }\n"
                                           "fn main(): i32 {\n"
                                           "    if (@sizeOf(u8) == 1) {\n"
                                           "        if (@sizeOf(i32) == 4) {\n"
@@ -775,7 +775,7 @@ static void test_sizeof_intrinsic_runtime() {
 static void test_explicit_struct_alignment_layout() {
     ModernFileCodegenTest t;
     t.opts.targetTriple = "x86_64-unknown-linux-gnu";
-    t.write("main.zith", "#[alignas(64)] struct AlignedSmall { value: u8 }\n"
+    t.write("main.zithm", "#[alignas(64)] struct AlignedSmall { value: u8 }\n"
                          "struct ContainsAligned { leading: u8, value: AlignedSmall }\n"
                          "fn main(): i32 {\n"
                          "    if (@alignOf(AlignedSmall) != 64) { return 1; }\n"
@@ -805,7 +805,7 @@ static void test_explicit_struct_alignment_layout() {
 static void test_unsupported_struct_alignment_is_rejected() {
     ModernFileCodegenTest t;
     t.opts.targetTriple = "x86_64-unknown-linux-gnu";
-    t.write("main.zith", "#[alignas(8192)] struct TooAligned { value: u8 }\n"
+    t.write("main.zithm", "#[alignas(8192)] struct TooAligned { value: u8 }\n"
                          "fn main(): i32 { return 0; }\n");
 
     const auto result = t.run();
@@ -847,7 +847,7 @@ static void test_explicit_array_binding_alignment() {
 #endif
               "    return 17;\n"
               "}\n";
-    t.write("main.zith", source);
+    t.write("main.zithm", source);
 
     auto r = t.run();
     CHECK(r.ok, "an aligned array binding compiles and executes");
@@ -877,7 +877,7 @@ static void test_explicit_global_binding_alignment() {
     ModernFileCodegenTest t;
     t.opts.targetTriple = "x86_64-unknown-linux-gnu";
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "#[alignas(64)] const aligned_value: i32 = 7;\n"
+    t.write("main.zithm", "#[alignas(64)] const aligned_value: i32 = 7;\n"
                          "fn main(): i32 { return aligned_value as i32; }\n");
 
     auto r = t.run();
@@ -898,7 +898,7 @@ static void test_explicit_for_in_binding_alignment() {
     ModernFileCodegenTest t;
     t.opts.targetTriple = "x86_64-unknown-linux-gnu";
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "fn main(): i32 {\n"
+    t.write("main.zithm", "fn main(): i32 {\n"
                          "    var total: i32 = 0;\n"
                          "    for (#[alignas(64)] value in 0..<1) {\n"
                          "        total = total + value;\n"
@@ -916,7 +916,7 @@ static void test_explicit_for_in_binding_alignment() {
 static void test_unsupported_binding_alignment_is_rejected() {
     ModernFileCodegenTest local;
     local.opts.targetTriple = "x86_64-unknown-linux-gnu";
-    local.write("main.zith", "fn main(): i32 {\n"
+    local.write("main.zithm", "fn main(): i32 {\n"
                              "    #[alignas(8192)] var value: i32 = 7;\n"
                              "    return value;\n"
                              "}\n");
@@ -928,7 +928,7 @@ static void test_unsupported_binding_alignment_is_rejected() {
 
     ModernFileCodegenTest global;
     global.opts.targetTriple = "x86_64-unknown-linux-gnu";
-    global.write("main.zith", "#[alignas(8192)] const value: i32 = 7;\n"
+    global.write("main.zithm", "#[alignas(8192)] const value: i32 = 7;\n"
                               "fn main(): i32 { return value; }\n");
 
     const auto global_result = global.run();
@@ -941,7 +941,7 @@ static void test_unverified_aligned_record_is_rejected_at_c_abi() {
     ModernFileCodegenTest t;
     t.opts.targetTriple = "x86_64-unknown-linux-gnu";
     t.opts.targetStage  = session::Stage::TypeChecked;
-    t.write("main.zith", "#[alignas(64)] struct Aligned { value: i32 }\n"
+    t.write("main.zithm", "#[alignas(64)] struct Aligned { value: i32 }\n"
                          "struct Wrapper { value: Aligned }\n"
                          "extern fn consume(value: Aligned): i32\n"
                          "extern fn consume_wrapper(value: Wrapper): i32\n"
@@ -961,7 +961,7 @@ static void test_unverified_aligned_record_is_rejected_at_c_abi() {
 
 static void test_slice_string_intrinsics_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+    t.write("main.zithm", "extern fn printf(fmt: *char, ...): i32\n"
                          "fn borrowedLength(str: view []char): u64 {\n"
                          "    return @lengthOf(str);\n"
                          "}\n"
@@ -989,7 +989,7 @@ static void test_slice_string_intrinsics_runtime() {
 
 static void test_when_expression_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-when.zith",
+    auto r = t.run("codegen-when.zithm",
                    "fn classify(n: i32): i32 {\n"
                    "    return when (n) {\n"
                    "        (0) 10,\n"
@@ -1008,7 +1008,7 @@ static void test_when_expression_runtime() {
 
 static void test_when_void_expression_case_executes() {
     CodegenTest t;
-    auto r = t.run("codegen-when-void-body.zith", "extern fn puts(msg: *char)\n"
+    auto r = t.run("codegen-when-void-body.zithm", "extern fn puts(msg: *char)\n"
                                                   "fn main() {\n"
                                                   "    when (1) {\n"
                                                   "        (1) puts(\"A\"),\n"
@@ -1030,7 +1030,7 @@ static void test_when_void_expression_case_executes() {
 
 static void test_when_legacy_arrow_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-when-arrow.zith", "fn classify(n: i32): i32 {\n"
+    auto r = t.run("codegen-when-arrow.zithm", "fn classify(n: i32): i32 {\n"
                                               "    return when (n) {\n"
                                               "        (0) ~> 10,\n"
                                               "        (1..3) ~> 20,\n"
@@ -1046,7 +1046,7 @@ static void test_when_legacy_arrow_runtime() {
 
 static void test_when_pattern_alternatives_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-when-pattern-alternatives.zith",
+    auto r = t.run("codegen-when-pattern-alternatives.zithm",
                    "enum Status { Ok, Error }\n"
                    "fn accept(status: Status): i32 {\n"
                    "    return when (status) {\n"
@@ -1085,7 +1085,7 @@ static void test_when_pattern_alternatives_runtime() {
 
 static void test_when_default_must_be_last() {
     CodegenTest t;
-    auto r = t.run("codegen-when-default-last.zith", "fn classify(n: i32): i32 {\n"
+    auto r = t.run("codegen-when-default-last.zithm", "fn classify(n: i32): i32 {\n"
                                                      "    return when (n) {\n"
                                                      "        (_) 10,\n"
                                                      "        (1) 20\n"
@@ -1099,7 +1099,7 @@ static void test_when_default_must_be_last() {
 
 static void test_tagged_union_pointer_is_type_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "import \"stdio.h\"\n"
+    t.write("main.zithm", "import \"stdio.h\"\n"
                          "union Foo { *char, i32, f64 }\n"
                          "fn main(): i32 {\n"
                          "    let f = Foo{\"hello\"};\n"
@@ -1120,7 +1120,7 @@ static void test_tagged_union_pointer_is_type_runtime() {
 
 static void test_qualified_receiver_mutation_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "struct Sample {\n"
+    t.write("main.zithm", "struct Sample {\n"
                          "    x: i32,\n"
                          "    fn bump_lend(self: lend Sample) { self->x = self->x + 1; }\n"
                          "    fn get(self): i32 { return self->x; }\n"
@@ -1142,7 +1142,7 @@ static void test_qualified_receiver_mutation_runtime() {
 
 static void test_free_borrow_parameter_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "struct Sample {\n"
+    t.write("main.zithm", "struct Sample {\n"
                          "    x: i32,\n"
                          "}\n"
                          "fn bump(p: lend Sample): i32 {\n"
@@ -1164,7 +1164,7 @@ static void test_free_borrow_parameter_runtime() {
 
 static void test_when_narrowing_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "import \"stdio.h\"\n"
+    t.write("main.zithm", "import \"stdio.h\"\n"
                          "union Value { *char, i32 }\n"
                          "fn main(): i32 {\n"
                          "    let v = Value{\"ok\"};\n"
@@ -1183,7 +1183,7 @@ static void test_when_narrowing_runtime() {
 
 static void test_for_three_clause_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-for3.zith", "fn sum_to(n: i32): i32 {\n"
+    auto r = t.run("codegen-for3.zithm", "fn sum_to(n: i32): i32 {\n"
                                         "    var total: i32 = 0;\n"
                                         "    for (var i: i32 = 0), (i < n), (i = i + 1) {\n"
                                         "        total = total + i;\n"
@@ -1225,7 +1225,7 @@ static void test_labeled_loop_controls_runtime() {
              Case{"continue outer;", 104},
          }) {
         CodegenTest t;
-        auto r = t.run("codegen-labels.zith",
+        auto r = t.run("codegen-labels.zithm",
                        "fn main(): i32 {\n"
                        "    var outer_runs: i32 = 0;\n"
                        "    var outer_tail: i32 = 0;\n"
@@ -1250,7 +1250,7 @@ static void test_labeled_loop_controls_runtime() {
 
 static void test_for_in_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-for-in.zith", "struct Range {\n"
+    auto r = t.run("codegen-for-in.zithm", "struct Range {\n"
                                           "    current: i32,\n"
                                           "    limit: i32,\n"
                                           "    fn next(var self): ?i32 {\n"
@@ -1279,7 +1279,7 @@ static void test_for_in_runtime() {
 
 static void test_nested_optional_for_in_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-nested-for-in.zith",
+    auto r = t.run("codegen-nested-for-in.zithm",
                    "struct Range {\n"
                    "    current: i32,\n"
                    "    limit: i32,\n"
@@ -1320,7 +1320,7 @@ static void test_nested_optional_for_in_runtime() {
 // `?V` aggregate rather than a bare `V`.
 static void test_imported_generic_hashmap_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-generic-hashmap.zith",
+    auto r = t.run("codegen-generic-hashmap.zithm",
                    "import soon/collections/hash_map as hm\n"
                    "from soon/memory\n"
                    "fn main(): i32 {\n"
@@ -1347,7 +1347,7 @@ static void test_imported_generic_hashmap_runtime() {
 // `pop`, and `destroy` returning the array to an empty state.
 static void test_imported_generic_dynarray_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-generic-dynarray.zith",
+    auto r = t.run("codegen-generic-dynarray.zithm",
                    "import soon/collections/dyn_array as da\n"
                    "from soon/memory\n"
                    "fn main(): i32 {\n"
@@ -1380,7 +1380,7 @@ static void test_imported_generic_dynarray_runtime() {
 // are called without an explicit `<T, E>` list.
 static void test_imported_result_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-generic-result.zith",
+    auto r = t.run("codegen-generic-result.zithm",
                    "import soon/result as res\n"
                    "import soon/result/fallback as fallback\n"
                    "fn main(): i32 {\n"
@@ -1411,7 +1411,7 @@ static void test_soon_math_scalar_runtime() {
 #if !defined(_WIN32) && !defined(ZITH_IS_WASM)
     t.opts.libraries.push("m");
 #endif
-    auto r = t.run("codegen-soon-math-scalar.zith",
+    auto r = t.run("codegen-soon-math-scalar.zithm",
                    "import soon/math/scalar as math\n"
                    "import soon/math as baseMath\n"
                    "fn main(): i32 {\n"
@@ -1435,7 +1435,7 @@ static void test_soon_math_scalar_runtime() {
 
 static void test_soon_slice_algorithms_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-soon-slice-algorithms.zith",
+    auto r = t.run("codegen-soon-slice-algorithms.zithm",
                    "import soon/algorithms/slice as slices\n"
                    "fn main(): i32 {\n"
                    "    var numbers: [4]i32 = [4, 2, 4, 7];\n"
@@ -1460,14 +1460,14 @@ static void test_imported_panic_runtime() {
     // A program that does not panic must run normally after importing the
     // module, and one that panics must write its message and abort.
     CodegenTest ok;
-    auto safe = ok.run("codegen-panic-safe.zith",
+    auto safe = ok.run("codegen-panic-safe.zithm",
                        "import soon/panic as pn\n"
                        "fn main(): i32 { return 5; }\n");
     CHECK(safe.ok, "importing std/panic does not break a program that never panics");
     CHECK_EQ(safe.exitCode, 5, "a program importing std/panic still returns its value");
 
     CodegenTest t;
-    auto r = t.run("codegen-panic-abort.zith",
+    auto r = t.run("codegen-panic-abort.zithm",
                    "import soon/panic as pn\n"
                    "fn main(): i32 {\n"
                    "    pn.panic(\"fatal: bad state\");\n"
@@ -1481,7 +1481,7 @@ static void test_imported_panic_runtime() {
 
 static void test_imported_memory_new_delete_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-memory-new.zith",
+    auto r = t.run("codegen-memory-new.zithm",
                    "from soon/memory\n"
                    "struct Box { value: i32 = 0 }\n"
                    "implement Box as InPlace {\n"
@@ -1505,7 +1505,7 @@ static void test_imported_memory_new_delete_runtime() {
 
 static void test_imported_memory_make_release_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-memory-make.zith",
+    auto r = t.run("codegen-memory-make.zithm",
                    "from soon/memory\n"
                    "struct Box { value: i32 = 0 }\n"
                    "implement Box as InPlace {\n"
@@ -1533,11 +1533,11 @@ static void test_imported_memory_make_release_runtime() {
 // made the test silently lower to an always-false check.
 static void test_imported_tagged_union_is_member_runtime() {
     ModernFileCodegenTest t;
-    t.write("lib.zith", "pub struct End {}\n"
+    t.write("lib.zithm", "pub struct End {}\n"
                         "pub union Step { End, char }\n"
                         "pub fn end(): Step { return Step { End {} }; }\n"
                         "pub fn chr(c: char): Step { return Step { c }; }\n");
-    t.write("main.zith", "import lib as s\n"
+    t.write("main.zithm", "import lib as s\n"
                          "fn main(): i32 {\n"
                          "    var a: s.Step = s.end();\n"
                          "    var b: s.Step = s.chr('x');\n"
@@ -1555,7 +1555,7 @@ static void test_imported_tagged_union_is_member_runtime() {
 static void test_integer_range_for_runtime() {
     CodegenTest t;
     auto r =
-        t.run("codegen-integer-range-for.zith", "fn main(): i32 {\n"
+        t.run("codegen-integer-range-for.zithm", "fn main(): i32 {\n"
                                                 "    var total: i32 = 0;\n"
                                                 "    for (i in 0..<5) { total = total + i; }\n"
                                                 "    if (total != 10) { return 1; }\n"
@@ -1576,7 +1576,7 @@ static void test_integer_range_for_runtime() {
 
 static void test_range_in_operator_and_when_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-range-in.zith", "fn main(): i32 {\n"
+    auto r = t.run("codegen-range-in.zithm", "fn main(): i32 {\n"
                                             "    var total: i32 = 0;\n"
                                             "    if (3 in 1..<4) { total = total + 100; }\n"
                                             "    if (5 in 1>..5) { total = total + 1000; }\n"
@@ -1596,7 +1596,7 @@ static void test_range_in_operator_and_when_runtime() {
 
 static void test_user_contains_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-user-contains.zith",
+    auto r = t.run("codegen-user-contains.zithm",
                    "struct Set {\n"
                    "    a: i32,\n"
                    "    b: i32,\n"
@@ -1618,7 +1618,7 @@ static void test_user_contains_runtime() {
 static void test_float_range_for_is_rejected() {
     CodegenTest t;
     auto r =
-        t.run("codegen-float-range-for.zith", "fn main(): i32 {\n"
+        t.run("codegen-float-range-for.zithm", "fn main(): i32 {\n"
                                               "    var total: i32 = 0;\n"
                                               "    for (x in 0.0>..<10.0) { total = total + 1; }\n"
                                               "    return total;\n"
@@ -1635,7 +1635,7 @@ static void test_bodyless_range_for_is_rejected() {
         "for (1>..<5){}",
     };
     for (const auto case_body : cases) {
-        auto r = t.run("codegen-bodyless-range.zith", "fn main(): i32 {\n"
+        auto r = t.run("codegen-bodyless-range.zithm", "fn main(): i32 {\n"
                                                       "    " +
                                                           std::string(case_body) +
                                                           "\n"
@@ -1644,7 +1644,7 @@ static void test_bodyless_range_for_is_rejected() {
         CHECK(!r.ok && r.errorCount > 0, "bodyless literal ranges are rejected in for-in");
     }
 
-    const auto r                 = t.run("codegen-bodyless-range.zith", "fn main(): i32 {\n"
+    const auto r                 = t.run("codegen-bodyless-range.zithm", "fn main(): i32 {\n"
                                                                         "    for (1..5){}\n"
                                                                         "    return 0;\n"
                                                                         "}\n");
@@ -1658,7 +1658,7 @@ static void test_bodyless_range_for_is_rejected() {
 
 static void test_imported_counter_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-imported-counter.zith",
+    auto r = t.run("codegen-imported-counter.zithm",
                    "import soon/counter\n"
                    "fn main(): i32 {\n"
                    "    var total: i32 = 0;\n"
@@ -1681,7 +1681,7 @@ static void test_imported_counter_runtime() {
 
 static void test_named_struct_literal_and_defaults_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-named-struct-literal.zith",
+    auto r = t.run("codegen-named-struct-literal.zithm",
                    "struct Pair { left: i32 = 3, right: i32 = 4 }\n"
                    "fn main(): i32 {\n"
                    "    var named: Pair = Pair{right: 9, left: _};\n"
@@ -1706,7 +1706,7 @@ static void test_trailing_void_call_is_emitted_once() {
     Options opts(arena);
     opts.flags.emitIr(true);
 
-    session::CompilationSession session(opts, "/tmp/codegen-trailing-void-call.zith");
+    session::CompilationSession session(opts, "/tmp/codegen-trailing-void-call.zithm");
     session.setBuffered(true);
     session.setAlwaysEmitObject(true);
     session.setContent("#[discardable] extern fn putchar(c: i32): i32\n"
@@ -1745,7 +1745,7 @@ static void test_trailing_void_call_is_emitted_once() {
 static void test_from_console_lowers_println_body() {
     CodegenTest t;
     t.opts.flags.emitIr(true);
-    auto r = t.run("codegen-from-console.zith", "from std/io/console\n"
+    auto r = t.run("codegen-from-console.zithm", "from std/io/console\n"
                                                 "from soon/memory\n"
                                                 "fn main(): i32 {\n"
                                                 "    let heap = HeapAllocator {};\n"
@@ -1764,7 +1764,7 @@ static void test_from_console_lowers_println_body() {
 static void test_console_alias_resolves_member_without_global_import() {
     CodegenTest aliased;
     aliased.opts.flags.emitIr(true);
-    auto ok = aliased.run("codegen-console-alias.zith",
+    auto ok = aliased.run("codegen-console-alias.zithm",
                           "import std/io/console as console\n"
                           "from soon/memory\n"
                           "fn main(): i32 {\n"
@@ -1780,7 +1780,7 @@ static void test_console_alias_resolves_member_without_global_import() {
 
     CodegenTest unqualified;
     auto missing =
-        unqualified.run("codegen-console-alias-missing.zith", "import std/io/console as console\n"
+        unqualified.run("codegen-console-alias-missing.zithm", "import std/io/console as console\n"
                                                               "fn main() {\n"
                                                               "    _ = println(\"not global\");\n"
                                                               "}\n");
@@ -1791,7 +1791,7 @@ static void test_console_alias_resolves_member_without_global_import() {
 static void test_struct_type_has_fields_in_ir() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "struct P { x: i32, y: i32, }\n"
+    t.write("main.zithm", "struct P { x: i32, y: i32, }\n"
                          "fn main(): i32 {\n"
                          "    var p: P = P { x: 1, y: 2, };\n"
                          "    return p.y;\n"
@@ -1810,7 +1810,7 @@ static void test_struct_type_has_fields_in_ir() {
 static void test_struct_field_read_through_parameter() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "struct P { x: i32, y: i32, }\n"
+    t.write("main.zithm", "struct P { x: i32, y: i32, }\n"
                          "fn get_y(p: P): i32 { return p.y; }\n"
                          "fn main(): i32 {\n"
                          "    var p: P = P { x: 4, y: 9, };\n"
@@ -1828,7 +1828,7 @@ static void test_struct_field_read_through_parameter() {
 static void test_generic_bound_by_value_parameter_runs_without_borrow_attrs() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "trait Foo {}\n"
+    t.write("main.zithm", "trait Foo {}\n"
                          "interface Transform { [x]: i32 }\n"
                          "struct Temple { x: i32 }\n"
                          "struct Point { x: i32 }\n"
@@ -1855,7 +1855,7 @@ static void test_generic_bound_by_value_parameter_runs_without_borrow_attrs() {
 
 static void test_interface_method_bound_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "interface Positioned {\n"
+    t.write("main.zithm", "interface Positioned {\n"
                          "    x: i32,\n"
                          "    fn getX(self): i32\n"
                          "}\n"
@@ -1879,7 +1879,7 @@ static void test_interface_method_bound_runtime() {
 static void test_dyn_interface_method_dispatch_runtime() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "interface Area {\n"
+    t.write("main.zithm", "interface Area {\n"
                          "    fn area(self): i32\n"
                          "}\n"
                          "struct Square {\n"
@@ -1917,7 +1917,7 @@ static void test_dyn_interface_method_dispatch_runtime() {
 static void test_dyn_trait_method_dispatch_runtime() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "trait Drawable {\n"
+    t.write("main.zithm", "trait Drawable {\n"
                          "    fn area(self): i32 { return 0; }\n"
                          "}\n"
                          "struct Square {\n"
@@ -1960,7 +1960,7 @@ static void test_dyn_trait_method_dispatch_runtime() {
 
 static void test_dyn_trait_struct_field_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "trait Allocator {\n"
+    t.write("main.zithm", "trait Allocator {\n"
                          "    fn value(self): i32;\n"
                          "}\n"
                          "struct HeapAllocator {}\n"
@@ -1995,7 +1995,7 @@ static void test_dyn_trait_struct_field_runtime() {
 // stored `dyn Allocator` field.
 static void test_dyn_trait_struct_literal_field_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "trait Allocator {\n"
+    t.write("main.zithm", "trait Allocator {\n"
                          "    fn value(self): i32;\n"
                          "}\n"
                          "struct HeapAllocator {}\n"
@@ -2021,7 +2021,7 @@ static void test_dyn_trait_struct_literal_field_runtime() {
 static void test_dyn_trait_mutating_receiver_dispatch_runtime() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "trait Counter {\n"
+    t.write("main.zithm", "trait Counter {\n"
                          "    fn get(self): i32 { return 0; }\n"
                          "    fn bump(var self): i32 { return 0; }\n"
                          "}\n"
@@ -2061,7 +2061,7 @@ static void test_dyn_trait_mutating_receiver_dispatch_runtime() {
     // stay on the spill copy and never touch the unrelated caller's value.
     ModernFileCodegenTest temp;
     temp.opts.flags.emitIr(true);
-    temp.write("main.zith", "trait Counter {\n"
+    temp.write("main.zithm", "trait Counter {\n"
                             "    fn get(self): i32 { return 0; }\n"
                             "    fn bump(var self): i32 { return 0; }\n"
                             "}\n"
@@ -2090,7 +2090,7 @@ static void test_dyn_trait_mutating_receiver_dispatch_runtime() {
 static void test_dyn_trait_by_value_receiver_dispatch_runtime() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "trait Typed {\n"
+    t.write("main.zithm", "trait Typed {\n"
                          "    fn first(self): i32 { return 0; }\n"
                          "}\n"
                          "implement []char as Typed {\n"
@@ -2115,7 +2115,7 @@ static void test_dyn_trait_by_value_receiver_dispatch_runtime() {
 static void test_dyn_trait_lend_dyn_receiver_dispatch_runtime() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "trait Sink {\n"
+    t.write("main.zithm", "trait Sink {\n"
                          "    fn put(self: lend dyn Sink, v: i32): i32;\n"
                          "}\n"
                          "struct Buf {\n"
@@ -2142,7 +2142,7 @@ static void test_dyn_trait_lend_dyn_receiver_dispatch_runtime() {
     // on the spill copy instead of the unrelated caller.
     ModernFileCodegenTest temp;
     temp.opts.flags.emitIr(true);
-    temp.write("main.zith", "trait Sink {\n"
+    temp.write("main.zithm", "trait Sink {\n"
                             "    fn put(self: lend dyn Sink, v: i32): i32;\n"
                             "}\n"
                             "struct Buf {\n"
@@ -2166,7 +2166,7 @@ static void test_dyn_trait_lend_dyn_receiver_dispatch_runtime() {
 
 static void test_dyn_interface_field_access_is_rejected() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "interface Area {\n"
+    t.write("main.zithm", "interface Area {\n"
                          "    x: i32,\n"
                          "    fn area(self): i32\n"
                          "}\n"
@@ -2187,7 +2187,7 @@ static void test_dyn_interface_field_access_is_rejected() {
 
 static void test_duplicate_struct_field_names_do_not_collide_globally() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "struct A { value: i32 }\n"
+    t.write("main.zithm", "struct A { value: i32 }\n"
                          "struct B { value: i32 }\n"
                          "fn main(): i32 {\n"
                          "    let a: A = A { value: 1 };\n"
@@ -2204,7 +2204,7 @@ static void test_duplicate_struct_field_names_do_not_collide_globally() {
 static void test_f32_literal_stores_in_32_width() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "fn main(): i32 {\n"
+    t.write("main.zithm", "fn main(): i32 {\n"
                          "    let f: f32 = 1.5;\n"
                          "    return f as i32;\n"
                          "}\n");
@@ -2222,7 +2222,7 @@ static void test_f32_literal_stores_in_32_width() {
 static void test_numeric_cast_codegen() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "fn main(): i32 {\n"
+    t.write("main.zithm", "fn main(): i32 {\n"
                          "    var n: i32 = 21;\n"
                          "    let f: f64 = n as f64;\n"
                          "    return f as i32;\n"
@@ -2238,7 +2238,7 @@ static void test_numeric_cast_codegen() {
 static void test_narrowing_numeric_cast_literal_diagnostics() {
     ModernFileCodegenTest t;
 
-    t.write("accepted.zith", "fn main(): i32 {\n"
+    t.write("accepted.zithm", "fn main(): i32 {\n"
                              "    let a: i8 = 100 as i8;\n"
                              "    let b: u8 = 255 as u8;\n"
                              "    let c: i8 = (-128) as i8;\n"
@@ -2249,56 +2249,56 @@ static void test_narrowing_numeric_cast_literal_diagnostics() {
                              "    return (a as i32) + (b as i32) + (c as i32) + (d as i32) +\n"
                              "           (e as i32) + (f as i32) + (g as i32);\n"
                              "}\n");
-    auto r = t.run("accepted.zith");
+    auto r = t.run("accepted.zithm");
     CHECK(r.usedModern, "narrowing literal casts use the modern frontend pipeline");
     CHECK(r.ok, "in-range narrowing literal casts compile and execute");
     CHECK_EQ(r.exitCode, 254, "in-range literal casts and widening casts preserve each value");
 
-    t.write("unsigned-overflow.zith", "fn main(): i32 {\n"
+    t.write("unsigned-overflow.zithm", "fn main(): i32 {\n"
                                       "    let _: u8 = 256 as u8;\n"
                                       "    return 0;\n"
                                       "}\n");
-    auto bad_u8 = t.run("unsigned-overflow.zith");
+    auto bad_u8 = t.run("unsigned-overflow.zithm");
     CHECK(!bad_u8.ok && bad_u8.errorCount > 0,
           "256 as u8 reports a compile-time overflow diagnostic");
 
-    t.write("signed-overflow.zith", "fn main(): i32 {\n"
+    t.write("signed-overflow.zithm", "fn main(): i32 {\n"
                                     "    let _: i8 = 128 as i8;\n"
                                     "    return 0;\n"
                                     "}\n");
-    auto bad_i8 = t.run("signed-overflow.zith");
+    auto bad_i8 = t.run("signed-overflow.zithm");
     CHECK(!bad_i8.ok && bad_i8.errorCount > 0,
           "128 as i8 reports a compile-time overflow diagnostic");
 
-    t.write("negative-overflow.zith", "fn main(): i32 {\n"
+    t.write("negative-overflow.zithm", "fn main(): i32 {\n"
                                       "    let _: i8 = -129 as i8;\n"
                                       "    return 0;\n"
                                       "}\n");
-    auto bad_i8_neg = t.run("negative-overflow.zith");
+    auto bad_i8_neg = t.run("negative-overflow.zithm");
     CHECK(!bad_i8_neg.ok && bad_i8_neg.errorCount > 0,
           "-129 as i8 reports a compile-time overflow diagnostic");
 
-    t.write("i16-overflow.zith", "fn main(): i32 {\n"
+    t.write("i16-overflow.zithm", "fn main(): i32 {\n"
                                  "    let _: i16 = 100000 as i16;\n"
                                  "    return 0;\n"
                                  "}\n");
-    auto bad_i16 = t.run("i16-overflow.zith");
+    auto bad_i16 = t.run("i16-overflow.zithm");
     CHECK(!bad_i16.ok && bad_i16.errorCount > 0,
           "100000 as i16 reports a compile-time overflow diagnostic");
 
-    t.write("signed-literal-to-unsigned.zith", "fn main(): i32 {\n"
+    t.write("signed-literal-to-unsigned.zithm", "fn main(): i32 {\n"
                                                "    let _: u8 = (-1) as u8;\n"
                                                "    return 0;\n"
                                                "}\n");
-    auto bad_sign = t.run("signed-literal-to-unsigned.zith");
+    auto bad_sign = t.run("signed-literal-to-unsigned.zithm");
     CHECK(!bad_sign.ok && bad_sign.errorCount > 0,
           "negative literal to u8 reports a compile-time overflow diagnostic");
 
-    t.write("raw-overflow.zith", "fn main(): i32 {\n"
+    t.write("raw-overflow.zithm", "fn main(): i32 {\n"
                                  "    let _: i8 = raw 256 as i8;\n"
                                  "    return 0;\n"
                                  "}\n");
-    auto raw = t.run("raw-overflow.zith");
+    auto raw = t.run("raw-overflow.zithm");
     CHECK(raw.ok || raw.errorCount == 1,
           "raw narrowing casts intentionally bypass the compile-time overflow diagnostic");
 }
@@ -2306,53 +2306,53 @@ static void test_narrowing_numeric_cast_literal_diagnostics() {
 static void test_narrowing_numeric_cast_const_diagnostics() {
     ModernFileCodegenTest t;
 
-    t.write("const-accepted.zith", "const GOOD: i32 = 100;\n"
+    t.write("const-accepted.zithm", "const GOOD: i32 = 100;\n"
                                    "fn main(): i32 {\n"
                                    "    let _: i8 = GOOD as i8;\n"
                                    "    return 0;\n"
                                    "}\n");
-    auto r = t.run("const-accepted.zith");
+    auto r = t.run("const-accepted.zithm");
     CHECK(r.usedModern, "in-range constant narrowing casts use the modern pipeline");
     CHECK(r.ok, "in-range constant narrowing casts compile and execute");
 
-    t.write("const-overflow.zith", "const TOO_LARGE: i32 = 128;\n"
+    t.write("const-overflow.zithm", "const TOO_LARGE: i32 = 128;\n"
                                    "fn main(): i32 {\n"
                                    "    let _: i8 = TOO_LARGE as i8;\n"
                                    "    return 0;\n"
                                    "}\n");
-    auto bad = t.run("const-overflow.zith");
+    auto bad = t.run("const-overflow.zithm");
     CHECK(!bad.ok && bad.errorCount > 0,
           "constant 128 as i8 reports a compile-time overflow diagnostic");
 
-    t.write("const-negative-accepted.zith", "const NEG: i32 = 200;\n"
+    t.write("const-negative-accepted.zithm", "const NEG: i32 = 200;\n"
                                             "fn main(): i32 {\n"
                                             "    let _: u8 = NEG as u8;\n"
                                             "    return 0;\n"
                                             "}\n");
-    auto neg = t.run("const-negative-accepted.zith");
+    auto neg = t.run("const-negative-accepted.zithm");
     CHECK(neg.ok, "in-range unsigned constant narrowing casts stay valid");
 
-    t.write("enum-cast-accepted.zith", "enum Byte: u8 { Small = 7 }\n"
+    t.write("enum-cast-accepted.zithm", "enum Byte: u8 { Small = 7 }\n"
                                        "fn main(): i32 {\n"
                                        "    let _: i8 = Byte.Small as i8;\n"
                                        "    return 0;\n"
                                        "}\n");
-    auto enum_ok = t.run("enum-cast-accepted.zith");
+    auto enum_ok = t.run("enum-cast-accepted.zithm");
     CHECK(enum_ok.ok, "narrowing enum discriminants to a compatible width stay valid");
 
-    t.write("runtime-cast-stays-valid.zith", "fn main(): i32 {\n"
+    t.write("runtime-cast-stays-valid.zithm", "fn main(): i32 {\n"
                                              "    var v: i32 = 128;\n"
                                              "    let _: i8 = v as i8;\n"
                                              "    return 0;\n"
                                              "}\n");
-    auto runtime = t.run("runtime-cast-stays-valid.zith");
+    auto runtime = t.run("runtime-cast-stays-valid.zithm");
     CHECK(runtime.ok,
           "runtime narrowing casts remain allowed and are left for later overflow checks");
 }
 
 static void test_state_machine_loop_executes() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "state Loop(n: i32): i32 {\n"
+    t.write("main.zithm", "state Loop(n: i32): i32 {\n"
                          "    if (n < 10) {\n"
                          "        jump Loop(n + 1);\n"
                          "    }\n"
@@ -2370,7 +2370,7 @@ static void test_state_machine_loop_executes() {
 static void test_state_tail_calls_emit_musttail() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "state Start(v: i32): i32 {\n"
+    t.write("main.zithm", "state Start(v: i32): i32 {\n"
                          "    jump Done(v + 1);\n"
                          "}\n"
                          "state Done(v: i32): i32 {\n"
@@ -2397,7 +2397,7 @@ static void test_state_tail_calls_emit_musttail() {
 static void test_state_machine_diverging_parameters_executes() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "state Start(n: i32): i32 {\n"
+    t.write("main.zithm", "state Start(n: i32): i32 {\n"
                          "    if (n == 0) {\n"
                          "        return 42;\n"
                          "    }\n"
@@ -2422,7 +2422,7 @@ static void test_state_machine_diverging_parameters_executes() {
 static void test_state_codegen_has_no_marker_runtime_symbols() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "state Start(v: i32): i32 {\n"
+    t.write("main.zithm", "state Start(v: i32): i32 {\n"
                          "    jump Done(v + 2);\n"
                          "}\n"
                          "state Done(v: i32): i32 {\n"
@@ -2445,7 +2445,7 @@ static void test_state_codegen_has_no_marker_runtime_symbols() {
 
 static void test_state_loop_does_not_grow_stack() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "state CountDown(n: i32): i32 {\n"
+    t.write("main.zithm", "state CountDown(n: i32): i32 {\n"
                          "    if (n > 0) {\n"
                          "        jump CountDown(n - 1);\n"
                          "    }\n"
@@ -2463,7 +2463,7 @@ static void test_state_loop_does_not_grow_stack() {
 static void test_loop_local_binding_does_not_grow_stack() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "fn main(): i32 {\n"
+    t.write("main.zithm", "fn main(): i32 {\n"
                          "    var acc: i32 = 0;\n"
                          "    var n: i32 = 0;\n"
                          "    for (n < 1000000) {\n"
@@ -2486,7 +2486,7 @@ static void test_loop_local_binding_does_not_grow_stack() {
 
 static void test_local_state_machine_executes() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn machine(): i32 {\n"
+    t.write("main.zithm", "fn machine(): i32 {\n"
                          "    state Start(n: i32): i32 {\n"
                          "        if (n == 0) {\n"
                          "            return 42;\n"
@@ -2509,7 +2509,7 @@ static void test_local_state_machine_executes() {
 
 static void test_defer_reverse_order_before_return() {
     CodegenTest t;
-    auto r = t.run("codegen-defer-reverse.zith", "#[discardable] extern fn putchar(c: i32): i32\n"
+    auto r = t.run("codegen-defer-reverse.zithm", "#[discardable] extern fn putchar(c: i32): i32\n"
                                                  "fn main(): i32 {\n"
                                                  "    defer putchar(66);\n"
                                                  "    defer putchar(65);\n"
@@ -2522,7 +2522,7 @@ static void test_defer_reverse_order_before_return() {
 
 static void test_defer_block_runs_on_normal_exit() {
     CodegenTest t;
-    auto r = t.run("codegen-defer-block.zith", "#[discardable] extern fn putchar(c: i32): i32\n"
+    auto r = t.run("codegen-defer-block.zithm", "#[discardable] extern fn putchar(c: i32): i32\n"
                                                "fn main() {\n"
                                                "    defer { _ = putchar(66); _ = putchar(65); }\n"
                                                "    _ = putchar(48);\n"
@@ -2533,7 +2533,7 @@ static void test_defer_block_runs_on_normal_exit() {
 
 static void test_defer_in_if_and_loop() {
     CodegenTest t;
-    auto if_test = t.run("codegen-defer-if.zith", "#[discardable] extern fn putchar(c: i32): i32\n"
+    auto if_test = t.run("codegen-defer-if.zithm", "#[discardable] extern fn putchar(c: i32): i32\n"
                                                   "fn main() {\n"
                                                   "    if (true) {\n"
                                                   "        defer putchar(66);\n"
@@ -2545,7 +2545,7 @@ static void test_defer_in_if_and_loop() {
     CHECK_EQ(if_test.output, "0BZ", "defer runs when the innermost if block exits");
 
     auto loop_test =
-        t.run("codegen-defer-loop.zith", "#[discardable] extern fn putchar(c: i32): i32\n"
+        t.run("codegen-defer-loop.zithm", "#[discardable] extern fn putchar(c: i32): i32\n"
                                          "fn main() {\n"
                                          "    for (true) {\n"
                                          "        defer putchar(66);\n"
@@ -2560,7 +2560,7 @@ static void test_defer_in_if_and_loop() {
 
 static void test_defer_in_state_before_jump() {
     CodegenTest t;
-    auto r = t.run("codegen-defer-state.zith", "#[discardable] extern fn putchar(c: i32): i32\n"
+    auto r = t.run("codegen-defer-state.zithm", "#[discardable] extern fn putchar(c: i32): i32\n"
                                                "state Done() { return; }\n"
                                                "state Start() {\n"
                                                "    defer putchar(66);\n"
@@ -2579,7 +2579,7 @@ static void test_linked_list_acceptance_program() {
     // struct storage may contain pointers as long as nothing escapes; the
     // ownership iteration does not yet support persistent linked structures.
     ModernFileCodegenTest t;
-    t.write("main.zith", "struct Node {\n"
+    t.write("main.zithm", "struct Node {\n"
                          "    value: i32,\n"
                          "    next: ?*Node,\n"
                          "}\n"
@@ -2614,7 +2614,7 @@ static void test_linked_list_acceptance_program() {
 
 static void test_modern_file_pipeline_executes_program() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn main(): i32 {\n"
+    t.write("main.zithm", "fn main(): i32 {\n"
                          "    return 31;\n"
                          "}\n");
 
@@ -2626,7 +2626,7 @@ static void test_modern_file_pipeline_executes_program() {
 
 static void test_const_global_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "const GLOBAL: i32 = 3;\n"
+    t.write("main.zithm", "const GLOBAL: i32 = 3;\n"
                          "fn main(): i32 {\n"
                          "    return GLOBAL;\n"
                          "}\n");
@@ -2639,7 +2639,7 @@ static void test_const_global_runtime() {
 
 static void test_const_global_array_of_string_pointers() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "const keywords: [4]*char = [\n"
+    t.write("main.zithm", "const keywords: [4]*char = [\n"
                          "    \"if\",\n"
                          "    \"else\",\n"
                          "    \"for\",\n"
@@ -2657,8 +2657,8 @@ static void test_const_global_array_of_string_pointers() {
 
 static void test_modern_file_import_codegen_executes() {
     ModernFileCodegenTest t;
-    t.write("math.zith", "pub fn add(a: i32, b: i32): i32 { a + b }\n");
-    t.write("main.zith", "from math\n"
+    t.write("math.zithm", "pub fn add(a: i32, b: i32): i32 { a + b }\n");
+    t.write("main.zithm", "from math\n"
                          "fn main(): i32 {\n"
                          "    return add(20, 22);\n"
                          "}\n");
@@ -2671,7 +2671,7 @@ static void test_modern_file_import_codegen_executes() {
 
 static void test_modern_file_type_alias_codegen_executes() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "type MyInt = i32\n"
+    t.write("main.zithm", "type MyInt = i32\n"
                          "alias AInt = i32\n"
                          "fn main(): i32 {\n"
                          "    var x: MyInt = 44 as MyInt;\n"
@@ -2694,7 +2694,7 @@ static void test_run_emit_hir_still_executes() {
     CHECK_EQ(t.opts.targetStage, session::Stage::Cached,
              "run --emit-hir keeps the pipeline target at code generation");
 
-    auto r = t.run("codegen-run-emit-hir.zith", "fn main(): i32 {\n"
+    auto r = t.run("codegen-run-emit-hir.zithm", "fn main(): i32 {\n"
                                                 "    return 29;\n"
                                                 "}\n");
     CHECK(r.ok, "run --emit-hir still produces and runs an executable");
@@ -2705,7 +2705,7 @@ static void test_emit_hir_static_method_dump() {
     ModernFileCodegenTest t;
     t.opts.targetStage = session::Stage::HirLowered;
     t.opts.flags.emitHir(true);
-    t.write("main.zith", "struct Point { x: i32 }\n"
+    t.write("main.zithm", "struct Point { x: i32 }\n"
                          "trait Sample {}\n"
                          "implement Point as Sample {\n"
                          "    fn foo(): i32 { 7 }\n"
@@ -2714,7 +2714,7 @@ static void test_emit_hir_static_method_dump() {
                          "    Point.foo()\n"
                          "}\n");
 
-    session::CompilationSession session(t.opts, (t.root / "main.zith").string());
+    session::CompilationSession session(t.opts, (t.root / "main.zithm").string());
     session.setBuffered(true);
     auto ok = session.runTo(session::Stage::HirLowered);
     CHECK(ok, "--emit-hir dumps a static method call without touching the invalid callee");
@@ -2781,7 +2781,7 @@ static void test_layout_api_matches_llvm() {
 
 static void test_raw_union_runtime_reinterpret() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+    t.write("main.zithm", "extern fn printf(fmt: *char, ...): i32\n"
                          "raw union Bits { u8, u32 }\n"
                          "fn main(): u32 {\n"
                          "    var b: Bits = Bits { 255u8 };\n"
@@ -2816,7 +2816,7 @@ static void test_slice_abi_matches_c_runtime() {
 
     t.opts.libraryDirs.push(t.root.string());
     t.opts.libraries.push("zithsliceabi");
-    t.write("main.zith", "extern fn zith_test_slice(): []i32\n"
+    t.write("main.zithm", "extern fn zith_test_slice(): []i32\n"
                          "fn main(): i32 {\n"
                          "    var s: []i32 = zith_test_slice();\n"
                          "    return raw s[1];\n"
@@ -2830,7 +2830,7 @@ static void test_slice_abi_matches_c_runtime() {
 /// An array coerced to `[]i32` is a zero-copy view of the original storage.
 static void test_array_to_slice_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn write(var s: []i32): i32 { s[1] = 9; raw s[1] }\n"
+    t.write("main.zithm", "fn write(var s: []i32): i32 { s[1] = 9; raw s[1] }\n"
                          "fn sum(s: []i32): i32 { raw s[0] + raw s[1] }\n"
                          "fn main(): i32 {\n"
                          "    var values: [3]i32 = [10, 20, 30];\n"
@@ -2844,7 +2844,7 @@ static void test_array_to_slice_runtime() {
 
 static void test_raw_slice_and_index_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn main(): i32 {\n"
+    t.write("main.zithm", "fn main(): i32 {\n"
                          "    var values: [3]i32 = [10, 20, 30];\n"
                          "    let s: []i32 = raw values[1..3];\n"
                          "    return raw s[0] + raw s[1];\n"
@@ -2858,7 +2858,7 @@ static void test_raw_slice_and_index_runtime() {
 /// Runtime checks wrap valid checked indexes in Some and invalid ones in None.
 static void test_checked_index_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith",
+    t.write("main.zithm",
             "fn pick(values: [3]i32, i: i32): ?i32 { values[i] }\n"
             "fn slice_pick(values: []i32, i: i32): ?i32 { values[i] }\n"
             "fn main(): i32 {\n"
@@ -2902,7 +2902,7 @@ static void test_function_pointer_call() {
 
     t.opts.libraryDirs.push(t.root.string());
     t.opts.libraries.push("zithfnptr");
-    t.write("main.zith", "extern fn apply(f: fn(i32): i32, x: i32): i32\n"
+    t.write("main.zithm", "extern fn apply(f: fn(i32): i32, x: i32): i32\n"
                          "extern fn double_(x: i32): i32\n"
                          "fn main(): i32 {\n"
                          "    var f: fn(i32): i32 = double_;\n"
@@ -2916,7 +2916,7 @@ static void test_function_pointer_call() {
 
 static void test_native_function_value_call() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn double(x: i32): i32 { x * 2 }\n"
+    t.write("main.zithm", "fn double(x: i32): i32 { x * 2 }\n"
                          "fn main(): i32 {\n"
                          "    var f: fn(i32): i32 = double;\n"
                          "    return f(7);\n"
@@ -2929,7 +2929,7 @@ static void test_native_function_value_call() {
 
 static void test_anonymous_function_literal_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith",
+    t.write("main.zithm",
             "fn apply(f: fn(i32, i32): i32, x: i32): i32 { f(x, x) }\n"
             "fn main(): i32 {\n"
             "    let add = fn (a: i32, b: i32): i32 { a + b };\n"
@@ -2945,7 +2945,7 @@ static void test_anonymous_function_literal_runtime() {
 
 static void test_anonymous_function_capture_is_rejected() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn main(): i32 {\n"
+    t.write("main.zithm", "fn main(): i32 {\n"
                          "    let x = 10;\n"
                          "    let f = fn (a: i32): i32 { a + x };\n"
                          "    return f(1);\n"
@@ -2959,7 +2959,7 @@ static void test_anonymous_function_capture_is_rejected() {
 
 static void test_state_value_dock_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "state Machine(n: i32): i32 {\n"
+    t.write("main.zithm", "state Machine(n: i32): i32 {\n"
                          "    if (n == 0) {\n"
                          "        return 42;\n"
                          "    }\n"
@@ -3005,7 +3005,7 @@ static void test_mutable_slice_from_c() {
 
     t.opts.libraryDirs.push(t.root.string());
     t.opts.libraries.push("zithsliceset");
-    t.write("main.zith", "extern fn make_slice(): []i32\n"
+    t.write("main.zithm", "extern fn make_slice(): []i32\n"
                          "extern fn slice_set(s: *[]i32, i: i64, v: i32): i32\n"
                          "fn main(): i32 {\n"
                          "    var s: []i32 = make_slice();\n"
@@ -3020,7 +3020,7 @@ static void test_mutable_slice_from_c() {
 
 static void test_variadic_slice_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn sum(rest: [...]i32): i32 {\n"
+    t.write("main.zithm", "fn sum(rest: [...]i32): i32 {\n"
                          "    var total: i32 = 0;\n"
                          "    total = total + raw rest[0];\n"
                          "    total = total + raw rest[1];\n"
@@ -3038,7 +3038,7 @@ static void test_variadic_slice_runtime() {
 
 static void test_pipe_variadic_slice_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn sum(rest: [...]i32): i32 {\n"
+    t.write("main.zithm", "fn sum(rest: [...]i32): i32 {\n"
                          "    return raw rest[0] + raw rest[1] + raw rest[2];\n"
                          "}\n"
                          "fn main(): i32 {\n"
@@ -3052,7 +3052,7 @@ static void test_pipe_variadic_slice_runtime() {
 
 static void test_variadic_slice_explicit_vs_auto_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "extern fn make_values(): []i32\n"
+    t.write("main.zithm", "extern fn make_values(): []i32\n"
                          "fn sum(rest: [...]i32): i32 {\n"
                          "    return raw rest[0] + raw rest[1];\n"
                          "}\n"
@@ -3086,7 +3086,7 @@ static void test_variadic_slice_explicit_vs_auto_runtime() {
 
 static void test_variadic_slice_method_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "struct Agg {\n"
+    t.write("main.zithm", "struct Agg {\n"
                          "    total: i32,\n"
                          "    fn add(self, rest: [...]i32): i32 {\n"
                          "        return self.total + raw rest[0] + raw rest[1];\n"
@@ -3125,7 +3125,7 @@ static void test_variadic_slice_method_runtime() {
 
 static void test_variadic_slice_dyn_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "trait Value {\n"
+    t.write("main.zithm", "trait Value {\n"
                          "    fn value(self): i32 { return 0; }\n"
                          "}\n"
                          "struct Box {\n"
@@ -3157,7 +3157,7 @@ static void test_variadic_slice_dyn_runtime() {
 
 static void test_variadic_slice_state_runtime_forms() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "state Start(rest: [...]i32): i32 {\n"
+    t.write("main.zithm", "state Start(rest: [...]i32): i32 {\n"
                          "    if (@lengthOf(rest) == 0) {\n"
                          "        return 10;\n"
                          "    }\n"
@@ -3192,7 +3192,7 @@ static void test_variadic_slice_state_runtime_forms() {
     CHECK_EQ(r.exitCode, 7, "state explicit slice returns its first element");
 
     ModernFileCodegenTest auto_collect;
-    auto_collect.write("main.zith", "state Start(rest: [...]i32): i32 {\n"
+    auto_collect.write("main.zithm", "state Start(rest: [...]i32): i32 {\n"
                                     "    if (@lengthOf(rest) == 0) {\n"
                                     "        return 10;\n"
                                     "    }\n"
@@ -3206,7 +3206,7 @@ static void test_variadic_slice_state_runtime_forms() {
     CHECK_EQ(r.exitCode, 7, "state auto-collected slice returns its first element");
 
     ModernFileCodegenTest empty;
-    empty.write("main.zith", "state Start(rest: [...]i32): i32 {\n"
+    empty.write("main.zithm", "state Start(rest: [...]i32): i32 {\n"
                              "    if (@lengthOf(rest) == 0) {\n"
                              "        return 10;\n"
                              "    }\n"
@@ -3222,7 +3222,7 @@ static void test_variadic_slice_state_runtime_forms() {
 
 static void test_variadic_slice_state_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "state Start(n: i32, rest: [...]i32): i32 {\n"
+    t.write("main.zithm", "state Start(n: i32, rest: [...]i32): i32 {\n"
                          "    if (n == 0) {\n"
                          "        return raw rest[0];\n"
                          "    }\n"
@@ -3282,7 +3282,7 @@ static void test_optional_and_slice_layouts() {
 
 static void test_struct_method_call_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-struct-method-call.zith", "struct Counter {\n"
+    auto r = t.run("codegen-struct-method-call.zithm", "struct Counter {\n"
                                                       "    value: i32,\n"
                                                       "    fn bump(self, by: i32): i32 {\n"
                                                       "        return self->value + by;\n"
@@ -3298,7 +3298,7 @@ static void test_struct_method_call_runtime() {
 
 static void test_var_self_and_var_parameter_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-var-self.zith",
+    auto r = t.run("codegen-var-self.zithm",
                    "struct Counter {\n"
                    "    value: i32,\n"
                    "    fn get(self): i32 { return self.value; }\n"
@@ -3324,7 +3324,7 @@ static void test_var_self_and_var_parameter_runtime() {
 static void test_implement_block_method_runtime() {
     CodegenTest t;
     auto r =
-        t.run("codegen-implement-method-call.zith", "struct Point {\n"
+        t.run("codegen-implement-method-call.zithm", "struct Point {\n"
                                                     "    x: i32,\n"
                                                     "    y: i32\n"
                                                     "}\n"
@@ -3343,11 +3343,11 @@ static void test_implement_block_method_runtime() {
 
 static void test_optional_method_after_is_null_runtime() {
     ModernFileCodegenTest t;
-    t.write("lib.zith", "pub struct Box { pub value: i32 }\n"
+    t.write("lib.zithm", "pub struct Box { pub value: i32 }\n"
                         "implement Box {\n"
                         "    fn get(self: view Box): i32 { self.value }\n"
                         "}\n");
-    t.write("main.zith", "from lib\n"
+    t.write("main.zithm", "from lib\n"
                          "fn main(): i32 {\n"
                          "    var b: ?Box = Box { value: 14 };\n"
                          "    if (b is null) { return 1; }\n"
@@ -3362,11 +3362,11 @@ static void test_optional_method_after_is_null_runtime() {
 
 static void test_optional_method_after_not_is_null_runtime() {
     ModernFileCodegenTest t;
-    t.write("lib.zith", "pub struct Box { pub value: i32 }\n"
+    t.write("lib.zithm", "pub struct Box { pub value: i32 }\n"
                         "implement Box {\n"
                         "    fn get(self: view Box): i32 { self.value }\n"
                         "}\n");
-    t.write("main.zith", "from lib\n"
+    t.write("main.zithm", "from lib\n"
                          "fn main(): i32 {\n"
                          "    var b: ?Box = Box { value: 14 };\n"
                          "    if not (b is null) { return b.get(); }\n"
@@ -3381,7 +3381,7 @@ static void test_optional_method_after_not_is_null_runtime() {
 
 static void test_optional_boolean_condition_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn non_null(): i32 {\n"
+    t.write("main.zithm", "fn non_null(): i32 {\n"
                          "    let x: ?i32 = 7;\n"
                          "    if (x) { return 1; }\n"
                          "    return 9;\n"
@@ -3404,7 +3404,7 @@ static void test_optional_boolean_condition_runtime() {
 
 static void test_optional_pointer_boolean_condition_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn non_null(): i32 {\n"
+    t.write("main.zithm", "fn non_null(): i32 {\n"
                          "    let x: i32 = 9;\n"
                          "    let q: ?*i32 = &x;\n"
                          "    if (q) { return 1; }\n"
@@ -3428,7 +3428,7 @@ static void test_optional_pointer_boolean_condition_runtime() {
 
 static void test_optional_condition_keyword_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn non_null(): i32 {\n"
+    t.write("main.zithm", "fn non_null(): i32 {\n"
                          "    let x: ?i32 = 7;\n"
                          "    if (x) { return 1; }\n"
                          "    return 9;\n"
@@ -3451,7 +3451,7 @@ static void test_optional_condition_keyword_runtime() {
 
 static void test_bare_condition_forms_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn force(ok: bool): i32 {\n"
+    t.write("main.zithm", "fn force(ok: bool): i32 {\n"
                          "    if not ok { return 1; }\n"
                          "    return 7;\n"
                          "}\n"
@@ -3475,7 +3475,7 @@ static void test_bare_condition_forms_runtime() {
 
 static void test_optional_must_extraction_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn main(): i32 {\n"
+    t.write("main.zithm", "fn main(): i32 {\n"
                          "    let some: ?i32 = 41;\n"
                          "    let value: i32 = must some;\n"
                          "    if (value != 41) { return 1; }\n"
@@ -3493,7 +3493,7 @@ static void test_optional_must_extraction_runtime() {
 
 static void test_optional_must_none_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn main(): i32 {\n"
+    t.write("main.zithm", "fn main(): i32 {\n"
                          "    let none: ?i32 = null;\n"
                          "    let value: i32 = must none;\n"
                          "    return value;\n"
@@ -3505,7 +3505,7 @@ static void test_optional_must_none_runtime() {
 
 static void test_optional_raw_extraction_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn some_value(): i32 {\n"
+    t.write("main.zithm", "fn some_value(): i32 {\n"
                          "    let some: ?i32 = 41;\n"
                          "    let value: i32 = raw some;\n"
                          "    return value;\n"
@@ -3532,7 +3532,7 @@ static void test_if_else_both_return_runtime() {
     // merge block terminated by `ret void`, which the LLVM verifier rejects
     // (E5001). The dead block must lower to `unreachable` instead.
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn classify(x: i32): i32 {\n"
+    t.write("main.zithm", "fn classify(x: i32): i32 {\n"
                          "    if (x == 0) { return 1; } else { return 2; }\n"
                          "}\n"
                          "fn main(): i32 {\n"
@@ -3548,7 +3548,7 @@ static void test_for_loop_return_runtime() {
     // Regression: a loop whose body always returns leaves the exit block
     // unreachable, hitting the same dead-block terminator path.
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn first(): i32 {\n"
+    t.write("main.zithm", "fn first(): i32 {\n"
                          "    for (i in 0..3) { return i + 5; }\n"
                          "}\n"
                          "fn main(): i32 {\n"
@@ -3564,7 +3564,7 @@ static void test_for_loop_return_runtime() {
 // stored into the fat-pointer slot and LLVM aborted in `combineStore`.
 static void test_optional_dyn_local_binding_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith",
+    t.write("main.zithm",
             "trait Counter { fn get(self): i32; }\n"
             "struct Cell { v: i32 }\n"
             "implement Cell as Counter { fn get(self): i32 { return self.v; } }\n"
@@ -3585,7 +3585,7 @@ static void test_optional_dyn_local_binding_runtime() {
 // `is null` narrowing.
 static void test_optional_dyn_struct_field_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith",
+    t.write("main.zithm",
             "trait Counter { fn get(self): i32; }\n"
             "struct Cell { v: i32 }\n"
             "implement Cell as Counter { fn get(self): i32 { return self.v; } }\n"
@@ -3607,7 +3607,7 @@ static void test_optional_dyn_struct_field_runtime() {
 // extraction, for both the early-return and the `else` shapes.
 static void test_optional_dyn_narrowed_dispatch_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith",
+    t.write("main.zithm",
             "trait Counter { fn get(self): i32; }\n"
             "struct Cell { v: i32 }\n"
             "implement Cell as Counter { fn get(self): i32 { return self.v; } }\n"
@@ -3639,7 +3639,7 @@ static void test_optional_dyn_narrowed_dispatch_runtime() {
 // built from a temporary is the separate plain-`dyn` escape bug, out of scope.)
 static void test_optional_dyn_parameter_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith",
+    t.write("main.zithm",
             "trait Counter { fn get(self): i32; }\n"
             "struct Cell { v: i32 }\n"
             "implement Cell as Counter { fn get(self): i32 { return self.v; } }\n"
@@ -3664,7 +3664,7 @@ static void test_optional_dyn_parameter_runtime() {
 // the assignment form of the same R1 defect the literal and binding paths had.
 static void test_optional_dyn_assignment_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith",
+    t.write("main.zithm",
             "trait Counter { fn get(self): i32; }\n"
             "struct Cell { v: i32 }\n"
             "struct Other { v: i32 }\n"
@@ -3699,7 +3699,7 @@ static void test_optional_dyn_assignment_runtime() {
 // not an LLVM abort.
 static void test_optional_dyn_without_narrowing_diagnostic() {
     ModernFileCodegenTest t;
-    t.write("main.zith",
+    t.write("main.zithm",
             "trait Counter { fn get(self): i32; }\n"
             "struct Cell { v: i32 }\n"
             "implement Cell as Counter { fn get(self): i32 { return self.v; } }\n"
@@ -3716,7 +3716,7 @@ static void test_optional_dyn_without_narrowing_diagnostic() {
 // The same R1 shape applies to a `?opaque` field and binding.
 static void test_optional_opaque_slot_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith",
+    t.write("main.zithm",
             "struct Cell { v: i32 }\n"
             "struct Holder { c: ?opaque }\n"
             "fn main(): i32 {\n"
@@ -3737,7 +3737,7 @@ static void test_optional_opaque_slot_runtime() {
 // keeps `?*T` identical to `*T`.
 static void test_optional_dyn_niche_size_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith",
+    t.write("main.zithm",
             "trait Counter { fn get(self): i32; }\n"
             "struct Cell { v: i32 }\n"
             "implement Cell as Counter { fn get(self): i32 { return self.v; } }\n"
@@ -3759,7 +3759,7 @@ static void test_optional_dyn_niche_size_runtime() {
 
 static void test_function_default_arguments_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn add(left: i32, right: i32 = 5): i32 {\n"
+    t.write("main.zithm", "fn add(left: i32, right: i32 = 5): i32 {\n"
                          "    return left + right;\n"
                          "}\n"
                          "fn main(): i32 {\n"
@@ -3774,7 +3774,7 @@ static void test_function_default_arguments_runtime() {
 
 static void test_nested_optional_argument_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "fn identity(value: ??i32): i32 {\n"
+    t.write("main.zithm", "fn identity(value: ??i32): i32 {\n"
                          "    return 0;\n"
                          "}\n"
                          "fn main(): i32 {\n"
@@ -3793,7 +3793,7 @@ static void test_nested_optional_argument_runtime() {
 
 static void test_generic_optional_coercion_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "struct Wrapper { value: i32 }\n"
+    t.write("main.zithm", "struct Wrapper { value: i32 }\n"
                          "implement Wrapper {\n"
                          "    fn get(self): i32 { self.value }\n"
                          "}\n"
@@ -3812,7 +3812,7 @@ static void test_generic_optional_coercion_runtime() {
 
 static void test_primitive_optional_slice_implement_runtime() {
     ModernFileCodegenTest t;
-    t.write("main.zith", "trait Foo {\n"
+    t.write("main.zithm", "trait Foo {\n"
                          "    fn value(self): i32;\n"
                          "}\n"
                          "implement i32 as Foo {\n"
@@ -3858,7 +3858,7 @@ static void test_primitive_optional_slice_implement_runtime() {
 static void test_overloaded_functions_link_and_run() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "fn add(a: i32, b: i32): i32 { a + b }\n"
+    t.write("main.zithm", "fn add(a: i32, b: i32): i32 { a + b }\n"
                          "fn add(a: f64, b: f64): f64 { a + b }\n"
                          "fn add(a: i32, b: i32, c: i32): i32 { a + b + c }\n"
                          "fn main(): i32 {\n"
@@ -3881,7 +3881,7 @@ static void test_overloaded_functions_link_and_run() {
 static void test_extern_variadic_call_runs() {
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+    t.write("main.zithm", "extern fn printf(fmt: *char, ...): i32\n"
                          "fn main(): i32 {\n"
                          "    _ = printf(\"n=%d\\n\", 7);\n"
                          "    return 0;\n"
@@ -3913,7 +3913,7 @@ static void test_external_symbol_alias_runtime() {
 
     t.opts.libraryDirs.push(t.root.string());
     t.opts.libraries.push("zith_external_alias");
-    t.write("main.zith", "fn c_increment(p: *i32): i32 = extern zith_test_external_increment;\n"
+    t.write("main.zithm", "fn c_increment(p: *i32): i32 = extern zith_test_external_increment;\n"
                          "fn main(): i32 {\n"
                          "    var value: i32 = 41;\n"
                          "    return c_increment(&value);\n"
@@ -3935,7 +3935,7 @@ static void test_imported_external_globals_runtime() {
                            "int zith_mutable_value = 5;\n");
     t.write("ZithProject.toml", "[ffi]\n"
                                 "c_source_dirs = [\"c\"]\n");
-    t.write("main.zith", "import \"external-globals.h\"\n"
+    t.write("main.zithm", "import \"external-globals.h\"\n"
                          "extern var manual_value: i32 = extern zith_external_value;\n"
                          "fn main(): i32 {\n"
                          "    zith_mutable_value = 40;\n"
@@ -3976,11 +3976,11 @@ static void test_external_symbol_method_receiver_runtime() {
 
     t.opts.libraryDirs.push(t.root.string());
     t.opts.libraries.push("zith_external_alias_method");
-    t.write("lib.zith", "pub struct Window { pub value: i32 }\n"
+    t.write("lib.zithm", "pub struct Window { pub value: i32 }\n"
                         "implement Window {\n"
                         "    fn value(self: lend Window): i32 = extern zith_test_method_value;\n"
                         "}\n");
-    t.write("main.zith", "from lib\n"
+    t.write("main.zithm", "from lib\n"
                          "fn main(): i32 {\n"
                          "    var window: Window = Window { value: 42 };\n"
                          "    window.value()\n"
@@ -4011,7 +4011,7 @@ static void test_external_symbol_optional_pointer_method_receiver_runtime() {
 
     t.opts.libraryDirs.push(t.root.string());
     t.opts.libraries.push("zith_external_alias_optional_pointer_method");
-    t.write("lib.zith",
+    t.write("lib.zithm",
             "pub struct Window { pub value: i32 }\n"
             "pub fn makeWindow(value: i32): ?*Window = extern zith_optional_pointer_make;\n"
             "implement Window {\n"
@@ -4034,7 +4034,7 @@ static void test_external_symbol_optional_pointer_method_receiver_runtime() {
         return;
     }
 
-    t.write("main.zith", "from lib\n"
+    t.write("main.zithm", "from lib\n"
                          "fn main(): i32 {\n"
                          "    var window = makeWindow(42);\n"
                          "    if (window is null) { return 1; }\n"
@@ -4052,7 +4052,7 @@ static void test_c_default_arguments_and_string_escapes() {
     {
         ModernFileCodegenTest t;
         t.opts.flags.emitIr(true);
-        t.write("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+        t.write("main.zithm", "extern fn printf(fmt: *char, ...): i32\n"
                              "fn main(): i32 {\n"
                              "    let f: f32 = 1.5;\n"
                              "    _ = printf(\"%f\", f);\n"
@@ -4068,7 +4068,7 @@ static void test_c_default_arguments_and_string_escapes() {
     {
         CodegenTest t;
         auto r =
-            t.run("codegen-escapes-char.zith", "extern fn printf(fmt: *char, ...): i32\n"
+            t.run("codegen-escapes-char.zithm", "extern fn printf(fmt: *char, ...): i32\n"
                                                "fn main(): i32 {\n"
                                                "    _ = printf(\"v=%d\\n[%f]%c\", 42, 1.5, 'B');\n"
                                                "    return 0;\n"
@@ -4081,7 +4081,7 @@ static void test_c_default_arguments_and_string_escapes() {
 
 static void test_dollar_escape_hatch_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-dollar-escape.zith", "extern fn printf(fmt: *char, ...): i32\n"
+    auto r = t.run("codegen-dollar-escape.zithm", "extern fn printf(fmt: *char, ...): i32\n"
                                                  "fn main(): i32 {\n"
                                                  "    _ = printf(\"cost=\\#5\\n\");\n"
                                                  "    _ = printf(\"%c\\n\", '\\#');\n"
@@ -4095,7 +4095,7 @@ static void test_dollar_escape_hatch_runtime() {
 // silently truncating a string at the first following digit.
 static void test_octal_escape_runtime() {
     CodegenTest t;
-    auto r = t.run("codegen-octal-escape.zith", "extern fn printf(fmt: *char, ...): i32\n"
+    auto r = t.run("codegen-octal-escape.zithm", "extern fn printf(fmt: *char, ...): i32\n"
                                                 "fn main(): i32 {\n"
                                                 "    _ = printf(\"A\\033B\\n\");\n"
                                                 "    _ = printf(\"C\\101D\\n\");\n"
@@ -4114,7 +4114,7 @@ static void test_octal_escape_runtime() {
     // byte count even though `printf` would stop at the NUL.
     CodegenTest t2;
     auto r2 =
-        t2.run("codegen-nul-then-digit.zith", "fn main(): i32 {\n"
+        t2.run("codegen-nul-then-digit.zithm", "fn main(): i32 {\n"
                                               "    if (@lengthOf(\"M\\08N\") != 4) { return 1; }\n"
                                               "    return 0;\n"
                                               "}\n");
@@ -4127,7 +4127,7 @@ static void test_octal_escape_runtime() {
 static void test_child_output_is_separate_from_compiler_output() {
     memory::Arena arena;
     Options opts(arena);
-    session::CompilationSession session(opts, "/tmp/codegen-child-output-split.zith");
+    session::CompilationSession session(opts, "/tmp/codegen-child-output-split.zithm");
     session.setBuffered(true);
     session.setAlwaysEmitObject(true);
     session.setContent("extern fn printf(fmt: *char, ...): i32\n"
@@ -4153,7 +4153,7 @@ static void test_child_output_is_separate_from_compiler_output() {
 static void test_direct_exec_inherits_parent_stdout() {
     memory::Arena arena;
     Options opts(arena);
-    session::CompilationSession session(opts, "/tmp/codegen-direct-exec.zith");
+    session::CompilationSession session(opts, "/tmp/codegen-direct-exec.zithm");
     session.setBuffered(true);
     session.setAlwaysEmitObject(true);
     session.setContent("extern fn printf(fmt: *char, ...): i32\n"
@@ -4198,7 +4198,7 @@ static void test_direct_exec_inherits_parent_stdout() {
 // A program that prints and then exits non-zero must still surface its output.
 static void test_child_output_survives_nonzero_exit() {
     CodegenTest t;
-    auto r = t.run("codegen-child-output-nonzero.zith", "extern fn printf(fmt: *char, ...): i32\n"
+    auto r = t.run("codegen-child-output-nonzero.zithm", "extern fn printf(fmt: *char, ...): i32\n"
                                                         "fn main(): i32 {\n"
                                                         "    _ = printf(\"before-failure\\n\");\n"
                                                         "    return -1;\n"
@@ -4213,7 +4213,7 @@ static void test_import_stdio_runs() {
 #ifdef ZITH_ENABLE_C_INTEROP
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "import \"stdio.h\"\n"
+    t.write("main.zithm", "import \"stdio.h\"\n"
                          "fn main(): i32 {\n"
                          "    _ = printf(\"v=%d\\n\", 42);\n"
                          "    return 0;\n"
@@ -4239,7 +4239,7 @@ static void test_import_stdio_runs() {
           "warm stdio.h program prints the expected payload");
 
     CodegenTest plain;
-    auto run = plain.run("codegen-import-stdio.zith", "import \"stdio.h\"\n"
+    auto run = plain.run("codegen-import-stdio.zithm", "import \"stdio.h\"\n"
                                                       "fn main(): i32 {\n"
                                                       "    _ = printf(\"v=%d\\n\", 42);\n"
                                                       "    return 0;\n"
@@ -4265,7 +4265,7 @@ static void test_validated_c_struct_by_value_runs() {
                            "struct Inner { int v; };\n"
                            "struct Outer { struct Inner inner; double d; };\n"
                            "double c_outer_x(struct Outer o) { return o.inner.v; }\n");
-    t.write("main.zith", "import \"records.h\"\n"
+    t.write("main.zithm", "import \"records.h\"\n"
                          "fn main(): i32 {\n"
                          "    let p = make_point(2, 3);\n"
                          "    let sum: i32 = c_classify(p);\n"
@@ -4305,7 +4305,7 @@ static void test_validated_c_pair64_by_value_runs() {
                                   "    struct Pair64 p = { lo, hi };\n"
                                   "    return p;\n"
                                   "}\n");
-    t.write("main.zith", "import \"pair64-records.h\"\n"
+    t.write("main.zithm", "import \"pair64-records.h\"\n"
                          "fn main(): i32 {\n"
                          "    let p = make_pair64(1311768467463790320, 1147797409030816545);\n"
                          "    if (c_check_pair64(p) != 1) { return 1; }\n"
@@ -4374,7 +4374,7 @@ static void test_c_scalar_arguments_and_results_run() {
                             "int c_check_f64(double value);\n"
                             "double c_make_f64(void);\n");
     t.write(
-        "main.zith",
+        "main.zithm",
         "import \"scalar-abi.h\"\n"
         "fn main(): i32 {\n"
         "    if (c_check_i8(-101) != 1 or c_make_i8() != -101) { return 1; }\n"
@@ -4416,7 +4416,7 @@ static void test_imported_variadic_c_promotes_tail_arguments() {
             "    return fixed == 17 && small == 250 && promoted == 1.25;\n"
             "}\n");
     t.write("variadic-promotions.h", "int c_check_variadic_promotions(int fixed, ...);\n");
-    t.write("main.zith",
+    t.write("main.zithm",
             "import \"variadic-promotions.h\"\n"
             "fn main(): i32 {\n"
             "    let small: u8 = 250;\n"
@@ -4449,7 +4449,7 @@ static void test_c_bool_char_long_scalars_run() {
                                 "char c_make_char(void);\n"
                                 "int c_check_long(long value);\n"
                                 "long c_make_long(void);\n");
-    t.write("main.zith",
+    t.write("main.zithm",
             "import \"native-scalars.h\"\n"
             "fn main(): i32 {\n"
             "    if (c_check_bool(true) != 1 or c_make_bool() != true) { return 1; }\n"
@@ -4477,7 +4477,7 @@ static void test_imported_c_pointer_roundtrip_runtime() {
                                 "int *c_return_null_i32(void) { return 0; }\n");
     t.write("pointer-abi.h", "int *c_increment_and_return_i32(int *value);\n"
                              "int *c_return_null_i32(void);\n");
-    t.write("main.zith",
+    t.write("main.zithm",
             "import \"pointer-abi.h\"\n"
             "fn main(): i32 {\n"
             "    var value: i32 = 37;\n"
@@ -4513,7 +4513,7 @@ static void test_imported_c_void_pointer_roundtrip_runtime() {
     t.write("void-pointer-abi.h", "void *c_roundtrip_void_pointer(void *value);\n"
                                   "int c_write_through_void_pointer(void *value, int replacement);\n"
                                   "void *c_return_null_void_pointer(void);\n");
-    t.write("main.zith", "import \"void-pointer-abi.h\"\n"
+    t.write("main.zithm", "import \"void-pointer-abi.h\"\n"
                          "fn main(): i32 {\n"
                          "    var value: i32 = 17;\n"
                          "    let erased_pointer = c_roundtrip_void_pointer(&value);\n"
@@ -4540,7 +4540,7 @@ static void test_c_header_callback_declaration_is_not_imported() {
                                 "    return callback(1);\n"
                                 "}\n");
     t.write("callback-abi.h", "int c_invoke_callback(int (*callback)(int));\n");
-    t.write("main.zith",
+    t.write("main.zithm",
             "import \"callback-abi.h\"\n"
             "fn invalid_call(): i32 {\n"
             "    var value: i32 = 7;\n"
@@ -4565,7 +4565,7 @@ static void test_c_enum_return_local_argument_runs() {
     t.write("color.h", "typedef enum Color { ColorRed = 3, ColorGreen = 42 } Color;\n"
                        "Color c_make_color(void);\n"
                        "int c_check_color(Color color);\n");
-    t.write("main.zith", "import \"color.h\"\n"
+    t.write("main.zithm", "import \"color.h\"\n"
                          "fn main(): i32 {\n"
                          "    let color = c_make_color();\n"
                          "    if (c_check_color(color) != 1) { return 1; }\n"
@@ -4590,7 +4590,7 @@ static void test_validated_c_double_pair_by_value_runs() {
                                "    struct DoublePair value = { left, right };\n"
                                "    return value;\n"
                                "}\n");
-    t.write("main.zith", "import \"double-pair.h\"\n"
+    t.write("main.zithm", "import \"double-pair.h\"\n"
                          "fn main(): i32 {\n"
                          "    let value = c_make_double_pair(2.0, 3.0);\n"
                          "    let weighted: f64 = c_pair_weighted_sum(value);\n"
@@ -4621,7 +4621,7 @@ static void test_validated_c_large_record_by_value_runs() {
             "    struct Triple64 value = { first, second, third };\n"
             "    return value;\n"
             "}\n");
-    t.write("main.zith", "import \"large-record.h\"\n"
+    t.write("main.zithm", "import \"large-record.h\"\n"
                          "fn main(): i32 {\n"
                          "    let value = c_make_triple64(1, 2, 3);\n"
                          "    let weighted: i64 = c_sum_triple64(value);\n"
@@ -4651,7 +4651,7 @@ static void test_validated_c_mixed_integer_record_by_value_runs() {
                                  "    struct Mixed32_64 value = { small, large };\n"
                                  "    return value;\n"
                                  "}\n");
-    t.write("main.zith", "import \"mixed-records.h\"\n"
+    t.write("main.zithm", "import \"mixed-records.h\"\n"
                          "fn main(): i32 {\n"
                          "    let value = make_mixed32_64(20, 22);\n"
                          "    let total: i64 = c_sum_mixed32_64(value);\n"
@@ -4681,7 +4681,7 @@ static void test_validated_c_reverse_mixed_integer_record_by_value_runs() {
             "    struct Mixed64_32 value = { large, small };\n"
             "    return value;\n"
             "}\n");
-    t.write("main.zith", "import \"mixed-reverse-records.h\"\n"
+    t.write("main.zithm", "import \"mixed-reverse-records.h\"\n"
                          "fn main(): i32 {\n"
                          "    let value = make_mixed64_32(20, 22);\n"
                          "    let total: i64 = c_sum_mixed64_32(value);\n"
@@ -4706,7 +4706,7 @@ static void test_c_pointer_cast_roundtrip_emits_no_conversion() {
 #ifdef ZITH_ENABLE_C_INTEROP
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "import \"stdio.h\"\n"
+    t.write("main.zithm", "import \"stdio.h\"\n"
                          "import \"stdlib.h\"\n"
                          "fn main(): i32 {\n"
                          "    let cell: ?*i32 = malloc(64) as ?*i32;\n"
@@ -4741,7 +4741,7 @@ static void test_c_pointer_is_null_uses_niche_comparison() {
 #ifdef ZITH_ENABLE_C_INTEROP
     ModernFileCodegenTest t;
     t.opts.flags.emitIr(true);
-    t.write("main.zith", "import \"stdio.h\"\n"
+    t.write("main.zithm", "import \"stdio.h\"\n"
                          "fn main(): i32 {\n"
                          "    let f = fopen(\"/definitely/not/here\", \"r\");\n"
                          "    if (f is null) {\n"
@@ -4768,7 +4768,7 @@ static void test_c_pointer_is_null_uses_niche_comparison() {
 static void test_imported_stdout_global_runtime() {
 #ifdef ZITH_ENABLE_C_INTEROP
     ModernFileCodegenTest t;
-    t.write("main.zith", "import \"stdio.h\"\n"
+    t.write("main.zithm", "import \"stdio.h\"\n"
                          "fn main(): i32 {\n"
                          "    _ = fputs(\"stream-global-works\\n\", stdout);\n"
                          "    return 0;\n"
@@ -4787,7 +4787,7 @@ static void test_imported_stdout_global_runtime() {
 /// produce a valid module for it.
 static void test_radix_literal_return_emits_valid_module() {
     CodegenTest t;
-    auto r = t.run("codegen-radix-return.zith", "fn main(): i32 {\n"
+    auto r = t.run("codegen-radix-return.zithm", "fn main(): i32 {\n"
                                                 "    return 0x2A;\n"
                                                 "}\n");
     CHECK(r.ok, "a hex literal return compiles, links and runs");

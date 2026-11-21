@@ -103,7 +103,7 @@ void test_hir_safety_round_trip() {
 void test_wasm_contract() {
     test_hir_safety_round_trip();
 
-    zithc_session *session = zithc_session_create_from_buffer("playground.zith", kValidSource,
+    zithc_session *session = zithc_session_create_from_buffer("playground.zithm", kValidSource,
                                                               std::strlen(kValidSource));
     CHECK(session != nullptr, "session creation succeeds");
     if (!session)
@@ -130,7 +130,7 @@ void test_wasm_contract() {
     CHECK(zithc_diag_count(session) == 0, "valid source has no diagnostics");
     zithc_session_destroy(session);
 
-    session = zithc_session_create_from_buffer("playground.zith", kInvalidSource,
+    session = zithc_session_create_from_buffer("playground.zithm", kInvalidSource,
                                                std::strlen(kInvalidSource));
     if (!session)
         return;

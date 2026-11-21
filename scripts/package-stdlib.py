@@ -17,7 +17,7 @@ def main() -> int:
 
     root = Path(sys.argv[1])
     output = Path(sys.argv[2])
-    files = sorted(path for path in root.rglob("*.zith") if path.is_file())
+    files = sorted(path for path in root.rglob("*.zithm") if path.is_file())
     payload = bytearray(MAGIC)
     payload += struct.pack("<II", ABI_VERSION, len(files))
     for path in files:

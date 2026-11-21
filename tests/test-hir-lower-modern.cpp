@@ -182,14 +182,14 @@ session::CompilationSession makeSession(const Workspace &workspace, memory::Aren
 
 void test_extern_and_main_lower_to_hir() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "extern fn puts(msg: *char)\n"
+    workspace.writeFile("main.zithm", "extern fn puts(msg: *char)\n"
                                      "fn main() {\n"
                                      "    puts(\"hello\");\n"
                                      "}\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "modern lowering succeeds for extern + main");
 
@@ -213,7 +213,7 @@ void test_extern_and_main_lower_to_hir() {
 
 void test_no_ownership_hir_has_empty_residual_attrs() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn add(a: i32, b: i32): i32 { a + b }\n"
+    workspace.writeFile("main.zithm", "fn add(a: i32, b: i32): i32 { a + b }\n"
                                      "fn main(): i32 {\n"
                                      "    var sum: i32 = add(3, 4);\n"
                                      "    sum\n"
@@ -221,7 +221,7 @@ void test_no_ownership_hir_has_empty_residual_attrs() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "no-ownership program lowers to HIR");
 
@@ -234,7 +234,7 @@ void test_no_ownership_hir_has_empty_residual_attrs() {
 
 void test_ownership_hir_carries_residual_slot_attrs() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "struct P { x: i32 }\n"
+    workspace.writeFile("main.zithm", "struct P { x: i32 }\n"
                                      "fn read(p: view P): i32 { p.x }\n"
                                      "fn main(): i32 {\n"
                                      "    let v: view P = P { x: 41 };\n"
@@ -243,7 +243,7 @@ void test_ownership_hir_carries_residual_slot_attrs() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "qualified ownership program lowers to HIR");
 
@@ -261,7 +261,7 @@ void test_ownership_hir_carries_residual_slot_attrs() {
 
 void test_free_borrow_parameter_lowers_to_pointer_and_call_addr() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "struct P { x: i32 }\n"
+    workspace.writeFile("main.zithm", "struct P { x: i32 }\n"
                                      "fn bump(p: lend P): i32 { p.x = p.x + 1; p.x }\n"
                                      "fn main(): i32 {\n"
                                      "    var q: P = P { x: 41 };\n"
@@ -270,7 +270,7 @@ void test_free_borrow_parameter_lowers_to_pointer_and_call_addr() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "free borrow parameter program lowers to HIR");
 
@@ -307,14 +307,14 @@ void test_free_borrow_parameter_lowers_to_pointer_and_call_addr() {
 
 void test_extern_variadic_lower_to_hir() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "extern fn printf(fmt: *char, ...): i32\n"
+    workspace.writeFile("main.zithm", "extern fn printf(fmt: *char, ...): i32\n"
                                      "fn main() {\n"
                                      "    _ = printf(\"n=%d\\n\", 7);\n"
                                      "}\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "modern lowering succeeds for extern variadic fn");
@@ -328,7 +328,7 @@ void test_extern_variadic_lower_to_hir() {
 
 void test_external_symbol_alias_lower_to_hir() {
     Workspace workspace;
-    workspace.writeFile("main.zith",
+    workspace.writeFile("main.zithm",
                         "fn cAdd(a: i32, b: i32): i32 = extern zith_test_external_alias;\n"
                         "fn overloaded(x: i32): i32 = extern zith_test_external_alias_a;\n"
                         "fn overloaded(x: f64): f64 = extern zith_test_external_alias_b;\n"
@@ -338,7 +338,7 @@ void test_external_symbol_alias_lower_to_hir() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "modern lowering succeeds for external symbol aliases");
@@ -357,7 +357,7 @@ void test_external_symbol_alias_lower_to_hir() {
 
 void test_bindings_lower_to_slots() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn add(a: i32, b: i32): i32 { a + b }\n"
+    workspace.writeFile("main.zithm", "fn add(a: i32, b: i32): i32 { a + b }\n"
                                      "fn main(): i32 {\n"
                                      "    var sum: i32 = add(3, 4);\n"
                                      "    sum\n"
@@ -365,7 +365,7 @@ void test_bindings_lower_to_slots() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "modern lowering succeeds for locals");
 
@@ -384,14 +384,14 @@ void test_bindings_lower_to_slots() {
 
 void test_const_global_lowers_to_load() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "const GLOBAL: i32 = 3;\n"
+    workspace.writeFile("main.zithm", "const GLOBAL: i32 = 3;\n"
                                      "fn main(): i32 {\n"
                                      "    return GLOBAL;\n"
                                      "}\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "modern lowering succeeds for a top-level const");
@@ -415,11 +415,11 @@ void test_const_global_lowers_to_load() {
 
 void test_untyped_const_global_type_comes_from_initializer() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "const SIZE = 1024;");
+    workspace.writeFile("main.zithm", "const SIZE = 1024;");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "modern lowering succeeds for an untyped top-level const");
@@ -436,8 +436,8 @@ void test_untyped_const_global_type_comes_from_initializer() {
 
 void test_selective_imported_const_lowers_to_global_const_load() {
     Workspace workspace;
-    workspace.writeFile("dep.zith", "pub const VALUE: i32 = 7;\n");
-    workspace.writeFile("main.zith", "from dep { VALUE as selected }\n"
+    workspace.writeFile("dep.zithm", "pub const VALUE: i32 = 7;\n");
+    workspace.writeFile("main.zithm", "from dep { VALUE as selected }\n"
                                      "const COPY: i32 = selected;\n"
                                      "fn main(): i32 {\n"
                                      "    return selected;\n"
@@ -445,7 +445,7 @@ void test_selective_imported_const_lowers_to_global_const_load() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "selectively imported const lowers to HIR");
@@ -465,15 +465,15 @@ void test_selective_imported_const_lowers_to_global_const_load() {
 
 void test_from_imported_const_lowers_to_global_const_load() {
     Workspace workspace;
-    workspace.writeFile("dep.zith", "pub const VALUE: i32 = 7;\n");
-    workspace.writeFile("main.zith", "from dep\n"
+    workspace.writeFile("dep.zithm", "pub const VALUE: i32 = 7;\n");
+    workspace.writeFile("main.zithm", "from dep\n"
                                      "fn main(): i32 {\n"
                                      "    return VALUE;\n"
                                      "}\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "`from`-injected const lowers to HIR");
@@ -493,15 +493,15 @@ void test_from_imported_const_lowers_to_global_const_load() {
 
 void test_qualified_imported_const_lowers_to_global_const_load() {
     Workspace workspace;
-    workspace.writeFile("dep.zith", "pub const VALUE: i32 = 7;\n");
-    workspace.writeFile("main.zith", "import dep as ns\n"
+    workspace.writeFile("dep.zithm", "pub const VALUE: i32 = 7;\n");
+    workspace.writeFile("main.zithm", "import dep as ns\n"
                                      "fn main(): i32 {\n"
                                      "    return ns.VALUE;\n"
                                      "}\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "namespace-qualified imported const lowers to HIR");
@@ -522,7 +522,7 @@ void test_qualified_imported_const_lowers_to_global_const_load() {
 
 void test_if_else_lowers_to_branch_and_merge() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn pick(flag: bool): i32 {\n"
+    workspace.writeFile("main.zithm", "fn pick(flag: bool): i32 {\n"
                                      "    if (flag) {\n"
                                      "        1\n"
                                      "    } else {\n"
@@ -532,7 +532,7 @@ void test_if_else_lowers_to_branch_and_merge() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "modern lowering succeeds for if/else");
 
@@ -556,7 +556,7 @@ void test_if_else_lowers_to_branch_and_merge() {
 
 void test_else_condition_lowers_to_branch_and_merge() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn pick(a: bool, b: bool): i32 {\n"
+    workspace.writeFile("main.zithm", "fn pick(a: bool, b: bool): i32 {\n"
                                      "    if (a) {\n"
                                      "        1\n"
                                      "    } else (b) {\n"
@@ -568,7 +568,7 @@ void test_else_condition_lowers_to_branch_and_merge() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "modern lowering succeeds for else condition");
 
@@ -587,7 +587,7 @@ void test_else_condition_lowers_to_branch_and_merge() {
 
 void test_while_continue_lowers_loop_cfg() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn main(): i32 {\n"
+    workspace.writeFile("main.zithm", "fn main(): i32 {\n"
                                      "    var i: i32 = 0;\n"
                                      "    while (i < 10) {\n"
                                      "        i = i + 1;\n"
@@ -598,7 +598,7 @@ void test_while_continue_lowers_loop_cfg() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "modern lowering succeeds for while + continue");
@@ -620,7 +620,7 @@ void test_while_continue_lowers_loop_cfg() {
 
 void test_while_break_lowers_loop_exit() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn main(): i32 {\n"
+    workspace.writeFile("main.zithm", "fn main(): i32 {\n"
                                      "    var i: i32 = 0;\n"
                                      "    while (i < 10) {\n"
                                      "        i = i + 1;\n"
@@ -631,7 +631,7 @@ void test_while_break_lowers_loop_exit() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "modern lowering succeeds for while + break");
 
@@ -648,7 +648,7 @@ void test_while_break_lowers_loop_exit() {
 
 void test_labeled_nested_loop_lowers() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn main(): i32 {\n"
+    workspace.writeFile("main.zithm", "fn main(): i32 {\n"
                                      "    outer: for (var i: i32 = 0), (i < 3), (i = i + 1) {\n"
                                      "        inner: for (var j: i32 = 0), (j < 3), (j = j + 1) {\n"
                                      "            if (j == 1) { continue outer; }\n"
@@ -660,7 +660,7 @@ void test_labeled_nested_loop_lowers() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "modern lowering succeeds for labeled nested loops");
@@ -712,12 +712,12 @@ bool loadsOnlyOwnSlots(const hir::HirModule &hir, const hir::HirFunction &fn) {
 
 void test_same_named_parameters_use_distinct_slots() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn f(x: i32): i32 { return x; }\n"
+    workspace.writeFile("main.zithm", "fn f(x: i32): i32 { return x; }\n"
                                      "fn g(x: i32): i32 { return x; }\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "modern lowering succeeds for same-named parameters");
@@ -781,7 +781,7 @@ void test_c_pointers_lower_to_optional_pointer() {
     Workspace workspace;
     workspace.writeFile("fixture.h", "struct Holder { char *label; };\n"
                                      "char *c_dup(const char *text);\n");
-    workspace.writeFile("main.zith", "import \"fixture.h\"\n"
+    workspace.writeFile("main.zithm", "import \"fixture.h\"\n"
                                      "fn main(): i32 {\n"
                                      "    _ = c_dup(\"x\");\n"
                                      "    return 0;\n"
@@ -789,7 +789,7 @@ void test_c_pointers_lower_to_optional_pointer() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "C header with pointers lowers to HIR");
 
@@ -822,7 +822,7 @@ void test_c_pointers_lower_to_optional_pointer() {
 
 void test_radix_literals_lower_to_their_value() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn main(): i32 {\n"
+    workspace.writeFile("main.zithm", "fn main(): i32 {\n"
                                      "    let h: i32 = 0xFF;\n"
                                      "    let b: i32 = 0b101;\n"
                                      "    let o: i32 = 0c17;\n"
@@ -831,7 +831,7 @@ void test_radix_literals_lower_to_their_value() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "radix literal lowering succeeds");
 
@@ -852,12 +852,12 @@ void test_radix_literals_lower_to_their_value() {
 
 void test_enum_discriminant_honours_radix() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "enum Flag { Lo = 0x10, Hi = 0x20 }\n"
+    workspace.writeFile("main.zithm", "enum Flag { Lo = 0x10, Hi = 0x20 }\n"
                                      "fn main(): Flag { Flag.Lo }\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "hex enum discriminant lowering succeeds");
 
@@ -879,13 +879,13 @@ void test_enum_discriminant_honours_radix() {
 void test_const_enum_discriminant_expressions_lower_to_values() {
     Workspace workspace;
     workspace.writeFile(
-        "main.zith",
+        "main.zithm",
         "enum Flag { ONE = 1, SHIFT = 1 << 4, OR = 1 |. 4, NEG = -1, PREV = SHIFT + 1 }\n"
         "fn main(): Flag { Flag.PREV }\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "constant enum discriminant expressions lower to HIR");
@@ -922,12 +922,12 @@ void test_const_enum_discriminant_expressions_lower_to_values() {
 
 void test_struct_literal_lowers_to_hir() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "struct Foo { x: i32, y: i32 }\n"
+    workspace.writeFile("main.zithm", "struct Foo { x: i32, y: i32 }\n"
                                      "fn mk(): Foo { Foo { x: 1, y: 2 } }\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "struct literal lowering succeeds");
 
@@ -942,13 +942,13 @@ void test_struct_literal_lowers_to_hir() {
 
 void test_anonymous_pack_literal_lowers_to_hir() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn main() {\n"
+    workspace.writeFile("main.zithm", "fn main() {\n"
                                      "    let op = |5, 5, 5|;\n"
                                      "}\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "anonymous pack literal lowering succeeds");
 
@@ -969,12 +969,12 @@ void test_anonymous_pack_literal_lowers_to_hir() {
 
 void test_dot_field_read_lowers_to_hir_field() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "struct Foo { x: i32, y: i32 }\n"
+    workspace.writeFile("main.zithm", "struct Foo { x: i32, y: i32 }\n"
                                      "fn get_x(f: Foo): i32 { f.x }\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "dot field read lowering succeeds");
 
@@ -999,14 +999,14 @@ void test_dot_field_read_lowers_to_hir_field() {
 
 void test_addrof_and_deref_lowers_to_hir_unary() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn round_trip(x: i32): i32 {\n"
+    workspace.writeFile("main.zithm", "fn round_trip(x: i32): i32 {\n"
                                      "    let p: *i32 = &x;\n"
                                      "    *p\n"
                                      "}\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "addrof/deref lowering succeeds");
 
@@ -1048,12 +1048,12 @@ void test_addrof_and_deref_lowers_to_hir_unary() {
 
 void test_arrow_access_lowers_to_deref_then_field() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "struct Foo { x: i32, y: i32 }\n"
+    workspace.writeFile("main.zithm", "struct Foo { x: i32, y: i32 }\n"
                                      "fn via_ptr(p: *Foo): i32 { p->x }\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "arrow access lowering succeeds");
 
@@ -1074,12 +1074,12 @@ void test_arrow_access_lowers_to_deref_then_field() {
 
 void test_numeric_cast_lowers_to_hir_cast() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn widen(n: i32): f64 { n as f64 }\n"
+    workspace.writeFile("main.zithm", "fn widen(n: i32): f64 { n as f64 }\n"
                                      "fn main(): i32 { 0 }\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "numeric cast lowering succeeds");
 
@@ -1094,7 +1094,7 @@ void test_numeric_cast_lowers_to_hir_cast() {
 
 void test_opaque_casts_lower_to_hir_nodes() {
     Workspace workspace;
-    workspace.writeFile("main.zith",
+    workspace.writeFile("main.zithm",
                         "fn erased(value: i32): opaque { value as opaque }\n"
                         "fn checks(value: opaque): bool { value is i32 }\n"
                         "fn extracts(value: opaque): ?i32 { value as i32 }\n"
@@ -1104,7 +1104,7 @@ void test_opaque_casts_lower_to_hir_nodes() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "bare 'opaque' operations lower to HIR");
 
@@ -1161,14 +1161,14 @@ void test_opaque_casts_lower_to_hir_nodes() {
 
 void test_canonical_type_lowers_to_hir_node() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "struct Pair { a: i64, b: i8 }\n"
+    workspace.writeFile("main.zithm", "struct Pair { a: i64, b: i8 }\n"
                                      "fn main(): u128 {\n"
                                      "    @canonicalType(Pair)\n"
                                      "}\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "'@canonicalType(T)' lowers to a dedicated HIR node");
@@ -1190,7 +1190,7 @@ void test_canonical_type_lowers_to_hir_node() {
 
 void test_implicit_opaque_coercion_and_narrow_lowering() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn consume(v: opaque): bool {\n"
+    workspace.writeFile("main.zithm", "fn consume(v: opaque): bool {\n"
                                      "    if (v is u32) { let x: u32 = v; return x == 42u32; }\n"
                                      "    return false;\n"
                                      "}\n"
@@ -1199,7 +1199,7 @@ void test_implicit_opaque_coercion_and_narrow_lowering() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "implicit concrete-to-opaque lowering succeeds");
@@ -1228,13 +1228,13 @@ void test_opaque_canonical_tags_persist_across_sessions() {
         "fn make(): opaque { 42u32 }\n"
         "fn checks(v: opaque): bool { v is u32 }\n"
         "fn main(): ?u32 { let v = make(); if (checks(v)) { raw v as u32 } else { null } }\n";
-    workspace.writeFile("main.zith", source);
+    workspace.writeFile("main.zithm", source);
 
     memory::Arena firstArena;
     Options firstOptions(firstArena);
     firstOptions.noCache     = false;
     firstOptions.targetStage = session::Stage::Cached;
-    session::CompilationSession first(firstOptions, (workspace.root / "main.zith").string());
+    session::CompilationSession first(firstOptions, (workspace.root / "main.zithm").string());
     first.setBuffered(true);
     const bool first_ok = first.run();
     CHECK(first_ok, "first opaque session lowers and writes the persistent cache");
@@ -1243,7 +1243,7 @@ void test_opaque_canonical_tags_persist_across_sessions() {
     memory::Arena arena;
     Options options(arena);
     options.noCache = false;
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "second opaque session hydrates from the persistent artifact");
@@ -1271,11 +1271,11 @@ void test_opaque_canonical_tags_persist_across_sessions() {
 
 void test_imported_type_canonical_id_persists_across_sessions() {
     IsolatedWorkspace workspace;
-    workspace.writeFile("dep.zith", "pub struct Counter {\n"
+    workspace.writeFile("dep.zithm", "pub struct Counter {\n"
                                     "    pub n: i32,\n"
                                     "    pub flag: bool,\n"
                                     "}\n");
-    workspace.writeFile("main.zith", "from dep\n"
+    workspace.writeFile("main.zithm", "from dep\n"
                                      "\n"
                                      "fn id(): u128 { @canonicalType(Counter) }\n"
                                      "fn make(): opaque { Counter { n: 1, flag: false } }\n"
@@ -1285,7 +1285,7 @@ void test_imported_type_canonical_id_persists_across_sessions() {
     Options firstOptions(firstArena);
     firstOptions.noCache     = false;
     firstOptions.targetStage = session::Stage::Cached;
-    session::CompilationSession first(firstOptions, (workspace.root / "main.zith").string());
+    session::CompilationSession first(firstOptions, (workspace.root / "main.zithm").string());
     first.setBuffered(true);
     const bool first_ok = first.run();
     CHECK(first_ok, "imported opaque first session lowers and writes the cache");
@@ -1293,7 +1293,7 @@ void test_imported_type_canonical_id_persists_across_sessions() {
     memory::Arena arena;
     Options options(arena);
     options.noCache = false;
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "imported opaque second session hydrates from the cache");
@@ -1320,19 +1320,19 @@ void test_imported_type_canonical_id_persists_across_sessions() {
 
 void test_imported_type_canonical_id_uses_defining_module() {
     Workspace workspace;
-    workspace.writeFile("dep.zith", "pub struct Counter {\n"
+    workspace.writeFile("dep.zithm", "pub struct Counter {\n"
                                     "    pub n: i32,\n"
                                     "    pub flag: bool,\n"
                                     "}\n"
                                     "pub fn dep_id(): u128 { @canonicalType(Counter) }\n");
-    workspace.writeFile("main.zith", "from dep\n"
+    workspace.writeFile("main.zithm", "from dep\n"
                                      "\n"
                                      "pub fn main_id(): u128 { @canonicalType(Counter) }\n"
                                      "fn main(): i32 { 0 }\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "defining-module canonical type id session lowers successfully");
@@ -1365,12 +1365,12 @@ void test_imported_type_canonical_id_uses_defining_module() {
 
 void test_is_null_on_pointer_optional_uses_niche() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn empty(p: ?*i32): bool { p is null }\n"
+    workspace.writeFile("main.zithm", "fn empty(p: ?*i32): bool { p is null }\n"
                                      "fn main(): i32 { 0 }\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "'is null' on ?*T lowering succeeds");
 
@@ -1395,12 +1395,12 @@ void test_is_null_on_pointer_optional_uses_niche() {
 
 void test_is_null_on_value_optional_reads_tag() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn empty(v: ?i32): bool { v is null }\n"
+    workspace.writeFile("main.zithm", "fn empty(v: ?i32): bool { v is null }\n"
                                      "fn main(): i32 { 0 }\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "'is null' on ?T lowering succeeds");
 
@@ -1427,7 +1427,7 @@ void test_is_null_on_value_optional_reads_tag() {
 
 void test_optional_boolean_on_value_reads_tag() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn present(v: ?i32): i32 {\n"
+    workspace.writeFile("main.zithm", "fn present(v: ?i32): i32 {\n"
                                      "    let x: ?i32 = 7;\n"
                                      "    if (x) { return 1; }\n"
                                      "    return 0;\n"
@@ -1436,7 +1436,7 @@ void test_optional_boolean_on_value_reads_tag() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "implicit ?T boolean lowering succeeds");
 
@@ -1468,7 +1468,7 @@ void test_optional_boolean_on_value_reads_tag() {
 
 void test_optional_boolean_on_pointer_uses_niche() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn present(p: ?*i32): i32 {\n"
+    workspace.writeFile("main.zithm", "fn present(p: ?*i32): i32 {\n"
                                      "    if (p) { return 1; }\n"
                                      "    return 0;\n"
                                      "}\n"
@@ -1476,7 +1476,7 @@ void test_optional_boolean_on_pointer_uses_niche() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "implicit ?*T boolean lowering succeeds");
 
@@ -1511,7 +1511,7 @@ void test_optional_boolean_on_pointer_uses_niche() {
 
 void test_for_condition_lowers_like_while() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn main(): i32 {\n"
+    workspace.writeFile("main.zithm", "fn main(): i32 {\n"
                                      "    var i: i32 = 0;\n"
                                      "    for (i < 10) {\n"
                                      "        i = i + 1;\n"
@@ -1521,7 +1521,7 @@ void test_for_condition_lowers_like_while() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "'for (cond)' lowering succeeds");
 
@@ -1540,7 +1540,7 @@ void test_for_condition_lowers_like_while() {
 
 void test_static_method_call_has_resolved_callee_only() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "struct Point { x: i32 }\n"
+    workspace.writeFile("main.zithm", "struct Point { x: i32 }\n"
                                      "trait Sample {}\n"
                                      "implement Point as Sample {\n"
                                      "    fn foo(): i32 { 7 }\n"
@@ -1551,7 +1551,7 @@ void test_static_method_call_has_resolved_callee_only() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "static method call lowers to HIR without a receiver");
@@ -1578,7 +1578,7 @@ void test_static_method_call_has_resolved_callee_only() {
 
 void test_state_machine_lowers_to_hir() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "state Loop(n: i32): i32 {\n"
+    workspace.writeFile("main.zithm", "state Loop(n: i32): i32 {\n"
                                      "    if (n < 10) {\n"
                                      "        jump Loop(n + 1);\n"
                                      "    }\n"
@@ -1591,7 +1591,7 @@ void test_state_machine_lowers_to_hir() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "state machine lowers to HIR");
 
@@ -1615,7 +1615,7 @@ void test_state_machine_lowers_to_hir() {
 
 void test_state_tail_call_is_direct_and_musttail() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "state Start(v: i32): i32 {\n"
+    workspace.writeFile("main.zithm", "state Start(v: i32): i32 {\n"
                                      "    jump Done(v + 1);\n"
                                      "}\n"
                                      "state Done(v: i32): i32 {\n"
@@ -1627,7 +1627,7 @@ void test_state_tail_call_is_direct_and_musttail() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "state tail call lowers to HIR");
 
@@ -1657,7 +1657,7 @@ void test_state_tail_call_is_direct_and_musttail() {
 
 void test_multiple_states_share_machine_id_by_prototype() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "state Add(x: i32, y: i32): i32 {\n"
+    workspace.writeFile("main.zithm", "state Add(x: i32, y: i32): i32 {\n"
                                      "    jump Done(x + y, y);\n"
                                      "}\n"
                                      "state Done(x: i32, y: i32): i32 {\n"
@@ -1672,7 +1672,7 @@ void test_multiple_states_share_machine_id_by_prototype() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "same-prototype states lower into one machine");
@@ -1693,7 +1693,7 @@ void test_multiple_states_share_machine_id_by_prototype() {
 
 void test_diverging_state_parameters_share_machine_id() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "state Start(n: i32): i32 {\n"
+    workspace.writeFile("main.zithm", "state Start(n: i32): i32 {\n"
                                      "    jump Done(n, n + 1);\n"
                                      "}\n"
                                      "state Done(n: i32, acc: i32): i32 {\n"
@@ -1705,7 +1705,7 @@ void test_diverging_state_parameters_share_machine_id() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "states with diverging parameters lower into one machine");
@@ -1724,7 +1724,7 @@ void test_diverging_state_parameters_share_machine_id() {
 
 void test_local_states_qualify_and_lower_without_collisions() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn first(): i32 {\n"
+    workspace.writeFile("main.zithm", "fn first(): i32 {\n"
                                      "    state Step(n: i32): i32 {\n"
                                      "        if (n == 0) {\n"
                                      "            return 1;\n"
@@ -1748,7 +1748,7 @@ void test_local_states_qualify_and_lower_without_collisions() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "local states with identical names lower to HIR");
@@ -1785,7 +1785,7 @@ void test_local_states_qualify_and_lower_without_collisions() {
 
 void test_generic_function_lowers_to_concrete_instances() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn identity<T>(x: T): T { return x; }\n"
+    workspace.writeFile("main.zithm", "fn identity<T>(x: T): T { return x; }\n"
                                      "fn main(): i32 {\n"
                                      "    _ = identity<i32>(7);\n"
                                      "    return identity(9);\n"
@@ -1793,7 +1793,7 @@ void test_generic_function_lowers_to_concrete_instances() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "generic function with explicit and inferred type arguments lowers to HIR");
@@ -1845,14 +1845,14 @@ void test_generic_function_lowers_to_concrete_instances() {
 
 void test_generic_template_survives_persistent_cache() {
     IsolatedWorkspace workspace;
-    workspace.writeFile("main.zith", "pub fn identity<T>(value: T): T { return value; }\n"
+    workspace.writeFile("main.zithm", "pub fn identity<T>(value: T): T { return value; }\n"
                                      "fn main(): i32 { return identity(9); }\n");
 
     memory::Arena first_arena;
     Options first_options(first_arena);
     first_options.noCache     = false;
     first_options.targetStage = session::Stage::Cached;
-    session::CompilationSession first(first_options, (workspace.root / "main.zith").string());
+    session::CompilationSession first(first_options, (workspace.root / "main.zithm").string());
     first.setBuffered(true);
     CHECK(first.run(), "cold generic compilation writes a persistent artifact");
 
@@ -1890,7 +1890,7 @@ void test_generic_template_survives_persistent_cache() {
     Options second_options(second_arena);
     second_options.noCache     = false;
     second_options.targetStage = session::Stage::HirLowered;
-    session::CompilationSession second(second_options, (workspace.root / "main.zith").string());
+    session::CompilationSession second(second_options, (workspace.root / "main.zithm").string());
     second.setBuffered(true);
     CHECK(second.runTo(session::Stage::HirLowered),
           "warm generic compilation reads the persistent artifact");
@@ -1916,15 +1916,15 @@ void test_generic_template_survives_persistent_cache() {
 
 void test_alias_qualified_free_generic_self_is_not_receiver() {
     Workspace workspace;
-    workspace.writeFile("dep.zith", "pub fn identity<T>(self: T): T { return self; }\n");
-    workspace.writeFile("main.zith", "import dep as da\n"
+    workspace.writeFile("dep.zithm", "pub fn identity<T>(self: T): T { return self; }\n");
+    workspace.writeFile("main.zithm", "import dep as da\n"
                                      "fn main(): i32 {\n"
                                      "    return da.identity<i32>(41);\n"
                                      "}\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "alias-qualified free generic call with a self-named parameter lowers");
@@ -1962,7 +1962,7 @@ void test_alias_qualified_free_generic_self_is_not_receiver() {
 
 void test_generic_bound_and_value_param_lower_to_hir() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "trait Foo {}\n"
+    workspace.writeFile("main.zithm", "trait Foo {}\n"
                                      "interface Transform { [x]: i32 }\n"
                                      "struct Temple { x: i32 }\n"
                                      "struct Point { x: i32 }\n"
@@ -1976,7 +1976,7 @@ void test_generic_bound_and_value_param_lower_to_hir() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "generic bound declarations lower without unknown-type diagnostics");
@@ -1993,7 +1993,7 @@ void test_generic_bound_and_value_param_lower_to_hir() {
 
 void test_interface_method_bound_lower_to_hir() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "interface Positioned {\n"
+    workspace.writeFile("main.zithm", "interface Positioned {\n"
                                      "    x: i32,\n"
                                      "    fn getX(self): i32\n"
                                      "}\n"
@@ -2009,7 +2009,7 @@ void test_interface_method_bound_lower_to_hir() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "interface method in a generic bound lowers to HIR");
@@ -2047,7 +2047,7 @@ void test_interface_method_bound_lower_to_hir() {
 // a trait, then checks the exact ids and their order.
 void test_owner_declaration_method_list_is_ordered_and_explicit() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "struct Counter {\n"
+    workspace.writeFile("main.zithm", "struct Counter {\n"
                                      "    value: i32,\n"
                                      "    fn increment(self): i32 { return self.value + 1; }\n"
                                      "    fn reset(self): i32 { return 0; }\n"
@@ -2063,7 +2063,7 @@ void test_owner_declaration_method_list_is_ordered_and_explicit() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "struct and trait method bodies lower to HIR");
@@ -2152,7 +2152,7 @@ void test_owner_declaration_method_list_is_ordered_and_explicit() {
 // dedicated assertions so each supported owner kind is covered explicitly.
 void test_owner_method_lists_cover_interface_enum_and_union() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "interface Shape {\n"
+    workspace.writeFile("main.zithm", "interface Shape {\n"
                                      "    fn area(self): i32\n"
                                      "}\n"
                                      "enum Mode {\n"
@@ -2169,7 +2169,7 @@ void test_owner_method_lists_cover_interface_enum_and_union() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "interface, enum, and union inline methods lower to HIR");
@@ -2219,7 +2219,7 @@ void test_owner_method_lists_cover_interface_enum_and_union() {
 // stored type is a real `HirTypeKind.Trait`, not `Unknown`.
 void test_generic_owner_template_records_trait_types() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "trait Value {\n"
+    workspace.writeFile("main.zithm", "trait Value {\n"
                                      "    fn value(self): i32\n"
                                      "}\n"
                                      "trait Named {\n"
@@ -2235,7 +2235,7 @@ void test_generic_owner_template_records_trait_types() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "generic owner with an implement block lowers to HIR");
@@ -2269,7 +2269,7 @@ void test_generic_owner_template_records_trait_types() {
 
 void test_inline_method_ids_reach_cache_artifact_writer() {
     IsolatedWorkspace workspace;
-    workspace.writeFile("main.zith", "trait Value {\n"
+    workspace.writeFile("main.zithm", "trait Value {\n"
                                      "    fn value(self): i32\n"
                                      "}\n"
                                      "struct Box<T> {\n"
@@ -2285,7 +2285,7 @@ void test_inline_method_ids_reach_cache_artifact_writer() {
     Options options(arena);
     options.noCache = false;
     options.targetStage = session::Stage::Cached;
-    session::CompilationSession compiled(options, (workspace.root / "main.zith").string());
+    session::CompilationSession compiled(options, (workspace.root / "main.zithm").string());
     compiled.setBuffered(true);
     CHECK(compiled.run(), "compilation writes an artifact through the cache writer");
 
@@ -2339,7 +2339,7 @@ void test_inline_method_ids_reach_cache_artifact_writer() {
 
 void test_indirect_function_call_has_callee_and_fn_type() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "extern fn apply(f: fn(i32): i32, x: i32): i32\n"
+    workspace.writeFile("main.zithm", "extern fn apply(f: fn(i32): i32, x: i32): i32\n"
                                      "extern fn double(x: i32): i32\n"
                                      "fn main(): i32 {\n"
                                      "    var f: fn(i32): i32 = double;\n"
@@ -2348,7 +2348,7 @@ void test_indirect_function_call_has_callee_and_fn_type() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "function value and indirect call lower to HIR");
@@ -2390,7 +2390,7 @@ void test_indirect_function_call_has_callee_and_fn_type() {
 
 void test_array_to_slice_coercion_lowers_to_make_slice() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn whole(a: [3]i32): []i32 { a }\n"
+    workspace.writeFile("main.zithm", "fn whole(a: [3]i32): []i32 { a }\n"
                                      "fn main(): i32 {\n"
                                      "    var values: [3]i32 = [10, 20, 30];\n"
                                      "    return raw whole(values)[1];\n"
@@ -2398,7 +2398,7 @@ void test_array_to_slice_coercion_lowers_to_make_slice() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
     CHECK(session.runTo(session::Stage::HirLowered), "array-to-slice coercion lowers to HIR");
 
     const auto &hir   = session.hirModule();
@@ -2435,7 +2435,7 @@ void test_array_to_slice_coercion_lowers_to_make_slice() {
 
 void test_slice_range_lowers_to_checked_optional_view() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn get(i: i32): ?[]i32 {\n"
+    workspace.writeFile("main.zithm", "fn get(i: i32): ?[]i32 {\n"
                                      "    var values: [3]i32 = [10, 20, 30];\n"
                                      "    return values[i..(i + 1)];\n"
                                      "}\n"
@@ -2443,7 +2443,7 @@ void test_slice_range_lowers_to_checked_optional_view() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
     CHECK(session.runTo(session::Stage::HirLowered), "array slice range lowers to HIR");
 
     const auto &hir = session.hirModule();
@@ -2483,7 +2483,7 @@ void test_slice_range_lowers_to_checked_optional_view() {
 
 void test_checked_index_lowers_to_optional_with_some_and_none() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn get(i: i32): ?i32 {\n"
+    workspace.writeFile("main.zithm", "fn get(i: i32): ?i32 {\n"
                                      "    var values: [3]i32 = [10, 20, 30];\n"
                                      "    return values[i];\n"
                                      "}\n"
@@ -2491,7 +2491,7 @@ void test_checked_index_lowers_to_optional_with_some_and_none() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
     CHECK(session.runTo(session::Stage::HirLowered), "checked index lowers to HIR");
 
     const auto &hir = session.hirModule();
@@ -2528,14 +2528,14 @@ void test_checked_index_lowers_to_optional_with_some_and_none() {
 
 void test_optional_narrowing_marks_payload_guarded() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn read(value: ?i32): i32 {\n"
+    workspace.writeFile("main.zithm", "fn read(value: ?i32): i32 {\n"
                                      "    if (value is null) { return 0; } else { return value; }\n"
                                      "}\n"
                                      "fn main(): i32 { 0 }\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
     CHECK(session.runTo(session::Stage::HirLowered), "optional narrowing lowers to HIR");
 
     const auto &hir  = session.hirModule();
@@ -2563,7 +2563,7 @@ void test_optional_narrowing_marks_payload_guarded() {
 
 void test_raw_slice_and_index_lower_without_optional_checks() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn main(): i32 {\n"
+    workspace.writeFile("main.zithm", "fn main(): i32 {\n"
                                      "    var values: [3]i32 = [10, 20, 30];\n"
                                      "    let s: []i32 = raw values[1..3];\n"
                                      "    return raw s[0];\n"
@@ -2571,7 +2571,7 @@ void test_raw_slice_and_index_lower_without_optional_checks() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
     CHECK(session.runTo(session::Stage::HirLowered), "raw slice/index expressions lower to HIR");
 
     const auto &hir  = session.hirModule();
@@ -2598,7 +2598,7 @@ void test_raw_slice_and_index_lower_without_optional_checks() {
 
 void test_generic_instance_deduplication() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn same<T>(x: T): T { x }\n"
+    workspace.writeFile("main.zithm", "fn same<T>(x: T): T { x }\n"
                                      "fn main(): i32 {\n"
                                      "    _ = same<i32>(1);\n"
                                      "    _ = same(2);\n"
@@ -2607,7 +2607,7 @@ void test_generic_instance_deduplication() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "two equivalent generic calls lower without a sema error");
@@ -2624,14 +2624,14 @@ void test_generic_instance_deduplication() {
 
 void test_call_with_unlowerable_argument_fails_pipeline() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn consume(value: char) {}\n"
+    workspace.writeFile("main.zithm", "fn consume(value: char) {}\n"
                                      "fn main() {\n"
                                      "    consume('\\q');\n"
                                      "}\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(!session.runTo(session::Stage::HirLowered),
           "call with an unlowerable argument fails the pipeline");
@@ -2648,12 +2648,12 @@ void test_call_with_unlowerable_argument_fails_pipeline() {
 void test_invalid_escape_reports_at_type_check() {
     const auto expect_invalid_escape = [](std::string_view source, std::string_view what) {
         Workspace workspace;
-        workspace.writeFile("main.zith", source);
+        workspace.writeFile("main.zithm", source);
 
         memory::Arena arena;
         Options options(arena);
         options.targetStage = session::Stage::TypeChecked;
-        session::CompilationSession session(options, (workspace.root / "main.zith").string());
+        session::CompilationSession session(options, (workspace.root / "main.zithm").string());
         session.setBuffered(true);
 
         CHECK(!session.runTo(session::Stage::TypeChecked), std::string(what).c_str());
@@ -2683,7 +2683,7 @@ void test_invalid_escape_reports_at_type_check() {
 
 void test_raw_union_lowers_members_and_casts() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "raw union Bits { u8, u32 }\n"
+    workspace.writeFile("main.zithm", "raw union Bits { u8, u32 }\n"
                                      "fn main() {\n"
                                      "    var b: Bits = Bits { 255u8 };\n"
                                      "    var word: u32 = b as u32;\n"
@@ -2692,7 +2692,7 @@ void test_raw_union_lowers_members_and_casts() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "raw union declaration and casts lower to HIR");
@@ -2708,7 +2708,7 @@ void test_raw_union_lowers_members_and_casts() {
 
 void test_is_type_pointer_lowers_union_check_and_keeps_terminators() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "import \"stdio.h\"\n"
+    workspace.writeFile("main.zithm", "import \"stdio.h\"\n"
                                      "union Foo { *char, i32, f64 }\n"
                                      "fn main(): i32 {\n"
                                      "    let f = Foo{\"hello\"};\n"
@@ -2722,7 +2722,7 @@ void test_is_type_pointer_lowers_union_check_and_keeps_terminators() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "tagged union is-pointer test with a compound member lowers");
@@ -2754,7 +2754,7 @@ void test_is_type_pointer_lowers_union_check_and_keeps_terminators() {
 
 void test_distinct_generic_instances_have_distinct_symbols() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn pick<T>(x: T): T { x }\n"
+    workspace.writeFile("main.zithm", "fn pick<T>(x: T): T { x }\n"
                                      "fn main(): i32 {\n"
                                      "    _ = pick<i32>(1);\n"
                                      "    _ = pick<f64>(1.5);\n"
@@ -2763,7 +2763,7 @@ void test_distinct_generic_instances_have_distinct_symbols() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "two generic instances with different type arguments lower to HIR");
@@ -2793,7 +2793,7 @@ void test_distinct_generic_instances_have_distinct_symbols() {
 
 void test_defer_lowers_to_cleanup_nodes() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "#[discardable] extern fn putchar(c: i32): i32\n"
+    workspace.writeFile("main.zithm", "#[discardable] extern fn putchar(c: i32): i32\n"
                                      "fn main(): i32 {\n"
                                      "    defer putchar(66);\n"
                                      "    defer putchar(65);\n"
@@ -2803,7 +2803,7 @@ void test_defer_lowers_to_cleanup_nodes() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "defer statements lower to HIR");
 
@@ -2818,7 +2818,7 @@ void test_defer_lowers_to_cleanup_nodes() {
 
 void test_defer_captures_later_binding_after_slot_alloca() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "extern fn mark(x: i32)\n"
+    workspace.writeFile("main.zithm", "extern fn mark(x: i32)\n"
                                      "fn main(): i32 {\n"
                                      "    defer mark(2);\n"
                                      "    var v: i32 = 1;\n"
@@ -2828,7 +2828,7 @@ void test_defer_captures_later_binding_after_slot_alloca() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "modern defer before a later same-block binding lowers to HIR");
@@ -2846,13 +2846,13 @@ void test_defer_captures_later_binding_after_slot_alloca() {
 
 void test_state_without_return_type_lowers_to_hir() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "state Done() { return; }\n"
+    workspace.writeFile("main.zithm", "state Done() { return; }\n"
                                      "state Start() { jump Done(); }\n"
                                      "fn main() { dock Start(); }\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "void state declarations lower to HIR");
     const auto &hir   = session.hirModule();
@@ -2866,7 +2866,7 @@ void test_state_without_return_type_lowers_to_hir() {
 
 void test_variadic_slice_lowers_to_hir() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn sum(rest: [...]i32): i32 {\n"
+    workspace.writeFile("main.zithm", "fn sum(rest: [...]i32): i32 {\n"
                                      "    return raw rest[0] + raw rest[1] + raw rest[2];\n"
                                      "}\n"
                                      "fn main(): i32 {\n"
@@ -2875,7 +2875,7 @@ void test_variadic_slice_lowers_to_hir() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "variadic slice calls lower to HIR");
 
@@ -2917,7 +2917,7 @@ void test_variadic_slice_lowers_to_hir() {
 
 void test_variadic_slice_state_lowers_to_hir() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "state Start(n: i32, rest: [...]i32): i32 {\n"
+    workspace.writeFile("main.zithm", "state Start(n: i32, rest: [...]i32): i32 {\n"
                                      "    if (n == 0) {\n"
                                      "        return raw rest[0];\n"
                                      "    }\n"
@@ -2929,7 +2929,7 @@ void test_variadic_slice_state_lowers_to_hir() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "variadic slice state/dock/jump calls lower to HIR");
@@ -2964,7 +2964,7 @@ void test_variadic_slice_state_lowers_to_hir() {
 
 void test_variadic_slice_explicit_vs_auto_free_function() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn sum(rest: [...]i32): i32 {\n"
+    workspace.writeFile("main.zithm", "fn sum(rest: [...]i32): i32 {\n"
                                      "    return raw rest[0] + raw rest[1];\n"
                                      "}\n"
                                      "extern fn values(): []i32\n"
@@ -2974,7 +2974,7 @@ void test_variadic_slice_explicit_vs_auto_free_function() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "explicit and auto-collected variadic slices lower to HIR");
@@ -2997,7 +2997,7 @@ void test_variadic_slice_explicit_vs_auto_free_function() {
 
 void test_variadic_slice_call_plan_survives_cache_hydration() {
     IsolatedWorkspace workspace;
-    workspace.writeFile("main.zith", "fn sum(rest: [...]i32): i32 {\n"
+    workspace.writeFile("main.zithm", "fn sum(rest: [...]i32): i32 {\n"
                                      "    return raw rest[0] + raw rest[1];\n"
                                      "}\n"
                                      "extern fn values(): []i32\n"
@@ -3009,7 +3009,7 @@ void test_variadic_slice_call_plan_survives_cache_hydration() {
     Options first_options(first_arena);
     first_options.noCache     = false;
     first_options.targetStage = session::Stage::Cached;
-    session::CompilationSession first(first_options, (workspace.root / "main.zith").string());
+    session::CompilationSession first(first_options, (workspace.root / "main.zithm").string());
     first.setBuffered(true);
     CHECK(first.run(), "cold variadic-slice compilation writes the persistent artifact");
 
@@ -3017,7 +3017,7 @@ void test_variadic_slice_call_plan_survives_cache_hydration() {
     Options second_options(second_arena);
     second_options.noCache     = false;
     second_options.targetStage = session::Stage::HirLowered;
-    session::CompilationSession second(second_options, (workspace.root / "main.zith").string());
+    session::CompilationSession second(second_options, (workspace.root / "main.zithm").string());
     second.setBuffered(true);
     CHECK(second.runTo(session::Stage::HirLowered),
           "warm variadic-slice compilation hydrates the persistent artifact");
@@ -3039,7 +3039,7 @@ void test_variadic_slice_call_plan_survives_cache_hydration() {
 
 void test_variadic_slice_explicit_vs_auto_method() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "struct Agg {\n"
+    workspace.writeFile("main.zithm", "struct Agg {\n"
                                      "    total: i32,\n"
                                      "    fn add(self, rest: [...]i32): i32 {\n"
                                      "        return self.total + raw rest[0] + raw rest[1];\n"
@@ -3058,7 +3058,7 @@ void test_variadic_slice_explicit_vs_auto_method() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "explicit and auto-collected method variadic tails lower to HIR");
@@ -3076,7 +3076,7 @@ void test_variadic_slice_explicit_vs_auto_method() {
 
 void test_variadic_slice_dyn_tail_is_sema_decided() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "trait Value {\n"
+    workspace.writeFile("main.zithm", "trait Value {\n"
                                      "    fn value(self): i32 { return 0; }\n"
                                      "}\n"
                                      "struct Box {\n"
@@ -3105,7 +3105,7 @@ void test_variadic_slice_dyn_tail_is_sema_decided() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "dyn variadic slice tails follow the sema plan");
@@ -3117,7 +3117,7 @@ void test_variadic_slice_dyn_tail_is_sema_decided() {
 
 void test_variadic_slice_explicit_vs_auto_state() {
     Workspace workspace;
-    workspace.writeFile("main.zith",
+    workspace.writeFile("main.zithm",
                         "state Start(rest: [...]i32): i32 {\n"
                         "    if (@lengthOf(rest) == 0) {\n"
                         "        return 0;\n"
@@ -3131,7 +3131,7 @@ void test_variadic_slice_explicit_vs_auto_state() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "explicit, auto-collected, and empty state variadic tails lower to HIR");
@@ -3154,7 +3154,7 @@ void test_variadic_slice_explicit_vs_auto_state() {
 
 void test_optional_for_in_lowers_without_union_nodes() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "struct Range {\n"
+    workspace.writeFile("main.zithm", "struct Range {\n"
                                      "    current: i32,\n"
                                      "    limit: i32,\n"
                                      "    fn next(var self): ?i32 {\n"
@@ -3177,7 +3177,7 @@ void test_optional_for_in_lowers_without_union_nodes() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "optional for-in lowers to HIR");
 
@@ -3195,7 +3195,7 @@ void test_optional_for_in_lowers_without_union_nodes() {
 
 void test_nested_optional_for_in_loop_variable_is_optional() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "struct Range {\n"
+    workspace.writeFile("main.zithm", "struct Range {\n"
                                      "    current: i32,\n"
                                      "    limit: i32,\n"
                                      "    fn next(var self): ??i32 {\n"
@@ -3220,7 +3220,7 @@ void test_nested_optional_for_in_loop_variable_is_optional() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "nested optional for-in lowers to HIR");
 
@@ -3249,7 +3249,7 @@ void test_nested_optional_for_in_loop_variable_is_optional() {
 
 void test_state_value_dock_lowers_to_indirect_tailcc_call() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "state Machine(n: i32): i32 {\n"
+    workspace.writeFile("main.zithm", "state Machine(n: i32): i32 {\n"
                                      "    return n;\n"
                                      "}\n"
                                      "fn main(): i32 {\n"
@@ -3259,7 +3259,7 @@ void test_state_value_dock_lowers_to_indirect_tailcc_call() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered), "state value dock lowers to HIR");
 
@@ -3303,7 +3303,7 @@ void test_state_value_dock_lowers_to_indirect_tailcc_call() {
 
 void test_when_guards_lower_contextually_without_diagnostics() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn classify(n: i32): i32 {\n"
+    workspace.writeFile("main.zithm", "fn classify(n: i32): i32 {\n"
                                      "    return when (n) {\n"
                                      "        (0) 1,\n"
                                      "        (1..3) 2,\n"
@@ -3314,7 +3314,7 @@ void test_when_guards_lower_contextually_without_diagnostics() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "when with literal, range, and boolean guards lowers to HIR");
@@ -3327,14 +3327,14 @@ void test_when_guards_lower_contextually_without_diagnostics() {
 
 void test_pipe_lowers_to_hir_pipeline_nodes() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn addOne(x: i32): i32 { x + 1 }\n"
+    workspace.writeFile("main.zithm", "fn addOne(x: i32): i32 { x + 1 }\n"
                                      "fn main(): i32 {\n"
                                      "    10 |> addOne(..) do addOne(..) |> addOne(..)\n"
                                      "}\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "pipeline expression lowers through sema and HIR");
@@ -3349,7 +3349,7 @@ void test_pipe_lowers_to_hir_pipeline_nodes() {
 void test_pipe_block_effect_stage_lowers() {
     Workspace workspace;
     workspace.writeFile(
-        "main.zith", "fn addOne(x: i32): i32 { x + 1 }\n"
+        "main.zithm", "fn addOne(x: i32): i32 { x + 1 }\n"
                     "fn double(x: i32): i32 { x * 2 }\n"
                     "fn main(): i32 {\n"
                     "    10 |> addOne(..) do { let ignored = double(..); } |> double(..)\n"
@@ -3357,7 +3357,7 @@ void test_pipe_block_effect_stage_lowers() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "do block stage lowers through sema and HIR");
@@ -3368,11 +3368,11 @@ namespace {
 
 void checkPipeDiagnostic(std::string_view source, std::string_view expected_message) {
     Workspace workspace;
-    workspace.writeFile("main.zith", source);
+    workspace.writeFile("main.zithm", source);
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(!session.runTo(session::Stage::HirLowered),
           "invalid pipeline stage must fail the lowering stage");
@@ -3412,7 +3412,7 @@ void test_pipe_rejects_placeholder_outside_stage() {
 
 void test_pipe_block_accepts_effect_without_current() {
     Workspace workspace;
-    workspace.writeFile("main.zith",
+    workspace.writeFile("main.zithm",
                         "fn addOne(x: i32): i32 { x + 1 }\n"
                         "fn main(): i32 {\n"
                         "    10 do { let ignored = addOne(1); }\n"
@@ -3420,7 +3420,7 @@ void test_pipe_block_accepts_effect_without_current() {
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "'do' without '..' lowers as an effect stage");
@@ -3436,14 +3436,14 @@ void test_pipe_do_rejects_multiple_placeholders() {
 
 void test_pipe_variadic_slice_current_lowers() {
     Workspace workspace;
-    workspace.writeFile("main.zith", "fn sum(rest: [...]i32): i32 { 0 }\n"
+    workspace.writeFile("main.zithm", "fn sum(rest: [...]i32): i32 { 0 }\n"
                                      "fn main(): i32 {\n"
                                      "    10 |> sum(..)\n"
                                      "}\n");
 
     memory::Arena arena;
     Options options(arena);
-    auto session = makeSession(workspace, arena, options, "main.zith");
+    auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "pipeline current as a variadic slice tail lowers to HIR");
@@ -3467,8 +3467,8 @@ void test_pipe_block_rejects_control_flow() {
 
 void test_imported_bare_opaque_cross_module() {
     IsolatedWorkspace workspace;
-    workspace.writeFile("dep.zith", "pub fn dep_make(): opaque { 42 as opaque }\n");
-    workspace.writeFile("main.zith", "from dep\n"
+    workspace.writeFile("dep.zithm", "pub fn dep_make(): opaque { 42 as opaque }\n");
+    workspace.writeFile("main.zithm", "from dep\n"
                                      "\n"
                                      "fn consume(v: opaque): ?i32 { v as i32 }\n"
                                      "fn check(v: opaque): bool { v is i32 }\n"
@@ -3479,7 +3479,7 @@ void test_imported_bare_opaque_cross_module() {
 
     memory::Arena arena;
     Options options(arena);
-    session::CompilationSession session(options, (workspace.root / "main.zith").string());
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "importing a module that returns bare opaque lowers across module boundaries");

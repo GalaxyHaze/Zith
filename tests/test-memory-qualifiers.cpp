@@ -83,7 +83,7 @@ session::CompilationSession makeHirSession(HirWorkspace &workspace, Options &opt
 
 Result check(std::string_view source) {
     Workspace workspace;
-    workspace.write("main.zith", source);
+    workspace.write("main.zithm", source);
 
     memory::Arena arena;
     Options options(arena);
@@ -95,7 +95,7 @@ Result check(std::string_view source) {
     config.compilerVersion    = "test";
     auto context              = std::make_shared<session::FrontendContext>(config);
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string(), context);
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string(), context);
     session.setBuffered(true);
 
     Result result;
@@ -541,7 +541,7 @@ void addressOfMoveLeavesResidualConsumedSlot() {
           "use after &x reports E4001 UseAfterMove");
 
     HirWorkspace workspace;
-    workspace.write("main.zith", "fn main(): i32 {\n"
+    workspace.write("main.zithm", "fn main(): i32 {\n"
                                  "    var x: i32 = 1;\n"
                                  "    let p: *i32 = &x;\n"
                                  "    *p = 3;\n"
@@ -549,7 +549,7 @@ void addressOfMoveLeavesResidualConsumedSlot() {
                                  "}\n");
     memory::Arena arena;
     Options options(arena);
-    auto session = makeHirSession(workspace, options, "main.zith");
+    auto session = makeHirSession(workspace, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
           "an &x program that remains semantically valid lowers to HIR");

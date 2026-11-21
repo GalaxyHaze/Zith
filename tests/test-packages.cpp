@@ -380,9 +380,9 @@ void test_local_resolver_builds_deterministic_transitive_graph() {
     const std::string terminalText = "[project]\nname = \"terminal\"\nversion = \"1\"\n";
     const auto projectPath         = temporary.write(projectText);
     temporary.writeAt("vendor/logging/ZithProject.toml", loggingText);
-    temporary.writeAt("vendor/logging/src/logging.zith", "");
+    temporary.writeAt("vendor/logging/src/logging.zithm", "");
     temporary.writeAt("vendor/terminal/ZithProject.toml", terminalText);
-    temporary.writeAt("vendor/terminal/src/terminal.zith", "");
+    temporary.writeAt("vendor/terminal/src/terminal.zithm", "");
 
     const auto first = zith::packages::resolveLocalPackages(projectPath);
     CHECK(first.isOk(), "local dependency manifests resolve into a lockfile graph");
@@ -434,7 +434,7 @@ void test_local_lockfile_validation_is_read_only() {
                                              "logging = \"vendor/logging\"\n");
     temporary.writeAt("vendor/logging/ZithProject.toml",
                       "[project]\nname = \"logging\"\nversion = \"1\"\n");
-    temporary.writeAt("vendor/logging/src/logging.zith", "");
+    temporary.writeAt("vendor/logging/src/logging.zithm", "");
 
     const auto resolved = zith::packages::resolveLocalPackages(projectPath);
     CHECK(resolved.isOk(), "fixture package graph resolves before lockfile validation");
@@ -492,7 +492,7 @@ void test_local_resolver_survives_recursive_node_map_growth() {
                         " = \"../package" + std::to_string(index + 1U) + "\"\n";
         }
         temporary.writeAt("vendor/" + packageName + "/ZithProject.toml", manifest);
-        temporary.writeAt("vendor/" + packageName + "/src/" + packageName + ".zith", "");
+        temporary.writeAt("vendor/" + packageName + "/src/" + packageName + ".zithm", "");
     }
 
     const auto result = zith::packages::resolveLocalPackages(projectPath);
@@ -553,11 +553,11 @@ void test_local_resolver_rejects_cycles_and_path_conflicts() {
         temporary.writeAt("vendor/alpha/ZithProject.toml",
                           "[project]\nname = \"alpha\"\nversion = \"1\"\n"
                           "\n[dependencies]\nbeta = \"../beta\"\n");
-        temporary.writeAt("vendor/alpha/src/alpha.zith", "");
+        temporary.writeAt("vendor/alpha/src/alpha.zithm", "");
         temporary.writeAt("vendor/beta/ZithProject.toml",
                           "[project]\nname = \"beta\"\nversion = \"1\"\n"
                           "\n[dependencies]\nalpha = \"../alpha\"\n");
-        temporary.writeAt("vendor/beta/src/beta.zith", "");
+        temporary.writeAt("vendor/beta/src/beta.zithm", "");
         const auto result = zith::packages::resolveLocalPackages(projectPath);
         CHECK(result.isError(), "dependency cycles are rejected");
     }
@@ -573,17 +573,17 @@ void test_local_resolver_rejects_cycles_and_path_conflicts() {
         temporary.writeAt("vendor/left/ZithProject.toml",
                           "[project]\nname = \"left\"\nversion = \"1\"\n"
                           "\n[dependencies]\nshared = \"../shared-a\"\n");
-        temporary.writeAt("vendor/left/src/left.zith", "");
+        temporary.writeAt("vendor/left/src/left.zithm", "");
         temporary.writeAt("vendor/right/ZithProject.toml",
                           "[project]\nname = \"right\"\nversion = \"1\"\n"
                           "\n[dependencies]\nshared = \"../shared-b\"\n");
-        temporary.writeAt("vendor/right/src/right.zith", "");
+        temporary.writeAt("vendor/right/src/right.zithm", "");
         temporary.writeAt("vendor/shared-a/ZithProject.toml",
                           "[project]\nname = \"shared\"\nversion = \"1\"\n");
-        temporary.writeAt("vendor/shared-a/src/shared.zith", "");
+        temporary.writeAt("vendor/shared-a/src/shared.zithm", "");
         temporary.writeAt("vendor/shared-b/ZithProject.toml",
                           "[project]\nname = \"shared\"\nversion = \"2\"\n");
-        temporary.writeAt("vendor/shared-b/src/shared.zith", "");
+        temporary.writeAt("vendor/shared-b/src/shared.zithm", "");
         const auto result = zith::packages::resolveLocalPackages(projectPath);
         CHECK(result.isError(), "one package name cannot resolve to multiple local paths");
     }
@@ -605,7 +605,7 @@ void test_local_resolver_rejects_cycles_and_path_conflicts() {
                           "[project]\nname = \"beta\"\nversion = \"1\"\n"
                           "\n[package]\nmodule_root = \"" +
                               sharedRoot + "\"\n");
-        temporary.writeAt("shared/modules/shared.zith", "");
+        temporary.writeAt("shared/modules/shared.zithm", "");
         const auto result = zith::packages::resolveLocalPackages(projectPath);
         CHECK(result.isError(), "distinct packages cannot claim the same module root");
     }

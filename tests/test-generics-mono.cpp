@@ -48,7 +48,7 @@ struct MonoTest {
     };
 
     Result run(std::string_view input, session::Stage target = session::Stage::HirLowered) {
-        write("main.zith", input);
+        write("main.zithm", input);
         return runMain(target);
     }
 
@@ -60,7 +60,7 @@ struct MonoTest {
     }
 
     Result runMain(session::Stage target = session::Stage::HirLowered) {
-        const auto path = root / "main.zith";
+        const auto path = root / "main.zithm";
         session::FrontendConfig config;
         config.workspaceRoot      = root.string();
         config.maxFrontendWorkers = 1;
@@ -219,8 +219,8 @@ void test_imported_generic_struct_returned_by_value() {
     MonoTest t;
     // The module stem equals the struct name, which is the shape that used to
     // leave the reified field as the stale generic parameter `T`.
-    t.write("Pair.zith", "pub struct Pair<T> { pub x: T }\n");
-    t.write("main.zith", "import Pair as p\n"
+    t.write("Pair.zithm", "pub struct Pair<T> { pub x: T }\n");
+    t.write("main.zithm", "import Pair as p\n"
                          "fn build(): p.Pair<i64> { return p.Pair<i64> { x: 5i64 }; }\n"
                          "fn main(): i32 {\n"
                          "    let v = build();\n"

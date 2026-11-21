@@ -24,7 +24,7 @@ void test_ide_api() {
 
     zith::ide::Workspace workspace(config);
     const auto snapshot =
-        workspace.openDocument("file:///tmp/main.zith", "/tmp/main.zith",
+        workspace.openDocument("file:///tmp/main.zithm", "/tmp/main.zithm",
                                "struct Counter {\n"
                                "  value: i32,\n"
                                "  private_field: i32,\n"

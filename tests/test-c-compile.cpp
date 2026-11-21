@@ -86,7 +86,7 @@ void test_cli_flag_parses_repeated_c_source_dirs() {
     char flag[]    = "--c-source-dir";
     char dirA[]    = "vendor/c";
     char dirB[]    = "src/native";
-    char input[]   = "main.zith";
+    char input[]   = "main.zithm";
     char *argv[]   = {program, command, flag, dirA, flag, dirB, input};
 
     Cli cli;
@@ -120,13 +120,13 @@ void test_completion_mentions_c_source_dir() {
 
 void test_project_config_reads_c_source_dirs() {
     TempProject project;
-    project.write("main.zith", "fn main(): i32 { return 0; }\n");
+    project.write("main.zithm", "fn main(): i32 { return 0; }\n");
     project.write("ZithProject.toml", "[ffi]\n"
                                       "c_source_dirs = [\"vendor/c\", \"src/native\"]\n");
 
     memory::Arena arena;
     Options opts(arena);
-    session::CompilationSession session(opts, (project.root / "main.zith").string());
+    session::CompilationSession session(opts, (project.root / "main.zithm").string());
 
     CHECK_EQ(session.projectConfig().cSourceDirs.size(), 2u,
              "session project config loads ffi.c_source_dirs");
@@ -138,7 +138,7 @@ void test_project_config_reads_c_source_dirs() {
 
 void test_c_sources_compile_and_link() {
     TempProject project;
-    project.write("main.zith", "extern fn ffi_add(a: i32, b: i32): i32\n"
+    project.write("main.zithm", "extern fn ffi_add(a: i32, b: i32): i32\n"
                                "fn main(): i32 {\n"
                                "    return ffi_add(2, 5);\n"
                                "}\n");
@@ -148,7 +148,7 @@ void test_c_sources_compile_and_link() {
 
     memory::Arena arena;
     Options opts(arena);
-    session::CompilationSession session(opts, (project.root / "main.zith").string());
+    session::CompilationSession session(opts, (project.root / "main.zithm").string());
     session.setBuffered(true);
     session.setAlwaysEmitObject(true);
 
@@ -159,7 +159,7 @@ void test_c_sources_compile_and_link() {
 
 void test_c_source_roots_deduplicate_overlaps() {
     TempProject project;
-    project.write("main.zith", "extern fn only_once(): i32\n"
+    project.write("main.zithm", "extern fn only_once(): i32\n"
                                "fn main(): i32 {\n"
                                "    return only_once();\n"
                                "}\n");
@@ -170,7 +170,7 @@ void test_c_source_roots_deduplicate_overlaps() {
     memory::Arena arena;
     Options opts(arena);
     opts.flags.verbose(true);
-    session::CompilationSession session(opts, (project.root / "main.zith").string());
+    session::CompilationSession session(opts, (project.root / "main.zithm").string());
     session.setBuffered(true);
     session.setAlwaysEmitObject(true);
 
@@ -183,7 +183,7 @@ void test_c_source_roots_deduplicate_overlaps() {
 
 void test_invalid_c_source_aborts_link() {
     TempProject project;
-    project.write("main.zith", "fn main(): i32 { return 0; }\n");
+    project.write("main.zithm", "fn main(): i32 { return 0; }\n");
     project.write("native/bad.c", "int broken( { return 0; }\n");
     project.write("ZithProject.toml", "[ffi]\n"
                                       "c_source_dirs = [\"native\"]\n");
@@ -191,7 +191,7 @@ void test_invalid_c_source_aborts_link() {
     memory::Arena arena;
     Options opts(arena);
     opts.flags.verbose(true);
-    session::CompilationSession session(opts, (project.root / "main.zith").string());
+    session::CompilationSession session(opts, (project.root / "main.zithm").string());
     session.setBuffered(true);
     session.setAlwaysEmitObject(true);
 
@@ -206,7 +206,7 @@ void test_invalid_c_source_aborts_link() {
 #ifdef ZITH_ENABLE_C_INTEROP
 void test_libclang_header_import_can_link_discovered_c_source() {
     TempProject project;
-    project.write("main.zith", "import \"native/add.h\";\n"
+    project.write("main.zithm", "import \"native/add.h\";\n"
                                "fn main(): i32 {\n"
                                "    return imported_sum(3, 9);\n"
                                "}\n");
@@ -218,7 +218,7 @@ void test_libclang_header_import_can_link_discovered_c_source() {
 
     memory::Arena arena;
     Options opts(arena);
-    session::CompilationSession session(opts, (project.root / "main.zith").string());
+    session::CompilationSession session(opts, (project.root / "main.zithm").string());
     session.setBuffered(true);
     session.setAlwaysEmitObject(true);
 

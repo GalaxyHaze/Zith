@@ -21,51 +21,51 @@ struct Example {
 };
 
 constexpr Example kExamples[] = {
-    {"allocator-simple.zith", 42, false},
-    {"bindings-simple.zith", 6, false},
-    {"bindings-advanced.zith", 42, false},
-    {"bitwise-simple.zith", 7, false},
-    {"bitwise-advanced.zith", 3, false},
-    {"booleans-simple.zith", 7, false},
-    {"booleans-advanced.zith", 10, false},
-    {"const-enums-simple.zith", 7, false},
-    {"const-enums-advanced.zith", 12, false},
-    {"dyn-array.zith", 0, false},
-    {"dyn-interfaces-simple.zith", 10, false},
-    {"dyn-interfaces-advanced.zith", 14, false},
-    {"enum-union-generics.zith", 42, false},
-    {"function-values-simple.zith", 14, false},
-    {"function-values-advanced.zith", 31, false},
-    {"functions-defaults-simple.zith", 15, false},
-    {"functions-defaults-advanced.zith", 17, false},
-    {"generics-simple.zith", 42, false},
-    {"generics-advanced.zith", 82, false},
-    {"hash-map.zith", 0, false},
-    {"hash-map-u64.zith", 0, false},
-    {"inplace-simple.zith", 42, false},
-    {"loops-simple.zith", 12, false},
-    {"loops-advanced.zith", 10, false},
-    {"macros-simple.zith", 42, false},
-    {"macros-advanced.zith", 9, false},
-    {"opaque-simple.zith", 0, false},
-    {"opaque-advanced.zith", 42, false},
-    {"optionals-simple.zith", 4, false},
-    {"optionals-advanced.zith", 14, false},
-    {"ownership-simple.zith", 42, false},
-    {"ownership-advanced.zith", 16, false},
-    {"slices-variadic-simple.zith", 6, false},
-    {"slices-variadic-advanced.zith", 12, false},
-    {"state-defer-simple.zith", 42, false},
-    {"state-defer-advanced.zith", 42, false},
-    {"structs-arrays-simple.zith", 9, false},
-    {"structs-arrays-advanced.zith", 7, false},
-    {"styles-zith.zith", 0, false, "bucket=1\n"},
-    {"styles-c.zith", 0, true, "bucket=1\n"},
-    {"styles-functional.zith", 0, false, "bucket=1\n"},
-    {"tagged-unions-simple.zith", 0, false},
-    {"tagged-unions-advanced.zith", 7, false},
-    {"when-simple.zith", 14, false},
-    {"when-advanced.zith", 2, false},
+    {"allocator-simple.zithm", 42, false},
+    {"bindings-simple.zithm", 6, false},
+    {"bindings-advanced.zithm", 42, false},
+    {"bitwise-simple.zithm", 7, false},
+    {"bitwise-advanced.zithm", 3, false},
+    {"booleans-simple.zithm", 7, false},
+    {"booleans-advanced.zithm", 10, false},
+    {"const-enums-simple.zithm", 7, false},
+    {"const-enums-advanced.zithm", 12, false},
+    {"dyn-array.zithm", 0, false},
+    {"dyn-interfaces-simple.zithm", 10, false},
+    {"dyn-interfaces-advanced.zithm", 14, false},
+    {"enum-union-generics.zithm", 42, false},
+    {"function-values-simple.zithm", 14, false},
+    {"function-values-advanced.zithm", 31, false},
+    {"functions-defaults-simple.zithm", 15, false},
+    {"functions-defaults-advanced.zithm", 17, false},
+    {"generics-simple.zithm", 42, false},
+    {"generics-advanced.zithm", 82, false},
+    {"hash-map.zithm", 0, false},
+    {"hash-map-u64.zithm", 0, false},
+    {"inplace-simple.zithm", 42, false},
+    {"loops-simple.zithm", 12, false},
+    {"loops-advanced.zithm", 10, false},
+    {"macros-simple.zithm", 42, false},
+    {"macros-advanced.zithm", 9, false},
+    {"opaque-simple.zithm", 0, false},
+    {"opaque-advanced.zithm", 42, false},
+    {"optionals-simple.zithm", 4, false},
+    {"optionals-advanced.zithm", 14, false},
+    {"ownership-simple.zithm", 42, false},
+    {"ownership-advanced.zithm", 16, false},
+    {"slices-variadic-simple.zithm", 6, false},
+    {"slices-variadic-advanced.zithm", 12, false},
+    {"state-defer-simple.zithm", 42, false},
+    {"state-defer-advanced.zithm", 42, false},
+    {"structs-arrays-simple.zithm", 9, false},
+    {"structs-arrays-advanced.zithm", 7, false},
+    {"styles-zith.zithm", 0, false, "bucket=1\n"},
+    {"styles-c.zithm", 0, true, "bucket=1\n"},
+    {"styles-functional.zithm", 0, false, "bucket=1\n"},
+    {"tagged-unions-simple.zithm", 0, false},
+    {"tagged-unions-advanced.zithm", 7, false},
+    {"when-simple.zithm", 14, false},
+    {"when-advanced.zithm", 2, false},
 };
 
 #ifdef ZITH_ENABLE_C_INTEROP
@@ -131,7 +131,7 @@ void test_run_separates_program_stdout_from_compiler_logs() {
     std::error_code ec;
     fs::create_directories(workdir, ec);
 
-    const fs::path source = workdir / "run-output-split.zith";
+    const fs::path source = workdir / "run-output-split.zithm";
     {
         std::ofstream out(source, std::ios::binary);
         out << "extern fn printf(fmt: *char, ...): i32\n"
@@ -169,7 +169,7 @@ void test_debug_sema_probes() {
     std::error_code ec;
     fs::create_directories(workdir, ec);
 
-    const fs::path source = workdir / "debug-sema-probes.zith";
+    const fs::path source = workdir / "debug-sema-probes.zithm";
     {
         std::ofstream out(source, std::ios::binary);
         out << "fn add(x: i32, y: i32): i32 {\n"

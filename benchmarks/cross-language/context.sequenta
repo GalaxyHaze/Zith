@@ -3,7 +3,7 @@ task: cross-language::suite
 status: done
 desc: Add reproducible scalar runtime workloads for Zith--, C, and Rust with a small Python runner.
 impl:
-  - Add matching xorshift64 and divisible-by-7-or-11 loop sources under workloads/, one .zith, .c, and .rs file per workload.
+  - Add matching xorshift64 and divisible-by-7-or-11 loop sources under workloads/, one .zithm, .c, and .rs file per workload.
   - Use @@ITERATIONS@@ and @@EXPECTED@@ source markers so the runner can choose a workload size and inject its independently computed expected result.
   - Add run.py using only the Python standard library. Compile with cc -std=c17 -O3, rustc --edition=2024 -C opt-level=3, and zithc build --mode release --opt-level 3 --no-cache.
   - Resolve the Zith compiler from --zithc, then ./build/zithc when present, otherwise PATH. Resolve C and Rust from CC and RUSTC, defaulting to cc and rustc.

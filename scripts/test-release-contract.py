@@ -54,13 +54,13 @@ def write_stdlib_archives(directory: Path, version: str) -> None:
     console_source = b"// release installer fixture\n"
     tar_path = directory / f"zithc-stdlib-v{version}.tar.gz"
     with tarfile.open(tar_path, "w:gz") as archive:
-        member = tarfile.TarInfo("std/io/console.zith")
+        member = tarfile.TarInfo("std/io/console.zithm")
         member.size = len(console_source)
         archive.addfile(member, io.BytesIO(console_source))
 
     zip_path = directory / f"zithc-stdlib-v{version}.zip"
     with zipfile.ZipFile(zip_path, "w") as archive:
-        archive.writestr("std/io/console.zith", console_source)
+        archive.writestr("std/io/console.zithm", console_source)
 
 
 def test_shell_installer(directory: Path, version: str) -> None:
@@ -84,7 +84,7 @@ def test_shell_installer(directory: Path, version: str) -> None:
         for relative in (
             "bin/zithc",
             "bin/zith-lsp",
-            "share/zith/stdlib/std/io/console.zith",
+            "share/zith/stdlib/std/io/console.zithm",
         ):
             if not (install_root / relative).is_file():
                 raise AssertionError(f"POSIX installer did not install {relative}")

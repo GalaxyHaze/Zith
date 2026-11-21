@@ -383,9 +383,9 @@ void registerStdlibSources(zithc_session *session) {
         zithc_session_register_virtual_source(session, virtual_path.c_str(), text.c_str());
     }
 #ifdef ZITH_IS_WASM
-    zithc_session_register_virtual_source(session, "stdlib/stdio.h.zith", kWasmStdioHeader);
-    zithc_session_register_virtual_source(session, "stdlib/stdlib.h.zith", kWasmStdlibHeader);
-    zithc_session_register_virtual_source(session, "stdlib/string.h.zith", kWasmStringHeader);
+    zithc_session_register_virtual_source(session, "stdlib/stdio.h.zithm", kWasmStdioHeader);
+    zithc_session_register_virtual_source(session, "stdlib/stdlib.h.zithm", kWasmStdlibHeader);
+    zithc_session_register_virtual_source(session, "stdlib/string.h.zithm", kWasmStringHeader);
 #endif
 }
 
@@ -422,7 +422,7 @@ int runPlayground(const char *ptr, int len, bool is_compile, int mode = 0, int o
         return kPlaygroundStatusInvalidParam;
 
     auto *session =
-        zithc_session_create_from_buffer("playground.zith", ptr, static_cast<size_t>(len));
+        zithc_session_create_from_buffer("playground.zithm", ptr, static_cast<size_t>(len));
     if (!session) {
         setErrorMessage("failed to create session");
         return kPlaygroundStatusCompileFailed;
@@ -480,7 +480,7 @@ int emitHir(const char *ptr, int len) {
         return kPlaygroundStatusInvalidParam;
 
     auto *session =
-        zithc_session_create_from_buffer("playground.zith", ptr, static_cast<size_t>(len));
+        zithc_session_create_from_buffer("playground.zithm", ptr, static_cast<size_t>(len));
     if (!session) {
         setErrorMessage("failed to create session");
         return kPlaygroundStatusCompileFailed;

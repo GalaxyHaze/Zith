@@ -2,6 +2,7 @@
 #include "cli/terminal.hpp"
 #include "packages/lockfile.hpp"
 #include "packages/resolver.hpp"
+#include "support/source-extension.hpp"
 
 #include <cstdio>
 #include <filesystem>
@@ -59,7 +60,7 @@ int create(const Options &opts) {
         toml << "homepage = \"\"\n";
         toml << "\n";
         toml << "[build]\n";
-        toml << "entry = \"src/main.zith\"\n";
+        toml << "entry = \"src/main" << support::kZithmSourceExtension << "\"\n";
         toml << "output = \"bin/" << name << "\"\n";
         toml << "mode = \"debug\"\n";
         toml << "opt_level = 0\n";
@@ -75,10 +76,11 @@ int create(const Options &opts) {
     }
 
     {
-        std::ofstream main_zith(root / "src" / "main.zith");
+        const std::string main_name = "main" + std::string(support::kZithmSourceExtension);
+        std::ofstream main_zith(root / "src" / main_name);
         if (!main_zith) {
             err.red("[error]");
-            std::fprintf(stderr, " failed to create src/main.zith\n");
+            std::fprintf(stderr, " failed to create src/%s\n", main_name.c_str());
             return 1;
         }
         main_zith << "// " << name << " -- main entry point\n";

@@ -51,7 +51,7 @@ struct SessionRunner {
 
     Result run(std::string_view input,
                session::Stage target = session::Stage::TypeChecked) {
-        const auto path = root / "main.zith";
+        const auto path = root / "main.zithm";
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
         file << input;
         file.close();
@@ -252,20 +252,20 @@ void test_imported_trait_qualified_call_in_populated_workdir() {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
-    CHECK(writeFile(root / "libs/alpha.zith",
+    CHECK(writeFile(root / "libs/alpha.zithm",
                     "pub trait AlphaDisplay { fn alphaName(self): i32; }\n"
                     "pub trait InPlace {}\n"
                     "pub fn alpha(): i32 { return 10; }\n"),
           "write populated alpha module");
-    CHECK(writeFile(root / "libs/beta.zith", "pub trait BetaDisplay { fn betaName(self): i32; }\n"
+    CHECK(writeFile(root / "libs/beta.zithm", "pub trait BetaDisplay { fn betaName(self): i32; }\n"
                                              "pub fn beta(): i32 { return 20; }\n"),
           "write populated beta module");
-    CHECK(writeFile(root / "libs/gamma.zith",
+    CHECK(writeFile(root / "libs/gamma.zithm",
                     "pub trait GammaDisplay { fn gammaName(self): i32; }\n"
                     "pub fn gamma(): i32 { return 30; }\n"),
           "write populated gamma module");
     const auto result = runProjectWithStdlib(
-        root, "main.zith",
+        root, "main.zithm",
         "import libs/alpha as alpha\n"
         "import libs/beta as beta\n"
         "import libs/gamma as gamma\n"
@@ -297,7 +297,7 @@ void test_qualified_types_through_export_facade() {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
-    CHECK(writeFile(root / "libs/unrelated.zith", "pub struct Unrelated { value: i32 }\n"),
+    CHECK(writeFile(root / "libs/unrelated.zithm", "pub struct Unrelated { value: i32 }\n"),
           "write unrelated module to populate the workdir");
 
     // The std/memory facade re-exports the soon/memory modules. A re-export
@@ -312,10 +312,10 @@ void test_qualified_types_through_export_facade() {
         "\n"
         "fn main(): i32 { return 0; }\n";
 
-    const auto cold = runProjectWithStdlib(root, "main.zith", source);
+    const auto cold = runProjectWithStdlib(root, "main.zithm", source);
     CHECK(cold.ok, "facade-qualified struct and trait types resolve in a populated workdir");
 
-    const auto warm = runProjectWithStdlib(root, "main.zith", source);
+    const auto warm = runProjectWithStdlib(root, "main.zithm", source);
     CHECK(warm.ok, "facade-qualified struct and trait types resolve after cache hydration");
 
     std::filesystem::remove_all(root);

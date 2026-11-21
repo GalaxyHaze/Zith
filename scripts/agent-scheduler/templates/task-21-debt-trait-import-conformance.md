@@ -14,7 +14,7 @@ eliminating dependence on module/symbol resolution order.
   têm conformance instável", and `memory/stdlib-allocator-ownership.md` for the
   `InPlace`/allocator context.
 - `tests/test-generic-hashmap.cpp` covers `implement Box as InPlace` in a
-  temporary workdir; `examples/inplace-simple.zith` currently re-implements the
+  temporary workdir; `examples/inplace-simple.zithm` currently re-implements the
   trait locally instead of exercising the imported trait.
 
 ## Scope
@@ -38,7 +38,7 @@ Owned files for implementation:
 - Tests: `tests/test-interface-satisfaction.cpp`; build the populated workdir
   fixture inside that test rather than adding new executables.
 - Examples and stdlib only to exercise the imported trait:
-  `examples/inplace-simple.zith`, `stdlib/std/new.zith`.
+  `examples/inplace-simple.zithm`, `stdlib/std/new.zithm`.
 - Memory/docs: `memory/stdlib-allocator-ownership.md`,
   `docs/implementation-debt.md`, `docs/impl-status.md`.
   Edit only the section/line for this item in each shared file.

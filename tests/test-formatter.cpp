@@ -323,7 +323,7 @@ static void test_compilation_session_fmt_uses_frontend_snapshot() {
     Options opts(arena);
     opts.command = Options::Command::Fmt;
 
-    session::CompilationSession session(opts, "formatter-session.zith");
+    session::CompilationSession session(opts, "formatter-session.zithm");
     session.setBuffered(true);
     session.setContent("fn main(){return 42;}\n");
 

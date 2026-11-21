@@ -67,7 +67,7 @@ struct Workspace {
 
 Result check(std::string_view source) {
     Workspace workspace;
-    workspace.write("main.zith", source);
+    workspace.write("main.zithm", source);
 
     memory::Arena arena;
     Options options(arena);
@@ -79,7 +79,7 @@ Result check(std::string_view source) {
     config.compilerVersion    = "test";
     auto context              = std::make_shared<session::FrontendContext>(config);
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string(), context);
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string(), context);
     session.setBuffered(true);
 
     Result result;

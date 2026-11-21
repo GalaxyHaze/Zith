@@ -36,7 +36,7 @@ struct Result {
 };
 
 /// One temporary workspace per test, so `from dep` imports resolve on disk and
-/// the module namespace of `main.zith` is the stem `main`.
+/// the module namespace of `main.zithm` is the stem `main`.
 struct Workspace {
     fs::path root = fs::temp_directory_path() / "zith-overload-tests";
 
@@ -68,7 +68,7 @@ Result runStage(const Workspace &workspace, session::Stage stage) {
     config.compilerVersion    = "test";
     auto context              = std::make_shared<session::FrontendContext>(config);
 
-    session::CompilationSession session(options, (workspace.root / "main.zith").string(), context);
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string(), context);
     session.setBuffered(true);
 
     Result result;
@@ -107,7 +107,7 @@ bool hasFunctionNamed(const Result &result, std::string_view name) {
 
 void overloadsDifferingByType() {
     Workspace workspace;
-    workspace.write("main.zith", "fn add(a: i32, b: i32): i32 { a + b }\n"
+    workspace.write("main.zithm", "fn add(a: i32, b: i32): i32 { a + b }\n"
                                  "fn add(a: f64, b: f64): f64 { a + b }\n"
                                  "fn main(): i32 {\n"
                                  "    let x: i32 = add(1, 2);\n"
@@ -120,7 +120,7 @@ void overloadsDifferingByType() {
 
 void overloadsDifferingByArity() {
     Workspace workspace;
-    workspace.write("main.zith", "fn add(a: i32, b: i32): i32 { a + b }\n"
+    workspace.write("main.zithm", "fn add(a: i32, b: i32): i32 { a + b }\n"
                                  "fn add(a: i32, b: i32, c: i32): i32 { a + b + c }\n"
                                  "fn main(): i32 {\n"
                                  "    let two: i32 = add(1, 2);\n"
@@ -133,7 +133,7 @@ void overloadsDifferingByArity() {
 
 void selectionPicksTheIntegerOverload() {
     Workspace workspace;
-    workspace.write("main.zith", "fn pick(a: i32): i32 { a }\n"
+    workspace.write("main.zithm", "fn pick(a: i32): i32 { a }\n"
                                  "fn pick(a: f64): f64 { a }\n"
                                  "fn main(): i32 {\n"
                                  "    let n: i32 = pick(1);\n"
@@ -145,7 +145,7 @@ void selectionPicksTheIntegerOverload() {
 
 void selectionPicksTheFloatOverload() {
     Workspace workspace;
-    workspace.write("main.zith", "fn pick(a: i32): i32 { a }\n"
+    workspace.write("main.zithm", "fn pick(a: i32): i32 { a }\n"
                                  "fn pick(a: f64): f64 { a }\n"
                                  "fn main(): i32 {\n"
                                  "    let f: f64 = pick(1.0);\n"
@@ -157,7 +157,7 @@ void selectionPicksTheFloatOverload() {
 
 void selectionResultTypeIsEnforced() {
     Workspace workspace;
-    workspace.write("main.zith", "fn pick(a: i32): i32 { a }\n"
+    workspace.write("main.zithm", "fn pick(a: i32): i32 { a }\n"
                                  "fn pick(a: f64): f64 { a }\n"
                                  "fn main(): i32 {\n"
                                  "    let wrong: bool = pick(1);\n"
@@ -171,7 +171,7 @@ void selectionResultTypeIsEnforced() {
 
 void overloadedMethodsInOneImplementBlock() {
     Workspace workspace;
-    workspace.write("main.zith", "struct P { x: i32, y: i32 }\n"
+    workspace.write("main.zithm", "struct P { x: i32, y: i32 }\n"
                                  "implement P {\n"
                                  "    fn get(self): i32 { return self->x; }\n"
                                  "    fn get(self, d: i32): i32 { return self->x + d; }\n"
@@ -187,9 +187,9 @@ void overloadedMethodsInOneImplementBlock() {
 
 void overloadSetSurvivesImport() {
     Workspace workspace;
-    workspace.write("dep.zith", "pub fn scaled(a: i32): i32 { a * 2 }\n"
+    workspace.write("dep.zithm", "pub fn scaled(a: i32): i32 { a * 2 }\n"
                                 "pub fn scaled(a: f64): f64 { a * 2.0 }\n");
-    workspace.write("main.zith", "from dep\n"
+    workspace.write("main.zithm", "from dep\n"
                                  "fn main(): i32 {\n"
                                  "    let a: i32 = scaled(3);\n"
                                  "    let b: f64 = scaled(1.5);\n"
@@ -201,7 +201,7 @@ void overloadSetSurvivesImport() {
 
 void innerScopeShadowsOverloadSet() {
     Workspace workspace;
-    workspace.write("main.zith", "fn dup(a: i32): i32 { a }\n"
+    workspace.write("main.zithm", "fn dup(a: i32): i32 { a }\n"
                                  "fn dup(a: f64): f64 { a }\n"
                                  "fn main(): i32 {\n"
                                  "    let dup: i32 = 9;\n"
@@ -215,7 +215,7 @@ void innerScopeShadowsOverloadSet() {
 
 void identicalSignaturesAreDuplicates() {
     Workspace workspace;
-    workspace.write("main.zith", "fn add(a: i32, b: i32): i32 { a + b }\n"
+    workspace.write("main.zithm", "fn add(a: i32, b: i32): i32 { a + b }\n"
                                  "fn add(a: i32, b: i32): i32 { a - b }\n"
                                  "fn main(): i32 { return add(1, 2); }\n");
     auto r = check(workspace);
@@ -226,7 +226,7 @@ void identicalSignaturesAreDuplicates() {
 
 void qualifiersDoNotDiscriminateOverloads() {
     Workspace workspace;
-    workspace.write("main.zith", "struct P { x: i32 }\n"
+    workspace.write("main.zithm", "struct P { x: i32 }\n"
                                  "fn use_it(p: lend P): i32 { return p.x; }\n"
                                  "fn use_it(p: view P): i32 { return p.x; }\n"
                                  "fn main(): i32 { return 0; }\n");
@@ -238,7 +238,7 @@ void qualifiersDoNotDiscriminateOverloads() {
 
 void externFunctionsCannotOverload() {
     Workspace workspace;
-    workspace.write("main.zith", "extern fn puts(msg: *char)\n"
+    workspace.write("main.zithm", "extern fn puts(msg: *char)\n"
                                  "extern fn puts(msg: *i32)\n"
                                  "fn main(): i32 { return 0; }\n");
     auto r = check(workspace);
@@ -249,7 +249,7 @@ void externFunctionsCannotOverload() {
 
 void functionAndNonFunctionCollide() {
     Workspace workspace;
-    workspace.write("main.zith", "fn v(): i32 { 1 }\n"
+    workspace.write("main.zithm", "fn v(): i32 { 1 }\n"
                                  "let v: i32 = 2;\n"
                                  "fn main(): i32 { return 0; }\n");
     auto r = check(workspace);
@@ -260,7 +260,7 @@ void functionAndNonFunctionCollide() {
 
 void noViableCandidate() {
     Workspace workspace;
-    workspace.write("main.zith", "fn f(a: i32): i32 { a }\n"
+    workspace.write("main.zithm", "fn f(a: i32): i32 { a }\n"
                                  "fn f(a: bool): i32 { 1 }\n"
                                  "fn main(): i32 { return f(1.5); }\n");
     auto r = check(workspace);
@@ -271,7 +271,7 @@ void noViableCandidate() {
 
 void ambiguousCall() {
     Workspace workspace;
-    workspace.write("main.zith", "fn f(a: i32): i32 { a }\n"
+    workspace.write("main.zithm", "fn f(a: i32): i32 { a }\n"
                                  "fn f(a: i64): i32 { 1 }\n"
                                  "fn main(): i32 { return f(1); }\n");
     auto r = check(workspace);
@@ -284,7 +284,7 @@ void ambiguousCall() {
 
 void linkageNamesAreQualified() {
     Workspace workspace;
-    workspace.write("main.zith", "extern fn puts(msg: *char)\n"
+    workspace.write("main.zithm", "extern fn puts(msg: *char)\n"
                                  "struct P { x: i32 }\n"
                                  "implement P {\n"
                                  "    fn get(self): i32 { return self->x; }\n"

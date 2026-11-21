@@ -14,6 +14,7 @@
 #include "session/compilation-session.hpp"
 #include "session/pipeline-plan.hpp"
 #include "support/project-root.hpp"
+#include "support/source-extension.hpp"
 #ifdef ZITH_HAS_VM
 #include "vm/hir-to-vm.hpp"
 #include "vm/vm-v2.hpp"
@@ -448,17 +449,18 @@ int test(const Options &opts) {
         return 1;
     }
 
-    // Collect .zith test files in deterministic order.
+    // Collect Zith-- test files in deterministic order.
     std::vector<std::string> testFiles;
     for (const auto &entry : fs::recursive_directory_iterator(testDir)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".zith")
+        if (entry.is_regular_file() && support::isZithmSource(entry.path()))
             testFiles.push_back(entry.path().string());
     }
     std::sort(testFiles.begin(), testFiles.end());
 
     if (testFiles.empty()) {
         p.err.yellow("[info]");
-        std::fprintf(stderr, " no .zith test files found in '%s'\n", testDir.c_str());
+        std::fprintf(stderr, " no %s test files found in '%s'\n",
+                     std::string(support::kZithmSourceExtension).c_str(), testDir.c_str());
         return 1;
     }
 

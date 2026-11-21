@@ -4,7 +4,7 @@
 /// resolves here only on a Linux target. A host without a matching variant
 /// reports the resolver's missing-platform-variant diagnostic instead of
 /// silently binding the wrong ABI. Windows and other hosts add their own
-/// `c/posix.<os>.zith` variant when they are supported.
+/// `c/posix.<os>.zithm` variant when they are supported.
 ///
 /// Values are the Linux definitions from `fcntl.h`, `mman-common.h`, and
 /// `unistd.h`. `stat` and `fstat` write into a caller-provided opaque buffer

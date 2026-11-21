@@ -11,7 +11,7 @@ namespace zith::types {
 
 class TypeIntern;
 
-/// Resolves a module key (for example `stdlib/std/io/console.zith`) to the
+/// Resolves a module key (for example `stdlib/std/io/console.zithm`) to the
 /// dotted canonical namespace used inside canonical type ids. It is injected so
 /// the type layer does not depend on the session/sema namespace policy.
 using ModuleNamespaceResolver = std::function<std::string(std::string_view module_key)>;

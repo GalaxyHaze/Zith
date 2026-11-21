@@ -528,7 +528,7 @@ def validate_workflows(workflow_dir: Path) -> None:
         "([System.Uri](Resolve-Path -LiteralPath $bucket).Path).AbsoluteUri",
         "scoop bucket add zith-local $bucketUri",
         "scoop install zithc",
-        "zithc check examples\\loops-simple.zith",
+        "zithc check examples\\loops-simple.zithm",
         "} finally {",
         "Stop-Process -Id $server.Id -Force",
     ):
@@ -595,9 +595,9 @@ def validate_workflows(workflow_dir: Path) -> None:
     ):
         if output_path not in job_section(smoke_text, smoke_job, smoke_workflow):
             fail(f"{smoke_workflow} writes outside runner.temp in {smoke_job}")
-    if "examples/loops-simple.zith" not in smoke_text:
+    if "examples/loops-simple.zithm" not in smoke_text:
         fail(f"{smoke_workflow} installer smoke uses no C-interop-free Zith program")
-    if "test-import-console.zith" in smoke_text:
+    if "test-import-console.zithm" in smoke_text:
         fail(f"{smoke_workflow} installer smoke depends on optional libclang interop")
     if '"$ZITH_RELEASE_TAG" --lsp' not in smoke_text or "-Version \"$env:ZITH_RELEASE_TAG\" -Lsp" not in smoke_text:
         fail(f"{smoke_workflow} does not exercise optional LSP installation on Unix and Windows")
@@ -622,8 +622,8 @@ def validate_workflows(workflow_dir: Path) -> None:
         "https://github.com/GalaxyHaze/Zith-Lang/releases/download/$expectedTag/"
         "zithc-windows-amd64.exe",
         "(Get-Item $directDownload).Length -le 0",
-        "examples/loops-simple.zith",
-        "share/zith/stdlib/std/io/console.zith",
+        "examples/loops-simple.zithm",
+        "share/zith/stdlib/std/io/console.zithm",
         "check $source",
         "$LASTEXITCODE -ne 0",
     ):

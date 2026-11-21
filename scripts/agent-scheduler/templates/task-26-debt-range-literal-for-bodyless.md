@@ -81,7 +81,7 @@ Out of scope:
 ```bash
 cmake --build {REPO}/build -j4
 ctest --test-dir {REPO}/build -R 'range|codegen|frontend|control|loop' --output-on-failure
-{REPO}/build/zithc --include stdlib check /tmp/bodyless-range.zith
+{REPO}/build/zithc --include stdlib check /tmp/bodyless-range.zithm
 cmake --build {REPO}/build --target fmt-check
 ctest --test-dir {REPO}/build --output-on-failure
 ```

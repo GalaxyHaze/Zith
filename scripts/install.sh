@@ -226,7 +226,7 @@ case "$OS" in
             exit 1
         fi
         unzip -q "$TMP_DIR/zithc-stdlib.zip" -d "$STDLIB_STAGE"
-        test -f "$STDLIB_STAGE/std/io/console.zith"
+        test -f "$STDLIB_STAGE/std/io/console.zithm"
         cp "$TMP_FILE" "$BIN_DIR/$OUTPUT_NAME"
         if [ "$INSTALL_LSP" = true ]; then
             cp "$TMP_DIR/$LSP_OUTPUT_NAME" "$BIN_DIR/$LSP_OUTPUT_NAME"
@@ -253,7 +253,7 @@ case "$OS" in
                 exit 1
             fi
             tar xzf "$TMP_DIR/zithc-stdlib.tar.gz" -C "$STDLIB_STAGE"
-            test -f "$STDLIB_STAGE/std/io/console.zith"
+            test -f "$STDLIB_STAGE/std/io/console.zithm"
             mv "$TMP_FILE" "$BIN_DIR/zithc"
             if [ "$INSTALL_LSP" = true ]; then
                 mv "$TMP_DIR/$LSP_OUTPUT_NAME" "$BIN_DIR/$LSP_OUTPUT_NAME"
@@ -286,7 +286,7 @@ case "$OS" in
                 exit 1
             fi
             tar xzf "$TMP_DIR/zithc-stdlib.tar.gz" -C "$STDLIB_STAGE"
-            test -f "$STDLIB_STAGE/std/io/console.zith"
+            test -f "$STDLIB_STAGE/std/io/console.zithm"
             if ! sudo mv "$TMP_FILE" /usr/local/bin/zithc; then
                 echo "Installation failed. Check sudo permissions or try manually moving the file." >&2
                 exit 1

@@ -111,7 +111,7 @@ Artifact makeMinimalArtifact(std::string_view path, std::string_view name,
 
 // ── Binary round-trip ─────────────────────────────────────────────
 static void test_binary_round_trip() {
-    auto original = makeMinimalArtifact("/test/main.zith", "main");
+    auto original = makeMinimalArtifact("/test/main.zithm", "main");
 
     ByteWriter writer;
     (void)Writer::write(original, writer);
@@ -155,9 +155,9 @@ static void test_binary_round_trip() {
 
 // ── Round-trip with dependency records ────────────────────────────
 static void test_deps_round_trip() {
-    auto original = makeMinimalArtifact("/test/dep_main.zith", "main");
-    original.deps.push_back({"/test/dep_a.zith", "depA", 0xDEADBEEFu, 0xCAFEBABEu});
-    original.deps.push_back({"/test/dep_b.zith", "depB", 0x11223344u, 0x55667788u});
+    auto original = makeMinimalArtifact("/test/dep_main.zithm", "main");
+    original.deps.push_back({"/test/dep_a.zithm", "depA", 0xDEADBEEFu, 0xCAFEBABEu});
+    original.deps.push_back({"/test/dep_b.zithm", "depB", 0x11223344u, 0x55667788u});
 
     ByteWriter writer;
     (void)Writer::write(original, writer);
@@ -169,11 +169,11 @@ static void test_deps_round_trip() {
         return;
 
     CHECK_EQ(decoded->deps.size(), 2u, "dependency count preserved");
-    CHECK_EQ(decoded->deps[0].canonical_path, "/test/dep_a.zith", "first dep path preserved");
+    CHECK_EQ(decoded->deps[0].canonical_path, "/test/dep_a.zithm", "first dep path preserved");
     CHECK_EQ(decoded->deps[0].import_key, "depA", "first dep import key preserved");
     CHECK_EQ(decoded->deps[0].public_abi_hi, 0xDEADBEEFu, "first dep ABI hi preserved");
     CHECK_EQ(decoded->deps[0].public_abi_lo, 0xCAFEBABEu, "first dep ABI lo preserved");
-    CHECK_EQ(decoded->deps[1].canonical_path, "/test/dep_b.zith", "second dep path preserved");
+    CHECK_EQ(decoded->deps[1].canonical_path, "/test/dep_b.zithm", "second dep path preserved");
     CHECK_EQ(decoded->deps[1].import_key, "depB", "second dep import key preserved");
     CHECK_EQ(decoded->deps[1].public_abi_hi, 0x11223344u, "second dep ABI hi preserved");
     CHECK_EQ(decoded->deps[1].public_abi_lo, 0x55667788u, "second dep ABI lo preserved");
@@ -181,10 +181,10 @@ static void test_deps_round_trip() {
 
 // ── header_size must account for dep records ──────────────────────
 static void test_header_size_covered_by_writer() {
-    auto original = makeMinimalArtifact("/test/header_size.zith", "main");
-    original.deps.push_back({"/test/dep_short.zith", "s", 1, 2});
+    auto original = makeMinimalArtifact("/test/header_size.zithm", "main");
+    original.deps.push_back({"/test/dep_short.zithm", "s", 1, 2});
     original.deps.push_back(
-        {"/test/a_much_longer_dependency_path/file.zith", "importKeyLong", 3, 4});
+        {"/test/a_much_longer_dependency_path/file.zithm", "importKeyLong", 3, 4});
 
     ByteWriter writer;
     (void)Writer::write(original, writer);
@@ -220,7 +220,7 @@ static void test_header_size_covered_by_writer() {
 
 // ── Corrupted artifact is rejected ────────────────────────────────
 static void test_corrupted_artifact_rejected() {
-    auto art = makeMinimalArtifact("/test/bad.zith", "bad");
+    auto art = makeMinimalArtifact("/test/bad.zithm", "bad");
     ByteWriter writer;
     (void)Writer::write(art, writer);
 
@@ -240,8 +240,8 @@ static void test_corrupted_artifact_rejected() {
 
 // ── Corrupted header_size is rejected as a miss ───────────────────
 static void test_corrupted_header_size_rejected() {
-    auto art = makeMinimalArtifact("/test/bad_hdr.zith", "bad");
-    art.deps.push_back({"/test/dep.zith", "dep", 0x1111u, 0x2222u});
+    auto art = makeMinimalArtifact("/test/bad_hdr.zithm", "bad");
+    art.deps.push_back({"/test/dep.zithm", "dep", 0x1111u, 0x2222u});
     ByteWriter writer;
     (void)Writer::write(art, writer);
 
@@ -266,23 +266,23 @@ static void test_store_hit_miss() {
     const uint64_t fingerprint = 0x12345678u;
     Store store(root.string(), sharedHirProfile());
 
-    auto art = makeMinimalArtifact("/test/store.zith", "store", fingerprint);
+    auto art = makeMinimalArtifact("/test/store.zithm", "store", fingerprint);
     store.store(art);
 
     ContentFingerprint fp = art.source_fingerprint;
 
-    auto loaded = store.load(CanonicalModuleIdentity{"/test/store.zith"}, fp);
+    auto loaded = store.load(CanonicalModuleIdentity{"/test/store.zithm"}, fp);
     CHECK(loaded.has_value(), "stored artifact loads as a cache hit");
     CHECK_EQ(store.metrics().hits, 1u, "hit counter incremented");
 
     // Different fingerprint -> miss/invalid.
     ContentFingerprint wrong_fp;
     wrong_fp.primary = 0xDEADBEEFu;
-    auto missed      = store.load(CanonicalModuleIdentity{"/test/store.zith"}, wrong_fp);
+    auto missed      = store.load(CanonicalModuleIdentity{"/test/store.zithm"}, wrong_fp);
     CHECK(!missed.has_value(), "different fingerprint causes invalidation");
 
     // Nonexistent path -> miss.
-    auto absent = store.load(CanonicalModuleIdentity{"/test/absent.zith"}, fp);
+    auto absent = store.load(CanonicalModuleIdentity{"/test/absent.zithm"}, fp);
     CHECK(!absent.has_value(), "nonexistent artifact is a miss");
 
     fs::remove_all(root);
@@ -294,7 +294,7 @@ static void test_frontend_provenance_does_not_gate_shared_hir() {
     fs::create_directories(root);
 
     Store store(root.string(), sharedHirProfile());
-    auto artifact              = makeMinimalArtifact("/test/shared.zith", "shared");
+    auto artifact              = makeMinimalArtifact("/test/shared.zithm", "shared");
     artifact.frontend_identity = {"Zith--", "self-zithc", "0.1"};
     store.store(artifact);
 
@@ -307,7 +307,7 @@ static void test_frontend_provenance_does_not_gate_shared_hir() {
     fs::remove_all(incompatible_root);
     fs::create_directories(incompatible_root);
     Store incompatible_store(incompatible_root.string(), sharedHirProfile());
-    auto incompatible             = makeMinimalArtifact("/test/profile.zith", "profile");
+    auto incompatible             = makeMinimalArtifact("/test/profile.zithm", "profile");
     incompatible.semantic_profile = {"zith-shared-hir", sharedHirProfile().version + 1U};
     incompatible_store.store(incompatible);
     CHECK(!incompatible_store
@@ -329,12 +329,12 @@ static void test_store_invalidation() {
     Store store(root.string(), sharedHirProfile());
 
     // Store a dependency and a dependent.
-    auto dep = makeMinimalArtifact("/test/dep.zith", "dep");
+    auto dep = makeMinimalArtifact("/test/dep.zithm", "dep");
     store.store(dep);
 
-    Artifact dependent = makeMinimalArtifact("/test/main.zith", "main");
+    Artifact dependent = makeMinimalArtifact("/test/main.zithm", "main");
     DependencyRecord dep_ref;
-    dep_ref.canonical_path = "/test/dep.zith";
+    dep_ref.canonical_path = "/test/dep.zithm";
     dep_ref.import_key     = "dep";
     dep_ref.public_abi_hi  = dep.public_abi_hi;
     dep_ref.public_abi_lo  = dep.public_abi_lo;
@@ -345,15 +345,15 @@ static void test_store_invalidation() {
     ContentFingerprint dep_fp  = dep.source_fingerprint;
     ContentFingerprint main_fp = dependent.source_fingerprint;
 
-    auto dep_loaded = store.load(CanonicalModuleIdentity{"/test/dep.zith"}, dep_fp);
+    auto dep_loaded = store.load(CanonicalModuleIdentity{"/test/dep.zithm"}, dep_fp);
     CHECK(dep_loaded.has_value(), "dependency loads before invalidation");
 
     // Invalidate the dependency; the dependent should also be evicted.
-    store.invalidate("/test/dep.zith");
-    auto dep_after = store.load(CanonicalModuleIdentity{"/test/dep.zith"}, dep_fp);
+    store.invalidate("/test/dep.zithm");
+    auto dep_after = store.load(CanonicalModuleIdentity{"/test/dep.zithm"}, dep_fp);
     CHECK(!dep_after.has_value(), "dependency is gone after invalidation");
 
-    auto main_after = store.load(CanonicalModuleIdentity{"/test/main.zith"}, main_fp);
+    auto main_after = store.load(CanonicalModuleIdentity{"/test/main.zithm"}, main_fp);
     CHECK(!main_after.has_value(), "dependent is also evicted after invalidation");
 
     fs::remove_all(root);
@@ -445,14 +445,14 @@ static void test_canonical_registry_reports_actionable_divergence() {
 
 static void test_bare_opaque_canonical_divergence_rejects_hydration() {
     CacheWorkspace workspace;
-    workspace.writeFile("main.zith", "fn make(): opaque { 42u32 }\n"
+    workspace.writeFile("main.zithm", "fn make(): opaque { 42u32 }\n"
                                      "fn main(): i32 { 0 }\n");
 
     memory::Arena first_arena;
     Options first_options(first_arena);
     first_options.noCache     = false;
     first_options.targetStage = session::Stage::Cached;
-    session::CompilationSession first(first_options, (workspace.root / "main.zith").string());
+    session::CompilationSession first(first_options, (workspace.root / "main.zithm").string());
     first.setBuffered(true);
     CHECK(first.run(), "cold opaque session writes the persistent cache");
 
@@ -479,7 +479,7 @@ static void test_bare_opaque_canonical_divergence_rejects_hydration() {
     Options second_options(second_arena);
     second_options.noCache     = false;
     second_options.targetStage = session::Stage::HirLowered;
-    session::CompilationSession second(second_options, (workspace.root / "main.zith").string());
+    session::CompilationSession second(second_options, (workspace.root / "main.zithm").string());
     second.setBuffered(true);
     CHECK(!second.runTo(session::Stage::HirLowered),
           "divergent canonical state rejects warm hydration");
@@ -616,7 +616,7 @@ static void test_canonical_field_order_is_shared_and_detected() {
 }
 
 static void test_variadic_slice_param_round_trip() {
-    auto original = makeMinimalArtifact("/test/variadic.zith", "main");
+    auto original = makeMinimalArtifact("/test/variadic.zithm", "main");
     CompactType slice_type;
     slice_type.kind = CompactTypeKind::Slice;
     slice_type.ref0 = 0;
@@ -653,16 +653,16 @@ static void test_zero_abi_dependency_skips_validation() {
 
     Store store(root.string(), sharedHirProfile());
 
-    auto dep = makeMinimalArtifact("/test/dep.zith", "dep");
+    auto dep = makeMinimalArtifact("/test/dep.zithm", "dep");
     store.store(dep);
 
-    Artifact dependent = makeMinimalArtifact("/test/main.zith", "main");
-    dependent.deps.push_back({"/test/dep.zith", "dep", 0, 0});
+    Artifact dependent = makeMinimalArtifact("/test/main.zithm", "main");
+    dependent.deps.push_back({"/test/dep.zithm", "dep", 0, 0});
     store.store(dependent);
 
     ContentFingerprint main_fp = dependent.source_fingerprint;
 
-    auto loaded = store.load(CanonicalModuleIdentity{"/test/main.zith"}, main_fp);
+    auto loaded = store.load(CanonicalModuleIdentity{"/test/main.zithm"}, main_fp);
     CHECK(loaded.has_value(), "zero ABI dependency does not invalidate the artifact");
 
     fs::remove_all(root);
@@ -676,23 +676,23 @@ static void test_dep_abi_validation() {
 
     Store store(root.string(), sharedHirProfile());
 
-    auto dep = makeMinimalArtifact("/test/dep.zith", "dep");
+    auto dep = makeMinimalArtifact("/test/dep.zithm", "dep");
     store.store(dep);
 
-    Artifact matching = makeMinimalArtifact("/test/match.zith", "match");
-    matching.deps.push_back({"/test/dep.zith", "dep", dep.public_abi_hi, dep.public_abi_lo});
+    Artifact matching = makeMinimalArtifact("/test/match.zithm", "match");
+    matching.deps.push_back({"/test/dep.zithm", "dep", dep.public_abi_hi, dep.public_abi_lo});
     store.store(matching);
 
     ContentFingerprint match_fp = matching.source_fingerprint;
-    auto match_loaded           = store.load(CanonicalModuleIdentity{"/test/match.zith"}, match_fp);
+    auto match_loaded           = store.load(CanonicalModuleIdentity{"/test/match.zithm"}, match_fp);
     CHECK(match_loaded.has_value(), "dependent with matching non-zero dep ABI loads as a hit");
 
-    Artifact mismatched = makeMinimalArtifact("/test/mismatch.zith", "mismatch");
-    mismatched.deps.push_back({"/test/dep.zith", "dep", 0xDEADBEEFu, 0xCAFEBABEu});
+    Artifact mismatched = makeMinimalArtifact("/test/mismatch.zithm", "mismatch");
+    mismatched.deps.push_back({"/test/dep.zithm", "dep", 0xDEADBEEFu, 0xCAFEBABEu});
     store.store(mismatched);
 
     ContentFingerprint mismatch_fp = mismatched.source_fingerprint;
-    auto mismatch_loaded = store.load(CanonicalModuleIdentity{"/test/mismatch.zith"}, mismatch_fp);
+    auto mismatch_loaded = store.load(CanonicalModuleIdentity{"/test/mismatch.zithm"}, mismatch_fp);
     CHECK(!mismatch_loaded.has_value(), "dependent with mismatched dep ABI is invalidated");
 
     fs::remove_all(root);
@@ -705,7 +705,7 @@ static void test_manifest_load_skips_malformed_record() {
 
     {
         std::ofstream out(root / "modules" / "manifest", std::ios::binary | std::ios::trunc);
-        out << "/test/a.zith\x1f"
+        out << "/test/a.zithm\x1f"
                "/test/a.zirl\x1f"
                "NOTHEX\x1f"
                "00000001\x1f"
@@ -714,14 +714,14 @@ static void test_manifest_load_skips_malformed_record() {
     }
 
     Store store(root.string(), sharedHirProfile());
-    CHECK(!store.manifestEntry("/test/a.zith").has_value(), "malformed manifest record is ignored");
+    CHECK(!store.manifestEntry("/test/a.zithm").has_value(), "malformed manifest record is ignored");
 
     fs::remove_all(root);
 }
 
 // ── Byte-stable output ────────────────────────────────────────────
 static void test_byte_stability() {
-    auto art = makeMinimalArtifact("/test/stable.zith", "stable");
+    auto art = makeMinimalArtifact("/test/stable.zithm", "stable");
 
     ByteWriter w1;
     (void)Writer::write(art, w1);
@@ -741,7 +741,7 @@ static void test_byte_stability() {
 
 static void test_format_version_bump() {
     // The container and HIR schema gates are independent.
-    auto art = makeMinimalArtifact("/test/main.zith", "main");
+    auto art = makeMinimalArtifact("/test/main.zithm", "main");
     ByteWriter writer;
     (void)Writer::write(art, writer);
 
@@ -1169,9 +1169,9 @@ static void test_artifact_builder() {
     ArtifactBuilder builder(types, hir, interner, fp, {"Zith", "cache-test", "test"},
                             sharedHirProfile());
     std::vector<DependencyRecord> deps;
-    auto art = builder.build("/test/builder.zith", "builder", deps);
+    auto art = builder.build("/test/builder.zithm", "builder", deps);
 
-    CHECK_EQ(art.canonical_path, "/test/builder.zith", "builder sets canonical path");
+    CHECK_EQ(art.canonical_path, "/test/builder.zithm", "builder sets canonical path");
     CHECK(art.decls.size() >= 1, "builder extracts exported declarations");
     CHECK_EQ(art.decls[0].name, "main", "builder extracts function name");
     CHECK_EQ(art.functions.size(), 3u, "builder extracts HIR functions");

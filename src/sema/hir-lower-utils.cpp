@@ -1,5 +1,7 @@
 #include "sema/hir-lower-utils.hpp"
 
+#include "support/source-extension.hpp"
+
 #include <filesystem>
 
 #include <algorithm>
@@ -97,12 +99,11 @@ std::string moduleNamespace(std::string_view module_key, const session::CacheKey
     // The console module is imported from many roots during a normal stdlib
     // build. Normalize its canonical namespace so function lookup (and the
     // vtable/string symbols that depend on it) is stable.
-    if (module_key == "stdlib/std/io/console.zith")
+    const std::string_view stripped = support::stripZithmSourceExtension(module_key);
+    if (stripped == "stdlib/std/io/console")
         return "std.io.console";
-    if (module_key.starts_with("stdlib/")) {
-        std::string relative = std::string(module_key.substr(7));
-        if (relative.size() > 5U && relative.compare(relative.size() - 5U, 5U, ".zith") == 0)
-            relative.erase(relative.size() - 5U);
+    if (stripped.starts_with("stdlib/")) {
+        std::string relative(stripped.substr(7));
         for (auto &character : relative)
             if (character == '/' || character == '\\')
                 character = '.';
@@ -132,8 +133,7 @@ std::string moduleNamespace(std::string_view module_key, const session::CacheKey
     consider(cache_key.workspaceRoot);
 
     std::string relative = best_relative.empty() ? path.stem().string() : best_relative;
-    if (relative.size() > 5U && relative.compare(relative.size() - 5U, 5U, ".zith") == 0)
-        relative.erase(relative.size() - 5U);
+    relative             = std::string(support::stripZithmSourceExtension(relative));
     for (auto &character : relative) {
         if (character == '/' || character == '\\')
             character = '.';

@@ -27,7 +27,7 @@ namespace {
 
 Artifact makeMinimalArtifact() {
     Artifact art;
-    art.canonical_path       = "/test/main.zith";
+    art.canonical_path       = "/test/main.zithm";
     art.module_identity.path = art.canonical_path;
     art.module_name          = "main";
     art.semantic_profile     = sharedHirProfile();
@@ -38,7 +38,7 @@ Artifact makeMinimalArtifact() {
 
     // strings and paths
     art.strings = {"main", "puts", "i32", "Node"};
-    art.paths   = {"/test/main.zith"};
+    art.paths   = {"/test/main.zithm"};
 
     // one primitive i32
     CompactType int_type;
@@ -83,7 +83,7 @@ Artifact makeMinimalArtifact() {
 
     // one dependency record
     DependencyRecord dep;
-    dep.canonical_path = "/test/dep.zith";
+    dep.canonical_path = "/test/dep.zithm";
     dep.import_key     = "dep";
     dep.public_abi_hi  = 0xABCD0001u;
     dep.public_abi_lo  = 0xABCD0002u;
@@ -261,14 +261,14 @@ void addAttrs(Artifact &art) {
 
 void addInstantiations(Artifact &art) {
     InstantiationRecord first;
-    first.canonical_module = "/test/main.zith";
+    first.canonical_module = "/test/main.zithm";
     first.mangled          = "main.id<i32>";
     first.template_name    = "id";
     first.arg_types        = {"i32"};
     art.instantiations.push_back(first);
 
     InstantiationRecord second;
-    second.canonical_module = "/test/main.zith";
+    second.canonical_module = "/test/main.zithm";
     second.mangled          = "main.pair<i32,f64>";
     second.template_name    = "pair";
     second.arg_types        = {"i32", "f64"};
@@ -613,7 +613,7 @@ static void test_instantiation_section_round_trip() {
     ByteReader r(w.ptr(), w.size());
     CHECK(decodeInstantiations(r, decoded), "decodeInstantiations succeeds after encode");
     CHECK_EQ(decoded.instantiations.size(), 2u, "instance count preserved");
-    CHECK_EQ(decoded.instantiations[0].canonical_module, std::string("/test/main.zith"),
+    CHECK_EQ(decoded.instantiations[0].canonical_module, std::string("/test/main.zithm"),
              "canonical module identity is preserved");
     CHECK_EQ(decoded.instantiations[0].mangled, std::string("main.id<i32>"),
              "first mangled instance name preserved");
@@ -648,10 +648,10 @@ static void test_debug_section_round_trip() {
 
 static void test_debug_section_failure_sites_round_trip() {
     Artifact art = makeMinimalArtifact();
-    art.test_failure_locations.push_back({"passes", 1u, "/src/passes.zith", 3u, 5u});
-    art.test_failure_locations.push_back({"fails", 1u, "/src/fails.zith", 9u, 5u});
-    art.test_failure_locations.push_back({"fails", 2u, "/src/fails.zith", 10u, 5u});
-    art.test_failure_locations.push_back({"multi", 12u, "/src/nested/multi.zith", 128u, 41u});
+    art.test_failure_locations.push_back({"passes", 1u, "/src/passes.zithm", 3u, 5u});
+    art.test_failure_locations.push_back({"fails", 1u, "/src/fails.zithm", 9u, 5u});
+    art.test_failure_locations.push_back({"fails", 2u, "/src/fails.zithm", 10u, 5u});
+    art.test_failure_locations.push_back({"multi", 12u, "/src/nested/multi.zithm", 128u, 41u});
 
     ByteWriter w;
     bool encoded = encodeDebug(art, w);
@@ -666,7 +666,7 @@ static void test_debug_section_failure_sites_round_trip() {
     CHECK_EQ(decoded.test_failure_locations[0].test_name, std::string("passes"),
              "first test name preserved");
     CHECK_EQ(decoded.test_failure_locations[0].failure_id, 1u, "first failure id preserved");
-    CHECK_EQ(decoded.test_failure_locations[0].path, std::string("/src/passes.zith"),
+    CHECK_EQ(decoded.test_failure_locations[0].path, std::string("/src/passes.zithm"),
              "first path preserved");
     CHECK_EQ(decoded.test_failure_locations[0].line, 3u, "first line preserved");
     CHECK_EQ(decoded.test_failure_locations[0].column, 5u, "first column preserved");
@@ -870,7 +870,7 @@ static void test_checksum_validation() {
 
 static void test_empty_artifact_round_trip() {
     Artifact empty_art;
-    empty_art.canonical_path       = "/test/empty.zith";
+    empty_art.canonical_path       = "/test/empty.zithm";
     empty_art.module_identity.path = empty_art.canonical_path;
     empty_art.module_name          = "empty";
     empty_art.semantic_profile     = sharedHirProfile();

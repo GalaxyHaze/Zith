@@ -59,7 +59,7 @@ struct SessionRunner {
     };
 
     Result run(std::string_view input) {
-        const auto path = root / "main.zith";
+        const auto path = root / "main.zithm";
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
         file << input;
         file.close();

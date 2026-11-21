@@ -28,7 +28,7 @@ struct TelemetryHarness {
 
     RunResult run(Stage target, const char *source) {
         opts.targetStage = target;
-        CompilationSession sess(opts, "test.zith");
+        CompilationSession sess(opts, "test.zithm");
         sess.setBuffered(true);
         sess.setContent(source);
         sess.run();

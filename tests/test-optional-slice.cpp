@@ -26,7 +26,7 @@ struct Workspace {
     }
 
     [[nodiscard]] std::string write(std::string_view contents) const {
-        const auto destination = root / "main.zith";
+        const auto destination = root / "main.zithm";
         std::ofstream output(destination, std::ios::binary | std::ios::trunc);
         output << contents;
         return destination.string();
