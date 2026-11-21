@@ -10,12 +10,12 @@ ADR `docs/adr/0020-imported-generic-instantiation.md` is accepted and
 ## What works now
 
 ```zith
-// lib.zith
+// lib.zithm
 pub struct Box<T> { value: T, }
 ```
 
 ```zith
-// main.zith
+// main.zithm
 import lib as lb
 fn main(): i32 { var b: lb.Box<u64> {}; return 0; }
 ```
@@ -64,7 +64,7 @@ The visible symptom was `E3010 wrong generic argument count` at a call site
 that returns the reified struct by value, because `typeContainsGeneric()`
 reported the concrete struct as still generic and generic argument inference
 ran on a type with no arguments. The trigger was an imported module whose file
-stem equals the struct name (for example `Pair.zith` defining `Pair<T>`), where
+stem equals the struct name (for example `Pair.zithm` defining `Pair<T>`), where
 the declaring module's sema is reused for the caller's instantiation.
 
 `activeTemplateArgs_` is now checked first and falls through to
@@ -73,14 +73,14 @@ the declaring module's sema is reused for the caller's instantiation.
 
 ## Stdlib impact
 
-- `std/collections/hash_map.zith` (`HashMap<K, V>`, `Entry<K, V>`) is a
-  consumable checked generic map. `examples/hash-map.zith` passes `zithc check`
+- `std/collections/hash_map.zithm` (`HashMap<K, V>`, `Entry<K, V>`) is a
+  consumable checked generic map. `examples/hash-map.zithm` passes `zithc check`
   and runs to exit 0.
-- `std/collections/dyn_array.zith` (`DynArray<T>`) shares the same path and is
-  promoted: `examples/dyn-array.zith` passes `zithc check` and runs to exit 0,
+- `std/collections/dyn_array.zithm` (`DynArray<T>`) shares the same path and is
+  promoted: `examples/dyn-array.zithm` passes `zithc check` and runs to exit 0,
   and `test-codegen` exercises an imported `DynArray<i32>` end-to-end.
-- The concrete `hash_map_u64.zith` remains the shipped `u64 -> u64` map.
-- `std/result.zith` uses the same imported-instantiation path for a generic
+- The concrete `hash_map_u64.zithm` remains the shipped `u64 -> u64` map.
+- `std/result.zithm` uses the same imported-instantiation path for a generic
   `union` (not a struct): `Result<T, E>` and its `Ok`/`Err` helpers reify from
   the declaring module. The union must be `pub` or the import fails `E2001`.
   Result-only parameters bind from the expected result type (contextual

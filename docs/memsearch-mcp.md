@@ -8,7 +8,7 @@ two serve different purposes:
 
 | Server | Purpose |
 |---|---|
-| `opencode-rag` | Source-code semantic search (C++, headers, `.zith` files) |
+| `opencode-rag` | Source-code semantic search (C++, headers, `.zithm` files) |
 | `memsearch` | Project memory / Markdown knowledge-base search (docs, spec, notes) |
 
 The adapter delegates entirely to the installed `memsearch` CLI.  It does not

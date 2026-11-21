@@ -34,7 +34,7 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
 - [nra-design.md](nra-design.md): future `Zith` NRA design decisions and link to
   the full `docs/nra-spec.md` contract.
 - [platform-imports.md](platform-imports.md): implemented `Zith--` platform
-  variants for `foo.<arch>.<os>.zith` plus cache/target decisions.
+  variants for `foo.<arch>.<os>.zithm` plus cache/target decisions.
 - [build-c-compile.md](build-c-compile.md): companion `.c` discovery/link flow,
   current backend selection rules, and the Clang `-Weverything` gotchas hit
   while landing the feature.
@@ -87,8 +87,8 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
   pattern for variadic `Formatable` values.
 - [stdlib-io-result.md](stdlib-io-result.md): proposed `Result<T, E>` surface
   and the compiler facts behind generic `Ok`/`Err` helpers; now shipped as
-  `stdlib/std/result.zith`, plus the shipped fatal `panic(message)`
-  (`stdlib/std/panic.zith`, `R10004`) and why `Result<void, E>` stays open.
+  `stdlib/std/result.zithm`, plus the shipped fatal `panic(message)`
+  (`stdlib/std/panic.zithm`, `R10004`) and why `Result<void, E>` stays open.
 - [comptime-contextual-inference.md](comptime-contextual-inference.md):
   expected-result generic inference (weak literal vs strong expected-result
   binding) and where it lives, enabling `Ok(7)`/`new(3)` without `<...>`.
@@ -101,8 +101,8 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
 - [stdlib-soon-modules.md](stdlib-soon-modules.md): the `soon/` modules, the
   `soon/result/fallback`, `soon/math/scalar`, and
   `soon/algorithms/slice` experiments, the
-  `test-stdlib-modules` guard that type-checks every `stdlib/**.zith`, and the
-  `return expr;` / narrowing gotchas that broke `soon/string.zith`.
+  `test-stdlib-modules` guard that type-checks every `stdlib/**.zithm`, and the
+  `return expr;` / narrowing gotchas that broke `soon/string.zithm`.
 - [stdlib-imported-generics.md](stdlib-imported-generics.md): imported generic
   structs (`HashMap<K,V>`, `DynArray<T>`) are now consumable from another
   module; the qualified struct-literal, imported field-default, transitive

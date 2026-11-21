@@ -64,7 +64,7 @@ Commands:
 
     agent-run -t 900 -c 0 -- cmake --build /home/diogo/Zith/build -j4
     agent-run -t 900 -c 0 -- ctest --test-dir /home/diogo/Zith/build --output-on-failure
-    agent-run -t 30 -c 50 -- ./build/zithc check examples/loops-simple.zith
+    agent-run -t 30 -c 50 -- ./build/zithc check examples/loops-simple.zithm
 
 Expected output:
 
@@ -94,7 +94,7 @@ Zith-- example.
 
 Sub-steps:
 
-1. Use `examples/loops-simple.zith` as the initial example because the
+1. Use `examples/loops-simple.zithm` as the initial example because the
    repository already identifies it as a compiler smoke test.
 2. Run it through the local compiler without cache.
 3. Inspect the website playground and verify that it uses a compiler build
@@ -107,7 +107,7 @@ Sub-steps:
 
 Commands:
 
-    agent-run -t 30 -c 50 -- ./build/zithc --no-cache run examples/loops-simple.zith
+    agent-run -t 30 -c 50 -- ./build/zithc --no-cache run examples/loops-simple.zithm
     agent-run -t 30 -c 50 -- git -C /home/diogo/Zith-website status --short
 
 Expected output:

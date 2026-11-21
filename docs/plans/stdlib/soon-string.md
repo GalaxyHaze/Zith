@@ -2,7 +2,7 @@
 
 Status: drawing
 
-`stdlib/soon/string.zith` ships an owning, heap-backed byte string with
+`stdlib/soon/string.zithm` ships an owning, heap-backed byte string with
 `init`, `get`, `ptr`, `len`, `empty`, `iter`, `at`, `slice`, `equalsCString`,
 `startsWith`, `concat`, and `destroy`. It is the first real `soon/` module and
 the candidate reference example for a full draw-to-conform cycle. It currently

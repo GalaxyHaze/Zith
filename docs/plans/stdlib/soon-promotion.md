@@ -17,13 +17,13 @@ Size: system, the standard-library delivery surface.
 
 | Module | Path | State | Domain |
 |---|---|---|---|
-| string | `stdlib/soon/string.zith` | implemented, type-checked, no signed promises | owning byte string |
-| json | `stdlib/soon/json.zith` | stub | parse, stringify, isValid |
-| result/fallback | `stdlib/soon/result/fallback.zith` | implemented, native-tested, VM v2 and promise tests pending | `Result` fallback access |
-| math/scalar | `stdlib/soon/math/scalar.zith` | implemented, native-tested, VM v2 and promise tests pending | integer bounds and angle conversion |
-| algorithms/slice | `stdlib/soon/algorithms/slice.zith` | implemented, native-tested, VM v2 and promise tests pending | `i32` slice search and counting |
+| string | `stdlib/soon/string.zithm` | implemented, type-checked, no signed promises | owning byte string |
+| json | `stdlib/soon/json.zithm` | stub | parse, stringify, isValid |
+| result/fallback | `stdlib/soon/result/fallback.zithm` | implemented, native-tested, VM v2 and promise tests pending | `Result` fallback access |
+| math/scalar | `stdlib/soon/math/scalar.zithm` | implemented, native-tested, VM v2 and promise tests pending | integer bounds and angle conversion |
+| algorithms/slice | `stdlib/soon/algorithms/slice.zithm` | implemented, native-tested, VM v2 and promise tests pending | `i32` slice search and counting |
 
-`test-stdlib-modules` type-checks every `stdlib/**.zith` in isolation.
+`test-stdlib-modules` type-checks every `stdlib/**.zithm` in isolation.
 The `string` module still lacks the per-promise contract tests the gate below
 requires. The Result, math, and slice helpers have native runtime coverage, but
 they are not ready for promotion until they also meet the full gate.

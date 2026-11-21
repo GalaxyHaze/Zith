@@ -18,9 +18,9 @@ and a return type, and dispatches methods through the embedded vtable. The
 optional form `?dyn Trait` is broken end to end. The motivating consumer is the
 standard-library allocator retention field:
 
-- `stdlib/std/collections/hash_map.zith:18` declares `allocator: ?dyn Allocator = null,`.
-- `stdlib/std/collections/hash_map.zith:107` writes `self->allocator = allocator;`.
-- `stdlib/std/collections/hash_map.zith:70` and `:118` read `self.allocator` back.
+- `stdlib/std/collections/hash_map.zithm:18` declares `allocator: ?dyn Allocator = null,`.
+- `stdlib/std/collections/hash_map.zithm:107` writes `self->allocator = allocator;`.
+- `stdlib/std/collections/hash_map.zithm:70` and `:118` read `self.allocator` back.
 
 This plan does not change `dyn Trait`. That path already passes `zithc check`
 and `zithc run`. It fixes the optional receiver and the optional field.
@@ -296,7 +296,7 @@ Add a sema-only test to `tests/test-optional-slice.cpp` (the
 
 Add a stdlib acceptance test: a program that builds a `HashMap<i64, i64>`,
 inits it with `HeapAllocator`, inserts via `put`, reads via `get`, and destroys
-it, expecting exit `0`. `examples/hash-map.zith` already covers init and
+it, expecting exit `0`. `examples/hash-map.zithm` already covers init and
 destroy; extend the check to `put` and `get`.
 
 ## Acceptance
@@ -311,7 +311,7 @@ destroy; extend the check to `put` and `get`.
    dedicated not-narrowed diagnostic. No probe aborts LLVM.
 5. `?dyn` and `dyn` have identical size and alignment, verified with
    `@sizeOf(?dyn Counter) == @sizeOf(dyn Counter)` once the niche lands.
-6. `agent-run -t 60 -c 50 -- ./build/zithc --no-cache run examples/hash-map.zith`
+6. `agent-run -t 60 -c 50 -- ./build/zithc --no-cache run examples/hash-map.zithm`
    exits `0`.
 
 ## Non-goals

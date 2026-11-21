@@ -1,9 +1,9 @@
 # Stdlib C File Surface (c/fs, c/posix)
 
-Raw file access ships under `c/`, not `std/fs`. `stdlib/c/fs.zith` is the
+Raw file access ships under `c/`, not `std/fs`. `stdlib/c/fs.zithm` is the
 portable C stdio surface (`FILE`, `fopen`/`fclose`/`fread`/`fwrite`/`fseek`/
 `ftell`/`fflush`/`feof`/`ferror`/`remove`/`rename`, plus `SEEK_*`).
-`stdlib/c/posix.linux.zith` is the Linux POSIX file and `mmap` surface. The
+`stdlib/c/posix.linux.zithm` is the Linux POSIX file and `mmap` surface. The
 design is recorded in `docs/adr/0046-c-file-surface-and-deferred-safe-std-fs.md`.
 
 ## Why c/ and not std/fs
@@ -21,7 +21,7 @@ the bootstrap driver now.
 ADR-0028 requires every `c/...` declaration to have a backend implementation or
 an explicit error path for every target. `mmap` and the POSIX syscalls do not
 exist on WASM, so they ship only as a `.<os>` platform variant:
-`c/posix.linux.zith`. `import c/posix` resolves on Linux and reports
+`c/posix.linux.zithm`. `import c/posix` resolves on Linux and reports
 `E1006 missing generic module or matching platform variant` elsewhere. The
 variant mechanism is documented in `memory/platform-imports.md`.
 
@@ -34,7 +34,7 @@ variant mechanism is documented in `memory/platform-imports.md`.
   `c/fs` and `c/posix` triggers `E2002 duplicate binding` when a file imports
   both.
 - The `c/` convention is declaration lines with no trailing `;`, matching
-  `c/io.zith`. `zithc fmt` would add `;`, but the folder does not use it and
+  `c/io.zithm`. `zithc fmt` would add `;`, but the folder does not use it and
   `stdlib/` is outside the CMake `fmt-check` glob.
 - `stat`/`fstat` write into a caller-provided opaque buffer of at least
   `STAT_BUFFER_SIZE` bytes. Field access and directory listing are deferred

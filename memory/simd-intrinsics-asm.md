@@ -12,7 +12,7 @@ tipos vetoriais depois.
 - Conhecido: `@sizeOf` em condição `if` quebra codegen com `E5001 failed to
   emit the terminator of a block in function 'main'`. O HIR fica sem instrução
   para o `HirLayoutIntrinsic` e `lowerIf` cria um `HirBranch` sem condição. O
-  mesmo falha aparece em `tests/test-codegen.cpp` e `examples/arrays.zith` no
+  mesmo falha aparece em `tests/test-codegen.cpp` e `examples/arrays.zithm` no
   worktree atual e não está relacionado com a correção `opaque as raw opaque`.
   Para reparar, `lowerLayoutIntrinsic`/`HirLayoutIntrinsic` têm de ser
   materializados no HIR antes de serem usados como operando binário/condição.
@@ -111,7 +111,7 @@ instruções nativas.
 - Apenas a versão final mesclada é sema/codegened.
 - Sem arm nem `(_)`, a `when (@OS)` falha. `(_)` é permitido se fizer sentido.
 - Imports por plataforma mantêm a ordem atual
-  `foo.<arch>.<os>.zith`, `foo.<arch>.zith`, `foo.<os>.zith`, `foo.zith`;
+  `foo.<arch>.<os>.zithm`, `foo.<arch>.zithm`, `foo.<os>.zithm`, `foo.zithm`;
   não há merge automático entre variante e generic.
 
 ## Suporte documentado

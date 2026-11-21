@@ -20,9 +20,9 @@ engenharia para rever e gerir.
 
 - Os installers de release substituem o conteúdo de `<prefix>/share/zith/stdlib`
   antes de extrair, para evitar ficheiros stdlib antigos após um upgrade.
-- Os smoke tests dos installers usam agora `examples/loops-simple.zith`, que
+- Os smoke tests dos installers usam agora `examples/loops-simple.zithm`, que
   exercita o compilador sem depender de libclang/C-header interop. A presença
-  de `std/io/console.zith` continua a ser validada separadamente para cobrir
+  de `std/io/console.zithm` continua a ser validada separadamente para cobrir
   descoberta e empacotamento da stdlib.
 - O manifest `.github/scoop/bucket/zithc.json` foi regenerado para a release
   publicada `v0.6.3.2` do repositório canónico `GalaxyHaze/Zith-Lang`: os dois
@@ -303,16 +303,16 @@ importados (ADR 0020) também está fechado: `hm.HashMap<i64, i64>{}` reifica a
 partir do template do módulo declarante, os defaults de campo são abaixados
 nesse módulo, os métodos genéricos herdam os argumentos do recetor concreto, e
 as chamadas genéricas aninhadas são concretizadas transitivamente
-(`init<i64,i64>` chama `reserve<i64,i64>`). `examples/hash-map.zith` passa
+(`init<i64,i64>` chama `reserve<i64,i64>`). `examples/hash-map.zithm` passa
 `zithc check` e corre até código de saída 0, e o caminho é coberto por
 `tests/test-generic-hashmap.cpp` e `test-codegen`. O segundo consumidor,
-`DynArray<T>`, está promovido: `examples/dyn-array.zith` passa `zithc check` e
+`DynArray<T>`, está promovido: `examples/dyn-array.zithm` passa `zithc check` e
 corre até código de saída 0, e `test-codegen` exercita um `DynArray<i32>`
 importado de ponta a ponta.
 
-Dívida residual: a cadeia de deref de `?*T` (o probe `entry-table.zith`, que usa
+Dívida residual: a cadeia de deref de `?*T` (o probe `entry-table.zithm`, que usa
 `self->table->occupied`) continua fora do caminho suportado pelo
-`hash_map.zith`, que usa `raw self->table[...]`. Isto é um endurecimento do
+`hash_map.zithm`, que usa `raw self->table[...]`. Isto é um endurecimento do
 sema de narrowing, não um bloqueio para a std-lib.
 
 ---

@@ -8,15 +8,15 @@ math/scalar, math/vec, math/transform, and algorithms/slice.
 
 ## Module Guard Test
 
-`tests/test-stdlib-modules.cpp` walks `stdlib/**.zith` and type-checks every
+`tests/test-stdlib-modules.cpp` walks `stdlib/**.zithm` and type-checks every
 module in isolation through the real frontend/sema pipeline (registered as
 `test-stdlib-modules`). It exists because no prior test compiled each module on
-its own, so whole modules could rot: `soon/string.zith` was documented as
+its own, so whole modules could rot: `soon/string.zithm` was documented as
 "implemented" while failing `zithc check` with four syntax/semantic errors, and
-`soon/json.zith` used an invalid declaration form. Run it before shipping any
+`soon/json.zithm` used an invalid declaration form. Run it before shipping any
 `stdlib/` edit; a single failing module fails the test with the module name.
 
-## `soon/string.zith` Fixes
+## `soon/string.zithm` Fixes
 
 The module is heap-backed and stores `data: ?*char`, `length: u64`, and
 `allocator: dyn Allocator`. The bugs the guard now prevents:
@@ -33,7 +33,7 @@ The module is heap-backed and stores `data: ?*char`, `length: u64`, and
 - C calls whose result is dropped need `_ = call();` (with the semicolon);
   `strcpy`/`strcat` return `?*char`.
 
-`soon/json.zith` used `mod(2) fn test()`; `mod(N)` depth is only valid on
+`soon/json.zithm` used `mod(2) fn test()`; `mod(N)` depth is only valid on
 struct/interface fields, not on top-level functions. The stub uses `mod fn
 test()`.
 
@@ -85,7 +85,7 @@ both covered. Broader removal requires a separate stable-API migration.
 - `soon/` is not on the default include path. Tests and users need
   `--include stdlib` (CLI) or `opts.includeDirs.push(ZITH_STDLIB_DIR)`.
 - The promotion gate wants one contract test per promise id, native + VM v2
-  runs, and no open decisions; `soon/string.zith` still lacks signed promises.
+  runs, and no open decisions; `soon/string.zithm` still lacks signed promises.
 
 ## Cross-Module Tagged-Union `is Member` (fixed)
 

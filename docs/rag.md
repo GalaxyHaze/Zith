@@ -74,7 +74,7 @@ CLI locally; no network socket is opened.
 
 Two independent corpora are built:
 
-- `code`: `.c`, `.h`, `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx`, `.zith`
+- `code`: `.c`, `.h`, `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx`, `.zithm`
 - `docs`: `.md`, `.markdown` under the project root
 
 Build artifacts, vendored code, `.git`, `.opencode`, and other noisy

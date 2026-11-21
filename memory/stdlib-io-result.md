@@ -5,7 +5,7 @@ facts behind convenient generic `Ok`/`Err` helpers. It is deliberately separate
 from `memory/stdlib-io-format.md`, which records the `format`/`FormatBuffer`
 design.
 
-The canonical surface now ships as `stdlib/std/result.zith`: the positional
+The canonical surface now ships as `stdlib/std/result.zithm`: the positional
 `pub union Result<T, E> { T, E }` plus `Ok`/`Err`/`isOk`/`isErr`/`unwrap`/
 `unwrapErr` generic helpers. Result-only parameters infer from the expected
 result type (a binding annotation or a declared return type), so `Ok(7)` and
@@ -66,7 +66,7 @@ now rejected with `E3001` at the use site instead of hanging LLVM codegen; see
 
 ## Fatal `panic`
 
-`stdlib/std/panic.zith` ships the fatal `panic(message)`. It writes the message
+`stdlib/std/panic.zithm` ships the fatal `panic(message)`. It writes the message
 and a trailing newline one byte at a time through `putchar`, then terminates
 through the runtime panic code `R10004` (`@assert(false)` outside a test). The
 native `__zith_runtime_panic` helper flushes the C streams (`fflush(nullptr)`)
@@ -106,6 +106,6 @@ Result<FormatBuffer, IoError>{ IoError.fWrite }
 ```
 
 Generic union helper inference now works (see the `Ok`/`Err` example above), so
-`Result<T, E>` helpers are shipped in `stdlib/std/result.zith`. The first I/O
+`Result<T, E>` helpers are shipped in `stdlib/std/result.zithm`. The first I/O
 version still keeps the plain `FormatResult` struct, so the I/O surface is
 unchanged; `std/result` is available to new callers.

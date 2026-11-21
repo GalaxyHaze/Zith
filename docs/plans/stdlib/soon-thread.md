@@ -211,7 +211,7 @@ own result, so a failing entry still returns through `merge` as its own
   revokes and waits for acknowledgement.
 - The full `ThreadError` variant list and which variants each backend returns.
 - How `soon/thread` starts a real thread on native, VM v2, and WASM, and what
-  `c/thread.<os>.zith` exposes as raw externs.
+  `c/thread.<os>.zithm` exposes as raw externs.
 - Whether the synchronization sugar lives in `soon/thread` or beside `Share` in
   a `soon/thread/share` module. Its spelling is settled as
   `@sync(val, { ... })`, and a public macro called through a module alias is

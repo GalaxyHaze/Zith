@@ -24,8 +24,8 @@ intended `TextSink` abstraction, but the stdlib migration has not been done.
 ## Decision
 
 Keep the split scoped and deferred to the compiler-facade debt. In this
-iteration, `format.zith` owns `Formatable`, `FormatBuffer`, `FormatResult`,
-`IoError`, and the owned free `format`. `console.zith` remains the real module
+iteration, `format.zithm` owns `Formatable`, `FormatBuffer`, `FormatResult`,
+`IoError`, and the owned free `format`. `console.zithm` remains the real module
 for `InputLine`, `ParseInput`, `input()`, and the existing `print`/`println`.
 The future split into `consoleIn`/`consoleOut` plus a qualified facade is
 recorded in `docs/implementation-debt.md` and `CONTEXT.md`.

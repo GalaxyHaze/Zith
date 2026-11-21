@@ -252,7 +252,7 @@ Comportamento importante:
 | `$/logTrace` | com `$/setTrace` ativo | Depuração. |
 | `window/workDoneProgress/create` | antes de comandos longos | Progresso de build/run. |
 | `$/progress` | durante comandos longos | Barra de progresso. |
-| `client/registerCapability` | inicialização | Registo do watcher `**/*.zith`. |
+| `client/registerCapability` | inicialização | Registo do watcher `**/*.zithm`. |
 | `zith/frontendStatus` | warmup do stdlib | Estado na barra de estado. |
 | `zith/codegenStatus` | codegen LLVM desativado | Aviso ao utilizador. |
 | `zith/metrics` | com métricas ativadas | Diagnóstico de desempenho. |
@@ -309,7 +309,7 @@ O ficheiro `zith-extension/vs-code/extension.js` já tem:
 A extensão atual não liga ainda, de forma explícita, aos seguintes pontos da
 API:
 
-- `initializationOptions.zith.frontend` com `enabled`, `warmupStdlib`,
+- `initializationOptions.zithm.frontend` com `enabled`, `warmupStdlib`,
   `maxWorkers` e `statusNotifications`
 - `zith/frontendStatus` na barra de estado
 - `zith/codegenStatus` com aviso `codegenAvailable: false`
@@ -317,7 +317,7 @@ API:
 - progresso `window/workDoneProgress/create` e `$/progress`
 - `zith.prepareRun` e `zith.stop` através de comandos VS Code
 - cancelamento explícito de pedidos obsoletos
-- `initializationOptions.zith.performance.metrics` para configuração de
+- `initializationOptions.zithm.performance.metrics` para configuração de
   depuração
 - remoção do comando `zith.compile`, uma vez que o servidor já não o anuncia
 - `codegenAvailable` nas respostas de `zith.build` e `zith.run`

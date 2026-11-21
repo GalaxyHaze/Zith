@@ -42,8 +42,8 @@ Open decisions:
   `GenericInstantiationPass`: a binding annotation or `return` unifies the
   declared result against the expected type, so `Ok(7)`/`Err(e)` bind their
   result-only parameters without explicit `<...>`. The shipped surface is
-  `stdlib/std/result.zith`. `Result<void, E>` remains open.
-- Resolved: `panic(message)` ships as `stdlib/std/panic.zith`. It writes the
+  `stdlib/std/result.zithm`. `Result<void, E>` remains open.
+- Resolved: `panic(message)` ships as `stdlib/std/panic.zithm`. It writes the
   message and a trailing newline one byte at a time through `putchar`, then
   terminates through the runtime panic code `R10004` (`@assert(false)` outside a
   test). The native `__zith_runtime_panic` helper now flushes the C streams

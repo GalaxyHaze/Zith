@@ -1,11 +1,11 @@
 ## 20. Standard Library
 
 > **Status:** see [impl-status.md](impl-status.md) for the current status of each module. The
-> shipped modules are `stdlib/c/io.zith`, `stdlib/c/stdlib.zith`, `stdlib/c/string.zith`,
-> `stdlib/c/fs.zith`, `stdlib/c/posix.linux.zith`,
-> `stdlib/std/io/console.zith`, the `std/memory` DAG, `stdlib/std/collections/hash_map_u64.zith`
-> (a concrete `u64 -> u64` map), `stdlib/std/collections/hash_map.zith` (a checked generic
-> `HashMap<K, V>`), and `stdlib/std/result.zith` (the canonical positional
+> shipped modules are `stdlib/c/io.zithm`, `stdlib/c/stdlib.zithm`, `stdlib/c/string.zithm`,
+> `stdlib/c/fs.zithm`, `stdlib/c/posix.linux.zithm`,
+> `stdlib/std/io/console.zithm`, the `std/memory` DAG, `stdlib/std/collections/hash_map_u64.zithm`
+> (a concrete `u64 -> u64` map), `stdlib/std/collections/hash_map.zithm` (a checked generic
+> `HashMap<K, V>`), and `stdlib/std/result.zithm` (the canonical positional
 > `Result<T, E>` union with `Ok`/`Err`/`isOk`/`isErr`/`unwrap`/`unwrapErr` helpers). `std/alloc`
 > and `std/new` remain as legacy compatibility modules.
 
@@ -116,8 +116,8 @@ pub fn reallocate(self: dyn Allocator, old: raw opaque, old_size: u64,
 `allocate` returns `null` when the underlying `malloc`/`realloc` call fails.
 The caller owns the storage and must pass the same `size`/`align` to
 `deallocate`. The larger `InPlace`/`new`/`delete`/`make`/`release` contract is
-recorded in [ADR 0010](adr/0010-allocator-inplace-drop.md). `stdlib/std/memory/new.zith`
-ships real `new<T>`/`delete<T>` bodies, and `stdlib/std/new.zith` remains as
+recorded in [ADR 0010](adr/0010-allocator-inplace-drop.md). `stdlib/std/memory/new.zithm`
+ships real `new<T>`/`delete<T>` bodies, and `stdlib/std/new.zithm` remains as
 legacy compatibility. `new<T>` binds its result-only `T` from the expected
 result type, so `let p: ?*Box = new(0 as opaque);` needs no explicit `<...>`;
 it allocates through the `HeapAllocator` bridge, calls `(*p).inplace(args)`, and
@@ -148,7 +148,7 @@ another trait method on `self`. `make<T>` reserves the layout for `T`, calls
 `(*p).inplace(args)`, and returns `?*T`; `release<T>` calls `(*p).clean()` and
 frees the block through the same allocator. `Allocator.make`/`release` remain
 const-failing defaults that custom allocators may override. The module is
-intentionally not wired into `test-examples`; `examples/inplace-simple.zith`
+intentionally not wired into `test-examples`; `examples/inplace-simple.zithm`
 continues to demonstrate the local `InPlace` shape.
 
 The layer DAG is kept strict: `in-place` defines `InPlace` only,
@@ -178,7 +178,7 @@ struct DynArray<T> {
 The generic `DynArray<T>` is consumable from another module through the same
 imported-instantiation path as `HashMap<K, V>` (ADR 0020): `da.create<i32>(heap)`
 constructs an array, `da.DynArray.reserve<i32>`/`da.push<i32>` grow it, and
-`da.get<i32>`/`da.remove<i32>`/`da.pop<i32>` return `?T`. `examples/dyn-array.zith`
+`da.get<i32>`/`da.remove<i32>`/`da.pop<i32>` return `?T`. `examples/dyn-array.zithm`
 passes `zithc check` and runs to exit 0, and `test-codegen` exercises an imported
 `DynArray<i32>` end-to-end.
 
@@ -211,7 +211,7 @@ from the declaring module's template, field defaults (`count = 0`,
 `table = null`, ...) lower in the declaring module, and
 `hm.HashMap.init(lend map)` inherits the receiver's type arguments. Nested
 generic calls inside the body are concretized transitively, so
-`init<i64,i64>` calls `reserve<i64,i64>`. `examples/hash-map.zith` passes
+`init<i64,i64>` calls `reserve<i64,i64>`. `examples/hash-map.zithm` passes
 `zithc check` and runs to exit 0, and both `tests/test-generic-hashmap.cpp` and
 `test-codegen` exercise an imported `HashMap<i64,i64>`. See
 [ADR 0020](adr/0020-imported-generic-instantiation.md) for the design. For a
@@ -265,7 +265,7 @@ stdio surface (`FILE`, `fopen`, `fclose`, `fread`, `fwrite`, `fseek`, `ftell`,
 `c/posix` is the Linux POSIX file and memory-mapping surface (`open`, `close`,
 `read`, `write`, `lseek`, `stat`, `fstat`, `access`, `unlink`, `mmap`,
 `munmap`, and the `O_*`, `PROT_*`, `MAP_*`, and access-mode constants); it
-ships as the `.<os>` platform variant `c/posix.linux.zith`, so the import
+ships as the `.<os>` platform variant `c/posix.linux.zithm`, so the import
 resolves only on Linux.
 
 ```zith

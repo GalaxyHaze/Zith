@@ -47,7 +47,7 @@ module or use an explicit header import.
 
 `c/fs` is the portable C stdio file surface and resolves on every target.
 `c/posix` is the POSIX file and memory-mapping surface and ships only as a
-platform variant, currently `c/posix.linux.zith`, so `import c/posix` resolves
+platform variant, currently `c/posix.linux.zithm`, so `import c/posix` resolves
 on Linux and reports the missing-platform-variant diagnostic elsewhere. See
 [ADR-0046](adr/0046-c-file-surface-and-deferred-safe-std-fs.md).
 

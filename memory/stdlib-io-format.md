@@ -1,16 +1,16 @@
 # Stdlib I/O Format Design
 
 This note records the current `std/io` format implementation and the compiler
-facts that constrain the facade plan. `stdlib/std/io/format.zith` is the real
-formatting module; `stdlib/std/io/console.zith` remains the real module for
+facts that constrain the facade plan. `stdlib/std/io/format.zithm` is the real
+formatting module; `stdlib/std/io/console.zithm` remains the real module for
 `print`/`println`/`input` and exposes the old HIR surface used by tests.
 
 ## Target Layout
 
-- `stdlib/std/io/format.zith`: `Formatable`, `FormatBuffer`, `FormatResult`,
+- `stdlib/std/io/format.zithm`: `Formatable`, `FormatBuffer`, `FormatResult`,
   `IoError`, the owned `format` free function, and primitive `Formatable`
   implementations.
-- `stdlib/std/io/console.zith`: `InputLine`, `ParseInput`, `input()`, and the
+- `stdlib/std/io/console.zithm`: `InputLine`, `ParseInput`, `input()`, and the
   existing `print`/`println` wrappers. It imports `std/io/format` with `from`.
 
 ## Public Format Surface

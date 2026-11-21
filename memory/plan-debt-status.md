@@ -57,9 +57,9 @@ The active plan homes are:
 - `docs/plans/stdlib/soon-promotion.md`: `soon`-first delivery policy and the
   promotion gate from `soon/` to `std/`.
 - `docs/plans/stdlib/soon-string.md`: owning byte-string contract for
-  `stdlib/soon/string.zith`.
+  `stdlib/soon/string.zithm`.
 - `docs/plans/stdlib/soon-json.md`: JSON value model and text boundary for the
-  `stdlib/soon/json.zith` stub.
+  `stdlib/soon/json.zithm` stub.
 - `docs/plans/stdlib/soon-random.md`: random generator and uniform-distribution
   surface for a proposed `soon/random` module, drawing stage.
 - `docs/plans/stdlib/soon-io.md`: executor, task, and non-blocking I/O surface

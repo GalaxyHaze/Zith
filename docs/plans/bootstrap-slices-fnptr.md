@@ -43,8 +43,8 @@ round-trips for function and slice compact types.
 
 ## Example artifacts
 
-`examples/bootstrap-slices-fnptr.zith` and its C helper show a C-provided
+`examples/bootstrap-slices-fnptr.zithm` and its C helper show a C-provided
 slice and function value in one program. The automated example suite only runs
-self-contained `.zith` programs, so the codegen test links the equivalent C
+self-contained `.zithm` programs, so the codegen test links the equivalent C
 runtime directly and also covers cold and warm cache paths with the same
 compact fields.

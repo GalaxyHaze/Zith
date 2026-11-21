@@ -23,6 +23,6 @@ does not produce a block value, and rejects `return`, `break`, `continue`, and
 ## Current Verification
 
 `cmake --build build -j`, `ctest --test-dir build --output-on-failure`, and
-`./build/zithc --include stdlib check build/main.zith` pass with the
+`./build/zithc --include stdlib check build/main.zithm` pass with the
 `defer`/void-`state` work in the tree. The modern file type-alias codegen test
 also passes after the current parser/sema state in this worktree.

@@ -137,7 +137,7 @@ ctest --test-dir build --output-on-failure
 `test-memory`, `test-cache`, `test-zirl-sections`, and `fmt-check` pass.
 The full CTest run still reports the known `test-codegen` failures documented in
 `docs/implementation-debt.md`, plus the pre-existing
-`examples/ownership-advanced.zith` IR failure. Both sets reproduce on `HEAD`
+`examples/ownership-advanced.zithm` IR failure. Both sets reproduce on `HEAD`
 without this optimization work, so they are not regressions from these edits.
 
 ## Other Follow-Up Debts

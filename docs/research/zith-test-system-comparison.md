@@ -8,7 +8,7 @@ and [ADR 0045](../adr/0045-native-test-command-and-driver.md#L68).
 
 ## Comparison
 
-- **Discovery and granularity.** **Zith now:** discovers `.zith` files below
+- **Discovery and granularity.** **Zith now:** discovers `.zithm` files below
   `test_dir`; each `#[test]` is a free, zero-argument, `void` function. The
   compiler builds one driver per source module. [Rust] uses free `#[test]`
   functions and a compiler-generated `libtest` harness; [Go] discovers
@@ -41,7 +41,7 @@ and [ADR 0045](../adr/0045-native-test-command-and-driver.md#L68).
   [pytest] rewrites ordinary `assert` statements to show useful subexpression
   values. [Vitest] reports expected/received values, diffs, and the failing
   source line.
-  ([Zith](../../stdlib/std/test.zith),
+  ([Zith](../../stdlib/std/test.zithm),
   [Rust](https://doc.rust-lang.org/rustc/tests/index.html),
   [Go](https://pkg.go.dev/testing),
   [pytest](https://docs.pytest.org/en/stable/how-to/assert.html),

@@ -18,11 +18,11 @@ needs it now and the safe API does not.
 
 Two modules ship:
 
-- `stdlib/c/fs.zith` is the portable C stdio file surface: `FILE`, `fopen`,
+- `stdlib/c/fs.zithm` is the portable C stdio file surface: `FILE`, `fopen`,
   `fclose`, `fread`, `fwrite`, `fseek`, `ftell`, `fflush`, `feof`, `ferror`,
   `remove`, `rename`, and the `SEEK_*` constants. It resolves on every
   supported target through libc, a VM intrinsic, or a WASM host import.
-- `stdlib/c/posix.linux.zith` is the Linux POSIX file and memory-mapping
+- `stdlib/c/posix.linux.zithm` is the Linux POSIX file and memory-mapping
   surface: `open`, `close`, `read`, `write`, `lseek`, `fstat`, `stat`,
   `access`, `unlink`, `mmap`, `munmap`, and the `O_*`, `PROT_*`, `MAP_*`, and
   access-mode constants.
@@ -44,12 +44,12 @@ target. `mmap` and the POSIX syscalls are POSIX and Win32, and `mmap` does not
 exist on WASM. They therefore do not belong in a portable `c/` module.
 
 The module resolver already provides the mechanism: a platform variant such as
-`foo.<arch>.<os>.zith` is preferred over the generic `foo.zith`
-([platform-imports.md](../../memory/platform-imports.md)). `c/posix.linux.zith`
+`foo.<arch>.<os>.zithm` is preferred over the generic `foo.zithm`
+([platform-imports.md](../../memory/platform-imports.md)). `c/posix.linux.zithm`
 is the `.<os>` variant, so `import c/posix` resolves only on Linux. On a target
 without a matching variant the import fails with the resolver's
 missing-platform-variant diagnostic, which is the explicit error path ADR-0028
-asks for. Windows and other hosts add their own `c/posix.<os>.zith` variant
+asks for. Windows and other hosts add their own `c/posix.<os>.zithm` variant
 when they are supported.
 
 `c/fs` stays portable and has no platform variant, so it never shadows a

@@ -3,8 +3,8 @@
 ## Summary
 
 Implemented: `import foo` resolves platform variants such as
-`foo.<arch>.<os>.zith` against the active compilation target while keeping the
-generic `foo.zith` as a required fallback. The feature belongs in the module
+`foo.<arch>.<os>.zithm` against the active compilation target while keeping the
+generic `foo.zithm` as a required fallback. The feature belongs in the module
 resolver, not in comptime, macros, or a new conditional statement.
 
 Full design archive: `docs/plans/archive/platform-imports.old.md`. The locked
@@ -19,9 +19,9 @@ implementation contract and tests moved to the archived plan.
 ## Current Ground Truth
 
 `FrontendContext::resolveImport()` checks a regular file at the requested path,
-platform suffix variants, the generic `path.zith`, a same-named directory, and
-`path/mod.zith` per search root. The directory is a fallback, so a facade file
-such as `std/memory.zith` wins over `stdlib/std/memory/`.
+platform suffix variants, the generic `path.zithm`, a same-named directory, and
+`path/mod.zithm` per search root. The directory is a fallback, so a facade file
+such as `std/memory.zithm` wins over `stdlib/std/memory/`.
 `--target` reaches `FrontendConfig::targetTriple` and participates in
 `CacheKey::identity()`, so the module cache remains separated per target.
 
@@ -53,5 +53,5 @@ old pre-split `frontend-context.cpp` implementation sketch.
   cache layout is needed.
 - The resolver uses `fs::is_regular_file` for literal, variant, and generic
   files. It aggregates a same-named directory only when those files do not
-  match, then checks `foo/mod.zith`.
+  match, then checks `foo/mod.zithm`.
 - Only the last path segment varies for platform-specific imports.

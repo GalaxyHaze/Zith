@@ -2,8 +2,8 @@
 
 The target stdlib-only allocator surface is `stdlib/std/memory*`. The strict
 module graph is `in-place` -> `allocator` -> `heap` and `new` depends on
-`in-place` plus `heap`. The original `stdlib/std/alloc.zith` and
-`stdlib/std/new.zith` remain as legacy compatibility modules. The compiler
+`in-place` plus `heap`. The original `stdlib/std/alloc.zithm` and
+`stdlib/std/new.zithm` remain as legacy compatibility modules. The compiler
 supports trait-based dynamic dispatch through `dyn Allocator` free-function
 helpers, but concrete trait method calls still invalidate the receiver after a
 `self`/`var self` call. The surface keeps raw storage primitives, a heap
@@ -56,7 +56,7 @@ fanout path such as `std.memory.in-place.InPlace` without a spurious `E2002
 duplicate binding`.
 
 The `std/memory` facade shares its logical path with the `stdlib/std/memory/`
-directory. Regular-file precedence selects `memory.zith` before directory
+directory. Regular-file precedence selects `memory.zithm` before directory
 aggregation, allowing the facade to export nested paths such as
 `std.memory.allocators.heap.HeapAllocator`. Cold and cached coverage lives in
 `tests/test-interface-satisfaction.cpp`.
@@ -71,10 +71,10 @@ The target proposal in `docs/adr/0010-allocator-inplace-drop.md` separates:
   imported `implement Box as InPlace` with qualified trait calls is covered by
   `tests/test-generic-hashmap.cpp`.
 - `new<T>`/`delete<T>` and `make<T>`/`release<T>`: heap and generic allocator
-  convenience pairs. `stdlib/std/memory/new.zith` now carries real bodies:
+  convenience pairs. `stdlib/std/memory/new.zithm` now carries real bodies:
   `new<T>` queries `@sizeOf`/`@alignOf`, allocates through the `HeapAllocator`
   bridge, calls `(*p).inplace(args)`, and returns `?*T`; `delete<T>` calls
-  `(*p).clean()` and frees the block. `stdlib/std/new.zith` remains as
+  `(*p).clean()` and frees the block. `stdlib/std/new.zithm` remains as
   compatibility. The allocator-owned pair ships as free functions
   `make`/`release` over `dyn Allocator` in `allocators/allocator` (the
   `Allocator.make`/`release` defaults are const-failing until a trait default
@@ -82,9 +82,9 @@ The target proposal in `docs/adr/0010-allocator-inplace-drop.md` separates:
 - `W10xx DiscardedValue` and `W11xx DiscardedOwner`: future compiler warnings;
   no codegen changes are shipped in the first stdlib-only step.
 
-## `std/memory/new.zith` Compiler Gaps
+## `std/memory/new.zithm` Compiler Gaps
 
-`stdlib/std/memory/new.zith` is the single source for the `InPlace`/`new`/
+`stdlib/std/memory/new.zithm` is the single source for the `InPlace`/`new`/
 `delete` contract. The module, the `InPlace` trait, and the `new<T>`/`delete<T>`
 bodies all pass `zithc check`, link, and run (`test-codegen`
 `test_imported_memory_new_delete_runtime`). The remaining gap is the

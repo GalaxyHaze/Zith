@@ -34,7 +34,7 @@ started in its worktree.
 This boundary prevents worktree collisions. The master keeps `src/sema/`,
 `src/hir/`, `src/zirl/`, `src/session/`, `src/cli/`. hermes1 keeps
 `src/frontend/` and `sema-cast-coerce.cpp`/`sema-modern.hpp` only if the master
-has not yet touched them. hermes2 keeps `stdlib/std/test.zith`.
+has not yet touched them. hermes2 keeps `stdlib/std/test.zithm`.
 
 Shared files that need a single writer at merge time: `CMakeLists.txt` (CTest
 registration) and any stdlib module list. The master merges those.

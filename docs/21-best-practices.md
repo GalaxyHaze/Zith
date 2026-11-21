@@ -78,7 +78,7 @@ The Rule of Three keeps code readable. Zith gives you many tools. You don't have
 | Components | single word, lowercase | `rgb`, `color`, `file`, `vertex`, `health` |
 | Structs | PascalCase | `Point`, `Container`, `DynArray`, `GameConfig` |
 | Traits & interfaces | PascalCase | `Printable`, `iPositioned` (interfaces use lowercase `i` prefix) |
-| Files | kebab-case | `game-loop.zith`, `asset-manager.zith` |
+| Files | kebab-case | `game-loop.zithm`, `asset-manager.zithm` |
 | Constants & comptime | UPPER_SNAKE_CASE | `MAX_SIZE`, `PI`, `DEFAULT_TIMEOUT` |
 | Enums | PascalCase for the type; PascalCase for variants | `enum Direction { North, South }` |
 

@@ -163,7 +163,7 @@ optimizador.
 
 ## Superfície C/runtime da stdlib
 
-Os módulos `stdlib/c/*.zith` são bindings C comuns mantidos pela toolchain,
+Os módulos `stdlib/c/*.zithm` são bindings C comuns mantidos pela toolchain,
 não includes de headers do host. A stdlib usa `from c/io`, `from c/stdlib` e
 `from c/string` para manter o mesmo código em LLVM nativo, VM no-LLVM e WASM.
 O backend escolhe se cada declaração é resolvida por libc, intrinsic da VM ou
@@ -526,15 +526,15 @@ assets. Para importações Zith, cada search root é visitado pela mesma ordem d
 plano:
 
 1. Ficheiro regular no caminho literal.
-2. `foo.<arch>.<os>.zith`.
-3. `foo.<arch>.zith`.
-4. `foo.<os>.zith`.
-5. `foo.zith`.
+2. `foo.<arch>.<os>.zithm`.
+3. `foo.<arch>.zithm`.
+4. `foo.<os>.zithm`.
+5. `foo.zithm`.
 6. Diretório `foo`, agregado conforme a profundidade pedida.
-7. `foo/mod.zith`.
+7. `foo/mod.zithm`.
 
 Um diretório não substitui um ficheiro regular com o mesmo caminho lógico.
-Esta regra permite que `std/memory.zith` funcione como facade apesar de
+Esta regra permite que `std/memory.zithm` funcione como facade apesar de
 `stdlib/std/memory/` conter os módulos exportados.
 
 `targetComponents` extrai `arch` e `os` do `config_.targetTriple` com
@@ -548,7 +548,7 @@ diagnóstico mais accionável:
 could not resolve import 'foo'; missing generic module or matching platform variant
 ```
 
-O artifact resolvido, spans e cache usam o path final (`foo.<arch>.<os>.zith`
+O artifact resolvido, spans e cache usam o path final (`foo.<arch>.<os>.zithm`
 quando vence uma variante), nunca o nome lógico da importação. O `CacheKey`
 continua a incluir `targetTriple`, por isso contextos com targets diferentes
 separam os artifacts mesmo quando o ficheiro genérico é igual.

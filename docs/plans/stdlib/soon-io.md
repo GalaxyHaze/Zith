@@ -26,7 +26,7 @@ Size: module, the standard-library I/O execution surface.
 - The `soon/thread` `ThreadBackend` trait launches a `Job` and returns a
   `ThreadHandle<T>` whose `merge` blocks the current thread and consumes the
   handle once. It defines no resumable task and no executor queue.
-- `stdlib/soon/fs/fs.zith` is an experimental stub. It declares the file
+- `stdlib/soon/fs/fs.zithm` is an experimental stub. It declares the file
   operations but promises no runtime contract, so the blocking behavior of
   `read` and `write` is still open.
 - The VM v2 backend accepts a validated extern set, and WASM stubs several host

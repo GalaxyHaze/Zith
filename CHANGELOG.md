@@ -15,7 +15,7 @@
   `nested-structs` (structs aninhados, `&`, `->`, `*`), `optionals` (`?T`, propagação `?`,
   `is null`, `?*T`), `c-interop` (`printf` variádico e `malloc`/`free`, só com
   `ZITH_ENABLE_C_INTEROP`) e `generics-decl` (listas `<T>` em `struct`/`alias`).
-- **`hello-world.zith`:** passa a declarar `fn main(): i32` com `return 0` explícito. Sem tipo
+- **`hello-world.zithm`:** passa a declarar `fn main(): i32` com `return 0` explícito. Sem tipo
   de retorno o exit code era lixo não inicializado (64 nesta máquina), o que impedia asserção.
 
 ## [Não Lançado] — Operadores Compostos, Bitwise e `raw opaque`
@@ -213,7 +213,7 @@
 - Casos para `Cast` (`expr as Tipo`) e `IsNull` (`expr is null`).
 
 #### Testes e Exemplos
-- `examples/linked-list.zith` — programa de aceitação end-to-end: lista ligada com `?*Node`,
+- `examples/linked-list.zithm` — programa de aceitação end-to-end: lista ligada com `?*Node`,
   travessia com `for (not (cur is null))`, `==`/`!=`, e conversões `as`. Sai com código 7.
 - 21 novos casos: 7 em `test-frontend.cpp`, 8 em `test-sema.cpp`, 4 em
   `test-hir-lower-modern.cpp`, 4 em `test-codegen.cpp` (incluindo as regressões do

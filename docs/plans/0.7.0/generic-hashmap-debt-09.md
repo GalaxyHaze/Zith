@@ -3,7 +3,7 @@
 Objective: close implementation-debt item 9 by making nested generic struct
 reification, concrete generic type identity, generic bound propagation, and
 generic calls inside generic functions work in Zith--, then make
-`stdlib/std/collections/hash_map.zith` pass `zithc check` without changing its
+`stdlib/std/collections/hash_map.zithm` pass `zithc check` without changing its
 public API.
 
 Preconditions:
@@ -33,8 +33,8 @@ Files that will be modified:
 
 Forbidden actions:
 
-- Do not touch `stdlib/std/collections/hash_map_u64.zith`.
-- Do not change the public API of `stdlib/std/collections/hash_map.zith`.
+- Do not touch `stdlib/std/collections/hash_map_u64.zithm`.
+- Do not change the public API of `stdlib/std/collections/hash_map.zithm`.
 - Do not run `git reset --hard`.
 - Do not revert unrelated user changes.
 - Do not add raw `printf`, `std::cerr`, or `fprintf(stderr, ...)`.
@@ -317,21 +317,21 @@ Success criteria:
 
 Goal: `/home/diogo/Zith/tests/test-generic-hashmap.cpp` is a registered,
 deterministic test that covers all debt-9 probes and the checked stdlib
-`hash_map.zith`.
+`hash_map.zithm`.
 
 Sub-steps:
 
 1. Create `/home/diogo/Zith/tests/test-generic-hashmap.cpp`.
 2. Copy the nine probe sources from `/tmp/zith-generic-probes/` in a compact
-   form: `basic.zith`, `nested-struct.zith`, `entry-table.zith`,
-   `trait-field.zith`, `constraint-propagation.zith`, `return-optional.zith`,
-   `equality.zith`, `nested-generic.zith`, and
-   `generic-call-in-function.zith`.
+   form: `basic.zithm`, `nested-struct.zithm`, `entry-table.zithm`,
+   `trait-field.zithm`, `constraint-propagation.zithm`, `return-optional.zithm`,
+   `equality.zithm`, `nested-generic.zithm`, and
+   `generic-call-in-function.zithm`.
 3. Assert accepted programs report zero unexpected diagnostics and rejected
    probes report the expected `E3009` diagnostic when a non-hashable key is
    used.
 4. Add a compile-and-lower test that runs `zithc check` on
-   `/home/diogo/Zith/stdlib/std/collections/hash_map.zith` and asserts no
+   `/home/diogo/Zith/stdlib/std/collections/hash_map.zithm` and asserts no
    `E2006`, `E3001`, `E3003`, `E3011`, or `E3009`.
 5. Add a conservative execution assertion for `HashMap<u64, u64>` that stops at
    `HirLowered` unless `HirInterpreter` proves `calloc` and `free` externs are
@@ -357,7 +357,7 @@ Failure checks:
 - If a probe produces a different diagnostic in this build, print the
   diagnostic and source span in the test failure. Do not weaken the expected
   diagnostic to make the test pass.
-- If `zithc check` on `hash_map.zith` fails after Step 5, the test failure is
+- If `zithc check` on `hash_map.zithm` fails after Step 5, the test failure is
   a real sema regression. Re-run Steps 4 and 5 before changing the test.
 
 Success criteria:
@@ -430,7 +430,7 @@ cmake --build build -j
 ./build/tests/test-generic-hashmap
 ./build/tests/test-generics-mono
 ./build/tests/test-generic-constraints
-./build/zithc --include stdlib check stdlib/std/collections/hash_map.zith
+./build/zithc --include stdlib check stdlib/std/collections/hash_map.zithm
 ctest --test-dir build -R 'generic|hash' --output-on-failure
 ```
 
@@ -439,7 +439,7 @@ Expected output:
 - `./build/tests/test-generic-hashmap` exits 0.
 - `./build/tests/test-generics-mono` exits 0.
 - `./build/tests/test-generic-constraints` exits 0.
-- `./build/zithc --include stdlib check stdlib/std/collections/hash_map.zith`
+- `./build/zithc --include stdlib check stdlib/std/collections/hash_map.zithm`
   exits 0 with no error diagnostics.
 - CTest reports 100% tests passed for the selected generic/hash tests.
 

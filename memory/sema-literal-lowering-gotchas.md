@@ -7,7 +7,7 @@ pipeline. It is useful when touching `src/sema/sema-modern.cpp`,
 
 ## Problem Background
 
-The bug report described two failures in `build/main.zith`:
+The bug report described two failures in `build/main.zithm`:
 
 1. `pair.first` and `pair.second`, where `pair` is the struct name itself, was
    accepted by sema. The subsequent `printf` call disappeared from the final

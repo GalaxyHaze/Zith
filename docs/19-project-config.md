@@ -25,7 +25,7 @@ test_dir = "tests"        # default: tests; root for `zithc test` discovery
 std = "bundled"
 ```
 
-`test_dir` is the root that `zithc test` walks to discover `*.zith` files and
+`test_dir` is the root that `zithc test` walks to discover `*.zithm` files and
 their `#[test]` functions. It defaults to `tests` when the key is absent, and
 `zithc create` writes it into the generated `ZithProject.toml`.
 

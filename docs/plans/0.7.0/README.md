@@ -14,7 +14,7 @@ This directory tracks current `Zith--` planning and retired steps:
   and [the variadic macro plan](../variadic-macros-and-defer.md).
 - Automatic `drop` cleanup is rejected for Zith--. See the historical
   [`defer-drop.md`](../defer-drop.md) proposal.
-- Platform-specific imports (`foo.<arch>.<os>.zith`) are implemented in the
+- Platform-specific imports (`foo.<arch>.<os>.zithm`) are implemented in the
   import resolver and archived. See
   `docs/plans/archive/platform-imports.old.md`.
 - Monolith splits as infrastructure work. See `docs/plans/monolith-splits.md`.
@@ -40,7 +40,7 @@ features, not `Zith--` candidates.
 ## Retired Steps
 
 - `docs/plans/archive/platform-imports.old.md`: platform imports
-  (`foo.<arch>.<os>.zith`) are implemented in Zith--; no active
+  (`foo.<arch>.<os>.zithm`) are implemented in Zith--; no active
   implementation steps remain.
 - `docs/plans/archive/parse-input-cast.old.md`: `ParseInput` and
   `InputLine.cast<T>` are shipped; no active implementation steps remain.

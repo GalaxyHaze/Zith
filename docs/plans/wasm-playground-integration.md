@@ -80,7 +80,7 @@ boundary and no conclusion is based only on the generic WASM trap text.
 ### 2. Replace the hand-written virtual stdlib path with a generated pack
 
 Goal: the WASM runtime consumes the canonical `stdlib/` contents without
-duplicating `std/io/console.zith`.
+duplicating `std/io/console.zithm`.
 
 1. Define a versioned pack format containing:
    - format version;
@@ -99,7 +99,7 @@ duplicating `std/io/console.zith`.
    proven.
 7. Keep native builds using `/home/diogo/Zith/stdlib/` directly.
 
-Expected output: the same canonical `stdlib/std/io/console.zith` is used by
+Expected output: the same canonical `stdlib/std/io/console.zithm` is used by
 native and WASM tests, and the browser artifact has no manually maintained
 console source string.
 

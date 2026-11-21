@@ -15,7 +15,7 @@ original precisa de uma nova execução para confirmar o resultado no GitHub.
 ### Evidência
 
 O teste `test-examples` falha em Debug e ASan/UBSan na linha 14 de
-`examples/bindings-advanced.zith`, com E2010:
+`examples/bindings-advanced.zithm`, com E2010:
 
 ```zith
 let q: i32;
@@ -152,7 +152,7 @@ recomenda restaurar módulos removidos de `stdlib/`.
 - [Orquestração semântica no commit do run](https://github.com/GalaxyHaze/Zith-Lang/blob/04238a6d4ec8da76a9c61765f10e0f24b34cff7d/src/sema/sema-modern.cpp)
 - [Sondagem e inferência semântica no commit do run](https://github.com/GalaxyHaze/Zith-Lang/blob/04238a6d4ec8da76a9c61765f10e0f24b34cff7d/src/sema/sema-control.cpp)
 - [Atribuições no commit do run](https://github.com/GalaxyHaze/Zith-Lang/blob/04238a6d4ec8da76a9c61765f10e0f24b34cff7d/src/sema/sema-assign.cpp)
-- [Exemplo que falha no commit do run](https://github.com/GalaxyHaze/Zith-Lang/blob/04238a6d4ec8da76a9c61765f10e0f24b34cff7d/examples/bindings-advanced.zith)
+- [Exemplo que falha no commit do run](https://github.com/GalaxyHaze/Zith-Lang/blob/04238a6d4ec8da76a9c61765f10e0f24b34cff7d/examples/bindings-advanced.zithm)
 - [GCC: dual ABI e diagnóstico de `std::__cxx11`](https://gcc.gnu.org/onlinedocs/libstdc++/manual/using_dual_abi.html)
 - [libc++: plataformas Linux oficialmente suportadas](https://libcxx.llvm.org/#platform-and-compiler-support)
 - [CMake: toolchains e cross-compilation Linux](https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html)

@@ -109,7 +109,7 @@ Rules:
 
 ```bash
 cmake --build build -j
-./build/zithc --include stdlib check build/main.zith
+./build/zithc --include stdlib check build/main.zithm
 ctest --test-dir build --output-on-failure
 cmake --build build --target fmt-check
 ```

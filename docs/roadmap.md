@@ -47,7 +47,7 @@
 | F-35 | Trait and interface bodies as real declarations | 4 | Working; interface bodies accept single/grouped fields and declaration-only method requirements |
 | F-40 | Scope-guard `defer` statements | 9, Zith-- | Working |
 | F-41 | Deterministic `drop` cleanup hooks | 9, Zith-- | Rejected for Zith-- by ADR-0055 |
-| F-42 | Platform-specific imports (`foo.<arch>.<os>.zith`) | 2, Zith-- | Working; resolver checks `arch.os`, `arch`, `os`, then generic `foo.zith` |
+| F-42 | Platform-specific imports (`foo.<arch>.<os>.zithm`) | 2, Zith-- | Working; resolver checks `arch.os`, `arch`, `os`, then generic `foo.zithm` |
 | F-43 | Native test surface (`#[test]`, `@assert`, `@check`, `@log`, synthesized driver) | 9, Zith-- | Partial: accumulating checks and rich `std/test` formatting pass on native and VM v2; HIR covers checks, portable assertions, and logs, but rich formatting remains unsupported |
 
 `Spec only` marks material described in Zith design documents without a

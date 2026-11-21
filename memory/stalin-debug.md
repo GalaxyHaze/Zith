@@ -20,8 +20,8 @@ stage is already known.
 
 ## Example
 
-`zithc run main.zith` crashed with a trace/breakpoint trap only when the file
+`zithc run main.zithm` crashed with a trace/breakpoint trap only when the file
 imported `from soon/string`. `check` passed, `--emit-ir` also crashed, so the
 problem was narrowed to HIR/codegen rather than sema or linking. The next split
-tests a synthetic module with a simple struct before the real `string.zith`,
+tests a synthetic module with a simple struct before the real `string.zithm`,
 then adds fields/optional pointers one at a time.

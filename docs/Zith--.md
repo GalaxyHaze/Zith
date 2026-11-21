@@ -869,29 +869,33 @@ Alguns diagnósticos relevantes não referidos no corpo do documento:
 
 ## Imports Platform-Specific
 
+Um ficheiro fonte Zith-- usa a extensão `.zithm` (o `m` marca a forma minus).
+O compilador `zithc` lê apenas `.zithm`, o que deixa `.zith` reservado para a
+linguagem Zith. Ver [ADR-0058](adr/0058-zithm-source-extension.md).
+
 `import foo` continua a ser a única sintaxe de importação de módulos Zith.
 Quando o resolver encontra uma importação Zith, tenta primeiro um ficheiro
 regular no caminho literal, depois as variantes derivadas do target activo,
-e por fim o ficheiro genérico `foo.zith`:
+e por fim o ficheiro genérico `foo.zithm`:
 
 ```text
-foo.<arch>.<os>.zith
-foo.<arch>.zith
-foo.<os>.zith
-foo.zith
+foo.<arch>.<os>.zithm
+foo.<arch>.zithm
+foo.<os>.zithm
+foo.zithm
 ```
 
 Se nenhum ficheiro corresponder e existir um diretório `foo`, o resolver usa
-esse diretório como módulo antes de tentar `foo/mod.zith`. Assim, um ficheiro
-`foo.zith` tem precedência sobre um diretório homónimo `foo/`.
+esse diretório como módulo antes de tentar `foo/mod.zithm`. Assim, um ficheiro
+`foo.zithm` tem precedência sobre um diretório homónimo `foo/`.
 
 O target activo usa o triple normalizado e nomes canónicos de `llvm::Triple`
 (por exemplo `x86_64`, `aarch64`, `linux`, `darwin`, `windows`); aliases como
 `amd64`, `arm64` ou `macos` não são mapeados em v1. Sem LLVM não há variantes
-de plataforma. Só o último segmento de um path composto varia, `foo/mod.zith`
+de plataforma. Só o último segmento de um path composto varia, `foo/mod.zithm`
 continua como diretório de módulo, e paths explícitos, headers C, assets e
-literais não são afectados. Se não existir uma variante, `foo.zith`, o
-diretório `foo` nem `foo/mod.zith`, a importação reporta
+literais não são afectados. Se não existir uma variante, `foo.zithm`, o
+diretório `foo` nem `foo/mod.zithm`, a importação reporta
 `could not resolve import 'foo'; missing generic module or matching platform
 variant`.
 

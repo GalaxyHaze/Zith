@@ -37,7 +37,7 @@ ctest --test-dir build --output-on-failure
 ```
 
 Use `./build/zithc --help` to inspect the local CLI. A useful compiler smoke
-test is `./build/zithc check examples/loops-simple.zith` (run from the repo
+test is `./build/zithc check examples/loops-simple.zithm` (run from the repo
 root, so project discovery stops at the checkout).
 LLVM remains optional for parser/sema-only local builds, but every native
 release artifact and the native CI jobs must configure `ZITH_REQUIRE_LLVM=ON`
@@ -63,7 +63,7 @@ test, a build) cannot cook the CPU or SSD:
 agent-run -t 900 -c 0 -- cmake --build build -j4
 
 # Probes and test runs: a tight timeout, a small CPU cap.
-agent-run -t 30 -c 50 -- ./build/zithc --no-cache run prog.zith
+agent-run -t 30 -c 50 -- ./build/zithc --no-cache run prog.zithm
 
 # Tests.
 agent-run -t 900 -c 0 -- ctest --test-dir build --output-on-failure

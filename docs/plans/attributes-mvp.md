@@ -190,7 +190,7 @@ cmake --build build -j4 --target zithc 2>&1 | tail -80
 - Se `TokenKind::Punctuation` com texto `#` não é atual, confirmar com `sed -n '215,240p' /home/diogo/Zith/src/frontend/ast-lowerer.cpp` que o lexer produz `Punctuation`.
 - Se `parseAttributes` já existe em `/home/diogo/Zith/src/frontend/frontend-expr-primary.cpp` com outro propósito, nomear a nova função `parseDeclAttributes` para evitar conflito.
 
-**Success criteria:** `./build/zithc --include stdlib check /tmp/attr-smoke.zith` com conteúdo `#[discardable] fn println(): i32;` não mostra erros de parsing e `rg -n "parseAttributes" /home/diogo/Zith/src/frontend/ast-lowerer.hpp` encontra a declaração.
+**Success criteria:** `./build/zithc --include stdlib check /tmp/attr-smoke.zithm` com conteúdo `#[discardable] fn println(): i32;` não mostra erros de parsing e `rg -n "parseAttributes" /home/diogo/Zith/src/frontend/ast-lowerer.hpp` encontra a declaração.
 
 ### Step 4 - Parser de atributos em statements locais
 

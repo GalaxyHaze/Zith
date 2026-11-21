@@ -12,5 +12,5 @@ Considered options:
 Consequences:
 
 - `import std/collections/hash_map` supports `hm.HashMap<i64,i64>{}`, field defaults from the declaring module, and `hm.HashMap.init(lend map)` without repeating type args. Nested generic calls inside a generic body are concretized transitively, so `init<i64,i64>` calls `reserve<i64,i64>` rather than the abstract `reserve<T,T>`.
-- `stdlib/std/collections/hash_map.zith` is now a consumable checked generic map: `examples/hash-map.zith` passes `zithc check` and runs to exit 0, and both `tests/test-generic-hashmap.cpp` and `test-codegen` exercise an imported `HashMap<i64,i64>`.
-- `DynArray<T>` shares the same path and is promoted: `examples/dyn-array.zith` passes `zithc check` and runs to exit 0, and `test-codegen` exercises an imported `DynArray<i32>` end-to-end.
+- `stdlib/std/collections/hash_map.zithm` is now a consumable checked generic map: `examples/hash-map.zithm` passes `zithc check` and runs to exit 0, and both `tests/test-generic-hashmap.cpp` and `test-codegen` exercise an imported `HashMap<i64,i64>`.
+- `DynArray<T>` shares the same path and is promoted: `examples/dyn-array.zithm` passes `zithc check` and runs to exit 0, and `test-codegen` exercises an imported `DynArray<i32>` end-to-end.

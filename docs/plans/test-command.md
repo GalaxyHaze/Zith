@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Transformar `zithc test` de um type-check em lote de ficheiros `.zith` num
+Transformar `zithc test` de um type-check em lote de ficheiros `.zithm` num
 runner de testes nativo. O comando descobre funções `#[test]` sob `test_dir`,
 compila cada ficheiro com um driver sintetizado pelo compilador, executa-o em
 qualquer backend e reporta o resultado por teste, incluindo as localizações
@@ -30,7 +30,7 @@ das falhas. A iteração adiciona o atributo `#[test]` e os intrínsecos
 
 ## Estado atual
 
-- `zithc test` descobre ficheiros `.zith` sob `test_dir`, executa os testes
+- `zithc test` descobre ficheiros `.zithm` sob `test_dir`, executa os testes
   pelo driver sintetizado, aplica `--filter <substring>` e reporta cada
   resultado com as localizações das falhas de check e do primeiro assert
   falhado. Ficheiros sem testes são saltados; diretórios vazios e filtros sem
@@ -96,7 +96,7 @@ Verificação em 2026-10-28:
   módulo. Vários testes cabem no mesmo ficheiro.
 - Passar significa compilar, executar e satisfazer as asserções em runtime. O
   comando deixa de ser um type-check.
-- A descoberta é por ficheiro: cada `*.zith` sob `test_dir` compila e corre
+- A descoberta é por ficheiro: cada `*.zithm` sob `test_dir` compila e corre
   sozinho, com o seu próprio driver e o seu próprio processo. `#[test]` só é
   descoberto no próprio ficheiro, nunca em módulos importados. Um ficheiro sem
   `#[test]` é saltado com uma nota, não é erro.

@@ -65,5 +65,5 @@ a release that is still a draft. Treat test-tag dispatches as a public
 distribution change, not as an isolated build.
 
 ```bash
-zithc --include /usr/local/share/zith/stdlib check examples/hello-world.zith
+zithc --include /usr/local/share/zith/stdlib check examples/hello-world.zithm
 ```

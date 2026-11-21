@@ -1,19 +1,19 @@
 # Imported Generic Hash Map Instantiation Plan
 
 Status: complete. The imported generic `HashMap<K, V>` is consumable from a
-consumer module, and `examples/hash-map.zith` passes `zithc check` and runs to
-exit 0. `DynArray<T>` shares the same path and is promoted: `examples/dyn-array.zith`
+consumer module, and `examples/hash-map.zithm` passes `zithc check` and runs to
+exit 0. `DynArray<T>` shares the same path and is promoted: `examples/dyn-array.zithm`
 passes `zithc check` and runs to exit 0, and `test-codegen` exercises an imported
 `DynArray<i32>` end-to-end.
 
 Objective: make generic declarations importable and usable from another module:
-`hm.HashMap<i64, i64>{}`, field defaults from the declaring module, and generic methods such as `hm.HashMap.init(lend map)` without repeating type arguments. Validate with `examples/hash-map.zith` and `tests/test-generic-hashmap.cpp`. `DynArray<T>` is out of scope.
+`hm.HashMap<i64, i64>{}`, field defaults from the declaring module, and generic methods such as `hm.HashMap.init(lend map)` without repeating type arguments. Validate with `examples/hash-map.zithm` and `tests/test-generic-hashmap.cpp`. `DynArray<T>` is out of scope.
 
 Preconditions:
 
 - Working directory is `/home/diogo/Zith`.
-- `./build/zithc --include stdlib --no-cache check examples/hash-map.zith` currently fails with `E2007` and `E3010`.
-- A minimal imported module reproduces the same failures without the real `hash_map.zith`.
+- `./build/zithc --include stdlib --no-cache check examples/hash-map.zithm` currently fails with `E2007` and `E3010`.
+- A minimal imported module reproduces the same failures without the real `hash_map.zithm`.
 - The existing `tests/test-generic-hashmap.cpp` passes for in-session source.
 
 Files likely modified:
@@ -23,14 +23,14 @@ Files likely modified:
 - `src/sema/sema-method.cpp`
 - `src/session/frontend-symbol-resolution.cpp`
 - `tests/test-generic-hashmap.cpp`
-- `examples/hash-map.zith` if its API or invocation needs adjustment
+- `examples/hash-map.zithm` if its API or invocation needs adjustment
 - `docs/implementation-debt.md`
 - `docs/impl-status.md`
 - `docs/20-standard-library.md`
 
 Forbidden actions:
 
-- Do not touch `stdlib/std/collections/hash_map_u64.zith`.
+- Do not touch `stdlib/std/collections/hash_map_u64.zithm`.
 - Do not create a separate imported-template instantiation path.
 - Do not add raw debug printing.
 - Do not revert unrelated user changes.
@@ -69,13 +69,13 @@ Success: no `E3010` for implicit or explicit method type arguments.
 
 Goal: the generic map is consumable from the CLI and documented accurately.
 
-1. Make `examples/hash-map.zith` pass `zithc check` and, when runnable, exit 0.
+1. Make `examples/hash-map.zithm` pass `zithc check` and, when runnable, exit 0.
 2. Extend `tests/test-generic-hashmap.cpp` with the import-based cases.
 3. Update `docs/impl-status.md`, `docs/20-standard-library.md`, and `docs/implementation-debt.md` after successful verification.
 4. Close the stale residual note about `self->table->occupied`; replace it with the actual imported-instantiation dependence.
 
 Success criteria:
 
-- `./build/zithc --include stdlib --no-cache check examples/hash-map.zith` passes.
+- `./build/zithc --include stdlib --no-cache check examples/hash-map.zithm` passes.
 - `./build/tests/test-generic-hashmap` passes.
 - At least one CTest run exercises an imported generic `HashMap<K, V>`.

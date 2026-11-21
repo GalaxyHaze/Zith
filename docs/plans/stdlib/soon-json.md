@@ -2,7 +2,7 @@
 
 Status: drawing
 
-`stdlib/soon/json.zith` is a stub. It declares `parse`, `stringify`, and
+`stdlib/soon/json.zithm` is a stub. It declares `parse`, `stringify`, and
 `isValid` with no signatures and a `mod fn test` placeholder. JSON is the
 first data-format module proposed for `soon/`, and it needs a value model
 before any signature can be written.

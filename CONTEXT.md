@@ -82,7 +82,7 @@ storage alignment beyond its natural alignment.
 _Avoid_: `@alignas`
 
 **Module**:
-A `.zith` source unit that owns a set of public and module-local symbols and can be imported by other units.
+A `.zithm` source unit that owns a set of public and module-local symbols and can be imported by other units.
 _Avoid_: File, script, package
 
 **Zith package**:
@@ -548,7 +548,7 @@ A module under `c/` that maps a foreign C surface to Zith declarations without p
 _Avoid_: C wrapper, libc module, binding header
 
 **Library module**:
-The unit of standard library delivery: a relocatable `.zith` module under `std/`, `soon/`, or `c/` that owns its public types, traits, and functions.
+The unit of standard library delivery: a relocatable `.zithm` module under `std/`, `soon/`, or `c/` that owns its public types, traits, and functions.
 _Avoid_: library unit, std package, module package
 
 **Library domain**:

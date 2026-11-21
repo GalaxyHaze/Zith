@@ -59,5 +59,5 @@ readers would misparse the new field.
   `checkImplementBlocks` treats a `*dyn Trait` requirement as a receiver slot,
   and the vtable adapter rebuilds the fat pointer when the implementation
   spells the receiver as `dyn Trait` too.
-- Migrating `stdlib/std/io/format.zith` from `lend FormatBuffer` to
+- Migrating `stdlib/std/io/format.zithm` from `lend FormatBuffer` to
   `lend dyn TextSink` is a separate follow-up once the receiver works.
