@@ -36,6 +36,55 @@ struct Workspace {
     }
 };
 
+struct PipelineDiagnostic {
+    uint32_t code = 0;
+    diagnostics::Severity severity = diagnostics::Severity::Error;
+    std::string message;
+    uint32_t start = 0;
+    uint32_t end = 0;
+};
+
+struct PipelineResult {
+    bool ok = false;
+    std::vector<PipelineDiagnostic> diagnostics;
+};
+
+PipelineResult checkSource(const Workspace &workspace, const std::string &file,
+                           const std::string &source) {
+    workspace.write(file, source);
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::TypeChecked;
+
+    session::CompilationSession session(options, (workspace.root / file).string());
+    session.setBuffered(true);
+
+    PipelineResult result;
+    result.ok = session.runTo(session::Stage::TypeChecked);
+    for (const auto &diagnostic : session.diags().all()) {
+        result.diagnostics.push_back({diagnostic.code, diagnostic.severity, diagnostic.message,
+                                      diagnostic.primary.start, diagnostic.primary.end});
+    }
+    return result;
+}
+
+bool hasDiagnostic(const PipelineResult &result, uint32_t code,
+                   diagnostics::Severity severity = diagnostics::Severity::Error) {
+    for (const auto &diagnostic : result.diagnostics)
+        if (diagnostic.code == code && diagnostic.severity == severity)
+            return true;
+    return false;
+}
+
+bool hasRawFunctionValueDiagnostic(const PipelineResult &result) {
+    for (const auto &diagnostic : result.diagnostics)
+        if (diagnostic.message.find("raw function cannot be used as a function value") !=
+            std::string::npos)
+            return true;
+    return false;
+}
+
 void test_default_session_uses_modern_pipeline() {
     Workspace workspace;
     workspace.write("main.zithm", "extern fn puts(msg: *char)\n"
@@ -703,7 +752,7 @@ void test_c_header_import_lowers_external_function() {
     Workspace workspace;
     workspace.write("fixture.h", "int c_add(int left, int right);\n");
     workspace.write("main.zithm", "import \"fixture.h\"\n"
-                                 "fn main(): i32 { c_add(20, 22) }\n");
+                                 "fn main(): i32 { raw c_add(20, 22) }\n");
 
     memory::Arena arena;
     Options options(arena);
@@ -734,6 +783,253 @@ void test_c_header_import_lowers_external_function() {
 #endif
 }
 
+void test_raw_call_markers_cover_direct_and_method_invocations() {
+    Workspace workspace;
+    const auto result = checkSource(
+        workspace, "main.zithm",
+        "raw fn direct(value: i32): i32 { value }\n"
+        "struct Cell {}\n"
+        "implement Cell {\n"
+        "    raw fn read(self: view Cell): i32 { 7 }\n"
+        "}\n"
+        "fn main(): i32 {\n"
+        "    let cell = Cell {};\n"
+        "    return raw direct(raw cell.read());\n"
+        "}\n");
+    CHECK(result.ok, "explicit raw markers allow direct and method calls");
+    CHECK(result.diagnostics.empty(), "marked raw calls produce no diagnostics");
+}
+
+void test_raw_call_marker_diagnostic_and_normal_function_rejection() {
+    Workspace workspace;
+    const std::string source =
+        "raw fn dangerous(): i32 { 1 }\n"
+        "fn ordinary(): i32 { 2 }\n"
+        "fn main(): i32 {\n"
+        "    let value = dangerous();\n"
+        "    return raw ordinary();\n"
+        "}\n";
+    const auto result = checkSource(workspace, "main.zithm", source);
+    CHECK(!result.ok, "missing and unnecessary raw markers reject the source");
+
+    bool found_missing_marker = false;
+    bool found_normal_marker_error = false;
+    const size_t expected_start = source.find("dangerous()", source.find("let value"));
+    for (const auto &diagnostic : result.diagnostics) {
+        if (diagnostic.code == 2030u) {
+            found_missing_marker = true;
+            CHECK_EQ(diagnostic.start, static_cast<uint32_t>(expected_start),
+                     "E2030 starts at the unmarked call");
+            CHECK_EQ(diagnostic.end,
+                     static_cast<uint32_t>(expected_start + std::string("dangerous()").size()),
+                     "E2030 covers the unmarked call and not its surrounding statement");
+        }
+        found_normal_marker_error =
+            found_normal_marker_error ||
+            (diagnostic.severity == diagnostics::Severity::Error &&
+             diagnostic.message.find("raw") != std::string::npos &&
+             diagnostic.message.find("ordinary") != std::string::npos);
+    }
+    CHECK(found_missing_marker, "unmarked raw function calls report E2030");
+    CHECK(found_normal_marker_error, "marking an ordinary function call raw is rejected");
+}
+
+void test_raw_method_call_requires_marker() {
+    Workspace workspace;
+    const std::string source =
+        "struct Cell {}\n"
+        "implement Cell {\n"
+        "    raw fn read(self: view Cell): i32 { 7 }\n"
+        "}\n"
+        "fn main(): i32 {\n"
+        "    let cell = Cell {};\n"
+        "    return cell.read();\n"
+        "}\n";
+    const auto result = checkSource(workspace, "main.zithm", source);
+    CHECK(!result.ok, "calling a raw method without its marker fails");
+
+    const size_t expected_start = source.find("cell.read()");
+    bool found_missing_marker = false;
+    for (const auto &diagnostic : result.diagnostics) {
+        if (diagnostic.code != diagnostics::err::RawCallRequired)
+            continue;
+        found_missing_marker = true;
+        CHECK_EQ(diagnostic.start, static_cast<uint32_t>(expected_start),
+                 "method E2030 starts at the receiver expression");
+        CHECK_EQ(diagnostic.end,
+                 static_cast<uint32_t>(expected_start + std::string("cell.read()").size()),
+                 "method E2030 covers the complete method call");
+    }
+    CHECK(found_missing_marker, "unmarked raw methods report E2030");
+}
+
+void test_trust_does_not_waive_raw_method_marker() {
+    Workspace workspace;
+    const auto unmarked = checkSource(
+        workspace, "unmarked.zithm",
+        "trait Trust {}\n"
+        "trait Place {\n"
+        "    raw fn sample(self): i32;\n"
+        "}\n"
+        "fn safeCaller<T: Place + Trust>(a: T): i32 {\n"
+        "    a.sample()\n"
+        "}\n");
+    CHECK(!unmarked.ok, "a Trust-bounded generic cannot make an unmarked raw call");
+    CHECK(hasDiagnostic(unmarked, diagnostics::err::RawCallRequired),
+          "raw trait dispatch through a Trust bound still reports E2030");
+
+    const auto marked = checkSource(
+        workspace, "marked.zithm",
+        "trait Trust {}\n"
+        "trait Place {\n"
+        "    raw fn sample(self): i32;\n"
+        "}\n"
+        "fn safeCaller<T: Place + Trust>(a: T): i32 {\n"
+        "    raw a.sample()\n"
+        "}\n");
+    CHECK(marked.ok, "an explicit marker permits raw trait dispatch through a Trust bound");
+    CHECK(marked.diagnostics.empty(),
+          "marked raw trait dispatch through a Trust bound produces no diagnostics");
+}
+
+void test_raw_attribute_reason_and_target_validation() {
+    Workspace workspace;
+    const std::string source =
+        "#[raw(\"requires an audited caller\")]\n"
+        "raw fn audited(): i32 { 1 }\n"
+        "fn missingReason(): i32 {\n"
+        "    return audited();\n"
+        "}\n";
+    const auto missing = checkSource(workspace, "main.zithm", source);
+    bool found_reason = false;
+    for (const auto &diagnostic : missing.diagnostics)
+        found_reason = found_reason ||
+                       (diagnostic.severity == diagnostics::Severity::Note &&
+                        diagnostic.message.find("requires an audited caller") !=
+                            std::string::npos);
+    CHECK(hasDiagnostic(missing, 2030u), "raw attribute does not replace the call marker");
+    CHECK(found_reason, "raw reason is attached as a note to the missing-marker diagnostic");
+
+    const auto empty_reason =
+        checkSource(workspace, "empty.zithm", "#[raw(\"\")] raw fn empty(): i32 { 1 }\n");
+    CHECK(!empty_reason.ok, "raw attribute requires a non-empty reason");
+
+    const auto normal_target =
+        checkSource(workspace, "normal.zithm", "#[raw(\"reason\")] fn normal() {}\n");
+    CHECK(hasDiagnostic(normal_target, diagnostics::err::AttributeNotApplicable,
+                        diagnostics::Severity::Warning),
+          "raw attribute on a normal function reports W2029");
+}
+
+void test_raw_function_bodies_and_arguments_remain_checked() {
+    Workspace workspace;
+    const auto result = checkSource(
+        workspace, "main.zithm",
+        "raw fn checked(value: i32): i32 { true }\n"
+        "fn main(): i32 {\n"
+        "    return raw checked(true);\n"
+        "}\n");
+    CHECK(!result.ok, "raw marker does not disable argument or body checking");
+    CHECK(hasDiagnostic(result, diagnostics::err::NoMatchingFn),
+          "a raw call's argument is checked against the function signature");
+    CHECK(hasDiagnostic(result, diagnostics::err::TypeMismatch),
+          "a raw function body is checked against its declared return type");
+}
+
+void test_raw_functions_are_not_function_values() {
+    Workspace workspace;
+    const auto inferred = checkSource(
+        workspace, "inferred.zithm",
+        "raw fn callback(value: i32): i32 { value }\n"
+        "fn main(): i32 {\n"
+        "    let inferred = callback;\n"
+        "    0\n"
+        "}\n");
+    CHECK(!inferred.ok, "a raw function cannot initialize an inferred binding");
+    CHECK(hasRawFunctionValueDiagnostic(inferred),
+          "an inferred binding reports that raw functions cannot be values");
+
+    const auto higher_order = checkSource(
+        workspace, "higher-order.zithm",
+        "raw fn callback(value: i32): i32 { value }\n"
+        "fn apply(function: fn(i32): i32): i32 { function(1) }\n"
+        "fn main(): i32 { apply(callback) }\n");
+    CHECK(!higher_order.ok, "a raw function cannot be passed as a callback");
+    CHECK(hasRawFunctionValueDiagnostic(higher_order),
+          "a higher-order argument reports that raw functions cannot be values");
+
+    const auto returned = checkSource(
+        workspace, "returned.zithm",
+        "raw fn callback(value: i32): i32 { value }\n"
+        "fn returnCallback(): fn(i32): i32 { return callback; }\n"
+        "fn main(): i32 { 0 }\n");
+    CHECK(!returned.ok, "a raw function cannot be returned as a value");
+    CHECK(hasRawFunctionValueDiagnostic(returned),
+          "a return expression reports that raw functions cannot be values");
+}
+
+void test_c_header_raw_call_warnings_and_safe_alias() {
+#ifdef ZITH_ENABLE_C_INTEROP
+    Workspace workspace;
+    workspace.write("fixture.h", "int c_add(int left, int right);\n");
+    const std::string source =
+        "import \"fixture.h\"\n"
+        "#[safe] fn audited_add(left: i32, right: i32): i32 = extern c_add;\n"
+        "fn main(): i32 {\n"
+        "    let unmarked = c_add(1, 2);\n"
+        "    let marked = raw c_add(3, 4);\n"
+        "    let audited = audited_add(5, 6);\n"
+        "    return unmarked + marked + audited;\n"
+        "}\n";
+    const auto result = checkSource(workspace, "main.zithm", source);
+
+    size_t external_warnings = 0;
+    size_t missing_markers = 0;
+    const size_t unmarked_start = source.find("c_add(1, 2)");
+    const size_t marked_start   = source.find("raw c_add(3, 4)");
+    for (const auto &diagnostic : result.diagnostics) {
+        if (diagnostic.code == diagnostics::err::ExternalCallBoundary) {
+            ++external_warnings;
+            if (diagnostic.start == unmarked_start) {
+                CHECK_EQ(diagnostic.end,
+                         static_cast<uint32_t>(unmarked_start + std::string("c_add(1, 2)").size()),
+                         "unmarked C warning covers the call expression");
+            } else {
+                CHECK_EQ(diagnostic.start, static_cast<uint32_t>(marked_start),
+                         "marked C warning starts at the raw call marker");
+                CHECK_EQ(diagnostic.end,
+                         static_cast<uint32_t>(marked_start +
+                                               std::string("raw c_add(3, 4)").size()),
+                         "marked C warning covers the raw call expression");
+            }
+        }
+        if (diagnostic.code == diagnostics::err::RawCallRequired) {
+            ++missing_markers;
+            CHECK_EQ(diagnostic.start, static_cast<uint32_t>(unmarked_start),
+                     "missing-marker error starts at the unmarked C call");
+            CHECK_EQ(diagnostic.end,
+                     static_cast<uint32_t>(unmarked_start + std::string("c_add(1, 2)").size()),
+                     "missing-marker error covers the unmarked C call");
+        }
+    }
+    CHECK_EQ(external_warnings, 2u,
+             "C-header calls warn at each invocation, including explicitly marked calls");
+    CHECK_EQ(missing_markers, 1u, "unmarked C-header calls still require the raw marker");
+    CHECK(!result.ok, "the unmarked C-header call remains an error");
+
+    const auto safe_result =
+        checkSource(workspace, "safe.zithm",
+                    "import \"fixture.h\"\n"
+                    "#[safe] fn audited_add(left: i32, right: i32): i32 = extern c_add;\n"
+                    "fn main(): i32 {\n"
+                    "    audited_add(5, 6)\n"
+                    "}\n");
+    CHECK(safe_result.ok, "the safe C alias permits an ordinary call");
+    CHECK(safe_result.diagnostics.empty(),
+          "the safe C alias suppresses both the raw marker requirement and boundary warning");
+#endif
+}
+
 void test_c_header_import_lowers_macro_constants() {
     Workspace workspace;
     workspace.write("fixture.h", "#define ANSWER 42\n"
@@ -747,7 +1043,7 @@ void test_c_header_import_lowers_macro_constants() {
                                  "    let ratio: f64 = RATIO;\n"
                                  "    let yes: bool = YES;\n"
                                  "    let letter: char = LETTER;\n"
-                                 "    (answer + next(1)) as i32\n"
+                                 "    (answer + raw next(1)) as i32\n"
                                  "}\n");
 
     memory::Arena arena;
@@ -1503,6 +1799,14 @@ static void test_frontend_modern_pipeline() {
     test_pipeline_discard_non_void_call_result();
     test_pipeline_discardable_attribute_allows_call();
     test_pipeline_unknown_attribute_warns_and_targets_are_checked();
+    test_raw_call_markers_cover_direct_and_method_invocations();
+    test_raw_call_marker_diagnostic_and_normal_function_rejection();
+    test_raw_method_call_requires_marker();
+    test_trust_does_not_waive_raw_method_marker();
+    test_raw_attribute_reason_and_target_validation();
+    test_raw_function_bodies_and_arguments_remain_checked();
+    test_raw_functions_are_not_function_values();
+    test_c_header_raw_call_warnings_and_safe_alias();
     test_imported_console_void_main_discardable();
     test_untyped_uninitialized_binding_is_rejected();
     test_typed_uninitialized_binding_with_later_assignment_lowers();

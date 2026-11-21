@@ -65,6 +65,8 @@ inline constexpr ErrCode const InterfaceMethodNotAllowed    = 2025;
 inline constexpr ErrCode const DuplicateImplementation      = 2027;
 inline constexpr ErrCode const UnknownAttribute             = 2028;
 inline constexpr ErrCode const AttributeNotApplicable       = 2029;
+inline constexpr ErrCode const RawCallRequired              = 2030;
+inline constexpr ErrCode const ExternalCallBoundary         = 2031;
 
 // Types (3001-3999)
 inline constexpr ErrCode const TypeMismatch           = 3001;

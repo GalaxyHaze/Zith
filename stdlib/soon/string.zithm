@@ -20,12 +20,12 @@ pub struct stringIterator {
 
 implement string {
     pub fn init(allocator: dyn Allocator, str: *char): ?Self {
-        let len = strlen(str)
+        let len = raw strlen(str)
         let memory = allocate(allocator, len + 1, 1u64)
         if (memory is null) { return null; }
         var data: ?*char = memory as ?*char
         if (data is null) { return null; }
-        _ = strcpy(data, str);
+        _ = raw strcpy(data, str);
         string { data, len, allocator }
     }
 
@@ -60,25 +60,25 @@ implement string {
     }
 
     pub fn equalsCString(self: view string, other: *char): bool {
-        strcmp(self.data, other) == 0
+        raw strcmp(self.data, other) == 0
     }
 
     pub fn startsWith(self: view string, other: *char): bool {
-        let plen = strlen(other)
+        let plen = raw strlen(other)
         if (plen > self.length) { return false; }
-        memcmp(self.data, other, plen) == 0
+        raw memcmp(self.data, other, plen) == 0
     }
 
     pub fn concat(self: view string, other: *char): ?Self {
-        let olen = strlen(other)
+        let olen = raw strlen(other)
         let max = 18446744073709551615u64
         if (self.length == max or olen > max - self.length - 1u64) { return null; }
         let memory = allocate(self.allocator, self.length + olen + 1u64, 1u64)
         if (memory is null) { return null; }
         var data: ?*char = memory as ?*char
         if (data is null) { return null; }
-        _ = strcpy(data, self.data);
-        _ = strcat(data, other);
+        _ = raw strcpy(data, self.data);
+        _ = raw strcat(data, other);
         string { data, self.length + olen, self.allocator }
     }
 

@@ -180,6 +180,13 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
     case err::AttributeNotApplicable:
         return ErrorInfo{code, 'W', "semantic", "Attribute not applicable",
                          "Use the attribute only on a supported declaration or shape"};
+    case err::RawCallRequired:
+        return ErrorInfo{code, 'E', "semantic", "Raw call marker required",
+                         "Prefix each call to a raw function or method with `raw`"};
+    case err::ExternalCallBoundary:
+        return ErrorInfo{code, 'W', "semantic", "External C call boundary",
+                         "The compiler cannot guarantee the behavioral boundary of this C "
+                         "function"};
     // Types
     case err::TypeMismatch:
         return ErrorInfo{code, 'E', "types", "Type mismatch",

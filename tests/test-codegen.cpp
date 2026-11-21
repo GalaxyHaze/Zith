@@ -843,7 +843,7 @@ static void test_explicit_array_binding_alignment() {
               "    bytes[0] = 17;\n"
               "    if (@sizeOf([128]u8) != 128) { return 1; }\n"
 #ifdef ZITH_ENABLE_C_INTEROP
-              "    if (c_is_aligned_64(@ptrOf(bytes)) == 0) { return 2; }\n"
+              "    if (raw c_is_aligned_64(@ptrOf(bytes)) == 0) { return 2; }\n"
 #endif
               "    return 17;\n"
               "}\n";
@@ -1104,10 +1104,10 @@ static void test_tagged_union_pointer_is_type_runtime() {
                          "fn main(): i32 {\n"
                          "    let f = Foo{\"hello\"};\n"
                          "    if (f is *char) {\n"
-                         "        _ = printf(\"union string: %s\\n\", f);\n"
+                         "        _ = raw printf(\"union string: %s\\n\", f);\n"
                          "        return 0;\n"
                          "    }\n"
-                         "    _ = printf(\"abu\\n\");\n"
+                         "    _ = raw printf(\"abu\\n\");\n"
                          "    return 2;\n"
                          "}\n");
 
@@ -1169,7 +1169,7 @@ static void test_when_narrowing_runtime() {
                          "fn main(): i32 {\n"
                          "    let v = Value{\"ok\"};\n"
                          "    when (v) {\n"
-                         "        (v is *char) { _ = printf(\"%s\\n\", v); return 7; },\n"
+                         "        (v is *char) { _ = raw printf(\"%s\\n\", v); return 7; },\n"
                          "        (_) { return 1; }\n"
                          "    }\n"
                          "    return 2;\n"
@@ -4215,7 +4215,7 @@ static void test_import_stdio_runs() {
     t.opts.flags.emitIr(true);
     t.write("main.zithm", "import \"stdio.h\"\n"
                          "fn main(): i32 {\n"
-                         "    _ = printf(\"v=%d\\n\", 42);\n"
+                         "    _ = raw printf(\"v=%d\\n\", 42);\n"
                          "    return 0;\n"
                          "}\n");
 
@@ -4241,7 +4241,7 @@ static void test_import_stdio_runs() {
     CodegenTest plain;
     auto run = plain.run("codegen-import-stdio.zithm", "import \"stdio.h\"\n"
                                                       "fn main(): i32 {\n"
-                                                      "    _ = printf(\"v=%d\\n\", 42);\n"
+                                                      "    _ = raw printf(\"v=%d\\n\", 42);\n"
                                                       "    return 0;\n"
                                                       "}\n");
     CHECK(run.ok, "stdio.h import compiles and executes without IR output enabled");
@@ -4267,8 +4267,8 @@ static void test_validated_c_struct_by_value_runs() {
                            "double c_outer_x(struct Outer o) { return o.inner.v; }\n");
     t.write("main.zithm", "import \"records.h\"\n"
                          "fn main(): i32 {\n"
-                         "    let p = make_point(2, 3);\n"
-                         "    let sum: i32 = c_classify(p);\n"
+                         "    let p = raw make_point(2, 3);\n"
+                         "    let sum: i32 = raw c_classify(p);\n"
                          "    if (sum != 5) { return 1; }\n"
                          "    return 0;\n"
                          "}\n");
@@ -4307,9 +4307,9 @@ static void test_validated_c_pair64_by_value_runs() {
                                   "}\n");
     t.write("main.zithm", "import \"pair64-records.h\"\n"
                          "fn main(): i32 {\n"
-                         "    let p = make_pair64(1311768467463790320, 1147797409030816545);\n"
-                         "    if (c_check_pair64(p) != 1) { return 1; }\n"
-                         "    let sum: i64 = c_sum_pair64(p);\n"
+                         "    let p = raw make_pair64(1311768467463790320, 1147797409030816545);\n"
+                         "    if (raw c_check_pair64(p) != 1) { return 1; }\n"
+                         "    let sum: i64 = raw c_sum_pair64(p);\n"
                          "    if (sum != 2459565876494606865) { return 2; }\n"
                          "    return 0;\n"
                          "}\n");
@@ -4377,18 +4377,18 @@ static void test_c_scalar_arguments_and_results_run() {
         "main.zithm",
         "import \"scalar-abi.h\"\n"
         "fn main(): i32 {\n"
-        "    if (c_check_i8(-101) != 1 or c_make_i8() != -101) { return 1; }\n"
-        "    if (c_check_u8(231) != 1 or c_make_u8() != 231) { return 2; }\n"
-        "    if (c_check_i16(-30001) != 1 or c_make_i16() != -30001) { return 3; }\n"
-        "    if (c_check_u16(61001) != 1 or c_make_u16() != 61001) { return 4; }\n"
-        "    if (c_check_i32(-123456789) != 1 or c_make_i32() != -123456789) { return 5; }\n"
-        "    if (c_check_u32(0xFEDCBA98u32) != 1 or c_make_u32() != 0xFEDCBA98u32) { return 6; }\n"
-        "    if (c_check_i64(-81985529216486895) != 1 or c_make_i64() != -81985529216486895) { "
+        "    if (raw c_check_i8(-101) != 1 or raw c_make_i8() != -101) { return 1; }\n"
+        "    if (raw c_check_u8(231) != 1 or raw c_make_u8() != 231) { return 2; }\n"
+        "    if (raw c_check_i16(-30001) != 1 or raw c_make_i16() != -30001) { return 3; }\n"
+        "    if (raw c_check_u16(61001) != 1 or raw c_make_u16() != 61001) { return 4; }\n"
+        "    if (raw c_check_i32(-123456789) != 1 or raw c_make_i32() != -123456789) { return 5; }\n"
+        "    if (raw c_check_u32(0xFEDCBA98u32) != 1 or raw c_make_u32() != 0xFEDCBA98u32) { return 6; }\n"
+        "    if (raw c_check_i64(-81985529216486895) != 1 or raw c_make_i64() != -81985529216486895) { "
         "return 7; }\n"
-        "    if (c_check_u64(0xFEDCBA9876543210u64) != 1 or\n"
-        "        c_make_u64() != 0xFEDCBA9876543210u64) { return 8; }\n"
-        "    if (c_check_f32(-13.25) != 1 or c_make_f32() != -13.25) { return 9; }\n"
-        "    if (c_check_f64(1234567.125) != 1 or c_make_f64() != 1234567.125) { return 10; }\n"
+        "    if (raw c_check_u64(0xFEDCBA9876543210u64) != 1 or\n"
+        "        raw c_make_u64() != 0xFEDCBA9876543210u64) { return 8; }\n"
+        "    if (raw c_check_f32(-13.25) != 1 or raw c_make_f32() != -13.25) { return 9; }\n"
+        "    if (raw c_check_f64(1234567.125) != 1 or raw c_make_f64() != 1234567.125) { return 10; }\n"
         "    return 0;\n"
         "}\n");
 
@@ -4421,7 +4421,7 @@ static void test_imported_variadic_c_promotes_tail_arguments() {
             "fn main(): i32 {\n"
             "    let small: u8 = 250;\n"
             "    let fraction: f32 = 1.25;\n"
-            "    if (c_check_variadic_promotions(17, small, fraction) != 1) { return 1; }\n"
+            "    if (raw c_check_variadic_promotions(17, small, fraction) != 1) { return 1; }\n"
             "    return 0;\n"
             "}\n");
 
@@ -4452,9 +4452,9 @@ static void test_c_bool_char_long_scalars_run() {
     t.write("main.zithm",
             "import \"native-scalars.h\"\n"
             "fn main(): i32 {\n"
-            "    if (c_check_bool(true) != 1 or c_make_bool() != true) { return 1; }\n"
-            "    if (c_check_char('Q') != 1 or c_make_char() != 'R') { return 2; }\n"
-            "    if (c_check_long(1234567) != 1 or c_make_long() != 7654321) { return 3; }\n"
+            "    if (raw c_check_bool(true) != 1 or raw c_make_bool() != true) { return 1; }\n"
+            "    if (raw c_check_char('Q') != 1 or raw c_make_char() != 'R') { return 2; }\n"
+            "    if (raw c_check_long(1234567) != 1 or raw c_make_long() != 7654321) { return 3; }\n"
             "    return 0;\n"
             "}\n");
 
@@ -4481,10 +4481,10 @@ static void test_imported_c_pointer_roundtrip_runtime() {
             "import \"pointer-abi.h\"\n"
             "fn main(): i32 {\n"
             "    var value: i32 = 37;\n"
-            "    let returned = c_increment_and_return_i32(&value);\n"
+            "    let returned = raw c_increment_and_return_i32(&value);\n"
             "    if (returned is null) { return 1; }\n"
             "    if (*returned != 42) { return 2; }\n"
-            "    let null_pointer = c_return_null_i32();\n"
+            "    let null_pointer = raw c_return_null_i32();\n"
             "    if (null_pointer is null) { return 0; }\n"
             "    return 3;\n"
             "}\n");
@@ -4516,10 +4516,10 @@ static void test_imported_c_void_pointer_roundtrip_runtime() {
     t.write("main.zithm", "import \"void-pointer-abi.h\"\n"
                          "fn main(): i32 {\n"
                          "    var value: i32 = 17;\n"
-                         "    let erased_pointer = c_roundtrip_void_pointer(&value);\n"
+                         "    let erased_pointer = raw c_roundtrip_void_pointer(&value);\n"
                          "    if (erased_pointer is null) { return 1; }\n"
-                         "    if (c_write_through_void_pointer(erased_pointer, 42) != 42) { return 2; }\n"
-                         "    let null_pointer = c_return_null_void_pointer();\n"
+                         "    if (raw c_write_through_void_pointer(erased_pointer, 42) != 42) { return 2; }\n"
+                         "    let null_pointer = raw c_return_null_void_pointer();\n"
                          "    if (null_pointer is null) { return 0; }\n"
                          "    return 4;\n"
                          "}\n");
@@ -4567,8 +4567,8 @@ static void test_c_enum_return_local_argument_runs() {
                        "int c_check_color(Color color);\n");
     t.write("main.zithm", "import \"color.h\"\n"
                          "fn main(): i32 {\n"
-                         "    let color = c_make_color();\n"
-                         "    if (c_check_color(color) != 1) { return 1; }\n"
+                         "    let color = raw c_make_color();\n"
+                         "    if (raw c_check_color(color) != 1) { return 1; }\n"
                          "    return 0;\n"
                          "}\n");
 
@@ -4592,8 +4592,8 @@ static void test_validated_c_double_pair_by_value_runs() {
                                "}\n");
     t.write("main.zithm", "import \"double-pair.h\"\n"
                          "fn main(): i32 {\n"
-                         "    let value = c_make_double_pair(2.0, 3.0);\n"
-                         "    let weighted: f64 = c_pair_weighted_sum(value);\n"
+                         "    let value = raw c_make_double_pair(2.0, 3.0);\n"
+                         "    let weighted: f64 = raw c_pair_weighted_sum(value);\n"
                          "    if (weighted != 23.0) { return 1; }\n"
                          "    return 0;\n"
                          "}\n");
@@ -4623,8 +4623,8 @@ static void test_validated_c_large_record_by_value_runs() {
             "}\n");
     t.write("main.zithm", "import \"large-record.h\"\n"
                          "fn main(): i32 {\n"
-                         "    let value = c_make_triple64(1, 2, 3);\n"
-                         "    let weighted: i64 = c_sum_triple64(value);\n"
+                         "    let value = raw c_make_triple64(1, 2, 3);\n"
+                         "    let weighted: i64 = raw c_sum_triple64(value);\n"
                          "    if (weighted != 321) { return 1; }\n"
                          "    return 0;\n"
                          "}\n");
@@ -4653,8 +4653,8 @@ static void test_validated_c_mixed_integer_record_by_value_runs() {
                                  "}\n");
     t.write("main.zithm", "import \"mixed-records.h\"\n"
                          "fn main(): i32 {\n"
-                         "    let value = make_mixed32_64(20, 22);\n"
-                         "    let total: i64 = c_sum_mixed32_64(value);\n"
+                         "    let value = raw make_mixed32_64(20, 22);\n"
+                         "    let total: i64 = raw c_sum_mixed32_64(value);\n"
                          "    if (total != 42) { return 1; }\n"
                          "    return 0;\n"
                          "}\n");
@@ -4683,8 +4683,8 @@ static void test_validated_c_reverse_mixed_integer_record_by_value_runs() {
             "}\n");
     t.write("main.zithm", "import \"mixed-reverse-records.h\"\n"
                          "fn main(): i32 {\n"
-                         "    let value = make_mixed64_32(20, 22);\n"
-                         "    let total: i64 = c_sum_mixed64_32(value);\n"
+                         "    let value = raw make_mixed64_32(20, 22);\n"
+                         "    let total: i64 = raw c_sum_mixed64_32(value);\n"
                          "    if (total != 2022) { return 1; }\n"
                          "    return 0;\n"
                          "}\n");
@@ -4709,12 +4709,12 @@ static void test_c_pointer_cast_roundtrip_emits_no_conversion() {
     t.write("main.zithm", "import \"stdio.h\"\n"
                          "import \"stdlib.h\"\n"
                          "fn main(): i32 {\n"
-                         "    let cell: ?*i32 = malloc(64) as ?*i32;\n"
+                         "    let cell: ?*i32 = (raw malloc(64)) as ?*i32;\n"
                          "    if (cell is null) { return 1; }\n"
                          "    let slot: *i32 = cell;\n"
                          "    *slot = 42;\n"
-                         "    _ = printf(\"v=%d\\n\", *slot);\n"
-                         "    free(cell);\n"
+                         "    _ = raw printf(\"v=%d\\n\", *slot);\n"
+                         "    raw free(cell);\n"
                          "    return 0;\n"
                          "}\n");
 
@@ -4743,11 +4743,11 @@ static void test_c_pointer_is_null_uses_niche_comparison() {
     t.opts.flags.emitIr(true);
     t.write("main.zithm", "import \"stdio.h\"\n"
                          "fn main(): i32 {\n"
-                         "    let f = fopen(\"/definitely/not/here\", \"r\");\n"
+                         "    let f = raw fopen(\"/definitely/not/here\", \"r\");\n"
                          "    if (f is null) {\n"
                          "        return 0;\n"
                          "    }\n"
-                         "    _ = fclose(f);\n"
+                         "    _ = raw fclose(f);\n"
                          "    return 1;\n"
                          "}\n");
 
@@ -4770,7 +4770,7 @@ static void test_imported_stdout_global_runtime() {
     ModernFileCodegenTest t;
     t.write("main.zithm", "import \"stdio.h\"\n"
                          "fn main(): i32 {\n"
-                         "    _ = fputs(\"stream-global-works\\n\", stdout);\n"
+                         "    _ = raw fputs(\"stream-global-works\\n\", stdout);\n"
                          "    return 0;\n"
                          "}\n");
 

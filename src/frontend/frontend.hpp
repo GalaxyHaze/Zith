@@ -124,6 +124,8 @@ enum class AttributeKind : uint8_t {
     Unlikely,
     Volatile,
     Test,
+    Raw,
+    Safe,
 };
 
 enum class AttributeTarget : uint8_t { Function, Struct, Variable, Other };
@@ -366,6 +368,8 @@ struct Expression {
     /// True when `raw a[i]` or `raw a[lo..hi]` was written. Raw slice/index
     /// operations skip static and runtime bounds handling.
     bool is_raw = false;
+    /// True when `raw` immediately prefixes this call expression.
+    bool isRawCall = false;
     /// True when conditional sugar was written as `optional x` instead of the
     /// postfix `x?`. The formatter preserves the original spelling.
     bool isOptionalKeyword = false;
@@ -522,6 +526,10 @@ struct Declaration {
                 return true;
         return false;
     }
+    /// True when `#[safe]` vouches for an external symbol alias.
+    bool isSafeExternal = false;
+    /// Optional explanation supplied by `#[raw("reason")]`.
+    std::string rawReason;
     /// True when declared with `raw union`: untagged C-style union storage.
     bool isRawUnion = false;
     /// Non-empty only for methods lowered from `implement Type as Trait`: the

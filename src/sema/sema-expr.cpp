@@ -311,6 +311,17 @@ TypeId PerModuleSema::inferName(frontend::ExprId id, std::string_view text) {
     }
     const auto *resolved = findResolvedExpr(id);
     if (resolved) {
+        const auto *declaration = declarationForResolved(*resolved);
+        const bool raw_function =
+            resolved->foreignFunction != nullptr ||
+            (declaration != nullptr && declaration->kind == frontend::DeclKind::Function &&
+             declaration->functionKind == frontend::FunctionKind::Raw);
+        if (raw_function) {
+            const auto &expression = snapshot.expressions()[id.value - 1U];
+            report(expression.span, "raw function cannot be used as a function value",
+                   diagnostics::err::UnsupportedSyntax);
+            return error_type;
+        }
         if (const TypeId resolved_type = typeOfResolvedName(id)) {
             if (const TypeId recorded = typeOfExpr(id); recorded) {
                 return recorded;

@@ -208,7 +208,7 @@ void test_libclang_header_import_can_link_discovered_c_source() {
     TempProject project;
     project.write("main.zithm", "import \"native/add.h\";\n"
                                "fn main(): i32 {\n"
-                               "    return imported_sum(3, 9);\n"
+                               "    return raw imported_sum(3, 9);\n"
                                "}\n");
     project.write("native/add.h", "int imported_sum(int a, int b);\n");
     project.write("native/add.c", "int imported_sum(int a, int b) { return a + b; }\n");

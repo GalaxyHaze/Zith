@@ -93,16 +93,18 @@ ExprId AstLowerer::parseExpression(int minimum_precedence) {
         return addExpression(std::move(error_expr));
     }
     if (isKeywordToken("raw")) {
-        // Raw prefix marks an unchecked operation on the next postfix
-        // expression. It is valid on indexing/slicing and on tagged-union
-        // extraction (`raw v as T`); a declaration form is disambiguated by
-        // parseStatement/parseDeclaration before this point.
+        // Raw prefixes mark one operation: a call, index/slice, cast, or raw
+        // name read. Declaration forms are disambiguated before expressions.
         ++index_;
         const ExprId operand = parseExpression(kUnaryPrecedence);
         if (operand.value <= snapshot_.expressions_.size()) {
             auto &child = snapshot_.expressions_[operand.value - 1U];
-            if (child.kind == ExprKind::Index || child.kind == ExprKind::SliceRange ||
-                child.kind == ExprKind::Cast) {
+            if (child.kind == ExprKind::Call) {
+                child.isRawCall = true;
+                child.span      = range(start, index_);
+                left            = operand;
+            } else if (child.kind == ExprKind::Index || child.kind == ExprKind::SliceRange ||
+                       child.kind == ExprKind::Cast) {
                 child.is_raw = true;
                 child.span   = range(start, index_);
                 left         = operand;
@@ -140,7 +142,8 @@ ExprId AstLowerer::parseExpression(int minimum_precedence) {
                     } else {
                         snapshot_.diagnostics_.push_back(
                             {range(start, index_),
-                             "raw prefix is only valid on an index, slice, or cast expression",
+                             "raw prefix is only valid on a call, index, slice, cast, or name "
+                             "expression",
                              false, diagnostics::err::TypeMismatch});
                         Expression raw_error;
                         raw_error.kind  = ExprKind::Error;

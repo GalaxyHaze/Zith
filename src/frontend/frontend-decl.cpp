@@ -833,6 +833,45 @@ DeclId AstLowerer::lowerDeclaration(uint32_t start, DeclKind kind, Visibility vi
                                           std::string(what) + " are not supported in this version",
                                           false, diagnostics::err::UnsupportedSyntax});
     }
+    if (kind == DeclKind::Function) {
+        for (const auto &attribute : declaration.attributes) {
+            if (attribute.kind == AttributeKind::Raw) {
+                if (functionKind != FunctionKind::Raw) {
+                    snapshot_.diagnostics_.push_back(
+                        {attribute.span, "attribute 'raw' is only applicable to raw functions",
+                         true, diagnostics::err::AttributeNotApplicable});
+                    continue;
+                }
+                const bool has_reason =
+                    attribute.argument &&
+                    attribute.argument.value <= snapshot_.expressions_.size() &&
+                    snapshot_.expressions_[attribute.argument.value - 1U].kind == ExprKind::Literal;
+                if (!has_reason) {
+                    snapshot_.diagnostics_.push_back(
+                        {attribute.span, "attribute 'raw' requires a non-empty string reason",
+                         false, diagnostics::err::UnsupportedSyntax});
+                    continue;
+                }
+                const auto &reason = snapshot_.expressions_[attribute.argument.value - 1U].text;
+                if (reason.size() < 3U || reason.front() != '"' || reason.back() != '"') {
+                    snapshot_.diagnostics_.push_back(
+                        {attribute.span, "attribute 'raw' requires a non-empty string reason",
+                         false, diagnostics::err::UnsupportedSyntax});
+                    continue;
+                }
+                declaration.rawReason = reason.substr(1U, reason.size() - 2U);
+            } else if (attribute.kind == AttributeKind::Safe) {
+                if (functionKind != FunctionKind::Standard || declaration.externalSymbol.empty()) {
+                    snapshot_.diagnostics_.push_back(
+                        {attribute.span,
+                         "attribute 'safe' is only applicable to external symbol aliases", true,
+                         diagnostics::err::AttributeNotApplicable});
+                    continue;
+                }
+                declaration.isSafeExternal = true;
+            }
+        }
+    }
     if (punctuation(index_, ';'))
         ++index_;
     declaration.span = range(start, index_);

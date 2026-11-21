@@ -790,6 +790,41 @@ static void test_check_build_require_explicit_lockfile() {
 #endif
 }
 
+static void test_check_reports_raw_call_marker_requirement() {
+#ifdef ZITHC_BINARY
+    namespace fs = std::filesystem;
+
+    CliCapture capture;
+    fs::create_directories(capture.root);
+
+    const auto unmarkedSource = capture.root / "unmarked.zithm";
+    {
+        std::ofstream source(unmarkedSource, std::ios::binary | std::ios::trunc);
+        source << "raw fn dangerous(): i32 { 1 }\n"
+                  "fn main(): i32 { dangerous() }\n";
+        CHECK(source.good(), "unmarked raw-call CLI fixture is written");
+    }
+    const auto unmarked = capture.run("check --no-cache \"" + unmarkedSource.string() + "\"");
+    CHECK_EQ(unmarked.exitCode, 1, "`zithc check` rejects an unmarked raw call");
+    CHECK(unmarked.stderrText.find("error[E2030]") != std::string::npos,
+          "`zithc check` displays the dedicated E2030 code");
+    CHECK(unmarked.stderrText.find("dangerous()") != std::string::npos,
+          "`zithc check` points to the unmarked call");
+
+    const auto markedSource = capture.root / "marked.zithm";
+    {
+        std::ofstream source(markedSource, std::ios::binary | std::ios::trunc);
+        source << "raw fn dangerous(): i32 { 1 }\n"
+                  "fn main(): i32 { raw dangerous() }\n";
+        CHECK(source.good(), "marked raw-call CLI fixture is written");
+    }
+    const auto marked = capture.run("check --no-cache \"" + markedSource.string() + "\"");
+    CHECK_EQ(marked.exitCode, 0, "`zithc check` accepts an explicitly marked raw call");
+#else
+    CHECK(true, "raw-call CLI subprocess test is skipped when zithc is not built");
+#endif
+}
+
 static void test_create_writes_lockfile_for_generated_project() {
 #ifdef ZITHC_BINARY
     namespace fs = std::filesystem;
@@ -1325,6 +1360,7 @@ static void test_cli_commands() {
     test_docs_stdout_file_and_index_outputs();
     test_deps_resolve_writes_deterministic_lockfile();
     test_deps_add_remove_edit_only_the_manifest();
+    test_check_reports_raw_call_marker_requirement();
     test_check_build_require_explicit_lockfile();
     test_create_writes_lockfile_for_generated_project();
     test_legacy_and_malformed_project_manifest_gate_behavior();

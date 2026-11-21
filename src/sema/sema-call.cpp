@@ -255,6 +255,35 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id, TypeId expected_result) {
     if (expr.operands.empty())
         return error_type;
 
+    const auto report_call_boundary = [&](const frontend::Declaration *declaration,
+                                          bool is_c_header_function) {
+        const bool is_raw =
+            is_c_header_function ||
+            (declaration != nullptr && declaration->kind == frontend::DeclKind::Function &&
+             declaration->functionKind == frontend::FunctionKind::Raw);
+        if (expr.isRawCall && !is_raw) {
+            const auto &callee_expr = snapshot.expressions()[expr.operands[0].value - 1U];
+            report(expr.span, "raw marker used on a non-raw call to '" + callee_expr.text + "'",
+                   diagnostics::err::UnsupportedSyntax);
+        } else if (!expr.isRawCall && is_raw) {
+            report(expr.span,
+                   "call to raw function '" +
+                       (declaration != nullptr
+                            ? declaration->name
+                            : snapshot.expressions()[expr.operands[0].value - 1U].text) +
+                       "' requires the 'raw' marker",
+                   diagnostics::err::RawCallRequired);
+            if (declaration != nullptr && !declaration->rawReason.empty())
+                reportNote(expr.span, "raw call reason: " + declaration->rawReason);
+        }
+        if (is_c_header_function) {
+            reportWarning(expr.span,
+                          "call crosses an external C boundary; the compiler cannot guarantee "
+                          "the function's behavior",
+                          diagnostics::err::ExternalCallBoundary);
+        }
+    };
+
     // If the callee is a field access, try to resolve it as a method call
     // first: `obj.method(args)` rewrites to a direct call with an implicit
     // `&obj` (or `obj` when already a pointer) as the first argument.
@@ -265,8 +294,27 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id, TypeId expected_result) {
     if ((callee.kind == frontend::ExprKind::Field || callee.kind == frontend::ExprKind::Arrow) &&
         !callee.operands.empty()) {
         semaProbe("[probe] inferCall trying method for callee '%s'\n", callee.text.c_str());
-        if (const TypeId mt = inferMethodCall(expr, callee, expected_result))
+        if (const TypeId mt = inferMethodCall(expr, callee, expected_result)) {
+            const auto *target                       = resolvedCallTarget(callee.id);
+            const frontend::Declaration *target_decl = nullptr;
+            if (target != nullptr) {
+                const PerModuleSema *target_sema = this;
+                if (target->module != module && owner != nullptr)
+                    target_sema = owner->findModuleSema(target->module);
+                if (target_sema != nullptr) {
+                    for (const auto &decl : target_sema->snapshot.declarations()) {
+                        if (decl.id == target->decl) {
+                            target_decl = &decl;
+                            break;
+                        }
+                    }
+                }
+            }
+            report_call_boundary(target_decl, false);
             return mt;
+        }
+        if (expr.isRawCall)
+            report_call_boundary(nullptr, false);
         semaProbe("[probe] inferCall method failed for callee '%s'\n", callee.text.c_str());
     }
 
@@ -333,6 +381,8 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id, TypeId expected_result) {
                     if (chosen_plan.autoCollectTail)
                         (void)checkVariadicTail(expr.span, expr.operands, chosen->fn,
                                                 chosen_plan.sliceParam, true);
+                    report_call_boundary(declarationForResolved(*chosen->binding),
+                                         chosen->binding->foreignFunction != nullptr);
                     return chosen->fn->result;
                 }
                 if (reported)
@@ -344,11 +394,24 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id, TypeId expected_result) {
     const auto *resolved_callee = findResolvedExpr(callee.id);
     const frontend::Declaration *callee_decl =
         resolved_callee != nullptr ? declarationForResolved(*resolved_callee) : nullptr;
+    const bool direct_function = callee.kind == frontend::ExprKind::Name &&
+                                 resolved_callee != nullptr && !resolved_callee->local &&
+                                 (resolved_callee->declKind == frontend::DeclKind::Function ||
+                                  resolved_callee->foreignFunction != nullptr);
+    if (direct_function) {
+        report_call_boundary(callee_decl, resolved_callee->foreignFunction != nullptr);
+    } else if (expr.isRawCall && callee.kind != frontend::ExprKind::Field &&
+               callee.kind != frontend::ExprKind::Arrow) {
+        report_call_boundary(nullptr, false);
+    }
     const bool is_variadic = resolved_callee != nullptr && bindingIsVariadic(*resolved_callee);
     const bool is_variadic_slice =
         resolved_callee != nullptr && bindingIsVariadicSlice(*resolved_callee);
-    TypeId callee_type = inferExpr(expr.operands[0]);
-    const auto *fn     = type_table.function(callee_type);
+    TypeId callee_type =
+        direct_function ? typeOfResolvedBinding(*resolved_callee) : inferExpr(expr.operands[0]);
+    if (direct_function)
+        setExprType(callee.id, callee_type);
+    const auto *fn = type_table.function(callee_type);
     if (!fn) {
         report(expr.span, "callee is not a function", diagnostics::err::NoMatchingFn);
         return error_type;

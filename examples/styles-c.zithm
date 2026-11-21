@@ -12,6 +12,6 @@ fn classify(score: i32): i32 {
 
 fn main(): i32 {
     let bucket = classify(73);
-    _ = printf("bucket=%d\n", bucket);
+    _ = raw printf("bucket=%d\n", bucket);
     0
 }

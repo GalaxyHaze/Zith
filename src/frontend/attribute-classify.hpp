@@ -30,13 +30,16 @@ inline AttributeKind classifyAttribute(Attribute &attr, AttributeTarget target,
         classified = AttributeKind::Test;
     } else if (attr.text == "discardable" && target == AttributeTarget::Function) {
         classified = AttributeKind::Discardable;
+    } else if ((attr.text == "raw" || attr.text == "safe") && target == AttributeTarget::Function) {
+        classified = attr.text == "raw" ? AttributeKind::Raw : AttributeKind::Safe;
     } else if (attr.text == "volatile" && target == AttributeTarget::Variable) {
         classified = AttributeKind::Volatile;
     }
 
     const bool known = attr.text == "alignas" || attr.text == "noalias" || attr.text == "likely" ||
                        attr.text == "unlikely" || attr.text == "test" ||
-                       attr.text == "discardable" || attr.text == "volatile";
+                       attr.text == "discardable" || attr.text == "volatile" ||
+                       attr.text == "raw" || attr.text == "safe";
     if (classified == AttributeKind::Unknown && !known) {
         diagnostics.push_back({attr.span, "unknown attribute '" + attr.text + "'", true,
                                diagnostics::err::UnknownAttribute});

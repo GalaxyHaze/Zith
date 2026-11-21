@@ -783,7 +783,7 @@ void test_c_pointers_lower_to_optional_pointer() {
                                      "char *c_dup(const char *text);\n");
     workspace.writeFile("main.zithm", "import \"fixture.h\"\n"
                                      "fn main(): i32 {\n"
-                                     "    _ = c_dup(\"x\");\n"
+                                     "    _ = raw c_dup(\"x\");\n"
                                      "    return 0;\n"
                                      "}\n");
 
@@ -2713,9 +2713,9 @@ void test_is_type_pointer_lowers_union_check_and_keeps_terminators() {
                                      "fn main(): i32 {\n"
                                      "    let f = Foo{\"hello\"};\n"
                                      "    if (f is *char) {\n"
-                                     "        _ = printf(\"%s\", f);\n"
+                                     "        _ = raw printf(\"%s\", f);\n"
                                      "    } else {\n"
-                                     "        _ = printf(\"abu\\n\");\n"
+                                     "        _ = raw printf(\"abu\\n\");\n"
                                      "    }\n"
                                      "    return 0;\n"
                                      "}\n");
