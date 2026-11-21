@@ -84,13 +84,17 @@ them without relying on the C header importer or generating C shims.
 ### 18.1 Automatic Binding via `.h`
 
 Native builds with libclang can import a `.h` file. The importer exposes supported external C
-functions directly, preserving their variadic status. It does not generate Zith source.
+functions directly, preserving their variadic status. It does not generate Zith source. Calls to
+these functions require the `raw` marker and emit `W2031`, even when marked. A `#[safe]` standard
+external-symbol alias suppresses both requirements for that alias:
 
 ```zith
 import "mylib.h";
 
-// Supported functions from mylib.h are available by their C linkage name.
-my_function();
+raw my_function();
+
+#[safe] fn audited_function(): i32 = extern my_function;
+audited_function();
 ```
 
 Only C ABI headers are accepted. `.hpp` files report that C++ headers are unsupported. Object-like

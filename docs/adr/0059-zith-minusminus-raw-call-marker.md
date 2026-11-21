@@ -13,8 +13,8 @@ it in an unchecked body. It supersedes only ADR-0043's statement that Zith--
 keeps `raw fn` unchanged. The Full-Zith safety hierarchy is unaffected, and
 the `Trust` capability does not waive the call-site marker.
 
-Future C-header imports default to raw and emit a warning at each call site
+C-header imports require the `raw` marker and emit `W2031` at each call site
 because the compiler cannot guarantee the external function's behavioral
-boundary. The warning remains even with the `raw` marker. An explicit `safe`
-annotation suppresses both the marker requirement and the warning, but its
-syntax is undecided. `extern raw fn` and `raw state` remain deferred.
+boundary. The warning remains even with the `raw` marker. `#[safe]` on a
+standard external-symbol alias suppresses both the marker requirement and the
+warning for that alias. `extern raw fn` and `raw state` remain deferred.

@@ -62,11 +62,25 @@ separate `safe`/`trust`/`hazard` hierarchy described by
 
 ### 13.4 External C Functions
 
-In the future, functions imported from C headers will be `raw` by default. Each
-call will emit a warning at the call site that the compiler cannot guarantee
-the external function's behavioral boundary. The warning remains when the call
-is explicitly marked `raw`. An explicit `safe` annotation will make the call
-ordinary and suppress the warning. The annotation's syntax is still open.
+Functions imported from C headers require the `raw` call marker and emit
+`W2031` at each call because the compiler cannot guarantee the external
+function's behavioral boundary. The warning remains when the call is
+explicitly marked `raw`. A standard external-symbol alias may use `#[safe]` to
+assert that the call is safe. That alias needs neither the marker nor the
+warning:
+
+```zith
+import "mylib.h"
+
+#[safe] fn checked_add(left: i32, right: i32): i32 = extern c_add;
+
+fn use_c_add(): i32 {
+    raw c_add(20, 22)
+}
+```
+
+The annotation applies only to an external-symbol alias. It does not change
+the imported declaration or the C function's behavior.
 
 ### 13.5 When to Use Raw Calls
 
@@ -74,8 +88,11 @@ ordinary and suppress the warning. The annotation's syntax is still open.
 |---|---|
 | Calling an explicitly declared raw function | `raw function(args)` |
 | Calling an explicitly declared raw method | `raw receiver.method(args)` |
-| Calling an imported C-header function | Future default-raw binding and call-site warning |
+| Calling an imported C-header function | `raw function(args)` and a `W2031` boundary warning |
 | Normal application code | An ordinary `fn` call |
+
+When a marked call is followed by a cast, parenthesize the call so `raw` marks
+the call rather than the cast: `(raw malloc(size)) as ?*T`.
 
 ---
 

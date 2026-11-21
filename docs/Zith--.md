@@ -674,19 +674,27 @@ O corpo de `raw fn` continua sujeito às verificações normais. O marcador não
 torna os argumentos, nem o restante da expressão, unchecked. Omitir `raw` numa
 chamada a `raw fn` é um erro (`E2030`). Aplicar `raw` a uma função normal também
 é um erro. Por enquanto, uma função `raw` não pode ser usada como valor de
-função nem inferida através de um binding.
+função nem inferida através de um binding. A capacidade `Trust` não dispensa o
+marcador no local da chamada.
 
 O atributo opcional `#[raw("motivo")]` aceita um texto não vazio e acrescenta
 esse motivo ao diagnóstico de uma chamada sem o marcador. Sem o atributo, o
 erro continua a ser emitido sem a nota adicional. Usar `#[raw("motivo")]` num
 alvo diferente de uma função `raw` emite `W2029 AttributeNotApplicable`.
 
-Esta semântica ainda não está implementada pelo compilador. No futuro, funções
-importadas de headers C serão `raw` por omissão e cada chamada emitirá no call
-site um warning de que o compilador não consegue garantir a fronteira da função
-externa, mesmo quando a chamada usa o marcador `raw`. Uma anotação explícita
-`safe` deverá remover a exigência do marcador e esse warning. A sintaxe dessa
-anotação continua em aberto. `extern raw fn` e `raw state` também ficam adiados.
+Funções importadas de headers C também exigem o marcador `raw` e cada chamada
+emite `W2031`, pois o compilador não consegue garantir a fronteira da função
+externa. O warning também é emitido quando a chamada usa o marcador `raw`.
+Uma alias de símbolo externo pode usar `#[safe]` para dispensar o marcador e
+suprimir o warning nessa alias:
+
+```zith
+import "mylib.h"
+
+#[safe] fn auditedAdd(left: i32, right: i32): i32 = extern c_add;
+```
+
+`extern raw fn` e `raw state` ficam adiados.
 
 ### Funções anónimas
 
@@ -902,7 +910,8 @@ Alguns diagnósticos relevantes não referidos no corpo do documento:
 - `E2008` — chamada ambígua.
 - `E2024` — interface não satisfeita.
 - `E2027` — implementação duplicada.
-- `E2030` — chamada a `raw fn` sem o marcador `raw` (semântica especificada, ainda não implementada).
+- `E2030` — chamada a `raw fn` ou a uma função importada de header C sem o marcador `raw`.
+- `W2031` — chamada a uma função importada de header C, cuja fronteira comportamental não pode ser garantida pelo compilador.
 - `E3005` — dereference de nullable não provado.
 - `E3009` — bound de trait não satisfeito.
 - `E5001` — IR inválido.
