@@ -11,8 +11,9 @@ Accepted as scoped implementation; module split deferred.
 console should not depend on the format contract, writing should make
 formatting reusable by user types, and current examples/tests must not break.
 At the time of this decision, variadic forwarding between stdlib functions
-was rejected. That compiler limitation has since been removed. Qualified
-facade re-export still cannot preserve `std.io.console.*`.
+was rejected. The compiler now supports explicit slice forwarding with
+`...values`. Qualified facade re-export still cannot preserve
+`std.io.console.*`.
 
 The existing `Formatable` trait and `#`-placeholder runtime format are the
 stable parts of the current console path. `FormatBuffer` owns allocator-backed
@@ -65,7 +66,8 @@ The current owned `format` overload accepts an allocator explicitly, and
 Current console examples and tests keep compiling with their old HIR names.
 `format` is available through `from std/io/format`; qualified facade access via
 `std.io.console.*` remains a documented compiler debt. Generic `Ok`/`Err`
-helpers, mutable `dyn`/`lend` receivers, and variadic tail forwarding are now
-available. Migrating `Formatable` to `TextSink` remains stdlib work, not a
-compiler blocker. `print`/`println` still use their own formatting loop even
-though variadic forwarding is available.
+helpers, mutable `dyn`/`lend` receivers, and variadic tail forwarding with an
+explicit `...slice` marker are now available. Migrating `Formatable` to
+`TextSink` remains stdlib work, not a compiler blocker. `print`/`println`
+still use their own formatting loop even though variadic forwarding is
+available.

@@ -299,8 +299,8 @@ inline.
 ## Variadic Slices
 
 O último parâmetro de uma função ou método pode ser um variadic slice `[...]T`. Em
-`Zith--`, a chamada recolhe todos os argumentos finais homogéneos a partir desse ponto
-para um slice temporário. Não há varargs de C com tail heterogéneo:
+`Zith--`, a chamada recolhe os argumentos finais homogéneos a partir desse ponto para
+um slice temporário. Não há varargs de C com tail heterogéneo:
 
 ```zith
 fn sum(rest: [...]i32): i32 {
@@ -318,9 +318,9 @@ fn main(): i32 {
 
 O `[...]T` só é permitido na última posição. Os argumentos antes dele são parâmetros
 fixos normais. Uma chamada com menos argumentos do que esses parâmetros reporta erro.
-Uma chamada pode também passar como último argumento um `[]T` ou `[N]T` já existente:
-nesse caso o valor não é recolhido elemento a elemento e o array coerce para o slice
-parâmetro. O tail vazio é aceite.
+O tail vazio é aceite. Para passar um `[]T` ou `[N]T` existente como o slice inteiro,
+a chamada marca explicitamente o argumento final com `...`. Sem esse marcador, o valor
+é um elemento do tail e tem de corresponder ao tipo `T`.
 
 ```zith
 fn sum(rest: [...]i32): i32 { 0 }
@@ -328,19 +328,23 @@ fn sum(rest: [...]i32): i32 { 0 }
 fn main(): i32 {
     sum();                          // tail vazio
     let values: []i32 = [1, 2, 3];
-    sum(values);                    // slice explícito
+    sum(...values);                 // encaminha o slice inteiro
     sum(1, 2, 3);                   // auto-collect homogéneo
 }
 ```
 
 Variadic slices funcionam em funções livres, métodos com `self`, métodos de `dyn
 Trait`/`dyn Interface` e funções genéricas. Num parâmetro genérico, `[...]T` infere `T`
-a partir do primeiro elemento do tail, ou do tipo do slice/array explícito.
-Overloads com arity fixa continuam a preferir a assinatura exata sobre o variadic slice.
+a partir do primeiro elemento do tail, ou do tipo do slice/array encaminhado com `...`.
+Por exemplo, `rows(values)` pode passar `values: []i32` como um único elemento quando
+o parâmetro é `[...][]i32`. Overloads com arity fixa continuam a preferir a assinatura
+exata sobre o variadic slice. O encaminhamento de `[]dyn` também exige o marcador
+explícito `...`.
 
 Dentro de um pipeline, `..` pode aparecer como argumento do tail: `x |>
 f(..)` passa `x` como elemento auto-coletado do slice. `do` também aceita
-`..` como argumento opcional, mas pode executar efeitos sem o usar.
+`..` como argumento opcional, mas pode executar efeitos sem o usar. `...` em chamadas
+não substitui o placeholder `..` e não altera as chamadas variádicas de C.
 
 ## Inferência genérica com `?T`
 

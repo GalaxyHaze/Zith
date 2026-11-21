@@ -1,6 +1,6 @@
 # Zith-- Implementation Status
 
-> Last updated: 2026-10-28.
+> Last updated: 2026-11-21.
 
 This document is the single source of truth for what the compiler supports in `Zith--` today.
 `Zith--` is a sibling language to Zith, so these statuses do not describe Zith or imply that
@@ -90,7 +90,7 @@ Implementation work that is incomplete or needs review is tracked in
 | `opaque` | **Working** | Bare opaque is a tagged open union stored as `{ *void, u32 }` (typeId) and is always a view. `T as opaque` spills the concrete value to a stable local; `opaque is T` compares the tagged typeId; `opaque as T` returns `?T` (extraction in a call or other non-optional result is handled as a checked optional). Values exported and imported across modules retain the declaring module's canonical tag, and cached artifacts hydrate `canonical_mappings` so the tag stays stable across sessions. This iteration has no heap copy, vtable or dynamic calls |
 | `[N]T` (array), `[]T` (slice) | **Working** | Arrays coerce to slices as zero-copy views; `a[lo..hi]` and `a[i]` return optionals with static/dynamic bounds checks. `raw a[lo..hi]`/`raw a[i]` emit unchecked views/indexing |
 | `|T, U|` (pack) | **Working** | Heterogeneous pack literals, named pack types, positional compile-time indexing, and positional `[a, b]` destructuring lower as concrete aggregates. Packs can coerce positionally to named pack types with matching arity and member types |
-| `[...]T` (variadic slice) | **Working** | Last parameter only. Auto-collects a homogeneous tail into a temporary slice; accepts an explicit final `[]T`/`[N]T` and an empty tail. Supported for free functions, methods, dyn trait/interface methods, generic inference, states/dock/jump and overloads; fixed-arity overloads are preferred |
+| `[...]T` (variadic slice) | **Working** | Last parameter only. Auto-collects homogeneous tail elements into a temporary slice; `...slice` or `...array` explicitly forwards the whole final argument. An unmarked slice is one tail element. Supports free functions, methods, dyn trait/interface methods, generic inference, states/dock/jump and overloads; fixed-arity overloads are preferred |
 | `fn(...): R` (function value) | **Working** | Parses as a type value, type-checks non-generic function references, and lowers/calls through C function-pointer ABI. No closures or captures |
 | `fn (params): R { body }` (function literal) | **Working** | Anonymous function written in expression position, with no capture list. Parses as `ExprKind::FunctionLiteral`, types as a `FunctionType`, and lowers to a synthesized local function whose address is taken, so the value is a plain function pointer passed and called through the existing indirect-call path. A reference to an enclosing local inside the body is rejected as an unknown identifier (`E2001`), never captured. See [ADR-0051](adr/0051-anonymous-functions-in-zith-minusminus.md) |
 | `dyn Trait` / `dyn Interface` | **Working (methods)** | Concrete values coerce to fat pointers (`HirMakeDyn`) with per-type vtables (`HirVTable`); method calls lower to `HirDynCall`. Zith-- exposes only methods through `dyn`; interface fields remain available on concrete types and generic bounds, and `a.x` on `dyn Interface` reports `E3001` |
@@ -277,6 +277,6 @@ Recorded deliberately. Each item is a follow-up, not an unknown.
 | C++ interop | Deliberately parked. The only defensible slice is Itanium name mangling plus standard-layout class ABI with no vtables, RTTI, exceptions, or templates. It starts only after the C ABI surface is complete and verified, and only for a concrete C++ library to call. See [the drawing](plans/abi/cpp-interop-drawing.md) |
 | User-defined casts | No user-defined conversion trait or cast syntax is part of the Zith-- spec |
 | Bodyless `for (literal..literal){}` | Rejected in sema with a targeted diagnostic before HIR/codegen |
-| `..` / `...` | Intentionally one `Dots` token; `..` is the range/pipe/import token and `...` is the variadic marker |
+| `..` / `...` | Intentionally one `Dots` token; `..` is the range/pipe/import token. `...` marks variadic declarations, explicit final-slice forwarding, and macro statement repetition |
 | `++` / `--` | Intentionally rejected; update values with explicit assignment |
 | Full NRA ownership proof | Specified for full Zith; Zith-- keeps the implemented residual-fact contract |

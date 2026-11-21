@@ -50,7 +50,11 @@ _Avoid_: parameter meta-type, metatype, expr parameter, body parameter
 
 **Variadic macro parameter**:
 A final macro parameter that binds an ordered tail of zero or more call-site arguments.
-_Avoid_: macro slice, argument spread
+_Avoid_: macro slice, function variadic parameter
+
+**Zith-- variadic slice spread**:
+The `...` marker on the final argument that forwards a `[]T` or `[N]T` as the whole tail of a function's `[...]T` parameter.
+_Avoid_: general-purpose spread operator, implicit slice forwarding
 
 **Type-kind predicate**:
 A compile-time test of whether a type is a `struct`, `component`, `enum`, or `union`, without inspecting or changing its structure.

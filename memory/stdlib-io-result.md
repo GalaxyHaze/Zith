@@ -90,10 +90,10 @@ pub struct FormatResult {
 
 The owned `format(allocator, msg, values)` overload returns `FormatResult`.
 Callers use `result.error()`, `result.text()`, and `result.destroy()`.
-`Result<T, E>` helpers and variadic tail forwarding now work. `FormatResult`
-is the current I/O surface choice, not a workaround for those compiler
-limitations. The separate append overload writes into a caller-owned
-`FormatBuffer` and returns `IoError`.
+`Result<T, E>` helpers and explicit variadic tail forwarding with `...values`
+now work. `FormatResult` is the current I/O surface choice, not a workaround
+for those compiler limitations. The separate append overload writes into a
+caller-owned `FormatBuffer` and returns `IoError`.
 
 ## Design Decision
 

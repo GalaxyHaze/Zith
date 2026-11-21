@@ -572,18 +572,25 @@ Isso mantém os ids de HIR estáveis entre módulos vazios de funções, const g
 
 O parser marca `Parameter.isVariadicSlice` quando o último parâmetro usa `[...]T` e
 propaga o flag para `ResolvedName.isVariadicSlice` e `HirFunction.variadicSliceParam`.
-O sema trata `[...]T` como um parâmetro de slice normal, mas aceita:
+O parser também conserva um marcador `...` por argumento nas chamadas normais, genéricas,
+de métodos e de estados (`dock`/`jump`). O sema produz um `VariadicCallPlan` por candidato
+de overload e associa o plano vencedor à chamada.
 
-- zero argumentos no tail
-- um último argumento `[]T`/`[N]T` explícito, sem recolha elemento a elemento;
-- qualquer quantidade de argumentos homogéneos desde `slice_index` até ao fim, recolhidos
-  em `checkVariadicTailArgs`/`checkVariadicTail` pelo elemento do slice param.
+- O tail aceita zero argumentos quando os parâmetros fixos estão completos.
+- `...slice` ou `...array` no argumento final encaminha o valor inteiro para o parâmetro
+  `[...]T`, depois de validar a coerção para `[]T`.
+- Sem `...`, cada argumento depois dos parâmetros fixos é validado como um elemento `T` e
+  os elementos homogéneos são recolhidos num slice temporário.
+
+`...` só pode marcar um argumento final do tail. É inválido em parâmetros fixos, em mais
+de um argumento ou em chamadas sem parâmetro variadic slice. `..` continua a identificar
+o valor corrente de um pipeline e não encaminha um slice.
 
 `checkVariadicTailArgs` recebe o slice param e o primeiro índice de tail; a versão usada
 em métodos e chamadas dyn precisa deste separador porque `call.operands` não inclui `self`
-mas o `FunctionType` inclui o receiver. Calls genéricos e métodos genéricos sintetizam
-`[]T` a partir do primeiro elemento do tail para `resolveArgs`, depois validam o tail com
-o tipo instanciado.
+mas o `FunctionType` inclui o receiver. Calls genéricos e métodos genéricos inferem `T`
+a partir dos elementos auto-coletados ou do tipo do argumento marcado com `...`, depois
+validam a chamada com o tipo instanciado.
 
 Nos calls genéricos, a inferência de `resolveTypes` tenta o matching estrutural exacto em
 primeiro lugar. Quando o parâmetro declarado é `?T` (ou `??T`) e o argumento não tem o mesmo
@@ -594,11 +601,11 @@ nested<T>(x: ??T): ?T` aceitar `nested(5)` ou `nested(maybe)` com `maybe: ?i32`.
 restrita a coerções opcionais. Outras coerções implícitas (arrays para slices, pointers para
 `void`, `dyn`/`opaque`) continuam exactas nesta iteração.
 
-No HIR, `HirLowerModern::lowerCall` detecta o variadic slice no callee e baixa o tail para
-`HirArrayLiteral` + `HirMakeSlice` num slot temporário; um único argumento slice/array final
-é passado pelo caminho normal com `lowerCoerceToSliceIfArray`. O mesmo algoritmo cobre calls
-livres, métodos, `dyn`, state/jump/dock se o alvo tiver o flag. O code section do cache
-persiste `variadic_slice_param` para hidratar o HIR sem voltar a correr sema.
+No HIR, `HirLowerModern` consome o plano produzido pelo sema. Um argumento encaminhado
+baixa como um slice inteiro, enquanto um tail auto-coletado baixa para `HirArrayLiteral` +
+`HirMakeSlice` num slot temporário. O plano cobre calls livres, genéricos, métodos, `dyn`
+e state/jump/dock. O code section do cache persiste `variadic_slice_param` e o HIR retém
+se o tail foi auto-coletado, para hidratar a chamada sem voltar a correr sema.
 
 ## Defer e Cleanup de Escopo
 

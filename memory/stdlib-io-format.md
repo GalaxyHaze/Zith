@@ -91,11 +91,16 @@ fn formatNext(value: dyn Formatable, buffer: lend FormatBuffer): IoError {
 `format` keeps this bridge shape and calls
 `formatNext(raw values[next], lend buffer)`.
 
+Variadic slice forwarding at a call site is explicit: pass a whole slice as
+`...values`. Without the marker, a slice is checked as one variadic element.
+Stdlib wrappers that forward their `values` parameter use the marker, as
+`print`/`println` do when calling `writeBuffer`.
+
 The owned result uses a plain struct to keep the buffer and status together.
 Generic `Result<T, E>` helpers now work, but the current I/O surface has not
-been changed to use them. Variadic tail forwarding is implemented. The
-`print`/`println` path still has its own formatting loop, so that duplication
-is current structure rather than a compiler limitation.
+been changed to use them. Whole-tail forwarding uses an explicit `...values`
+marker. The `print`/`println` path still has its own formatting loop, so that
+duplication is current structure rather than a compiler limitation.
 
 `export std/io/format` cannot preserve `std.io.console.println` qualified
 access while also re-exporting the format symbols without duplicate `std`
