@@ -140,3 +140,6 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
   a canonical document, its status/location contract, the
   `scripts/check-deltas.py` check, and how it relates to `docs/plans/` and
   `docs/adr/`.
+- [source-extension-zithm.md](source-extension-zithm.md): Zith-- reads only
+  `.zithm`; the extension lives in `src/support/source-extension.hpp`, and
+  `.zith-cache`, `.zith-<kind>`, and `zith_*` stay unchanged.
