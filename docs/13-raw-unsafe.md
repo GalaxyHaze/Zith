@@ -8,75 +8,74 @@
 > `hazard` levels and the `hazard { }` and `safe { }` blocks. See
 > [ADR-0043](adr/0043-full-zith-safety-levels-safe-trust-hazard.md).
 
-### 13.1 Safety Hierarchy
+### 13.1 Raw Call Marker
 
-```
-Safe code (default)
-    └─ needs raw blocks to call raw fn
-         └─ needs to be inside a raw block / fn to use unsafe block
+In Zith--, `raw fn` marks a callable whose invocation must be visible at each
+call site. Write `raw` immediately before a direct or method call:
+
+```zith
+struct Device {
+    buffer: *u8
+}
+
+raw fn readByte(buffer: *u8, index: u64): u8 {
+    raw buffer[index]
+}
+
+implement Device {
+    raw fn readByte(self: lend Device, index: u64): u8 {
+        raw self.buffer[index]
+    }
+}
+
+fn read(buffer: *u8, index: u64): u8 {
+    return raw readByte(buffer, index);
+}
+
+fn readDevice(device: lend Device): u8 {
+    return raw device.readByte(1);
+}
 ```
 
-| | `raw` | `unsafe` |
-|---|---|---|
-| **What it is** | A base-level bypass, always unchecked. | A stronger bypass, valid only inside `raw` contexts. |
-| **Scope** | Any expression or statement. | Only inside a `raw fn` or `raw` block. |
-| **Debug mode** | Unchecked. | Unchecked. |
-| **Release mode** | Unchecked; compiler warns. | Unchecked; compiler warns. |
-| **Use case** | C interop, performance-critical paths. | Operations undefined if misused — pointer arithmetic, inline assembly. |
+The marker applies only to the invocation. It does not mark arguments or the
+surrounding expression, and it does not disable checks in the function body.
+Calling a `raw fn` without the marker is an error (`E2030`). `#[raw("reason")]`
+may add a non-empty explanatory note to that diagnostic.
 
 ### 13.2 `raw fn`
 
-A `raw fn` bypasses safety checks in both debug and release. The compiler warns if `raw` could be removed in release builds.
+The declaration marks calls that cross an explicitly visible raw boundary. It
+does not make the body unchecked. Function values of raw functions and inferred
+raw callable bindings are deferred.
 
 ```zith
 raw fn c_compat(x: raw opaque): raw opaque {
-    // basic validations still exist but allows:
-    // mut *, use raw opaque / union & etc..
+    // The body is checked like an ordinary function body.
 }
 ```
 
 ### 13.3 `unsafe`
 
-```zith
-raw fn dangerous(x: opaque) {
-    unsafe {
-        // extension of raw — completely disables compiler checks
-        // allows: bypass mutability, bit_cast, arbitrary address assignment,
-        // inline assembly, etc.
-        asm {
-            mov rax, x         // x is a Zith var — compiler maps it
-            call someFn         // can call Zith fns from asm
-        }
-    }
-}
-```
+`unsafe` is not part of the current Zith-- raw-call contract. Full Zith uses the
+separate `safe`/`trust`/`hazard` hierarchy described by
+[ADR-0043](adr/0043-full-zith-safety-levels-safe-trust-hazard.md).
 
-### 13.4 `Trust` as a Bridge
+### 13.4 External C Functions
 
-> **Removed in full Zith:** the `Trust` capability is replaced by the `trust fn`
-> level. See [ADR-0043](adr/0043-full-zith-safety-levels-safe-trust-hazard.md).
-> This section describes the Zith-- bridge.
+In the future, functions imported from C headers will be `raw` by default. Each
+call will emit a warning at the call site that the compiler cannot guarantee
+the external function's behavioral boundary. The warning remains when the call
+is explicitly marked `raw`. An explicit `safe` annotation will make the call
+ordinary and suppress the warning. The annotation's syntax is still open.
 
-`Trust` bridges safe code to raw and unsafe code. A trait extending `Trust` may contain `raw fn` methods that are callable from safe contexts:
-
-```zith
-trait Place extends Trust {
-    raw fn sample(): i32 {}
-}
-
-fn safe_caller(a: impl Place) {
-    let v = a.sample();   // allowed: Trust is in scope via Place
-}
-```
-
-### 13.5 When to Use Each
+### 13.5 When to Use Raw Calls
 
 | Situation | Use |
 |---|---|
-| C interop, headerless libraries | `raw fn` |
-| Pointer arithmetic, inline assembly | `unsafe` inside `raw fn` |
-| Exposing low-level operations to safe code | `Trust` capability |
-| Normal application code | Neither — stay safe |
+| Calling an explicitly declared raw function | `raw function(args)` |
+| Calling an explicitly declared raw method | `raw receiver.method(args)` |
+| Calling an imported C-header function | Future default-raw binding and call-site warning |
+| Normal application code | An ordinary `fn` call |
 
 ---
 

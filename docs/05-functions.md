@@ -34,12 +34,16 @@ fn pick(flag: bool): i32 {
 
 ### 5.2 Function Kinds
 
+This table describes the Zith-- function surface. Full Zith classifies
+callables with the separate `safe`, `trust`, and `hazard` levels in
+[ADR-0043](adr/0043-full-zith-safety-levels-safe-trust-hazard.md).
+
 | Kind | Description |
 |---|---|
 | `fn` | Standard runtime function. |
 | `const fn` | Compile-time function; parsing is in progress, evaluation is not implemented yet. |
 | `state` | A state in a machine with one return type and possibly diverging parameters; `dock State(args)` starts the machine and `jump Next(args)` terminates a state with a direct LLVM `tailcc`/`musttail` transition ([§9.4](09-control-flow.md#94-state-functions-and-state-machines)). |
-| `raw fn` | Always unchecked, bypassing NRA and safety checks for C interop. |
+| `raw fn` | Zith-- only: calls require an explicit `raw` call-site marker. The function body remains checked. |
 | `extern fn` | Fixed C ABI linkage; never name-qualified and never overloaded. |
 
 An ordinary `fn` can also be declared without a body and linked to a C symbol by
@@ -63,9 +67,9 @@ identifier is used as the C ABI linker symbol. The compiler emits an external
 declaration with that name and never generates a body. This form is not allowed on
 `const fn`, `state`, trait requirements, or interface requirements.
 
-> The five function kinds are exclusive and cannot be combined: there is no `raw const fn`,
-> `extern raw fn`, or similar spelling. `raw fn` and `extern fn` are separate concerns: `raw fn`
-> opts out of NRA, while `extern fn` selects the C ABI.
+> In Zith--, `raw fn` and `extern fn` are separate concerns: `raw fn` requires
+> an explicit marker at each call site, while `extern fn` selects the C ABI.
+> Combining them as `extern raw fn` is deferred.
 
 Macro calls use the `@` prefix, such as `@println`, `@log`, and `@serialize`, while ordinary function calls
 use a bare name, such as `console.write`, `process`, or `save`. See [§15](15-macros.md) for the

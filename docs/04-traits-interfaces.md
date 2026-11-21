@@ -153,7 +153,7 @@ Capabilities are special traits that feed the compiler more information, unlocki
 | `Share` | Required for `global: share` and crossing thread boundaries |
 | `ThreadBackend` | Provides a concrete thread handle for explicit `fork`/`merge`, e.g. `pThread` |
 | `Lent` | Enables `global: own`, a runtime-checked exclusive borrow. `global` bindings cannot be moved — `Lent` manages thread-safe distribution. Also allows `lend` parameters. |
-| `Trust` | A trait extending `Trust` may contain `raw fn` methods callable from safe contexts. |
+| `Trust` | Zith-- only: does not remove the explicit `raw` marker required when calling a `raw fn`. |
 | `Unique` | Marks a singleton type. It cannot be instantiated — the type name itself acts as the instance. All fields must implement `Share` (thread-safe). An `own Local` variant is a singleton thread-local. |
 
 #### `Failable` & `Invalid` — Invalid-State Capabilities
@@ -189,6 +189,7 @@ capability names.
 > **Full-Zith direction:** the `trust fn` safety level supersedes this
 > capability as the way safe code reaches raw and hazard work. See
 > [ADR-0043](adr/0043-full-zith-safety-levels-safe-trust-hazard.md).
+> In Zith--, `Trust` does not waive the explicit call-site marker.
 
 ```zith
 trait Place
@@ -197,8 +198,8 @@ trait Place
     raw fn sample(): i32 {}
 }
 
-fn safeCaller(a: Place) {
-    let v = a.sample();
+fn safeCaller(a: impl Place) {
+    let v = raw a.sample();
 }
 ```
 

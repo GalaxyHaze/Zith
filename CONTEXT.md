@@ -81,6 +81,16 @@ An explicit request to strengthen a struct type's alignment or one binding's
 storage alignment beyond its natural alignment.
 _Avoid_: `@alignas`
 
+**Zith-- raw function**:
+A callable declared `raw fn` whose direct invocation must carry an explicit
+`raw` call-site marker. The declaration does not make its body unchecked.
+_Avoid_: unchecked function, unsafe function
+
+**Raw call marker**:
+The `raw` prefix on a Zith-- function or method invocation. It marks only that
+invocation, not its arguments or surrounding expression.
+_Avoid_: raw block, unsafe block
+
 **Module**:
 A `.zithm` source unit that owns a set of public and module-local symbols and can be imported by other units.
 _Avoid_: File, script, package

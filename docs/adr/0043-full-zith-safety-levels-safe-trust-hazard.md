@@ -24,8 +24,9 @@ blast radius, not by syntax:
 `raw opaque` and `raw union` keep their type-modifier sense, because that is a
 type property rather than an operation. `raw macro` is a Zith-- expansion
 property and has no full-Zith counterpart, since full Zith has no macros.
-Zith-- keeps `raw fn` and `unsafe` unchanged, so the two senses never meet in
-one surface.
+Zith-- defines its own `raw fn` call-site contract
+([ADR-0059](0059-zith-minusminus-raw-call-marker.md)); this does not change the
+meaning of `raw` in full Zith.
 
 The three level spellings and the two block spellings stay within the
 eight-byte keyword limit of
@@ -110,9 +111,10 @@ including the unnecessary `trust` warning, the redundant block warnings, the
 `safe` pin violation, and the raw cleanup inside a safe block. Its numeric code
 range is not assigned here, as with the purity family in ADR-0039.
 
-Zith-- keeps `raw fn`, `unsafe`, and its `#[...]` attributes unchanged. Zith
-uses different function kinds and abandons `raw fn` and `unsafe`. This is one
-of the points where the sibling language contracts diverge.
+Zith-- retains its own raw constructs and attributes, with the `raw fn`
+call-site contract recorded in [ADR-0059](0059-zith-minusminus-raw-call-marker.md).
+Zith uses different function kinds and abandons `raw fn` and `unsafe`. This is
+one of the points where the sibling language contracts diverge.
 
 The `trust fn` level replaces the `Trust` capability, which full Zith removes.
 The capability was nominal and per-type, exposing `raw fn` methods through a
