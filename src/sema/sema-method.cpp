@@ -360,10 +360,19 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
         const size_t checked_explicit_args =
             explicit_receiver_arg ? provided_args - 1U : provided_args;
         const VariadicCallPlan plan    = makeVariadicCallPlan(call.span, call.operands, sub_fn,
-                                                              target_is_slice, fixed_explicit_args);
+                                                              target_is_slice, fixed_explicit_args,
+                                                              call.argIsSpread);
         const bool explicit_slice_arg  = plan.explicitSliceArg;
         const bool auto_collected_tail = plan.autoCollectTail;
         typed_map.variadicCallPlans.insert(call.id.value, plan);
+        if (!spreadMarkersAreValid(call.argIsSpread, provided_args, fixed_explicit_args) ||
+            (!target_is_slice &&
+             std::any_of(call.argIsSpread.begin(), call.argIsSpread.end(),
+                         [](bool spread) { return spread; }))) {
+            report(call.span, "spread requires the final variadic slice argument",
+                   diagnostics::err::NoMatchingFn);
+            return error_type;
+        }
         const bool defaults_cover =
             provided_args < fixed_explicit_args &&
             missingArgsHaveDefaults(*method_decl, provided_args, has_receiver ? 1U : 0U,
@@ -403,6 +412,17 @@ TypeId PerModuleSema::inferMethodCall(const frontend::Expression &call,
                                           "method call argument type mismatch",
                                           diagnostics::err::NoMatchingFn);
             }
+        }
+        if (explicit_slice_arg && target_is_slice && !call.operands.empty()) {
+            const frontend::ExprId arg = call.operands.back();
+            const TypeId arg_type      = inferExpr(arg);
+            std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> roots;
+            (void)checkOwnershipCoercion(arg, sub_fn->params[slice_param_index], roots, call.span,
+                                         true);
+            if (!coerceValue(arg, sub_fn->params[slice_param_index], arg_type))
+                reportCoercionFailure(call.span, sub_fn->params[slice_param_index], arg_type,
+                                      "method variadic slice argument type mismatch",
+                                      diagnostics::err::NoMatchingFn);
         }
         if (auto_collected_tail && target_is_slice)
             (void)checkVariadicTailArgs(call.span, call.operands, sub_fn->params[slice_param_index],
@@ -550,10 +570,19 @@ TypeId PerModuleSema::inferDynMethodCall(const frontend::Expression &call,
                                            ? slice_param_index - (has_receiver ? 1U : 0U)
                                            : fn->params.size() - (has_receiver ? 1U : 0U);
     const VariadicCallPlan plan =
-        makeVariadicCallPlan(call.span, call.operands, fn, target_is_slice, fixed_explicit_args);
+        makeVariadicCallPlan(call.span, call.operands, fn, target_is_slice, fixed_explicit_args,
+                             call.argIsSpread);
     const bool explicit_slice_arg  = plan.explicitSliceArg;
     const bool auto_collected_tail = plan.autoCollectTail;
     typed_map.variadicCallPlans.insert(call.id.value, plan);
+    if (!spreadMarkersAreValid(call.argIsSpread, provided_args, fixed_explicit_args) ||
+        (!target_is_slice &&
+         std::any_of(call.argIsSpread.begin(), call.argIsSpread.end(),
+                     [](bool spread) { return spread; }))) {
+        report(call.span, "spread requires the final variadic slice argument",
+               diagnostics::err::NoMatchingFn);
+        return error_type;
+    }
     const bool defaults_cover =
         provided_args < fixed_explicit_args &&
         missingArgsHaveDefaults(*method_decl, provided_args, has_receiver ? 1U : 0U,
@@ -581,6 +610,16 @@ TypeId PerModuleSema::inferDynMethodCall(const frontend::Expression &call,
                                       "method call argument type mismatch",
                                       diagnostics::err::NoMatchingFn);
         }
+    }
+    if (explicit_slice_arg && target_is_slice && !call.operands.empty()) {
+        const frontend::ExprId arg = call.operands.back();
+        const TypeId arg_type      = inferExpr(arg);
+        (void)checkOwnershipCoercion(arg, fn->params[slice_param_index], seen_roots, call.span,
+                                     true);
+        if (!coerceValue(arg, fn->params[slice_param_index], arg_type))
+            reportCoercionFailure(call.span, fn->params[slice_param_index], arg_type,
+                                  "method variadic slice argument type mismatch",
+                                  diagnostics::err::NoMatchingFn);
     }
     if (auto_collected_tail && target_is_slice)
         (void)checkVariadicTailArgs(call.span, call.operands, fn->params[slice_param_index],
@@ -894,9 +933,17 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
                                   : generic_slice_param_index - (has_receiver_entry ? 1U : 0U);
         const VariadicCallPlan generic_plan =
             makeVariadicCallPlan(call.span, call.operands, generic_method_fn, generic_decl_is_slice,
-                                 generic_fixed_explicit);
+                                 generic_fixed_explicit, call.argIsSpread);
         const bool generic_explicit_slice = generic_plan.explicitSliceArg;
         const bool generic_auto_collect   = generic_plan.autoCollectTail;
+        if (!spreadMarkersAreValid(call.argIsSpread, provided_args, generic_fixed_explicit) ||
+            (!generic_decl_is_slice &&
+             std::any_of(call.argIsSpread.begin(), call.argIsSpread.end(),
+                         [](bool spread) { return spread; }))) {
+            report(call.span, "spread requires the final variadic slice argument",
+                   diagnostics::err::NoMatchingFn);
+            return error_type;
+        }
         const bool defaults_cover =
             provided_args < generic_fixed_explicit &&
             missingArgsHaveDefaults(*method_decl, provided_args, has_receiver_entry ? 1U : 0U,
@@ -1134,7 +1181,8 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
             const auto *instance_fn_for_plan = type_table.function(instance_type);
             const VariadicCallPlan instance_plan =
                 makeVariadicCallPlan(call.span, call.operands, instance_fn_for_plan,
-                                     generic_decl_is_slice, generic_fixed_explicit);
+                                     generic_decl_is_slice, generic_fixed_explicit,
+                                     call.argIsSpread);
             typed_map.variadicCallPlans.insert(call.id.value, instance_plan);
             std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
             const auto *instance_fn = type_table.function(instance_type);
@@ -1149,6 +1197,19 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
                                                      instance_fn->params[param_index], seen_roots,
                                                      call.span, true);
                 }
+                if (instance_plan.explicitSliceArg && generic_decl_is_slice &&
+                    !call.operands.empty()) {
+                    const frontend::ExprId arg = call.operands.back();
+                    const TypeId arg_type      = inferExpr(arg);
+                    (void)checkOwnershipCoercion(
+                        arg, instance_fn->params[instance_plan.sliceParam], seen_roots, call.span,
+                        true);
+                    if (!coerceValue(arg, instance_fn->params[instance_plan.sliceParam], arg_type))
+                        reportCoercionFailure(
+                            call.span, instance_fn->params[instance_plan.sliceParam], arg_type,
+                            "generic method variadic slice argument type mismatch",
+                            diagnostics::err::NoMatchingFn);
+                }
                 if (instance_plan.autoCollectTail && generic_decl_is_slice)
                     (void)checkVariadicTailArgs(call.span, call.operands,
                                                 instance_fn->params[instance_plan.sliceParam],
@@ -1161,6 +1222,8 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
 
     const frontend::Declaration *method_decl = method_decls.front();
     session::ModuleKey method_module         = method_modules.front();
+    VariadicCallPlan selected_overload_plan;
+    bool has_selected_overload_plan = false;
     if (method_decls.size() > 1U) {
         // The lowered method type carries the receiver as its first parameter, so
         // selection runs with one implicit argument.
@@ -1187,6 +1250,8 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
             const auto *chosen = selectOverload(call, candidates, 1U, reported);
             if (chosen == nullptr)
                 return reported ? error_type : kInvalidTypeId;
+            selected_overload_plan = chosen->variadicPlan;
+            has_selected_overload_plan = true;
             for (const auto *decl : method_decls) {
                 if (decl->span == chosen->span) {
                     method_decl = decl;
@@ -1247,11 +1312,25 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
     const size_t method_fixed_explicit = method_is_vslice
                                              ? method_slice_param_index - (has_receiver ? 1U : 0U)
                                              : method_slice_param_index - (has_receiver ? 1U : 0U);
-    const VariadicCallPlan plan        = makeVariadicCallPlan(
-        call.span, call.operands, method_fn_for_slice, method_is_vslice, method_fixed_explicit);
+    const VariadicCallPlan plan =
+        has_selected_overload_plan
+            ? selected_overload_plan
+            : makeVariadicCallPlan(call.span, call.operands, method_fn_for_slice,
+                                   method_is_vslice, method_fixed_explicit, call.argIsSpread);
     const bool method_explicit_slice = plan.explicitSliceArg;
     const bool method_auto_collect   = plan.autoCollectTail;
     typed_map.variadicCallPlans.insert(call.id.value, plan);
+    if (!has_selected_overload_plan &&
+        (!spreadMarkersAreValid(call.argIsSpread, provided_args, method_fixed_explicit) ||
+         (!method_is_vslice &&
+          std::any_of(call.argIsSpread.begin(), call.argIsSpread.end(),
+                      [](bool spread) { return spread; })))) {
+        report(call.span, "spread requires the final variadic slice argument",
+               diagnostics::err::NoMatchingFn);
+        currentDeclId_       = saved_decl_id;
+        currentFunctionKind_ = saved_kind;
+        return error_type;
+    }
     const bool defaults_cover =
         provided_args < method_fixed_explicit &&
         missingArgsHaveDefaults(*method_decl, provided_args, has_receiver ? 1U : 0U,
@@ -1290,6 +1369,17 @@ TypeId PerModuleSema::resolveStructMethodCall(const frontend::Expression &call,
         if (param_type && arg_type && !coerceValue(call.operands[i + 1], param_type, arg_type))
             reportCoercionFailure(call.span, param_type, arg_type,
                                   "method call argument type mismatch",
+                                  diagnostics::err::NoMatchingFn);
+    }
+    if (method_explicit_slice && method_is_vslice && !call.operands.empty() &&
+        method_ffn != nullptr) {
+        const frontend::ExprId arg = call.operands.back();
+        const TypeId arg_type      = inferExpr(arg);
+        (void)checkOwnershipCoercion(arg, method_ffn->params[method_slice_param_index], seen_roots,
+                                     call.span, true);
+        if (!coerceValue(arg, method_ffn->params[method_slice_param_index], arg_type))
+            reportCoercionFailure(call.span, method_ffn->params[method_slice_param_index],
+                                  arg_type, "method variadic slice argument type mismatch",
                                   diagnostics::err::NoMatchingFn);
     }
     if (method_auto_collect && method_is_vslice) {

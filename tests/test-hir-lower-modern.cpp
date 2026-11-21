@@ -2969,7 +2969,7 @@ void test_variadic_slice_explicit_vs_auto_free_function() {
                                      "}\n"
                                      "extern fn values(): []i32\n"
                                      "fn main(): i32 {\n"
-                                     "    return sum(values()) + sum(1, 2);\n"
+                                     "    return sum(...values()) + sum(1, 2);\n"
                                      "}\n");
 
     memory::Arena arena;
@@ -3002,7 +3002,7 @@ void test_variadic_slice_call_plan_survives_cache_hydration() {
                                      "}\n"
                                      "extern fn values(): []i32\n"
                                      "fn main(): i32 {\n"
-                                     "    return sum(values()) + sum(1, 2);\n"
+                                     "    return sum(...values()) + sum(1, 2);\n"
                                      "}\n");
 
     memory::Arena first_arena;
@@ -3053,7 +3053,7 @@ void test_variadic_slice_explicit_vs_auto_method() {
                                      "    let s: []i32 = slice1();\n"
                                      "    let a1: Agg = Agg { total: 100 };\n"
                                      "    let a2: Agg = Agg { total: 100 };\n"
-                                     "    return a1.add(s) - a2.add(1, 2);\n"
+                                     "    return a1.add(...s) - a2.add(1, 2);\n"
                                      "}\n");
 
     memory::Arena arena;
@@ -3094,7 +3094,7 @@ void test_variadic_slice_dyn_tail_is_sema_decided() {
                                      "    return total(a, b);\n"
                                      "}\n"
                                      "fn take(ds: []dyn Value): i32 {\n"
-                                     "    return total(ds);\n"
+                                     "    return total(...ds);\n"
                                      "}\n"
                                      "fn main(): i32 {\n"
                                      "    let a: dyn Value = Box { n: 5 };\n"
@@ -3126,7 +3126,7 @@ void test_variadic_slice_explicit_vs_auto_state() {
                         "}\n"
                         "extern fn values(): []i32\n"
                         "fn main(): i32 {\n"
-                        "    return dock Start(values()) + dock Start(1) + dock Start();\n"
+                        "    return dock Start(...values()) + dock Start(1) + dock Start();\n"
                         "}\n");
 
     memory::Arena arena;

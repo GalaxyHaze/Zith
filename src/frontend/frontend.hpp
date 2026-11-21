@@ -323,6 +323,9 @@ struct Statement {
     std::string label;
     /// Arguments written after `jump target(args);`.
     std::vector<ExprId> arguments;
+    /// Parallel to `arguments`; true when a variadic-slice spread marker
+    /// (`...`) prefixes the argument.
+    std::vector<bool> argumentIsSpread;
     std::vector<Attribute> attributes;
     /// True when the source statement was explicitly terminated with `;`.
     bool hasSemicolon = false;
@@ -389,6 +392,9 @@ struct Expression {
     /// For MacroCall operands: when true, the argument was prefixed with =,
     /// requesting pass-by-AST (unevaluated expression) instead of pass-by-value.
     std::vector<bool> argIsUnevaluated;
+    /// Parallel to call arguments (operands after the callee); true when an
+    /// argument uses the explicit variadic-slice spread marker (`...`).
+    std::vector<bool> argIsSpread;
     /// For MacroCall operands: the source span of each argument, recorded so a
     /// later phase can re-splice the argument at token level (Phase 2).
     std::vector<TextSpan> argSpans;

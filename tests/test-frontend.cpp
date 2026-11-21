@@ -180,12 +180,12 @@ static void test_control_flow_and_scopes() {
 static void test_state_and_dock_jump_syntax() {
     auto snapshot = frontend::parse("state Loop(n: i32): i32 {\n"
                                     "    if (n < 10) {\n"
-                                    "        jump Loop(n + 1);\n"
+                                    "        jump Loop(...n);\n"
                                     "    }\n"
                                     "    return n;\n"
                                     "}\n"
                                     "fn main(): i32 {\n"
-                                    "    let result: i32 = dock Loop(0);\n"
+                                    "    let result: i32 = dock Loop(...0);\n"
                                     "    return result;\n"
                                     "}\n");
 
@@ -201,14 +201,25 @@ static void test_state_and_dock_jump_syntax() {
                  "ordinary functions remain standard");
     }
 
-    bool saw_dock = false;
-    bool saw_jump = false;
+    bool saw_dock         = false;
+    bool dock_spread      = false;
+    bool saw_jump         = false;
+    bool jump_spread      = false;
     for (const auto &expr : snapshot.expressions())
-        saw_dock |= expr.kind == frontend::ExprKind::DockCall;
+        if (expr.kind == frontend::ExprKind::DockCall) {
+            saw_dock = true;
+            dock_spread = !expr.argIsSpread.empty() && expr.argIsSpread.front();
+        }
     for (const auto &statement : snapshot.statements())
-        saw_jump |= statement.kind == frontend::StmtKind::Jump;
+        if (statement.kind == frontend::StmtKind::Jump) {
+            saw_jump = true;
+            jump_spread = !statement.argumentIsSpread.empty() &&
+                          statement.argumentIsSpread.front();
+        }
     CHECK(saw_dock, "dock lowers as a DockCall expression");
     CHECK(saw_jump, "jump lowers as a Jump statement");
+    CHECK(dock_spread, "dock retains the explicit spread marker");
+    CHECK(jump_spread, "jump retains the explicit spread marker");
 
     bool binding_uses_dock = false;
     for (const auto &statement : snapshot.statements()) {
@@ -477,6 +488,7 @@ static void test_pipe_operators_parse_as_chain() {
     std::size_t pipes    = 0;
     std::size_t effects  = 0;
     std::size_t currents = 0;
+    bool pipe_current_is_not_spread = false;
     for (const auto &expression : snapshot.expressions()) {
         if (expression.kind == frontend::ExprKind::Pipe)
             ++pipes;
@@ -484,10 +496,14 @@ static void test_pipe_operators_parse_as_chain() {
             ++effects;
         else if (expression.kind == frontend::ExprKind::PipeCurrent)
             ++currents;
+        else if (expression.kind == frontend::ExprKind::Call &&
+                 expression.operands.size() == 2U && expression.argIsSpread.size() == 1U)
+            pipe_current_is_not_spread |= !expression.argIsSpread.front();
     }
     CHECK_EQ(pipes, 3u, "three '|>' nodes are lowered");
     CHECK_EQ(effects, 1u, "one 'do' node is lowered");
     CHECK_EQ(currents, 4u, "each stage contributes its explicit '..' placeholder");
+    CHECK(pipe_current_is_not_spread, "'..' pipeline arguments remain non-spread arguments");
 }
 
 static void test_return_expression_requires_semicolon() {
@@ -625,6 +641,25 @@ static void test_dots_lex_as_one_token() {
             saw_three_dots = true;
     }
     CHECK(saw_three_dots, "'...' lexes as a single Dots token covering both lexemes");
+}
+
+static void test_variadic_slice_spread_argument_parses() {
+    auto snapshot = frontend::parse("fn main(): i32 {\n"
+                                    "    send(...values);\n"
+                                    "    return send<i32>(...values);\n"
+                                    "}\n");
+    CHECK(snapshot.diagnostics().empty(), "call-site variadic slice spreads parse cleanly");
+    std::size_t spread_calls = 0;
+    bool generic_spread      = false;
+    for (const auto &expression : snapshot.expressions()) {
+        if (expression.kind != frontend::ExprKind::Call || expression.operands.size() != 2U ||
+            expression.argIsSpread.size() != 1U || !expression.argIsSpread.front())
+            continue;
+        ++spread_calls;
+        generic_spread |= !expression.genericArgs.empty();
+    }
+    CHECK_EQ(spread_calls, 2u, "ordinary and generic calls retain their spread marker");
+    CHECK(generic_spread, "generic call AST retains the explicit spread marker");
 }
 
 static void test_binary_comparison_expression() {
@@ -2002,6 +2037,7 @@ static void test_frontend() {
     test_cst_dump_is_deterministic_and_keeps_nested_tokens();
     test_keywords_and_module_ast();
     test_dots_lex_as_one_token();
+    test_variadic_slice_spread_argument_parses();
     test_bare_opaque_type_expression();
     test_kebab_case_qualified_type_path();
     test_recovery_creates_error_nodes();

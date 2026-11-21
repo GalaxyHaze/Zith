@@ -59,7 +59,8 @@ ExprId AstLowerer::missingControlBody(std::string_view control, std::string_view
     error.span  = body_span;
     return addExpression(std::move(error));
 }
-void AstLowerer::parseArgumentList(std::vector<ExprId> &out) {
+void AstLowerer::parseArgumentList(std::vector<ExprId> &out,
+                                   std::vector<bool> &spread_arguments) {
     if (!punctuation(index_, '(')) {
         snapshot_.diagnostics_.push_back({tokenSpan(index_), "expected '(' with target arguments"});
         return;
@@ -70,7 +71,9 @@ void AstLowerer::parseArgumentList(std::vector<ExprId> &out) {
             ++index_;
             continue;
         }
-        out.push_back(parseCallArgument());
+        bool is_spread = false;
+        out.push_back(parseCallArgument(&is_spread));
+        spread_arguments.push_back(is_spread);
         if (punctuation(index_, ','))
             ++index_;
         else if (!punctuation(index_, ')'))
@@ -1248,7 +1251,7 @@ std::vector<StmtId> AstLowerer::parseStatements() {
         } else {
             snapshot_.diagnostics_.push_back({range(start, index_), "expected a jump target name"});
         }
-        parseArgumentList(statement.arguments);
+        parseArgumentList(statement.arguments, statement.argumentIsSpread);
     } else if (word == "use") {
         // `use` statements select from a context; not implemented yet.
         snapshot_.diagnostics_.push_back({range(start, index_),

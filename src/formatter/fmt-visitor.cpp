@@ -757,6 +757,8 @@ void FmtVisitor::visitStmt(const frontend::StmtId id) {
         for (std::size_t index = 0; index < stmt->arguments.size(); ++index) {
             if (index != 0U)
                 emit(", ");
+            if (index < stmt->argumentIsSpread.size() && stmt->argumentIsSpread[index])
+                emit("...");
             visitExpr(stmt->arguments[index]);
         }
         emit(")");
@@ -890,6 +892,8 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
         for (std::size_t index = 1; index < expr->operands.size(); ++index) {
             if (index != 1U)
                 emit(", ");
+            if (index - 1U < expr->argIsSpread.size() && expr->argIsSpread[index - 1U])
+                emit("...");
             visitExpr(expr->operands[index]);
         }
         emit(")");

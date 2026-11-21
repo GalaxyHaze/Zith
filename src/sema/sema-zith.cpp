@@ -583,32 +583,6 @@ bool PerModuleSema::coercesTo(TypeId target, TypeId source) const noexcept {
     }
     return result;
 }
-bool PerModuleSema::variadicFinalArgIsExplicitSlice(TypeId slice_type,
-                                                    frontend::ExprId last_arg) const {
-    // Prefer already-inferred types: `args.back()` may be a later expression
-    // in the same call, so re-inferring it here can regress typed_map state.
-    if (!last_arg)
-        return false;
-    const TypeId last_type = typeOfExpr(last_arg);
-    if (!last_type)
-        return false;
-    const TypeId last = resolve(last_type);
-    if (type_table.slice(last) == nullptr && type_table.array(last) == nullptr)
-        return false;
-    const auto *slice = type_table.slice(resolve(slice_type));
-    if (slice == nullptr)
-        return false;
-    const TypeId element = resolve(slice->element);
-    if (type_table.kindOf(element) == TypeKind::Dyn) {
-        // A homogeneous `[]dyn Trait` final argument remains explicit. A
-        // concrete final slice still must be erased, so it is auto-collected
-        // unless it is already a dyn slice.
-        const auto *last_slice = type_table.slice(last);
-        return last_slice != nullptr &&
-               type_table.kindOf(resolve(last_slice->element)) == TypeKind::Dyn;
-    }
-    return true;
-}
 bool PerModuleSema::unify(TypeId expected, TypeId actual) {
     return sameType(expected, actual);
 }

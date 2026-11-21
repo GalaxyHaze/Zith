@@ -79,7 +79,7 @@ private:
     static bool ownershipKeyword(std::string_view word, OwnershipKind &out) noexcept;
 
     [[nodiscard]] TypeExprId parseType();
-    [[nodiscard]] ExprId parseCallArgument();
+    [[nodiscard]] ExprId parseCallArgument(bool *is_spread = nullptr);
     [[nodiscard]] ExprId parsePrimary();
     /// Parses `fn (params): R { body }` / `fn (params) { body }` in expression
     /// position. The literal has no captures and lowers to a synthesized local
@@ -114,7 +114,7 @@ private:
     [[nodiscard]] ExprId parseBlock();
     [[nodiscard]] ExprId missingControlBody(std::string_view control,
                                             std::string_view syntax_example);
-    void parseArgumentList(std::vector<ExprId> &out);
+    void parseArgumentList(std::vector<ExprId> &out, std::vector<bool> &spread_arguments);
     [[nodiscard]] ExprId parseElseTail(uint32_t start);
     [[nodiscard]] ExprId parseIf();
     [[nodiscard]] ExprId parseWhen();

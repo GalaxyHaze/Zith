@@ -11,8 +11,16 @@ namespace zith::frontend {
 /// Parses one element of a call argument list. `lend`/`view` are only
 /// meaningful here, so the ownership annotation is recognized only in this
 /// entry point instead of in `parsePrimary`.
-ExprId AstLowerer::parseCallArgument() {
+ExprId AstLowerer::parseCallArgument(bool *is_spread) {
     const uint32_t start = index_;
+    if (is_spread != nullptr)
+        *is_spread = false;
+    if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Dots &&
+        text(index_) == "...") {
+        ++index_;
+        if (is_spread != nullptr)
+            *is_spread = true;
+    }
     OwnershipKind kind   = OwnershipKind::Default;
     if (index_ < token_count_ && ownershipKeyword(text(index_), kind)) {
         if (kind == OwnershipKind::Lend || kind == OwnershipKind::View) {

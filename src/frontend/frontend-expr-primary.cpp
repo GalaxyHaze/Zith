@@ -82,7 +82,9 @@ ExprId AstLowerer::parsePrimary() {
                     ++index_;
                     continue;
                 }
-                dock.operands.push_back(parseCallArgument());
+                bool is_spread = false;
+                dock.operands.push_back(parseCallArgument(&is_spread));
+                dock.argIsSpread.push_back(is_spread);
                 if (punctuation(index_, ','))
                     ++index_;
                 else if (!punctuation(index_, ')'))
@@ -587,7 +589,9 @@ ExprId AstLowerer::parsePostfix(ExprId result, uint32_t start) {
                 if (punctuation(index_, '(')) {
                     ++index_;
                     while (index_ < token_count_ && !punctuation(index_, ')')) {
-                        generic_call.operands.push_back(parseCallArgument());
+                        bool is_spread = false;
+                        generic_call.operands.push_back(parseCallArgument(&is_spread));
+                        generic_call.argIsSpread.push_back(is_spread);
                         if (!punctuation(index_, ','))
                             break;
                         ++index_;
@@ -705,7 +709,9 @@ ExprId AstLowerer::parsePostfix(ExprId result, uint32_t start) {
             } else if (punctuation(index_, '(')) {
                 ++index_;
                 while (index_ < token_count_ && !punctuation(index_, ')')) {
-                    call.operands.push_back(parseCallArgument());
+                    bool is_spread = false;
+                    call.operands.push_back(parseCallArgument(&is_spread));
+                    call.argIsSpread.push_back(is_spread);
                     if (!punctuation(index_, ','))
                         break;
                     ++index_;
@@ -775,7 +781,9 @@ ExprId AstLowerer::parsePostfix(ExprId result, uint32_t start) {
         call.scope = current_scope_;
         call.operands.push_back(result);
         while (index_ < token_count_ && !punctuation(index_, ')')) {
-            call.operands.push_back(parseCallArgument());
+            bool is_spread = false;
+            call.operands.push_back(parseCallArgument(&is_spread));
+            call.argIsSpread.push_back(is_spread);
             if (!punctuation(index_, ','))
                 break;
             ++index_;

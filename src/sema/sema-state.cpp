@@ -1,5 +1,6 @@
 #include "sema/sema-modern-utils.hpp"
 #include "sema/sema-modern.hpp"
+#include <algorithm>
 #include <string>
 
 namespace zith::sema::modern {
@@ -77,9 +78,22 @@ void PerModuleSema::inferDockCall(frontend::ExprId id) {
                     report(expr.span, "dock call arity mismatch", diagnostics::err::NoMatchingFn);
                 }
                 const VariadicCallPlan plan = makeVariadicCallPlan(expr.span, expr.operands, fn,
-                                                                   target_is_slice, slice_index);
+                                                                   target_is_slice, slice_index,
+                                                                   expr.argIsSpread);
                 const bool auto_collected   = plan.autoCollectTail;
                 typed_map.variadicCallPlans.insert(expr.id.value, plan);
+                const size_t written_args = expr.operands.size() - 1U;
+                if (!spreadMarkersAreValid(expr.argIsSpread, written_args,
+                                           target_is_slice ? slice_index : written_args) ||
+                    (!target_is_slice &&
+                     std::any_of(expr.argIsSpread.begin(), expr.argIsSpread.end(),
+                                 [](bool spread) { return spread; }))) {
+                    report(expr.span, "spread requires the final variadic slice argument",
+                           diagnostics::err::NoMatchingFn);
+                    result = fn->result;
+                    setExprType(id, result);
+                    return;
+                }
                 if (target_is_slice && expr.operands.size() - 1U < slice_index &&
                     !(target != nullptr &&
                       missingArgsHaveDefaults(*target, expr.operands.size() - 1U, 0U,
@@ -90,7 +104,9 @@ void PerModuleSema::inferDockCall(frontend::ExprId id) {
                            expr.operands.size() - 1U != fn->params.size()) {
                     report(expr.span, "dock call arity mismatch", diagnostics::err::NoMatchingFn);
                 } else {
-                    const size_t checked_params = target_is_slice ? slice_index : fn->params.size();
+                    const size_t checked_params =
+                        target_is_slice ? (plan.explicitSliceArg ? slice_index + 1U : slice_index)
+                                        : fn->params.size();
                     for (size_t index = 0; index < checked_params; ++index) {
                         if (index + 1U < expr.operands.size()) {
                             const TypeId arg_type = inferExpr(expr.operands[index + 1U]);
@@ -171,9 +187,19 @@ void PerModuleSema::inferJump(const frontend::Statement &stmt) {
         return;
     }
     const VariadicCallPlan plan =
-        makeVariadicCallPlan(stmt.span, stmt.arguments, fn, target_is_slice, slice_index, false);
+        makeVariadicCallPlan(stmt.span, stmt.arguments, fn, target_is_slice, slice_index,
+                             stmt.argumentIsSpread, false);
     const bool auto_collected = plan.autoCollectTail;
     typed_map.variadicStmtPlans.insert(stmt.id.value, plan);
+    if (!spreadMarkersAreValid(stmt.argumentIsSpread, stmt.arguments.size(),
+                               target_is_slice ? slice_index : stmt.arguments.size()) ||
+        (!target_is_slice &&
+         std::any_of(stmt.argumentIsSpread.begin(), stmt.argumentIsSpread.end(),
+                     [](bool spread) { return spread; }))) {
+        report(stmt.span, "spread requires the final variadic slice argument",
+               diagnostics::err::NoMatchingFn);
+        return;
+    }
     if (target_is_slice && stmt.arguments.size() < slice_index &&
         !missingArgsHaveDefaults(*target, stmt.arguments.size(), 0U, slice_index)) {
         report(stmt.span, "state transition arity mismatch", diagnostics::err::NoMatchingFn);
@@ -182,7 +208,9 @@ void PerModuleSema::inferJump(const frontend::Statement &stmt) {
         report(stmt.span, "state transition arity mismatch", diagnostics::err::NoMatchingFn);
         return;
     }
-    const size_t checked_params = target_is_slice ? slice_index : fn->params.size();
+    const size_t checked_params =
+        target_is_slice ? (plan.explicitSliceArg ? slice_index + 1U : slice_index)
+                        : fn->params.size();
     for (size_t index = 0; index < checked_params; ++index) {
         if (index < stmt.arguments.size()) {
             const TypeId arg_type = inferExpr(stmt.arguments[index]);

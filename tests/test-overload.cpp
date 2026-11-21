@@ -269,6 +269,101 @@ void noViableCandidate() {
           "a call with no viable candidate reports NoMatchingFn (E2007)");
 }
 
+void explicitVariadicSpreadSelectsOverloadByFixedPrefix() {
+    Workspace workspace;
+    workspace.write("main.zithm", "fn route(flag: i32, rest: [...]i32): i32 { return 10; }\n"
+                                 "fn route(flag: bool, rest: [...]i32): bool { return true; }\n"
+                                 "extern fn values(): []i32\n"
+                                 "fn main(): i32 {\n"
+                                 "    let selected: bool = route(true, ...values());\n"
+                                 "    return 0;\n"
+                                 "}\n");
+    auto r = check(workspace);
+    CHECK(r.ok, "spread overload selection uses fixed-prefix argument types");
+
+    Workspace reversed;
+    reversed.write("main.zithm", "fn route(flag: bool, rest: [...]i32): bool { return true; }\n"
+                                 "fn route(flag: i32, rest: [...]i32): i32 { return 10; }\n"
+                                 "extern fn values(): []i32\n"
+                                 "fn main(): i32 {\n"
+                                 "    let selected: bool = route(true, ...values());\n"
+                                 "    return 0;\n"
+                                 "}\n");
+    auto reversed_result = check(reversed);
+    CHECK(reversed_result.ok, "spread overload selection is independent of declaration order");
+}
+
+void explicitVariadicSpreadSelectsMethodOverload() {
+    Workspace workspace;
+    workspace.write("main.zithm", "struct P { x: i32 }\n"
+                                 "implement P {\n"
+                                 "    fn route(self, flag: i32, rest: [...]i32): i32 { return 10; }\n"
+                                 "    fn route(self, flag: bool, rest: [...]i32): bool { return true; }\n"
+                                 "}\n"
+                                 "extern fn values(): []i32\n"
+                                 "fn main(): i32 {\n"
+                                 "    let p: P = P { x: 0 };\n"
+                                 "    let selected: bool = p.route(true, ...values());\n"
+                                 "    return 0;\n"
+                                 "}\n");
+    auto r = check(workspace);
+    CHECK(r.ok, "spread method overload selection uses fixed-prefix argument types");
+}
+
+void unmarkedSliceIsOneVariadicElement() {
+    Workspace accepted;
+    accepted.write("main.zithm", "fn count_rows(rows: [...][]i32): i32 { return 1; }\n"
+                                "extern fn values(): []i32\n"
+                                "fn main(): i32 { return count_rows(values()); }\n");
+    auto accepted_result = check(accepted);
+    CHECK(accepted_result.ok, "an unmarked slice matches a variadic slice element of slice type");
+
+    Workspace rejected;
+    rejected.write("main.zithm", "fn count_numbers(values: [...]i32): i32 { return 1; }\n"
+                                "extern fn values(): []i32\n"
+                                "fn main(): i32 { return count_numbers(values()); }\n");
+    auto rejected_result = check(rejected);
+    CHECK(!rejected_result.ok, "an unmarked slice is not implicitly forwarded as a full tail");
+    CHECK(rejected_result.hasErrorCode(diagnostics::err::NoMatchingFn),
+          "a slice that cannot match the tail element reports NoMatchingFn");
+}
+
+void dynSliceForwardingRequiresSpread() {
+    const std::string prefix =
+        "trait Value {\n"
+        "    fn value(self): i32 { return 0; }\n"
+        "}\n"
+        "fn take(values: [...]dyn Value): i32 { return 1; }\n"
+        "fn forward(values: []dyn Value): i32 {\n";
+
+    Workspace implicit;
+    implicit.write("main.zithm", prefix +
+                                     "    return take(values);\n"
+                                     "}\n");
+    auto implicit_result = check(implicit);
+    CHECK(!implicit_result.ok, "an unmarked []dyn is not implicitly forwarded");
+    CHECK(implicit_result.hasErrorCode(diagnostics::err::NoMatchingFn),
+          "implicit []dyn forwarding reports NoMatchingFn");
+
+    Workspace explicit_forward;
+    explicit_forward.write("main.zithm", prefix +
+                                              "    return take(...values);\n"
+                                              "}\n");
+    auto explicit_result = check(explicit_forward);
+    CHECK(explicit_result.ok, "an explicit spread forwards a []dyn variadic tail");
+}
+
+void overloadsWithDefaultsRemainAmbiguous() {
+    Workspace workspace;
+    workspace.write("main.zithm", "fn choose(flag: i32 = 1): i32 { return 1; }\n"
+                                 "fn choose(flag: bool = true): i32 { return 2; }\n"
+                                 "fn main(): i32 { return choose(); }\n");
+    auto r = check(workspace);
+    CHECK(!r.ok, "default arguments do not silently rank overloads");
+    CHECK(r.hasErrorCode(diagnostics::err::AmbiguousCall),
+          "equally viable defaulted overloads still report AmbiguousCall");
+}
+
 void ambiguousCall() {
     Workspace workspace;
     workspace.write("main.zithm", "fn f(a: i32): i32 { a }\n"
@@ -322,6 +417,11 @@ void test_overload() {
     externFunctionsCannotOverload();
     functionAndNonFunctionCollide();
     noViableCandidate();
+    explicitVariadicSpreadSelectsOverloadByFixedPrefix();
+    explicitVariadicSpreadSelectsMethodOverload();
+    unmarkedSliceIsOneVariadicElement();
+    dynSliceForwardingRequiresSpread();
+    overloadsWithDefaultsRemainAmbiguous();
     ambiguousCall();
     linkageNamesAreQualified();
 }

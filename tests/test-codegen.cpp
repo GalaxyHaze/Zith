@@ -3057,7 +3057,7 @@ static void test_variadic_slice_explicit_vs_auto_runtime() {
                          "    return raw rest[0] + raw rest[1];\n"
                          "}\n"
                          "fn main(): i32 {\n"
-                         "    return sum(make_values()) * 10 + sum(3, 4);\n"
+                         "    return sum(...make_values()) * 10 + sum(3, 4);\n"
                          "}\n");
 
     const auto c_path   = (t.root / "values.c").string();
@@ -3096,7 +3096,7 @@ static void test_variadic_slice_method_runtime() {
                          "fn main(): i32 {\n"
                          "    let a1: Agg = Agg { total: 100 };\n"
                          "    let a2: Agg = Agg { total: 100 };\n"
-                         "    return a1.add(make_values()) - a2.add(1, 2);\n"
+                         "    return a1.add(...make_values()) - a2.add(1, 2);\n"
                          "}\n");
 
     const auto c_path   = (t.root / "values-method.c").string();
@@ -3147,7 +3147,7 @@ static void test_variadic_slice_dyn_runtime() {
                          "    let a: dyn Value = Box { n: 5 };\n"
                          "    let b: dyn Value = Box { n: 7 };\n"
                          "    let ds: []dyn Value = [a, b];\n"
-                         "    return first(a, b) * 10 + second(ds);\n"
+                         "    return first(a, b) * 10 + second(...ds);\n"
                          "}\n");
 
     auto r = t.run();
@@ -3165,7 +3165,7 @@ static void test_variadic_slice_state_runtime_forms() {
                          "}\n"
                          "extern fn make_values(): []i32\n"
                          "fn main(): i32 {\n"
-                         "    return dock Start(make_values());\n"
+                         "    return dock Start(...make_values());\n"
                          "}\n");
 
     const auto c_path   = (t.root / "values-state.c").string();

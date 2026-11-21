@@ -275,11 +275,11 @@ fn writeBuffer(allocator: dyn Allocator, msg: []char, newline: bool,
 #[discardable]
 pub fn print(allocator: dyn Allocator, msg: []char,
              values: [...]dyn Formatable): IoError {
-    return writeBuffer(allocator, msg, false, values);
+    return writeBuffer(allocator, msg, false, ...values);
 }
 
 #[discardable]
 pub fn println(allocator: dyn Allocator, msg: []char,
                values: [...]dyn Formatable): IoError {
-    return writeBuffer(allocator, msg, true, values);
+    return writeBuffer(allocator, msg, true, ...values);
 }

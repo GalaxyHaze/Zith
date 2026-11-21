@@ -1351,7 +1351,7 @@ void test_vm_v2_variadic_slice_call_forms() {
                   "\n"
                   "fn main(): i32 {\n"
                   "    let values: []i32 = [1, 2, 3];\n"
-                  "    return sum(1, 2, 3) + sum(values) + empty();\n"
+                  "    return sum(1, 2, 3) + sum(...values) + empty();\n"
                   "}\n";
     }
 

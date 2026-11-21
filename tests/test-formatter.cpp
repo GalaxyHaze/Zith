@@ -429,7 +429,7 @@ static void test_formatter_function_kinds_round_trip() {
 
 static void test_formatter_state_machine_round_trip() {
     const std::string source = "state Start(v: i32): i32 {\n"
-                               "    jump Done(v + 1);\n"
+                               "    jump Done(...v);\n"
                                "}\n"
                                "\n"
                                "state Done(v: i32): i32 {\n"
@@ -437,7 +437,9 @@ static void test_formatter_state_machine_round_trip() {
                                "}\n"
                                "\n"
                                "fn main(): i32 {\n"
-                               "    let result: i32 = dock Start(41);\n"
+                               "    send(...values);\n"
+                               "    let piped: i32 = 10 |> send(..);\n"
+                               "    let result: i32 = dock Start(...41);\n"
                                "    return result;\n"
                                "}\n";
     auto snapshot            = frontend::parse(source);

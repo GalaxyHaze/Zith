@@ -324,14 +324,6 @@ private:
     [[nodiscard]] size_t variadicSliceParam(const session::ResolvedName *binding,
                                             const FunctionType *fn) const;
 
-    /// True when the final argument of a `[...]T` call is an explicit slice
-    /// that must be passed as the slice parameter rather than auto-collected
-    /// as one element. A concrete final slice still auto-collects when the
-    /// slice element is a `dyn Trait`, because the value must be erased before
-    /// it can be stored in the tail array.
-    [[nodiscard]] bool variadicFinalArgIsExplicitSlice(TypeId slice_type,
-                                                       frontend::ExprId last_arg) const;
-
     /// Validates and retypes the `[...]T` tail around the inferred element type.
     /// Returns the slice parameter type when all tail arguments fit. `span` is
     /// used for diagnostics; `args` must hold the arguments to validate.
@@ -349,7 +341,13 @@ private:
     [[nodiscard]] VariadicCallPlan
     makeVariadicCallPlan(frontend::TextSpan span, const std::vector<frontend::ExprId> &args,
                          const FunctionType *signature, bool variadic_slice,
-                         size_t fixed_explicit_args, bool has_callee_prefix = true);
+                         size_t fixed_explicit_args, const std::vector<bool> &spread_args,
+                         bool has_callee_prefix = true);
+    /// Spread is only valid on the final argument that occupies a variadic
+    /// slice tail. `fixed_explicit_args` excludes implicit method receivers.
+    [[nodiscard]] bool spreadMarkersAreValid(const std::vector<bool> &spread_args,
+                                             size_t written_args,
+                                             size_t fixed_explicit_args) const noexcept;
 
     /// Validates the `[...]T` tail arguments after the first explicit index
     /// in `args`. The element type comes from `slice_type`, so method paths
@@ -701,6 +699,7 @@ private:
         TypeId type                          = kInvalidTypeId;
         const FunctionType *fn               = nullptr;
         bool variadicSlice                   = false;
+        VariadicCallPlan variadicPlan;
         frontend::TextSpan span{};
         session::ModuleKey module;
         frontend::DeclId decl;
