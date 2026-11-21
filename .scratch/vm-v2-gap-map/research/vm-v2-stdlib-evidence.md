@@ -34,7 +34,7 @@ but printed `ALLOW ... (status 5)` for each of these seven cases:
 | `console_println_two_literals` | `println(heap, "a", "b")` at `tests/test-stdlib-parity.cpp:72-82` | status 5, same dyn-allocator reason | VM rejection is confirmed. The native stdlib ignores surplus values, but VM parity is not reached. |
 | `console_println_format_int` | `println(heap, "bucket=#", 73)` at `tests/test-stdlib-parity.cpp:83-92` | status 5, allow-listed as variadic `Formatable` unsupported | VM rejection is confirmed, but neither the phase nor the allow-list reason is verified as the actual cause. See the fast-path signature mismatch below. |
 | `hash_map_u64_put_get` | `reserve`, `put`, `contains`, `get`, and `destroy` at `tests/test-stdlib-parity.cpp:97-121` | status 5, allow-listed as an unsupported HIR branch shape | VM rejection is confirmed. The harness does not retain the actual phase or lowering message, so the branch-shape attribution is unverified. |
-| `allocator_heap_dyn_dispatch` | `allocate`/`deallocate` through `HeapAllocator` at `tests/test-stdlib-parity.cpp:122-134` | status 5, allow-listed as unsupported dyn allocator dispatch | VM rejection is confirmed. The reason is plausible from the stdlib API (`allocator.zith:24-37`), but the harness does not prove the phase or failing operation. |
+| `allocator_heap_dyn_dispatch` | `allocate`/`deallocate` through `HeapAllocator` at `tests/test-stdlib-parity.cpp:122-134` | status 5, allow-listed as unsupported dyn allocator dispatch | VM rejection is confirmed. The reason is plausible from the stdlib API (`allocator.zithm:24-37`), but the harness does not prove the phase or failing operation. |
 | `inplace_opaque_contract` | `Box as InPlace` with `args: opaque` at `tests/test-stdlib-parity.cpp:135-156` | status 5, allow-listed as unsupported opaque contract | VM rejection is confirmed. The harness does not expose the phase, actual failing HIR node, or diagnostic. |
 
 The parity harness maps failures at three different stages to the same
@@ -50,7 +50,7 @@ rejections, not seven independently diagnosed lowering failures.
 One likely stale integration seam explains the console cases, but is not
 reported directly by the harness. The current stdlib declares
 `print(allocator, msg, values)` and `println(allocator, msg, values)`
-(`stdlib/std/io/console.zith:275-284`). The VM intrinsic path identifies the
+(`stdlib/std/io/console.zithm:275-284`). The VM intrinsic path identifies the
 first call argument as the message slice (`src/vm/hir-to-vm.cpp:584-605`).
 The parity programs pass the allocator first. The test-only virtual stdlib
 uses the older `println(msg, values)` signature and passes
@@ -86,7 +86,7 @@ coverage is stale or broken, but it does not establish a runtime mismatch for
 a valid current-API native program.
 
 The input API is an important untested boundary, not a confirmed mismatch.
-`std/io/console.input` reads via `getchar` (`stdlib/std/io/console.zith:203-220`),
+`std/io/console.input` reads via `getchar` (`stdlib/std/io/console.zithm:203-220`),
 while the VM handler always returns end-of-input because the playground has
 no stdin (`src/vm/vm-v2.cpp:264-271`). Native-versus-VM behavior for supplied
 stdin is therefore likely different, but the current parity harness supplies
@@ -134,27 +134,27 @@ specification.
 The parity slice contains only seven cases and no completed stdlib runtime
 comparison. Useful native-accepted examples already exist in the repository:
 
-- `examples/dyn-array.zith:1-49` exercises generic `DynArray` reserve, growth,
+- `examples/dyn-array.zithm:1-49` exercises generic `DynArray` reserve, growth,
   push, get, remove, pop, and destroy. It is registered as a native example
   with expected exit code 0 (`tests/test-examples.cpp:23-44`), but is absent
   from the VM parity case table.
-- `examples/allocator-simple.zith:1-32` exercises allocation, alignment,
+- `examples/allocator-simple.zithm:1-32` exercises allocation, alignment,
   reallocation, preserved contents, and deallocation. It is registered as a
   native example (`tests/test-examples.cpp:23-25`), but parity currently has
   only one simple allocate/deallocate case.
-- `stdlib/std/io/format.zith:319-359` implements `Formatable` for slices,
+- `stdlib/std/io/format.zithm:319-359` implements `Formatable` for slices,
   booleans, floats, integers, and C strings. The parity table only attempts an
   integer placeholder, and currently rejects before establishing the
   formatting behavior. Escaped placeholders, missing placeholders, extra
   values, no-placeholder messages, and the other supported formatter types
   have no VM/native comparison.
 - `std/io/console.input` and its `ParseInput` implementations cover `i32`,
-  `bool`, `f32`, `f64`, and `u32` (`stdlib/std/io/console.zith:6-10`,
+  `bool`, `f32`, `f64`, and `u32` (`stdlib/std/io/console.zithm:6-10`,
   `173-220`). There is no controlled-stdin parity example.
 - The status-5 hash-map test only exercises the concrete `u64` map, while the
-  repository also has a generic hash-map example (`examples/hash-map.zith`).
+  repository also has a generic hash-map example (`examples/hash-map.zithm`).
   The generic target is explicitly documented as a draft due to generic
-  reification and trait-bound limitations (`stdlib/std/collections/hash_map_u64.zith:5-9`),
+  reification and trait-bound limitations (`stdlib/std/collections/hash_map_u64.zithm:5-9`),
   so it should be classified separately from supported native `Zith--` API
   coverage rather than assumed to be a committed parity target.
 

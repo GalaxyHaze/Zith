@@ -43,7 +43,7 @@ Observed on this checkout, whose `HEAD` is the stated baseline:
   VM status 5 for all seven cases.
 - `test-vm-v2`: 188 checks passed and 11 failed. The failed checks cluster in
   three older source-level console tests: their `println`/`print` calls omit
-  the allocator argument now required by `stdlib/std/io/console.zith:276-285`.
+  the allocator argument now required by `stdlib/std/io/console.zithm:276-285`.
   These are compile/pipeline or lowering failures, not observed runtime
   mismatches. The suite's relevant old calls are at
   `tests/test-vm-v2.cpp:858-862`, `:977-986`, and `:1228-1235`.
@@ -77,7 +77,7 @@ detail. The harness maps HIR/lowering failure to unsupported before invoking
 the VM at `tests/test-stdlib-parity.cpp:233-256`; it also maps a runtime
 `RunStatus::Unsupported` to status 5 at `:258-264`.
 The native results above were also reproduced directly for each persisted
-source under `/tmp/zith-stdlib-parity-tests/<case>/main.zith`, using
+source under `/tmp/zith-stdlib-parity-tests/<case>/main.zithm`, using
 `/home/diogo/Zith/build/zithc --include /home/diogo/Zith/stdlib run <source>`.
 All seven invocations had empty stderr. The two exit-42 results are the source
 programs' intentional return values, not native compile failures.
@@ -87,7 +87,7 @@ programs' intentional return values, not native compile failures.
 `docs/vm-v2-stdlib-parity.md:31-42` currently says the three literal console
 cases pass through both backends. At baseline, the test instead reports status
 5 for those cases, matching the console API's allocator parameter at
-`stdlib/std/io/console.zith:276-285`. The document's four other status-5 cases
+`stdlib/std/io/console.zithm:276-285`. The document's four other status-5 cases
 at `:44-54` agree with the verbose test output. The three “passing programs”
 entries should therefore be treated as stale evidence, not current parity.
 

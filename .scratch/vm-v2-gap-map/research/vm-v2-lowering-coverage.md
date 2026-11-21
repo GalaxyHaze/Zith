@@ -61,7 +61,7 @@ RAG fallback, then checked every finding against source, tests, and
   the case's allow-list reason does not prove the failure cause. The VM
   fast-path check at `src/vm/hir-to-vm.cpp:571-600` inspects `call.args[0]`
   for a message slice, while the current API takes `allocator` before `msg`
-  (`stdlib/std/io/console.zith:275-284`). Thus the checked-in case does not
+  (`stdlib/std/io/console.zithm:275-284`). Thus the checked-in case does not
   establish that the placeholder guard is reached. Treat formatted rendering
   as a candidate gap requiring phase-specific evidence, not a confirmed cause.
 - **Dynamic indexing outside arrays/slices:** the VM supports array and slice
