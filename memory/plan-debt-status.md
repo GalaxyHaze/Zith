@@ -48,6 +48,8 @@ The active plan homes are:
   repetition and caller-scope cleanup registration, drawing stage.
 - `docs/plans/macro-type-aware-branches.md`: type-aware macro arguments,
   generic type-category predicates, and `@staticAssert`, drawing stage.
+- `docs/plans/packs/operations-and-iteration.md`: pack operations, spread
+  contexts beyond ADR-0061, and comptime pack iteration, drawing stage.
 - `docs/plans/abi/explicit-alignment.md`: Zith-- type and binding alignment,
   currently promising and pending idea-owner review.
 - `docs/plans/stdlib/allocator-ownership.md`: explicit allocator ownership and
