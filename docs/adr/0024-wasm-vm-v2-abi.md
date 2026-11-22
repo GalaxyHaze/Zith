@@ -59,10 +59,15 @@ The flat HIR format lives under `src/wasm/abi-hir.*`. It is independent of
 structure so a later artifact cache can adopt or extend it without breaking
 the JS ABI.
 
-The current flat HIR format is version 3. It stores the sema-selected
-variadic-slice parameter and auto-collection decision on each `HirCall`, so VM
-lowering does not need to infer whether a tail was collected or explicitly
-passed. The decoder rejects blobs with another version.
+The flat HIR format is version 7. Section marker `6` introduces module-local
+vtables with ordered function slots. Marker `7` introduces concrete struct
+definitions, including ordered field metadata, type arguments, and layout data.
+VM v2 uses this information to execute serialized `HirMakeDyn` and `HirDynCall`
+expressions after a round trip. The tested `dyn` support boundary is this VM
+v2/WASM dispatch path. It does not imply support in every compiler backend.
+
+The WASM execution ABI remains version 2. The flat HIR version is a separate
+format version, and the decoder rejects blobs from another flat HIR version.
 
 The old execution IR v1 implementation is archived under
 `archive/execution-ir-v1/` and removed from active builds and tests. It is

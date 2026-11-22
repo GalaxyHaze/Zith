@@ -1,0 +1,24 @@
+# module: wasm-playground-vtables
+
+1. baseline(contract: existing_tree) -> verified_baseline
+   depends_on: __root__::wasm_playground_vtables_plan
+
+2. flat_hir_codec(vtables: HIR) -> round_trip
+   use: wasm-playground-vtables::baseline
+   depends_on: wasm-playground-vtables::baseline
+
+3. wasm_dyn_execution(round_trip: flat_hir) -> exit_73
+   use: wasm-playground-vtables::flat_hir_codec
+   depends_on: wasm-playground-vtables::flat_hir_codec
+
+4. browser_command_chain(commands: CLI) -> sequential_dispatch
+   use: wasm-playground-vtables::baseline
+   depends_on: wasm-playground-vtables::baseline
+
+5. contract_docs(implementation: verified) -> consistent_docs
+   use: wasm-playground-vtables::flat_hir_codec, wasm-playground-vtables::wasm_dyn_execution, wasm-playground-vtables::browser_command_chain
+   depends_on: wasm-playground-vtables::wasm_dyn_execution, wasm-playground-vtables::browser_command_chain
+
+6. local_sync_and_review(artifacts: local) -> reviewed_worktree
+   use: wasm-playground-vtables::contract_docs
+   depends_on: wasm-playground-vtables::contract_docs

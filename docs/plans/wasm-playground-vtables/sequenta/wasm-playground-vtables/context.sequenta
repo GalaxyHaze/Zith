@@ -1,0 +1,86 @@
+[1]
+task: wasm-playground-vtables::baseline
+status: done
+desc: Record and verify the compiler and website baselines before adding regressions.
+impl:
+  - Preserve all pre-existing worktree changes, including probe-allocator-lend.zithm and unrelated website changes.
+  - Verify the focused native tests before changing their assertions.
+  - Record local website artifact hashes and attempt a read-only live-manifest check.
+tests:
+  | id | dado | quando | então |
+  | B-1 | clean baseline test targets | before edits | existing wasm contract and VM gap tests pass |
+  | B-2 | local WASM, pack, and manifest | baseline recorded | hashes are recorded without modifying website assets |
+
+[2]
+task: wasm-playground-vtables::flat_hir_codec
+status: done
+desc: Serialize and reconstruct module-local HIR vtable rows in flat-HIR version 7.
+impl:
+  - First add a public encode/decode round-trip test for two vtables and dynamic expression references.
+  - Assert version 6 blobs are rejected after the format version changes to 7.
+  - Add vtable section marker 6 after safety proofs, with bounded counts and ordered function slots.
+  - Keep the exported WASM ABI version at 2.
+tests:
+  | id | dado | quando | então |
+  | H-1 | HIR with two vtables and dyn references | encode then decode | names, ordered slots, and expression references survive |
+  | H-2 | flat-HIR blob with version word 6 | decode version-7 format | decoder rejects it as an invalid header |
+
+[3]
+task: wasm-playground-vtables::wasm_dyn_execution
+status: done
+desc: Complete the flat-HIR type metadata required by dynamic dispatch and verify both public WASM execution paths.
+impl:
+  - Preserve struct definitions, ordered fields, field types, and layout metadata in flat-HIR version 7.
+  - Add a public round-trip assertion that decoded concrete struct definitions preserve field reads.
+  - Reuse the two-implementation Biased fixture whose native VM result is 73.
+  - Exercise zith_emit_hir plus zith_execute_hir and the direct zith_run_source path.
+  - Build the WASM artifact in /tmp and run the existing Node runtime harness against it.
+  - Keep the existing native test_dyn_method_dispatch regression unchanged.
+tests:
+  | id | dado | quando | então |
+  | W-0 | First and Second struct definitions | encode then decode | names and ordered field layouts survive |
+  | W-1 | Biased fixture through encoded HIR | execute decoded HIR | ABI status is 0 and guest exit code is 73 |
+  | W-2 | Biased fixture through run_source | compile and execute source | ABI status is 0 and guest exit code is 73 |
+
+[4]
+task: wasm-playground-vtables::browser_command_chain
+status: done
+desc: Add limited sequential && chaining to the browser terminal only.
+impl:
+  - Add a DOM-free browser/CommonJS helper for parsing and dispatching command chains.
+  - Validate the entire chain and reject empty segments before dispatching any command.
+  - Dispatch left to right and stop on false; do not add general shell parsing.
+  - Preserve clear behavior and make run return failure for nonzero guest exits.
+  - Echo the original command once, document chaining in help, and load the helper first.
+tests:
+  | id | dado | quando | então |
+  | C-1 | clear && run | browser terminal dispatches chain | old output clears and the current editor buffer runs |
+  | C-2 | whitespace around nonempty commands | parse chain | segments are trimmed and preserve order |
+  | C-3 | empty leading, middle, or trailing segment | parse then dispatch | chain is rejected before any command executes |
+  | C-4 | command dispatcher returns false | run a multi-command chain | later commands are skipped |
+
+[5]
+task: wasm-playground-vtables::contract_docs
+status: done
+desc: Align ABI documentation, ADR, and glossary with the verified implementation.
+impl:
+  - Document flat-HIR version 7 and the vtable section without changing WASM ABI version 2.
+  - Limit dyn support claims to the tested VM v2/WASM dispatch path.
+  - Run documentation consistency checks and diff whitespace checks.
+tests:
+  | id | dado | quando | então |
+  | D-1 | ABI docs, ADR, and glossary | consistency checks run | all describe flat-HIR version 7 and the same support boundary |
+
+[6]
+task: wasm-playground-vtables::local_sync_and_review
+status: done
+desc: Review changes and, only with filesystem approval, synchronize local website artifacts.
+impl:
+  - Review the final compiler diff against the implementation plan and repository standards.
+  - Request filesystem approval before any write in /home/diogo/Zith-website.
+  - Recheck website target-file status and stop if an artifact target has unreviewed edits.
+  - Do not publish, push, release, or deploy.
+tests:
+  | id | dado | quando | então |
+  | R-1 | final implementation diff | two-axis review and project checks | no unresolved findings and all required checks are reported |
+  | R-2 | generated local WASM and stdlib pack | after explicit filesystem approval | local manifest hashes match the exact artifacts |

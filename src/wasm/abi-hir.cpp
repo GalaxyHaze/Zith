@@ -25,7 +25,8 @@ constexpr uint32_t kBlobMagic   = 0x5A4D4849U; // "ZMHI"
 // v4: function references are HIR-module indices, not symbol-table ids.
 // v5: safety modes and expression-bound proof facts are part of the HIR blob.
 // v6: generic parameter owners are canonical names, not frontend-local IDs.
-constexpr uint32_t kBlobVersion = 6U;
+// v7: module-local vtables and concrete struct definitions are serialized.
+constexpr uint32_t kBlobVersion = 7U;
 
 constexpr size_t kMaxArrayCount = 1U << 20;
 
@@ -1191,6 +1192,55 @@ auto encodeHir(const hir::HirModule &module, const memory::StringInterner &inter
         writer.putU32(proof->operand_c);
     }
 
+    if (module.getVTableCount() > kMaxArrayCount) {
+        result.message = "flat HIR vtable count overflow";
+        return result;
+    }
+    writer.putU8(6); // module-local vtable section marker
+    writer.putU32(static_cast<uint32_t>(module.getVTableCount()));
+    for (size_t i = 0; i < module.getVTableCount(); ++i) {
+        const auto &vtable = module.getVTable(i);
+        if (vtable.slots.size() > kMaxArrayCount) {
+            result.message = "flat HIR vtable slot count overflow";
+            return result;
+        }
+        writer.putU32(vtable.name);
+        writer.putU32(static_cast<uint32_t>(vtable.slots.size()));
+        for (const auto slot : vtable.slots)
+            writer.putU32(slot);
+    }
+
+    if (types.structDefCount() > kMaxArrayCount) {
+        result.message = "flat HIR struct-definition count overflow";
+        return result;
+    }
+    writer.putU8(7); // concrete struct-definition section marker
+    writer.putU32(static_cast<uint32_t>(types.structDefCount()));
+    for (uint32_t i = 0; i < types.structDefCount(); ++i) {
+        const auto *definition = types.lookupStructDef(i);
+        if (definition == nullptr || definition->fields.size() > kMaxArrayCount ||
+            definition->args.size() > kMaxArrayCount) {
+            result.message = "flat HIR struct-definition row invalid";
+            return result;
+        }
+        writer.putU32(definition->name);
+        writer.putU32(static_cast<uint32_t>(definition->fields.size()));
+        for (const auto &field : definition->fields) {
+            writer.putU32(field.name);
+            writer.putU32(field.type);
+            writer.putI64(static_cast<int64_t>(field.foreignOffsetBytes));
+        }
+        writer.putU32(static_cast<uint32_t>(definition->args.size()));
+        for (const auto arg : definition->args)
+            writer.putU32(arg);
+        writer.putString(definition->defining_module);
+        writer.putU8(definition->hasForeignLayout ? 1U : 0U);
+        writer.putU8(definition->foreignAbiIsSingleI64 ? 1U : 0U);
+        writer.putI64(static_cast<int64_t>(definition->foreignSizeBytes));
+        writer.putI64(static_cast<int64_t>(definition->foreignAlignBytes));
+        writer.putU32(definition->explicitAlignmentBytes);
+    }
+
     result.blob.bytes = writer.bytes();
     result.ok         = true;
     return result;
@@ -1284,6 +1334,105 @@ auto decodeHir(std::span<const uint8_t> data, DecodedHir &result) -> bool {
         proof.operand_b = reader.u32();
         proof.operand_c = reader.u32();
         proof.present = true;
+    }
+
+    if (reader.u8() != 6) {
+        result.message = "flat HIR vtable section marker invalid";
+        return false;
+    }
+    const uint32_t vtableCount = reader.u32();
+    if (vtableCount > kMaxArrayCount) {
+        result.message = "flat HIR vtable count overflow";
+        return false;
+    }
+    for (uint32_t i = 0; i < vtableCount; ++i) {
+        const auto name          = reader.u32();
+        const uint32_t slotCount = reader.u32();
+        if (slotCount > kMaxArrayCount) {
+            result.message = "flat HIR vtable slot count overflow";
+            return false;
+        }
+        auto &vtable = result.module.addVTable(name);
+        for (uint32_t slot = 0; slot < slotCount; ++slot)
+            vtable.slots.push(reader.u32());
+        if (!reader.ok()) {
+            result.message = "flat HIR vtable row invalid";
+            return false;
+        }
+    }
+
+    if (reader.u8() != 7) {
+        result.message = "flat HIR struct-definition section marker invalid";
+        return false;
+    }
+    const uint32_t structDefCount = reader.u32();
+    if (structDefCount > kMaxArrayCount) {
+        result.message = "flat HIR struct-definition count overflow";
+        return false;
+    }
+    for (uint32_t i = 0; i < structDefCount; ++i) {
+        const auto name = reader.u32();
+        if (!reader.ok() || name >= result.interner.poolSize()) {
+            result.message = "flat HIR struct-definition row invalid";
+            return false;
+        }
+        const auto structType = result.types.defineStruct(result.interner.lookup(name));
+        const auto *type      = std::get_if<types::TypeStruct>(&result.types.lookup(structType));
+        if (type == nullptr || type->def_id != i) {
+            result.message = "flat HIR struct-definition identity invalid";
+            return false;
+        }
+
+        const uint32_t fieldCount = reader.u32();
+        if (fieldCount > kMaxArrayCount) {
+            result.message = "flat HIR struct field count overflow";
+            return false;
+        }
+        for (uint32_t fieldIndex = 0; fieldIndex < fieldCount; ++fieldIndex) {
+            const auto fieldName     = reader.u32();
+            const auto fieldType     = reader.u32();
+            const auto foreignOffset = static_cast<uint64_t>(reader.i64());
+            if (!reader.ok() || fieldName >= result.interner.poolSize() ||
+                fieldType >= result.types.count()) {
+                result.message = "flat HIR struct field row invalid";
+                return false;
+            }
+            result.types.addField(structType, result.interner.lookup(fieldName), fieldType,
+                                  foreignOffset);
+        }
+
+        const uint32_t argCount = reader.u32();
+        if (argCount > kMaxArrayCount) {
+            result.message = "flat HIR struct type-argument count overflow";
+            return false;
+        }
+        std::vector<types::TypeId> args;
+        args.reserve(argCount);
+        for (uint32_t argIndex = 0; argIndex < argCount; ++argIndex) {
+            const auto arg = reader.u32();
+            if (arg >= result.types.count()) {
+                result.message = "flat HIR struct type-argument row invalid";
+                return false;
+            }
+            args.push_back(arg);
+        }
+
+        const auto definingModule = reader.string();
+        auto &definition          = result.types.getStructDef(structType);
+        definition.args.clear();
+        for (const auto arg : args)
+            definition.args.push(arg);
+        definition.defining_module =
+            result.interner.lookup(result.interner.copyString(definingModule));
+        definition.hasForeignLayout       = reader.u8() != 0;
+        definition.foreignAbiIsSingleI64  = reader.u8() != 0;
+        definition.foreignSizeBytes       = static_cast<uint64_t>(reader.i64());
+        definition.foreignAlignBytes      = static_cast<uint64_t>(reader.i64());
+        definition.explicitAlignmentBytes = reader.u32();
+        if (!reader.ok()) {
+            result.message = "flat HIR struct-definition row invalid";
+            return false;
+        }
     }
 
     if (!reader.ok()) {

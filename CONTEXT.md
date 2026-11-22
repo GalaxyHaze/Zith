@@ -505,9 +505,12 @@ _Avoid_: embedded stdlib copy, browser-only stdlib, virtual stdlib fork
 **WASM HIR flat**:
 The versioned, stateless binary representation of the lowered `HirModule`
 produced by `zith_emit_hir`. It is self-contained: strings, types, functions,
-and expressions can be reconstructed without the original source or compiler
-session. Its layout is intentionally compatible with a future artifact cache
-so cached HIR can be reused without a new lowering pass.
+expressions, module-local vtables with ordered function slots, and concrete
+struct definitions can be reconstructed without the original source or
+compiler session. Version 7 stores ordered struct fields and layout metadata
+needed by the tested VM v2/WASM `dyn` dispatch path. The WASM execution ABI
+remains version 2. The flat HIR format is independent of `.zirl`. Its layout is
+intended to support future artifact-cache reuse without another lowering pass.
 _Avoid_: ZIRL blob, cache bytecode, source snapshot, textual HIR dump
 
 **WASM execution ABI**:

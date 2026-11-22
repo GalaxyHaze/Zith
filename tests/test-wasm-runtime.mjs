@@ -146,6 +146,25 @@ fn main(): i32 {
 }
 `;
 
+const dynDispatchSource = `interface Biased {
+    fn value(self, bias: i32): i32
+}
+struct First {
+    base: i32,
+    fn value(self, bias: i32): i32 { self.base + bias }
+}
+struct Second {
+    base: i32,
+    fn value(self, bias: i32): i32 { self.base * bias }
+}
+fn apply(value: dyn Biased, bias: i32): i32 {
+    return value.value(bias);
+}
+fn main(): i32 {
+    return apply(First { base: 10 }, 3) + apply(Second { base: 20 }, 3);
+}
+`;
+
 // VM v2 lowers pointer dereference, so the previous `*(&x)` fixture is no
 // longer unsupported. An external global still has no VM v2 representation and
 // keeps the unsupported-construct status path covered.
@@ -385,6 +404,21 @@ fn main(): i32 {
               "run_source executes through VM v2");
   assertEqual(stdoutChunks.join(""), "run-source\n", "run_source output");
   assertEqual(instance.exports.zith_exit_code(), 9n, "run_source exit code");
+
+  stdoutChunks.length = 0;
+  stderrChunks.length = 0;
+  const dynHir = compileSource(dynDispatchSource);
+  assertEqual(runHir(dynHir), 0, "dyn dispatch executes from flat HIR");
+  assertEqual(instance.exports.zith_exit_code(), 73n,
+              "flat HIR dyn dispatch selects both implementations");
+
+  stdoutChunks.length = 0;
+  stderrChunks.length = 0;
+  const dynSource = writeString(dynDispatchSource);
+  assertEqual(instance.exports.zith_run_source(dynSource.ptr, dynSource.len), 0,
+              "dyn dispatch executes through run_source");
+  assertEqual(instance.exports.zith_exit_code(), 73n,
+              "run_source dyn dispatch selects both implementations");
 
   stdoutChunks.length = 0;
   stderrChunks.length = 0;

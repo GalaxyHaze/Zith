@@ -2,6 +2,9 @@
 #include "wasm/abi-hir.hpp"
 #include "test-common.hpp"
 
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
 
 namespace {
@@ -98,10 +101,219 @@ void test_hir_safety_round_trip() {
     CHECK(!decoded.module.getFn(1).hasBody,
           "WASM HIR round-trip preserves the function declaration classification");
 }
+
+void test_hir_dyn_vtable_round_trip() {
+    zith::memory::Arena arena;
+    zith::memory::StringInterner interner(arena);
+    zith::types::TypeIntern types(arena, interner);
+    zith::hir::HirModule module(arena);
+    const auto i32 = types.internInt(zith::types::IntWidth::I32);
+
+    const auto first_type = types.defineStruct("First");
+    types.addField(first_type, "base", i32, 8);
+    const std::array first_args{i32};
+    types.setTypeArgs(first_type, first_args);
+    types.setDefiningModule(first_type, "wasm-dyn-test");
+    types.setForeignLayout(first_type, 16, 8, false);
+    types.setExplicitAlignment(first_type, 8);
+    const auto second_type = types.defineStruct("Second");
+    types.addField(second_type, "base", i32, 4);
+
+    auto &first_fn        = module.addFn(interner.intern("First.value"));
+    first_fn.return_type  = i32;
+    auto &second_fn       = module.addFn(interner.intern("Second.value"));
+    second_fn.return_type = i32;
+
+    const auto first_name = interner.intern("Biased::First");
+    auto &first_vtable    = module.addVTable(first_name);
+    first_vtable.slots.push(0);
+    const auto second_name = interner.intern("Biased::Second");
+    auto &second_vtable    = module.addVTable(second_name);
+    second_vtable.slots.push(1);
+
+    zith::hir::HirLiteral value;
+    value.type          = i32;
+    const auto value_id = module.addExpr(value);
+
+    zith::hir::HirMakeDyn first_make;
+    first_make.value         = value_id;
+    first_make.source_type   = first_type;
+    first_make.dyn_type      = i32;
+    first_make.vtable_name   = first_name;
+    const auto first_make_id = module.addExpr(first_make);
+
+    zith::hir::HirDynCall first_call(arena);
+    first_call.receiver      = first_make_id;
+    first_call.vtable_name   = first_name;
+    first_call.result_type   = i32;
+    const auto first_call_id = module.addExpr(std::move(first_call));
+
+    zith::hir::HirMakeDyn second_make;
+    second_make.value         = value_id;
+    second_make.source_type   = second_type;
+    second_make.dyn_type      = i32;
+    second_make.vtable_name   = second_name;
+    const auto second_make_id = module.addExpr(second_make);
+
+    zith::hir::HirDynCall second_call(arena);
+    second_call.receiver      = second_make_id;
+    second_call.vtable_name   = second_name;
+    second_call.result_type   = i32;
+    const auto second_call_id = module.addExpr(std::move(second_call));
+
+    const auto encoded = zith::wasm::encodeHir(module, interner, types);
+    CHECK(encoded.ok, "HIR with dyn calls and vtables encodes");
+    if (!encoded.ok)
+        return;
+
+    zith::wasm::DecodedHir decoded;
+    CHECK(zith::wasm::decodeHir(encoded.blob.bytes, decoded),
+          "flat HIR with dyn calls and vtables decodes");
+    if (!decoded.ok)
+        return;
+
+    CHECK_EQ(decoded.module.getVTableCount(), 2U, "flat HIR preserves both vtable rows");
+    if (decoded.module.getVTableCount() == 2U) {
+        const auto &decoded_first  = decoded.module.getVTable(0);
+        const auto &decoded_second = decoded.module.getVTable(1);
+        CHECK(decoded.interner.lookup(decoded_first.name) == "Biased::First",
+              "flat HIR preserves the first vtable name");
+        CHECK_EQ(decoded_first.slots.size(), 1U, "flat HIR preserves the first slot count");
+        CHECK_EQ(decoded_first.slots[0], 0U, "flat HIR preserves the first function slot");
+        CHECK(decoded.interner.lookup(decoded_second.name) == "Biased::Second",
+              "flat HIR preserves the second vtable name");
+        CHECK_EQ(decoded_second.slots.size(), 1U, "flat HIR preserves the second slot count");
+        CHECK_EQ(decoded_second.slots[0], 1U, "flat HIR preserves the second function slot");
+    }
+
+    const auto *decoded_first_type =
+        std::get_if<zith::types::TypeStruct>(&decoded.types.lookup(first_type));
+    CHECK(decoded_first_type != nullptr, "flat HIR preserves the first struct type row");
+    const auto *decoded_first_def = decoded_first_type != nullptr
+                                        ? decoded.types.lookupStructDef(decoded_first_type->def_id)
+                                        : nullptr;
+    CHECK(decoded_first_def != nullptr, "flat HIR restores the first struct definition");
+    if (decoded_first_def != nullptr && decoded_first_def->fields.size() == 1U) {
+        CHECK(decoded.interner.lookup(decoded_first_def->name) == "First",
+              "flat HIR preserves the first struct name");
+        CHECK(decoded.interner.lookup(decoded_first_def->fields[0].name) == "base",
+              "flat HIR preserves the first struct field name");
+        CHECK_EQ(decoded_first_def->fields[0].type, i32,
+                 "flat HIR preserves the first struct field type");
+        CHECK_EQ(decoded_first_def->fields[0].foreignOffsetBytes, 8U,
+                 "flat HIR preserves the first struct field offset");
+        CHECK_EQ(decoded_first_def->args.size(), 1U,
+                 "flat HIR preserves the first struct type-argument count");
+        if (decoded_first_def->args.size() == 1U)
+            CHECK_EQ(decoded_first_def->args[0], i32,
+                     "flat HIR preserves the first struct type argument");
+        CHECK(decoded_first_def->defining_module == "wasm-dyn-test",
+              "flat HIR preserves the defining module name");
+        CHECK(decoded_first_def->hasForeignLayout,
+              "flat HIR preserves the validated foreign-layout flag");
+        CHECK(!decoded_first_def->foreignAbiIsSingleI64,
+              "flat HIR preserves the foreign ABI shape");
+        CHECK_EQ(decoded_first_def->foreignSizeBytes, 16U,
+                 "flat HIR preserves the foreign struct size");
+        CHECK_EQ(decoded_first_def->foreignAlignBytes, 8U,
+                 "flat HIR preserves the foreign struct alignment");
+        CHECK_EQ(decoded_first_def->explicitAlignmentBytes, 8U,
+                 "flat HIR preserves the explicit struct alignment");
+    }
+
+    const auto *decoded_second_type =
+        std::get_if<zith::types::TypeStruct>(&decoded.types.lookup(second_type));
+    CHECK(decoded_second_type != nullptr, "flat HIR preserves the second struct type row");
+    const auto *decoded_second_def =
+        decoded_second_type != nullptr ? decoded.types.lookupStructDef(decoded_second_type->def_id)
+                                       : nullptr;
+    CHECK(decoded_second_def != nullptr, "flat HIR restores the second struct definition");
+    if (decoded_second_def != nullptr && decoded_second_def->fields.size() == 1U) {
+        CHECK(decoded.interner.lookup(decoded_second_def->name) == "Second",
+              "flat HIR preserves the second struct name");
+        CHECK(decoded.interner.lookup(decoded_second_def->fields[0].name) == "base",
+              "flat HIR preserves the second struct field name");
+        CHECK_EQ(decoded_second_def->fields[0].type, i32,
+                 "flat HIR preserves the second struct field type");
+        CHECK_EQ(decoded_second_def->fields[0].foreignOffsetBytes, 4U,
+                 "flat HIR preserves the second struct field offset");
+    }
+
+    const auto *decoded_first_make =
+        std::get_if<zith::hir::HirMakeDyn>(&decoded.module.getExpr(first_make_id));
+    CHECK(decoded_first_make != nullptr &&
+              decoded.interner.lookup(decoded_first_make->vtable_name) == "Biased::First",
+          "flat HIR preserves the first make-dyn vtable reference");
+    const auto *decoded_first_call =
+        std::get_if<zith::hir::HirDynCall>(&decoded.module.getExpr(first_call_id));
+    CHECK(decoded_first_call != nullptr &&
+              decoded.interner.lookup(decoded_first_call->vtable_name) == "Biased::First",
+          "flat HIR preserves the first dyn-call vtable reference");
+    const auto *decoded_second_make =
+        std::get_if<zith::hir::HirMakeDyn>(&decoded.module.getExpr(second_make_id));
+    CHECK(decoded_second_make != nullptr &&
+              decoded.interner.lookup(decoded_second_make->vtable_name) == "Biased::Second",
+          "flat HIR preserves the second make-dyn vtable reference");
+    const auto *decoded_second_call =
+        std::get_if<zith::hir::HirDynCall>(&decoded.module.getExpr(second_call_id));
+    CHECK(decoded_second_call != nullptr &&
+              decoded.interner.lookup(decoded_second_call->vtable_name) == "Biased::Second",
+          "flat HIR preserves the second dyn-call vtable reference");
+
+    auto version_six_blob = encoded.blob.bytes;
+    version_six_blob[4]   = 6;
+    version_six_blob[5]   = 0;
+    version_six_blob[6]   = 0;
+    version_six_blob[7]   = 0;
+    zith::wasm::DecodedHir version_six;
+    CHECK(!zith::wasm::decodeHir(version_six_blob, version_six),
+          "flat HIR decoder rejects version 6 blobs");
+    CHECK(version_six.message == "invalid flat HIR header",
+          "old flat HIR version reports an invalid header");
+
+    auto truncated_struct_blob = encoded.blob.bytes;
+    truncated_struct_blob.pop_back();
+    zith::wasm::DecodedHir truncated_struct;
+    CHECK(!zith::wasm::decodeHir(truncated_struct_blob, truncated_struct),
+          "flat HIR decoder rejects a truncated struct-definition row");
+
+    auto oversized_vtable_blob = encoded.blob.bytes;
+    const auto read_u32        = [&oversized_vtable_blob](const std::size_t offset) {
+        return static_cast<uint32_t>(oversized_vtable_blob[offset]) |
+               (static_cast<uint32_t>(oversized_vtable_blob[offset + 1U]) << 8U) |
+               (static_cast<uint32_t>(oversized_vtable_blob[offset + 2U]) << 16U) |
+               (static_cast<uint32_t>(oversized_vtable_blob[offset + 3U]) << 24U);
+    };
+    std::size_t slot_count_offset = 0;
+    bool found_vtable_section     = false;
+    for (std::size_t offset = 0; offset + 29U <= oversized_vtable_blob.size(); ++offset) {
+        if (oversized_vtable_blob[offset] == 6U && read_u32(offset + 1U) == 2U &&
+            read_u32(offset + 5U) == first_name && read_u32(offset + 9U) == 1U &&
+            read_u32(offset + 13U) == 0U && read_u32(offset + 17U) == second_name &&
+            read_u32(offset + 21U) == 1U && read_u32(offset + 25U) == 1U) {
+            slot_count_offset    = offset + 21U;
+            found_vtable_section = true;
+            break;
+        }
+    }
+    CHECK(found_vtable_section, "flat HIR vtable rows are locatable in the encoded blob");
+    if (!found_vtable_section)
+        return;
+    oversized_vtable_blob[slot_count_offset]      = 0xFF;
+    oversized_vtable_blob[slot_count_offset + 1U] = 0xFF;
+    oversized_vtable_blob[slot_count_offset + 2U] = 0xFF;
+    oversized_vtable_blob[slot_count_offset + 3U] = 0xFF;
+    zith::wasm::DecodedHir oversized_vtable;
+    CHECK(!zith::wasm::decodeHir(oversized_vtable_blob, oversized_vtable),
+          "flat HIR decoder rejects an oversized vtable slot count");
+    CHECK(oversized_vtable.message == "flat HIR vtable slot count overflow",
+          "oversized vtable slot count reports the rejected field");
+}
 } // namespace
 
 void test_wasm_contract() {
     test_hir_safety_round_trip();
+    test_hir_dyn_vtable_round_trip();
 
     zithc_session *session = zithc_session_create_from_buffer("playground.zithm", kValidSource,
                                                               std::strlen(kValidSource));

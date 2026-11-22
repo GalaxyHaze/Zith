@@ -12,6 +12,23 @@ The playground can compile a source buffer once into a flat HIR blob and then ex
 with the portable VM. The flat HIR format is versioned and self-contained; it is defined by
 `src/wasm/abi-hir.*` and is independent of the `.zirl` cache format.
 
+## Flat HIR Version 7
+
+The flat HIR envelope is version 7. This format version is independent of the
+WASM execution ABI version 2 and the `.zirl` cache format. The decoder rejects
+blobs from another flat HIR version.
+
+Version 7 adds section marker `6` for module-local vtables and their ordered
+function slots, followed by marker `7` for concrete struct definitions. Struct
+rows preserve ordered fields and field types, generic type arguments,
+defining-module names, and foreign-layout metadata. The VM v2 lowering uses
+this data to execute serialized `HirMakeDyn` and `HirDynCall` expressions,
+including implementations that read fields from `self`.
+
+The verified `dyn` support boundary is the VM v2/WASM dispatch path covered by
+the flat-HIR round-trip and runtime tests. This does not claim broader compiler
+or backend support for every `dyn` construct.
+
 ## Exports
 
 | Export | Signature | Purpose |
