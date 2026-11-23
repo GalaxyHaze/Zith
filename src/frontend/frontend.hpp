@@ -330,6 +330,9 @@ struct Statement {
     std::vector<Attribute> attributes;
     /// True when the source statement was explicitly terminated with `;`.
     bool hasSemicolon = false;
+    /// True when `...` repeats this expression statement for a macro's
+    /// variadic parameter.
+    bool isMacroRepetition = false;
 };
 
 struct Expression {
@@ -427,6 +430,8 @@ struct Parameter {
     /// final parameter of a Zith `fn`/`raw fn`/`extern fn`/`const fn`/`state`
     /// declaration may carry the flag; C `...` variadics keep `Declaration::isVariadic`.
     bool isVariadicSlice = false;
+    /// True for the final variadic parameter of a macro declaration.
+    bool isVariadicMacro = false;
     /// `var p: T` makes a parameter locally mutable; parameters default to
     /// immutable. `self` keeps its implicit receiver semantics for the first
     /// method parameter; `var self` additionally permits in-place mutation.

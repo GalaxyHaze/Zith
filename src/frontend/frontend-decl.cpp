@@ -260,8 +260,9 @@ void AstLowerer::lowerMacroDeclaration(uint32_t start, Visibility visibility, bo
         declaration.kind = DeclKind::Error;
     }
 
-    // Parameter list: `(p: identifier, msg: expr, ...)`.
-    // Known meta-types: identifier, expr, condition, block, body.
+    // Parameter list: `(p: identifier, msg: expr, names: identifier...)`.
+    // Fixed parameters accept the existing macro argument kinds. Variadic
+    // parameters are restricted to val, identifier, and ast.
     // The special first parameter `attributes` (no type) signals that the
     // call site may supply `|attrs|` and is not counted toward arity.
     if (punctuation(index_, '(')) {
@@ -296,12 +297,18 @@ void AstLowerer::lowerMacroDeclaration(uint32_t start, Visibility visibility, bo
                                 if (te.kind == frontend::TypeExprKind::Name &&
                                     te.name != "identifier" && te.name != "expr" &&
                                     te.name != "condition" && te.name != "block" &&
-                                    te.name != "body") {
+                                    te.name != "body" && te.name != "val" && te.name != "ast") {
                                     snapshot_.diagnostics_.push_back(
                                         {te.span, "unknown meta-type '" + te.name + "'"});
                                 }
                             }
                         }
+                    }
+                    if (index_ < token_count_ &&
+                        snapshot_.tokens_[index_].kind == TokenKind::Dots &&
+                        text(index_) == "...") {
+                        parameter.isVariadicMacro = true;
+                        ++index_;
                     }
                     declaration.parameters.push_back(std::move(parameter));
                 }
@@ -321,6 +328,52 @@ void AstLowerer::lowerMacroDeclaration(uint32_t start, Visibility visibility, bo
         else
             snapshot_.diagnostics_.push_back(
                 {range(index_ - 5, index_), "expected ')' after macro parameters"});
+    }
+    {
+        size_t variadic_count = 0U;
+        for (size_t i = 0; i < declaration.parameters.size(); ++i) {
+            if (!declaration.parameters[i].isVariadicMacro)
+                continue;
+            ++variadic_count;
+            if (i + 1U != declaration.parameters.size()) {
+                snapshot_.diagnostics_.push_back(
+                    {declaration.parameters[i].span,
+                     "variadic macro parameter must be the final parameter", false,
+                     diagnostics::err::MacroArity});
+            }
+        }
+        if (variadic_count > 1U) {
+            snapshot_.diagnostics_.push_back({tokenSpan(start),
+                                              "a macro may declare only one variadic parameter",
+                                              false, diagnostics::err::MacroArity});
+        }
+        for (const auto &parameter : declaration.parameters) {
+            if (!parameter.isVariadicMacro)
+                continue;
+            if (!parameter.type) {
+                snapshot_.diagnostics_.push_back(
+                    {parameter.span, "variadic macro parameter requires an argument kind", false,
+                     diagnostics::err::MacroArgKind});
+                continue;
+            }
+            const auto typeIndex = parameter.type.value - 1U;
+            if (typeIndex >= snapshot_.type_expressions_.size()) {
+                snapshot_.diagnostics_.push_back(
+                    {parameter.span, "variadic macro parameter requires a supported argument kind",
+                     false, diagnostics::err::MacroArgKind});
+                continue;
+            }
+            const auto &type = snapshot_.type_expressions_[typeIndex];
+            const bool supportedKind =
+                type.kind == TypeExprKind::Name &&
+                (type.name == "val" || type.name == "identifier" || type.name == "ast");
+            if (!supportedKind)
+                snapshot_.diagnostics_.push_back(
+                    {type.span,
+                     "variadic macro parameters support only 'val', 'identifier', "
+                     "and 'ast' argument kinds",
+                     false, diagnostics::err::MacroArgKind});
+        }
     }
 
     // Body: `{ ... }`

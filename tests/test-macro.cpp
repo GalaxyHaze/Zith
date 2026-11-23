@@ -460,6 +460,95 @@ static void test_macro() {
             CHECK(locals[0] != locals[1], "macro expansions do not share local identities");
         }
     }
+    // 34. empty and populated variadic tails parse and expand cleanly
+    {
+        auto snap = frontend::parse("macro call_all(headArg: val, names: identifier...) { "
+                                    "names()...; }\n"
+                                    "fn main() { @call_all(1); @call_all(2, first, second); }\n");
+        CHECK(snap.diagnostics().empty(), "variadic macro calls parse and expand cleanly");
+    }
+    // 35. every argument in the variadic tail obeys its declared kind
+    {
+        auto snap = frontend::parse("macro call_all(names: identifier...) { names()...; }\n"
+                                    "fn main() { @call_all(first, 2); @call_all(=named); }\n");
+        size_t kindErrors = 0U;
+        for (const auto &diagnostic : snap.diagnostics())
+            kindErrors += diagnostic.code == diagnostics::err::MacroArgKind ? 1U : 0U;
+        CHECK_EQ(kindErrors, 2U,
+                 "identifier tails reject non-names and explicit unevaluated arguments");
+    }
+    // 36. variadic declarations must be unique and final
+    {
+        auto snap     = frontend::parse("macro not_last(names: identifier..., extra: expr) { }\n"
+                                        "macro two_tails(a: expr..., b: identifier...) { }\n");
+        size_t errors = 0U;
+        for (const auto &diagnostic : snap.diagnostics())
+            errors += diagnostic.code == diagnostics::err::MacroArity ? 1U : 0U;
+        CHECK(errors >= 2U, "non-final and multiple variadic parameters are diagnosed");
+    }
+    // 37. variadic parameters accept only supported macro argument kinds
+    {
+        auto snap = frontend::parse("macro invalid_kind(values: expr...) { values()...; }\n");
+        bool hasKindError = false;
+        for (const auto &diagnostic : snap.diagnostics())
+            hasKindError |= diagnostic.code == diagnostics::err::MacroArgKind;
+        CHECK(hasKindError, "unsupported variadic argument kind is diagnosed");
+    }
+    // 38. val and ast variadic arguments enforce their call-site syntax
+    {
+        auto snap = frontend::parse("macro value_tail(values: val...) { consume(values)...; }\n"
+                                    "macro ast_tail(nodes: ast...) { consume(nodes)...; }\n"
+                                    "fn main() { @value_tail(1); @ast_tail(=2); "
+                                    "@value_tail(=3); @ast_tail(4); }\n");
+        size_t kindErrors = 0U;
+        for (const auto &diagnostic : snap.diagnostics())
+            kindErrors += diagnostic.code == diagnostics::err::MacroArgKind ? 1U : 0U;
+        CHECK_EQ(kindErrors, 2U, "val rejects =expr and ast requires =expr");
+    }
+    // 39. fixed macro arguments remain required before the variadic tail
+    {
+        auto snap          = frontend::parse("macro with_fixed(head: val, tail: identifier...) { "
+                                             "tail()...; }\n"
+                                             "fn main() { @with_fixed(); }\n");
+        bool hasArityError = false;
+        for (const auto &diagnostic : snap.diagnostics())
+            hasArityError |= diagnostic.code == diagnostics::err::MacroArity;
+        CHECK(hasArityError, "missing fixed argument before a variadic tail is diagnosed");
+    }
+    // 40. a variadic parameter can only be used in a repeated expression statement
+    {
+        auto snap        = frontend::parse("macro bad_macro(names: identifier...) { names(); }\n"
+                                           "fn main() { @bad_macro(item); }\n");
+        bool hasUseError = false;
+        for (const auto &diagnostic : snap.diagnostics())
+            hasUseError |= diagnostic.code == diagnostics::err::MacroArgKind;
+        if (!hasUseError) {
+            for (const auto &diagnostic : snap.diagnostics())
+                std::printf("  non-repeated variadic diagnostic: %s\n", diagnostic.message.c_str());
+        }
+        CHECK(hasUseError, "variadic parameter use without repetition is diagnosed");
+    }
+    // 41. repetition outside a macro template is rejected
+    {
+        auto snap            = frontend::parse("fn main() { invoke()...; }\n");
+        bool hasContextError = false;
+        for (const auto &diagnostic : snap.diagnostics())
+            hasContextError |= diagnostic.code == diagnostics::err::MacroArgKind;
+        CHECK(hasContextError, "statement repetition outside a macro is diagnosed");
+    }
+    // 42. imported macro metadata preserves the variadic parameter
+    {
+        auto dep = frontend::parse("pub macro call_all(names: identifier...) { names()...; }\n");
+        frontend::ImportedMacroRecord imported;
+        imported.name       = "call_all";
+        imported.span       = dep.declarations()[0].span;
+        imported.parameters = dep.declarations()[0].parameters;
+        imported.body       = dep.declarations()[0].body;
+        imported.source     = &dep;
+        auto snap =
+            frontend::parseWithImports("fn main() { @call_all(first, second); }\n", {imported});
+        CHECK(snap.diagnostics().empty(), "imported variadic macro expands cleanly");
+    }
 }
 
 TEST_MAIN(macro)

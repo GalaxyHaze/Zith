@@ -193,6 +193,8 @@ void printExpression(ExprId id, const std::vector<Expression> &expressions,
         switch (stmt.kind) {
         case StmtKind::Expression:
             std::fputs("Expression", stdout);
+            if (stmt.isMacroRepetition)
+                std::fputs("...", stdout);
             break;
         case StmtKind::Discard:
             std::fputs("Discard", stdout);

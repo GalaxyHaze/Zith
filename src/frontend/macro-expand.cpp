@@ -9,6 +9,8 @@ namespace zith::frontend {
 
 namespace {
 
+constexpr size_t kNoVariadicParam = static_cast<size_t>(-1);
+
 /// Depth-first walk over the template body, flagging every node it reaches.
 struct TemplateMarker {
     FrontendSnapshot &snapshot;
@@ -131,43 +133,64 @@ void MacroExpander::run(const std::vector<ImportedMacroRecord> &imported) {
         for (const auto &parameter : decl.parameters)
             observeLocal(parameter.id);
     }
+    for (const auto &statement : snapshot_.statements_) {
+        if (statement.isMacroRepetition && !snapshot_.isMacroTemplateStmt(statement.id)) {
+            snapshot_.diagnostics_.push_back(
+                Diagnostic{statement.span, "statement repetition is only valid in a macro template",
+                           false, diagnostics::err::MacroArgKind});
+        }
+    }
 
     std::vector<MacroInfo> macros;
     for (const auto &decl : snapshot_.declarations_) {
         if (decl.kind != DeclKind::Macro)
             continue;
+        bool duplicate = false;
         for (const auto &existing : macros) {
             if (existing.name == decl.name) {
                 snapshot_.diagnostics_.push_back(
                     Diagnostic{decl.span, "duplicate macro '" + decl.name + "'", false,
                                diagnostics::err::MacroDuplicate});
-                goto next_decl;
+                duplicate = true;
+                break;
             }
         }
-        {
-            MacroInfo info;
-            info.id            = decl.id;
-            info.name          = decl.name;
-            info.isRaw         = decl.isRawMacro;
-            info.isTag         = decl.isTagMacro;
-            info.hasAttributes = decl.hasAttributesParam;
-            for (const auto &p : decl.parameters) {
-                if (p.type) {
-                    const auto ti = p.type.value - 1U;
-                    info.paramMetaTypes.push_back(ti < snapshot_.type_expressions_.size()
-                                                      ? snapshot_.type_expressions_[ti].name
-                                                      : std::string("expr"));
+        if (duplicate)
+            continue;
+
+        MacroInfo info;
+        info.id                       = decl.id;
+        info.name                     = decl.name;
+        info.isRaw                    = decl.isRawMacro;
+        info.isTag                    = decl.isTagMacro;
+        info.hasAttributes            = decl.hasAttributesParam;
+        bool validVariadicDeclaration = true;
+        for (size_t i = 0; i < decl.parameters.size(); ++i) {
+            const auto &parameter = decl.parameters[i];
+            if (parameter.isVariadicMacro) {
+                if (info.variadicParamIndex != kNoVariadicParam ||
+                    i + 1U != decl.parameters.size()) {
+                    validVariadicDeclaration = false;
                 } else {
-                    info.paramMetaTypes.push_back("expr");
+                    info.variadicParamIndex = i;
                 }
-                info.paramNames.push_back(p.name);
             }
-            info.body   = decl.body;
-            info.span   = decl.span;
-            info.source = &snapshot_;
-            macros.push_back(std::move(info));
+            if (parameter.type) {
+                const auto ti = parameter.type.value - 1U;
+                info.paramMetaTypes.push_back(ti < snapshot_.type_expressions_.size()
+                                                  ? snapshot_.type_expressions_[ti].name
+                                                  : std::string("expr"));
+            } else {
+                info.paramMetaTypes.push_back("expr");
+            }
+            info.paramNames.push_back(parameter.name);
         }
-    next_decl:;
+        if (!validVariadicDeclaration)
+            continue;
+        info.body   = decl.body;
+        info.span   = decl.span;
+        info.source = &snapshot_;
+        macros.push_back(std::move(info));
     }
 
     for (const auto &record : imported) {
@@ -185,13 +208,23 @@ void MacroExpander::run(const std::vector<ImportedMacroRecord> &imported) {
         if (duplicate)
             continue;
         MacroInfo info;
-        info.name          = record.name;
-        info.isRaw         = record.isRawMacro;
-        info.isTag         = record.isTagMacro;
-        info.hasAttributes = record.hasAttributesParam;
-        info.span          = record.span;
-        info.source        = record.source;
-        for (const auto &parameter : record.parameters) {
+        info.name                     = record.name;
+        info.isRaw                    = record.isRawMacro;
+        info.isTag                    = record.isTagMacro;
+        info.hasAttributes            = record.hasAttributesParam;
+        info.span                     = record.span;
+        info.source                   = record.source;
+        bool validVariadicDeclaration = true;
+        for (size_t i = 0; i < record.parameters.size(); ++i) {
+            const auto &parameter = record.parameters[i];
+            if (parameter.isVariadicMacro) {
+                if (info.variadicParamIndex != kNoVariadicParam ||
+                    i + 1U != record.parameters.size()) {
+                    validVariadicDeclaration = false;
+                } else {
+                    info.variadicParamIndex = i;
+                }
+            }
             if (parameter.type && record.source &&
                 parameter.type.value <= record.source->typeExpressions().size()) {
                 info.paramMetaTypes.push_back(
@@ -201,8 +234,63 @@ void MacroExpander::run(const std::vector<ImportedMacroRecord> &imported) {
             }
             info.paramNames.push_back(parameter.name);
         }
+        if (!validVariadicDeclaration)
+            continue;
         info.body = record.body;
         macros.push_back(std::move(info));
+    }
+
+    for (const auto &macro : macros) {
+        if (!macro.source || !macro.body)
+            continue;
+        std::vector<std::pair<ExprId, bool>> pendingExprs{{macro.body, false}};
+        std::vector<std::pair<StmtId, bool>> pendingStmts;
+        while (!pendingExprs.empty() || !pendingStmts.empty()) {
+            if (!pendingStmts.empty()) {
+                const auto [id, repeated] = pendingStmts.back();
+                pendingStmts.pop_back();
+                if (!id || id.value > macro.source->statements().size())
+                    continue;
+                const auto &statement          = macro.source->statements()[id.value - 1U];
+                const bool inRepeatedStatement = repeated || statement.isMacroRepetition;
+                if (statement.isMacroRepetition && macro.variadicParamIndex == kNoVariadicParam) {
+                    snapshot_.diagnostics_.push_back(Diagnostic{
+                        statement.span, "statement repetition requires a variadic macro parameter",
+                        false, diagnostics::err::MacroArgKind});
+                }
+                if (statement.expression)
+                    pendingExprs.emplace_back(statement.expression, inRepeatedStatement);
+                if (statement.kind == StmtKind::Binding && statement.binding.initializer)
+                    pendingExprs.emplace_back(statement.binding.initializer, inRepeatedStatement);
+                for (const auto argument : statement.arguments)
+                    pendingExprs.emplace_back(argument, inRepeatedStatement);
+                continue;
+            }
+
+            const auto [id, repeated] = pendingExprs.back();
+            pendingExprs.pop_back();
+            if (!id || id.value > macro.source->expressions().size())
+                continue;
+            const auto &expression = macro.source->expressions()[id.value - 1U];
+            if (macro.variadicParamIndex != kNoVariadicParam &&
+                macro.variadicParamIndex < macro.paramNames.size() &&
+                expression.kind == ExprKind::Name &&
+                expression.text == macro.paramNames[macro.variadicParamIndex] && !repeated) {
+                snapshot_.diagnostics_.push_back(Diagnostic{
+                    expression.span,
+                    "variadic macro parameter '" + macro.paramNames[macro.variadicParamIndex] +
+                        "' may only be used in a repeated statement",
+                    false, diagnostics::err::MacroArgKind});
+            }
+            for (const auto operand : expression.operands)
+                pendingExprs.emplace_back(operand, repeated);
+            for (const auto condition : expression.conditions)
+                pendingExprs.emplace_back(condition, repeated);
+            for (const auto attribute : expression.attributes)
+                pendingExprs.emplace_back(attribute, repeated);
+            for (const auto statement : expression.statements)
+                pendingStmts.emplace_back(statement, repeated);
+        }
     }
 
     std::vector<std::string> stack;
@@ -243,10 +331,19 @@ void MacroExpander::expandExpr(ExprId id, const std::vector<MacroInfo> &macros,
 
         // Arity (ignore the special `attributes` param if present).
         {
-            const size_t expectArgs = macro->paramNames.size();
-            if (call.operands.size() != expectArgs) {
-                std::string msg = "macro '" + call.text + "' expects " +
-                                  std::to_string(expectArgs) + " arguments but " +
+            const size_t fixedArgs = macro->variadicParamIndex == kNoVariadicParam
+                                         ? macro->paramNames.size()
+                                         : macro->variadicParamIndex;
+            const bool wrongArity =
+                macro->variadicParamIndex == kNoVariadicParam
+                    ? call.operands.size() != fixedArgs
+                    : call.operands.size() < fixedArgs;
+            if (wrongArity) {
+                std::string msg = "macro '" + call.text +
+                                  (macro->variadicParamIndex == kNoVariadicParam
+                                       ? "' expects "
+                                       : "' expects at least ") +
+                                  std::to_string(fixedArgs) + " arguments but " +
                                   std::to_string(call.operands.size()) + " were provided";
                 prependTrace(msg, stack);
                 snapshot_.diagnostics_.push_back(
@@ -277,23 +374,32 @@ void MacroExpander::expandExpr(ExprId id, const std::vector<MacroInfo> &macros,
         }
 
         // Validate argument kinds.
-        for (size_t i = 0; i < macro->paramNames.size(); ++i) {
-            const auto &mt   = macro->paramMetaTypes[i];
+        for (size_t i = 0; i < call.operands.size(); ++i) {
+            const size_t parameterIndex =
+                macro->variadicParamIndex != kNoVariadicParam && i >= macro->variadicParamIndex
+                    ? macro->variadicParamIndex
+                    : i;
+            const auto &mt   = macro->paramMetaTypes[parameterIndex];
             const auto argId = call.operands[i];
             if (!argId || argId.value > snapshot_.expressions_.size())
                 return;
-            const auto &arg = snapshot_.expressions_[argId.value - 1U];
-            if (mt == "identifier" && arg.kind != ExprKind::Name) {
-                std::string msg = "expected an identifier for parameter '" + macro->paramNames[i] +
-                                  "' of macro '" + macro->name + "'";
-                prependTrace(msg, stack);
-                snapshot_.diagnostics_.push_back(
-                    Diagnostic{arg.span, std::move(msg), false, diagnostics::err::MacroArgKind});
-                return;
+            const auto &arg          = snapshot_.expressions_[argId.value - 1U];
+            const bool isUnevaluated = i < call.argIsUnevaluated.size() && call.argIsUnevaluated[i];
+            std::string expected;
+            if (mt == "identifier" &&
+                (arg.kind != ExprKind::Name || arg.isRawName || isUnevaluated)) {
+                expected = "an identifier";
+            } else if (mt == "val" && isUnevaluated) {
+                expected = "a value argument without '='";
+            } else if (mt == "ast" && !isUnevaluated) {
+                expected = "an AST argument written as '=expr'";
+            } else if ((mt == "block" || mt == "body") && arg.kind != ExprKind::Block) {
+                expected = "a block";
             }
-            if ((mt == "block" || mt == "body") && arg.kind != ExprKind::Block) {
-                std::string msg = "expected a block for parameter '" + macro->paramNames[i] +
-                                  "' of macro '" + macro->name + "'";
+            if (!expected.empty()) {
+                std::string msg = "expected " + expected + " for parameter '" +
+                                  macro->paramNames[parameterIndex] + "' of macro '" + macro->name +
+                                  "'";
                 prependTrace(msg, stack);
                 snapshot_.diagnostics_.push_back(
                     Diagnostic{arg.span, std::move(msg), false, diagnostics::err::MacroArgKind});
@@ -351,7 +457,20 @@ void MacroExpander::expandExpr(ExprId id, const std::vector<MacroInfo> &macros,
         ExprMap exprMap(source->expressions().size() + 1U);
         StmtMap stmtMap(source->statements().size() + 1U);
         LocalMap localMap;
-        const std::vector<ExprId> args = call.operands;
+        MacroInfo invocation = *macro;
+        std::vector<ExprId> args(macro->paramNames.size());
+        const size_t fixedArgs = macro->variadicParamIndex == kNoVariadicParam
+                                     ? macro->paramNames.size()
+                                     : macro->variadicParamIndex;
+        for (size_t i = 0; i < fixedArgs; ++i)
+            args[i] = call.operands[i];
+        if (macro->variadicParamIndex != kNoVariadicParam) {
+            invocation.variadicArgs.assign(
+                call.operands.begin() + static_cast<ptrdiff_t>(fixedArgs), call.operands.end());
+        } else {
+            args = call.operands;
+        }
+        macro               = &invocation;
         ExprId expandedBody = cloneExpr(macro->body, args, call.span, call.scope, macro, exprMap,
                                         stmtMap, localMap, *source);
 
@@ -430,6 +549,8 @@ void MacroExpander::expandExpr(ExprId id, const std::vector<MacroInfo> &macros,
             continue;
         const Statement stmt = snapshot_.statements_[sid.value - 1U];
         if (stmt.kind == StmtKind::Expression && stmt.expression) {
+            expandExpr(stmt.expression, macros, stack);
+
             const auto eid = stmt.expression;
             const auto es  = snapshot_.expressions_[eid.value - 1U];
             if (es.kind == ExprKind::MacroCall && es.expansion && es.expansionIsRaw) {
@@ -445,8 +566,6 @@ void MacroExpander::expandExpr(ExprId id, const std::vector<MacroInfo> &macros,
                 continue;
             }
         }
-        if (stmt.expression)
-            expandExpr(stmt.expression, macros, stack);
         if (stmt.kind == StmtKind::Binding && stmt.binding.initializer)
             expandExpr(stmt.binding.initializer, macros, stack);
         for (const auto argument : stmt.arguments)
@@ -548,9 +667,39 @@ ExprId MacroExpander::cloneExpr(ExprId src, const std::vector<ExprId> &args, Tex
         copy.operands[i] = cloneExpr(copy.operands[i], args, callSpan, callScope, macro, map,
                                      stmtMap, localMap, source);
 
-    for (size_t i = 0; i < copy.statements.size(); ++i)
-        copy.statements[i] = cloneStmt(copy.statements[i], args, callSpan, callScope, macro, map,
-                                       stmtMap, localMap, source);
+    const auto templateStatements = copy.statements;
+    copy.statements.clear();
+    for (const StmtId statementId : templateStatements) {
+        if (!statementId || statementId.value > source.statements().size())
+            continue;
+        const auto &templateStatement = source.statements()[statementId.value - 1U];
+        if (macro != nullptr && templateStatement.isMacroRepetition) {
+            if (macro->variadicParamIndex == kNoVariadicParam ||
+                macro->variadicParamIndex >= args.size()) {
+                continue;
+            }
+            const auto scopeMapBase = scopeMap_;
+            for (const ExprId repeatedArg : macro->variadicArgs) {
+                auto repeatedArgs                       = args;
+                repeatedArgs[macro->variadicParamIndex] = repeatedArg;
+                ExprMap repeatedExprMap(source.expressions().size() + 1U);
+                StmtMap repeatedStmtMap(source.statements().size() + 1U);
+                LocalMap repeatedLocalMap;
+                scopeMap_ = scopeMapBase;
+                const StmtId repeatedStatement =
+                    cloneStmt(statementId, repeatedArgs, callSpan, callScope, macro,
+                              repeatedExprMap, repeatedStmtMap, repeatedLocalMap, source);
+                if (repeatedStatement)
+                    copy.statements.push_back(repeatedStatement);
+            }
+            scopeMap_ = scopeMapBase;
+            continue;
+        }
+        const StmtId cloned = cloneStmt(statementId, args, callSpan, callScope, macro, map, stmtMap,
+                                        localMap, source);
+        if (cloned)
+            copy.statements.push_back(cloned);
+    }
 
     for (size_t i = 0; i < copy.conditions.size(); ++i)
         copy.conditions[i] = cloneExpr(copy.conditions[i], args, callSpan, callScope, macro, map,
@@ -586,9 +735,23 @@ StmtId MacroExpander::cloneStmt(StmtId src, const std::vector<ExprId> &args, Tex
         return stmtMap[src.value];
 
     const auto orig = source.statements()[src.value - 1U];
-    Statement copy  = orig;
-    copy.id         = {};
-    copy.span       = callSpan;
+    if (macro != nullptr && macro->variadicArgs.empty() && orig.kind == StmtKind::Defer &&
+        orig.expression && orig.expression.value <= source.expressions().size()) {
+        const auto &deferBody = source.expressions()[orig.expression.value - 1U];
+        if (deferBody.kind == ExprKind::Block && !deferBody.statements.empty() &&
+            std::all_of(deferBody.statements.begin(), deferBody.statements.end(),
+                        [&source](const StmtId statementId) {
+                            return statementId && statementId.value <= source.statements().size() &&
+                                   source.statements()[statementId.value - 1U].isMacroRepetition;
+                        })) {
+            return {};
+        }
+    }
+
+    Statement copy         = orig;
+    copy.id                = {};
+    copy.span              = callSpan;
+    copy.isMacroRepetition = false;
     if (macro != nullptr && copy.kind == StmtKind::Binding)
         copy.binding.id = cloneLocal(copy.binding.id, localMap);
 

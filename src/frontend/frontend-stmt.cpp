@@ -1271,6 +1271,11 @@ std::vector<StmtId> AstLowerer::parseStatements() {
                                               diagnostics::err::ExpectedSemicolon});
     } else {
         statement.expression = parseExpression();
+        if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Dots &&
+            text(index_) == "...") {
+            statement.isMacroRepetition = true;
+            ++index_;
+        }
         // Word-operator sequences such as `1 nop 2` are not implemented yet.
         if (index_ < token_count_ && snapshot_.tokens_[index_].kind == TokenKind::Keyword &&
             (text(index_) == "nop" || text(index_) == "prefix" || text(index_) == "suffix" ||

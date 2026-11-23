@@ -40,7 +40,8 @@ hir::HirExprId HirLowerModern::lowerBlock(const frontend::Expression &expr) {
     if (!frame.exprs.empty() &&
         current_fn_->blocks[current_block_].terminator == hir::kInvalidHirExpr) {
         hir::HirCleanup cleanup(arena_);
-        cleanup.exprs = std::move(frame.exprs);
+        for (size_t index = frame.exprs.size(); index > 0U; --index)
+            cleanup.exprs.push(frame.exprs[index - 1U]);
         current_fn_->blocks[current_block_].insts.push(addExpr(std::move(cleanup)));
     }
     return last;

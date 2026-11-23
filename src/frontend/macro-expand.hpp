@@ -20,8 +20,10 @@ private:
         bool isRaw         = false;
         bool isTag         = false;
         bool hasAttributes = false;
+        size_t variadicParamIndex = static_cast<size_t>(-1);
         std::vector<std::string> paramNames;
         std::vector<std::string> paramMetaTypes;
+        std::vector<ExprId> variadicArgs;
         ExprId body;
         TextSpan span;
         const FrontendSnapshot *source = nullptr;

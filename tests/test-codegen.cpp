@@ -2531,16 +2531,84 @@ static void test_defer_block_runs_on_normal_exit() {
     CHECK_EQ(r.output, "0BA", "defer block body executes in written order on block exit");
 }
 
+static void test_defer_reverse_order_on_fallthrough() {
+    CodegenTest t;
+    auto r = t.run("codegen-defer-fallthrough-order.zithm",
+                   "#[discardable] extern fn putchar(c: i32): i32\n"
+                   "fn main() {\n"
+                   "    defer putchar(66);\n"
+                   "    defer putchar(65);\n"
+                   "    _ = putchar(48);\n"
+                   "}\n");
+    CHECK(r.ok, "defer expressions compile, link and run on normal block exit");
+    CHECK_EQ(r.output, "0AB", "separate defers run in reverse registration order on fallthrough");
+}
+
+static void test_variadic_macro_repetition_and_caller_scope_defer() {
+    CodegenTest t;
+    t.opts.noCache = true;
+    auto r         = t.run("codegen-variadic-macro-defer.zithm",
+                           "#[discardable] extern fn putchar(c: i32): i32\n"
+                           "fn cleanup_a() { _ = putchar(65); }\n"
+                           "fn cleanup_b() { _ = putchar(66); }\n"
+                           "fn print_c() { _ = putchar(67); }\n"
+                           "fn print_d() { _ = putchar(68); }\n"
+                           "macro repeat_now(names: identifier...) { names()...; }\n"
+                           "raw macro defer_each(names: identifier...) {\n"
+                           "    defer { names()...; }\n"
+                           "}\n"
+                           "fn cleanup_c() { _ = putchar(70); }\n"
+                           "fn main(): i32 {\n"
+                           "    @defer_each();\n"
+                           "    if (true) {\n"
+                           "        @repeat_now(print_c, print_d);\n"
+                           "        @defer_each(cleanup_a, cleanup_b);\n"
+                           "        _ = putchar(88);\n"
+                           "        defer cleanup_c();\n"
+                           "    }\n"
+                           "    _ = putchar(89);\n"
+                           "    @defer_each(cleanup_a, cleanup_b);\n"
+                           "    _ = putchar(82);\n"
+                           "    return 0;\n"
+                           "}\n");
+    CHECK(r.ok, "variadic macros and caller-scope defer compile, link and run");
+    if (r.output != "CDXFABYRAB")
+        std::printf("  observed variadic macro/defer output: '%s'\n", r.output.c_str());
+    CHECK_EQ(r.output, "CDXFABYRAB",
+             "caller-block defers run on fallthrough and return in the required order");
+}
+
+static void test_raw_macro_defer_runs_before_loop_break() {
+    CodegenTest t;
+    t.opts.noCache = true;
+    auto r         = t.run("codegen-raw-macro-defer-break.zithm",
+                           "#[discardable] extern fn putchar(c: i32): i32\n"
+                           "raw macro defer_each(values: val...) {\n"
+                           "    defer { putchar(values)...; }\n"
+                           "}\n"
+                           "fn main() {\n"
+                           "    for (true) {\n"
+                           "        @defer_each(68);\n"
+                           "        putchar(65);\n"
+                           "        break;\n"
+                           "    }\n"
+                           "    putchar(66);\n"
+                           "}\n");
+    CHECK(r.ok, "raw macro defer compiles and runs on loop break");
+    CHECK_EQ(r.output, "ADB",
+             "macro-generated cleanup runs before control leaves the caller block");
+}
+
 static void test_defer_in_if_and_loop() {
     CodegenTest t;
     auto if_test = t.run("codegen-defer-if.zithm", "#[discardable] extern fn putchar(c: i32): i32\n"
-                                                  "fn main() {\n"
-                                                  "    if (true) {\n"
-                                                  "        defer putchar(66);\n"
-                                                  "        _ = putchar(48);\n"
-                                                  "    }\n"
-                                                  "    putchar(90);\n"
-                                                  "}\n");
+                                                   "fn main() {\n"
+                                                   "    if (true) {\n"
+                                                   "        defer putchar(66);\n"
+                                                   "        _ = putchar(48);\n"
+                                                   "    }\n"
+                                                   "    putchar(90);\n"
+                                                   "}\n");
     CHECK(if_test.ok, "defer inside if compiles, links and runs");
     CHECK_EQ(if_test.output, "0BZ", "defer runs when the innermost if block exits");
 
@@ -5115,6 +5183,12 @@ static void test_codegen() {
     test_defer_reverse_order_before_return();
     printf("Running test_defer_block_runs_on_normal_exit\n");
     test_defer_block_runs_on_normal_exit();
+    printf("Running test_defer_reverse_order_on_fallthrough\n");
+    test_defer_reverse_order_on_fallthrough();
+    printf("Running test_variadic_macro_repetition_and_caller_scope_defer\n");
+    test_variadic_macro_repetition_and_caller_scope_defer();
+    printf("Running test_raw_macro_defer_runs_before_loop_break\n");
+    test_raw_macro_defer_runs_before_loop_break();
     printf("Running test_defer_in_if_and_loop\n");
     test_defer_in_if_and_loop();
     printf("Running test_defer_in_state_before_jump\n");
