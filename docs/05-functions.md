@@ -134,7 +134,8 @@ Rules:
   same signature, and therefore `E2002`.
 - A function name may not collide with a non-function binding of the same name (`E2002`).
 - `extern fn` cannot be overloaded: it carries a fixed C linkage name.
-- `extern fn` may declare variadic parameters with `...`. No other function kind may do so.
+- Only `extern fn` may declare C-style variadic parameters with a standalone `...` marker.
+  Generic function type packs use the separate `Ts...` syntax described below.
 - `fn f = extern CSymbol` may be overloaded: each overload may select a distinct C symbol.
 - A call with no candidate that accepts the arguments is `E2007`. A call accepted by more than one
   candidate is `E2008`. There is no ranking of conversion quality, so any tie is an error rather
@@ -145,6 +146,35 @@ Rules:
 Overloading is implemented by qualifying linkage names as `<module>.<Owner>.<name>(<params>)`, for
 example `std.io.console.println(*char)`. `extern fn` declarations and `main` keep their plain source
 name so that C interop and the linker's entry point are unaffected.
+
+### 5.5 Function Type Packs
+
+**Accepted design, not implemented.** A Zith function may declare one final
+generic type pack. The function binds its final call arguments to a tuple-valued
+parameter:
+
+```zith
+fn invoke<Ts...>(args: Ts): void {
+    target(...args);
+}
+```
+
+`args` is the inferred tuple as a whole. `...args` expands its elements as
+separate positional arguments. The tail may be empty. Passing an explicit tuple
+to `invoke` contributes one argument, so `args` contains that tuple as one
+element rather than flattening it.
+
+Fixed generic parameters must precede `Ts...`. Calls may infer the pack or
+specify it explicitly. `...Ts` expands the collected types in a generic
+argument list, and a constraint on `Ts` applies to each type in the pack. Each
+value follows the usual ownership rules.
+
+A function may declare either one heterogeneous type pack or one homogeneous
+variadic slice `[...]T`, but not both. The type pack is limited to functions.
+Structs, aliases, enums, unions, and traits cannot declare one because tuples
+and comptime provide type-level aggregation without a second open-ended arity
+mechanism. The accepted trade-off is recorded in
+[ADR-0062](adr/0062-zith-function-type-packs.md).
 
 ---
 

@@ -52,9 +52,17 @@ _Avoid_: parameter meta-type, metatype, expr parameter, body parameter
 A final macro parameter that binds an ordered tail of zero or more call-site arguments.
 _Avoid_: macro slice, function variadic parameter
 
-**Zith-- variadic slice spread**:
-The `...` marker on the final argument that forwards a `[]T` or `[N]T` as the whole tail of a function's `[...]T` parameter.
-_Avoid_: general-purpose spread operator, implicit slice forwarding
+**Zith-- variadic slice forwarding**:
+The `...` marker that forwards a `[]T` or `[N]T` as the complete tail of a final `[...]T` parameter.
+_Avoid_: implicit slice forwarding
+
+**Pack spread**:
+The `...` operation that expands a pack's ordered elements into positional arguments.
+_Avoid_: tuple unpacking operator
+
+**Function type pack**:
+A variadic generic type parameter of a Zith function whose final call arguments are collected as a tuple.
+_Avoid_: variadic slice, generic type list
 
 **Type-kind predicate**:
 A compile-time test of whether a type is a `struct`, `component`, `enum`, or `union`, without inspecting or changing its structure.

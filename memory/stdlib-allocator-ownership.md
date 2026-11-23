@@ -82,6 +82,18 @@ The target proposal in `docs/adr/0010-allocator-inplace-drop.md` separates:
 - `W10xx DiscardedValue` and `W11xx DiscardedOwner`: future compiler warnings;
   no codegen changes are shipped in the first stdlib-only step.
 
+## Constructor Argument Erasure
+
+`InPlace.inplace(self, args: opaque)` receives constructor arguments as a
+heterogeneous pack erased to `opaque`. The implementation can recover an
+expected pack shape through typed opaque-pack matching/destructuring. Here,
+"dynamic" means type-erased constructor arguments, not vtable-based dynamic
+dispatch; current `opaque` has no vtable or dynamic calls. The relationship
+between this constructor boundary and Zith's generic function type packs
+(`Ts...`, ADR-0062) is not specified: a future typed forwarding function might
+preserve argument types before erasing them at this boundary, but this is not
+an accepted contract.
+
 ## `std/memory/new.zithm` Compiler Gaps
 
 `stdlib/std/memory/new.zithm` is the single source for the `InPlace`/`new`/

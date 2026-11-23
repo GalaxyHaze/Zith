@@ -132,6 +132,37 @@ source-level `Revokable<T>` wrapper. Zith-- has no such qualifier, so the
 library wrapper is the only spelling available in the subset. The two are
 different mechanisms that share a word, and the drawing keeps them apart.
 
+### Proposed Synchronized Access
+
+This is a proposed runtime contract, not an implemented API or a concrete
+Zith-- signature. If a `Share<T>` is registered with a `Disposer`, the
+`Disposer` remains responsible for destroying `T`. Copying a `Share<T>` copies
+an access handle, not ownership of `T` or an extension of its lifetime. The
+control block remains valid while handles exist, including after `T` has been
+destroyed.
+
+`sync(share, action)` waits while another action holds the share, then calls
+`action` with a `lend T`. `trySync(share, action)` does not wait and reports
+`Busy` when access is contended. Both report `Closed` if teardown begins
+before the action can start. The lock stays internal. The action receives
+neither a mutex nor a guard.
+
+Teardown closes admission to new actions. Calls waiting for access when
+teardown begins fail with `Closed`, while actions already running are allowed
+to finish. The `Disposer` destroys `T` only after those active actions have
+finished. A surviving handle receives `Closed` instead of accessing the
+destroyed value.
+
+Access failures are distinct from errors returned by the action. Conceptually,
+the result is `Result<R, SyncError<E>>`, where `SyncError<E>` distinguishes
+`Closed` from `Action(E)`, and `trySync` also distinguishes `Busy`. The exact
+type and signature remain subject to the Zith-- type system.
+
+The lock is released on every action exit, including an action error. An action
+must not re-enter `sync` or `trySync` on the same `Share`, and must not return
+or retain its `lend T`. Until the compiler can enforce non-escape, this is a
+manual precondition. A future `noescape`-style annotation may express it.
+
 ## Synchronization Sugar
 
 A lock and unlock pair is expressible with a macro and `defer`:
@@ -207,7 +238,8 @@ own result, so a failing entry still returns through `merge` as its own
 - Whether an explicit `detach()` method exists, or detach stays implicit only.
 - Whether the first cut ships a bounded launch beside `unbounded`, and the
   bounded completion and resource-release rules.
-- The concrete `Share<T>` and `Revokable<T>` method contracts and how the owner
+- The remaining `Share<T>` method surface and concrete `sync`/`trySync`
+  signatures and error type, plus the `Revokable<T>` contract and how the owner
   revokes and waits for acknowledgement.
 - The full `ThreadError` variant list and which variants each backend returns.
 - How `soon/thread` starts a real thread on native, VM v2, and WASM, and what

@@ -1407,7 +1407,7 @@ jobs:
         run: |
           mkdir -p artifacts wasm-staging
           [ -d build-wasm/bin ] && cp build-wasm/bin/* wasm-staging/ || true
-          find build-wasm -maxdepth 1 -type f \( -name '*.wasm' -o -name '*.js' -o -name '*.html' -o -name '*.pack' \) -exec cp {} wasm-staging/ \;
+          find build-wasm -maxdepth 1 -type f \( -name '*.wasm' -o -name '*.js' -o -name '*.mjs' -o -name '*.html' -o -name '*.pack' \) -exec cp {} wasm-staging/ \;
           find build-wasm/src -type f -name '*.a' -exec cp {} wasm-staging/ \;
           if [ -z "$(ls wasm-staging)" ]; then echo "No WASM artifacts found"; exit 1; fi
           cd wasm-staging && zip -r ../artifacts/zithc-wasm.zip . && cd ..

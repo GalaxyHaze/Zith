@@ -48,7 +48,7 @@ def validate_wasm_archive(path: Path) -> None:
     try:
         with zipfile.ZipFile(path) as archive:
             members = set(archive.namelist())
-            for required in ("zith-playground.wasm", "zith-stdlib.pack"):
+            for required in ("zith-playground.mjs", "zith-playground.wasm", "zith-stdlib.pack"):
                 if required not in members:
                     fail(f"{path} is missing {required}")
                 if archive.getinfo(required).file_size == 0:

@@ -60,9 +60,11 @@ for the ownership and pipeline contract.
 
 ## Non-goals
 
-- Does not change function variadic-slice semantics or add a general-purpose
-  spread operator. The separate `...slice` forwarding marker is specified in
-  [ADR-0060](../adr/0060-explicit-variadic-slice-forwarding.md).
+- Does not change function spread semantics. The implemented `...slice`
+  forwarding marker is specified in
+  [ADR-0060](../adr/0060-explicit-variadic-slice-forwarding.md). General pack
+  spread is a separate accepted design in
+  [ADR-0061](../adr/0061-zith-minusminus-pack-spread.md), not part of this plan.
 - `@deferDestroy` does not accept expressions. Its arguments are identifiers.
 - Does not change the cleanup order of separate `defer` statements.
 - Does not add automatic cleanup or a language-level `drop` feature.

@@ -7,7 +7,7 @@ import sys
 
 
 MAGIC = b"ZSTDLIB2"
-ABI_VERSION = 2
+ABI_VERSION = 3
 
 
 def main() -> int:

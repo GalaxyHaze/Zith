@@ -145,6 +145,7 @@ def main() -> int:
             write_runtime_archive(directory / name)
         with zipfile.ZipFile(directory / "zithc-wasm.zip", "w") as archive:
             archive.writestr("zith-playground.wasm", b"wasm\n")
+            archive.writestr("zith-playground.mjs", b"glue\n")
             archive.writestr("zith-stdlib.pack", b"stdlib\n")
         write_stdlib_archives(directory, VERSION)
         build_dir = directory / "build"

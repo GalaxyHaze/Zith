@@ -238,13 +238,15 @@ jobs:
           gh release download "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --pattern "zithc-wasm.zip"
-          unzip -o -d wasm-sync zithc-wasm.zip zith-playground.wasm zith-stdlib.pack
+          unzip -o -d wasm-sync zithc-wasm.zip zith-playground.mjs zith-playground.wasm zith-stdlib.pack
+          test -s wasm-sync/zith-playground.mjs
           test -s wasm-sync/zith-playground.wasm
           test -s wasm-sync/zith-stdlib.pack
+          GLUE_SHA=$(sha256sum wasm-sync/zith-playground.mjs | cut -d' ' -f1)
           WASM_SHA=$(sha256sum wasm-sync/zith-playground.wasm | cut -d' ' -f1)
           STDLIB_SHA=$(sha256sum wasm-sync/zith-stdlib.pack | cut -d' ' -f1)
-          printf '{"version":"%s","abi":2,"stdlib":"zith-stdlib.pack","wasm_sha256":"%s","stdlib_sha256":"%s"}\n' \
-            "$RELEASE_TAG" "$WASM_SHA" "$STDLIB_SHA" > wasm-sync/runtime.json
+          printf '{"version":"%s","abi":3,"glue":"zith-playground.mjs","glue_sha256":"%s","stdlib":"zith-stdlib.pack","wasm_sha256":"%s","stdlib_sha256":"%s"}\n' \
+            "$RELEASE_TAG" "$GLUE_SHA" "$WASM_SHA" "$STDLIB_SHA" > wasm-sync/runtime.json
           ls -l wasm-sync/
 
       - name: Sync site branch
@@ -261,11 +263,12 @@ jobs:
             "https://x-access-token:${RELEASE_PAT}@github.com/${GITHUB_REPOSITORY}.git" site
           cd site
           mkdir -p playground
+          cp ../wasm-sync/zith-playground.mjs playground/zith-playground.mjs
           cp ../wasm-sync/zith-playground.wasm playground/zith-playground.wasm
           cp ../wasm-sync/zith-stdlib.pack playground/zith-stdlib.pack
           cp ../wasm-sync/runtime.json playground/runtime.json
-          if ! git diff --quiet -- playground/zith-playground.wasm playground/zith-stdlib.pack playground/runtime.json; then
-            git add playground/zith-playground.wasm playground/zith-stdlib.pack playground/runtime.json
+          if ! git diff --quiet -- playground/zith-playground.mjs playground/zith-playground.wasm playground/zith-stdlib.pack playground/runtime.json; then
+            git add playground/zith-playground.mjs playground/zith-playground.wasm playground/zith-stdlib.pack playground/runtime.json
             git commit -m "chore: sync playground wasm v$VERSION"
             git push origin gh-pages
           else

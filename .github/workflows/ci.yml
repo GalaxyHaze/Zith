@@ -187,12 +187,16 @@ jobs:
             -DBUILD_TESTING=OFF \
             -DCMAKE_CROSSCOMPILING=ON \
             -DZITH_IS_WASM=ON
-          cmake --build build-wasm -j$(nproc)
+          cmake --build build-wasm -j4
           python3 scripts/package-stdlib.py stdlib build-wasm/zith-stdlib.pack
 
       - name: Test WASM runtime ABI
         if: matrix.wasm_test
-        run: node tests/test-wasm-runtime.mjs build-wasm/zith-playground.wasm build-wasm/zith-stdlib.pack
+        run: >-
+          node tests/test-wasm-runtime.mjs
+          build-wasm/zith-playground.mjs
+          build-wasm/zith-playground.wasm
+          build-wasm/zith-stdlib.pack
 
       - name: Check documentation consistency
         run: python3 scripts/check-docs-consistency.py

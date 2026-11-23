@@ -139,5 +139,6 @@ jobs:
           ZITH_RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           bash scripts/install-wasm.sh "$ZITH_RELEASE_TAG"
+          test -s "$ZITH_WASM_DIR/zith-playground.mjs"
           test -s "$ZITH_WASM_DIR/zith-playground.wasm"
           test -s "$ZITH_WASM_DIR/zith-stdlib.pack"

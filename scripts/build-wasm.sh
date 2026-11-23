@@ -22,10 +22,11 @@ emcmake cmake -S . -B "$BUILD_DIR" -DZITH_IS_WASM=ON -DCMAKE_C_COMPILER=emcc \
     -DCMAKE_CXX_COMPILER=em++ "${FETCH_ARGS[@]}"
 
 echo "Building WASM target..."
-cmake --build "$BUILD_DIR" -j$(nproc 2>/dev/null || echo 4)
+cmake --build "$BUILD_DIR" -j4
 
 echo "Packaging standard library..."
 python3 scripts/package-stdlib.py stdlib "$BUILD_DIR/zith-stdlib.pack"
 
+ls -lh "$BUILD_DIR/zith-playground.mjs"
 ls -lh "$BUILD_DIR/zith-playground.wasm"
 ls -lh "$BUILD_DIR/zith-stdlib.pack"

@@ -475,6 +475,7 @@ def validate_workflows(workflow_dir: Path) -> None:
     )
     for marker in (
         'gh release download "$RELEASE_TAG"',
+        "playground/zith-playground.mjs",
         "playground/zith-playground.wasm",
         "playground/zith-stdlib.pack",
         "playground/runtime.json",
