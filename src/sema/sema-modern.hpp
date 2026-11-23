@@ -334,6 +334,16 @@ private:
     /// Labels of loops currently being inferred. A non-empty label must be
     /// unique among active loops so it can name a `break`/`continue` target.
     std::vector<std::string> active_loop_labels_;
+    /// Names of named blocks and loop labels declared in the current fn/state
+    /// body. A named block must not collide with either; reset per body.
+    std::vector<std::string> active_named_blocks_;
+    /// The block expression id of the fn/state body currently being inferred.
+    /// A named block is position-valid only when it is a direct statement of
+    /// this block or a pipeline stage; reset per body.
+    frontend::ExprId current_body_block_;
+    /// True while inferring a pipeline stage (`|>` / `also`), where a named
+    /// block is a valid stage regardless of nesting depth.
+    bool in_pipe_stage_sema_ = false;
     /// Type of the current value inside an active `|>` / `also` stage.
     /// Invalid while no stage is being inferred, so `it` outside a chain is
     /// rejected.
@@ -503,6 +513,14 @@ private:
     TypeId inferMethodCall(const frontend::Expression &call, const frontend::Expression &callee,
                            TypeId expected_result = kInvalidTypeId);
     TypeId inferBlock(frontend::ExprId id);
+    /// Validates a named block (`setup: { }` or `render: marker(a) { }`):
+    /// position (direct fn/state body or a pipeline stage), per-body name
+    /// uniqueness against loop labels, and for the marker form the macro's
+    /// scope-awareness plus place-expression/Scope conformance of arguments.
+    void validateNamedBlock(const frontend::Expression &expr, bool is_pipe_stage);
+    /// True when `type` has a registered nominal conformance to the `Scope`
+    /// trait (`implement T as Scope`).
+    [[nodiscard]] bool typeImplementsScope(TypeId type) const;
     [[nodiscard]] bool calleeIsDiscardable(frontend::ExprId call_id) const noexcept;
     /// Validates a `defer expr;` / `defer { ... }` statement: infers the body
     /// normally and rejects statements that would transfer control away from

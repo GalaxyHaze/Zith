@@ -126,6 +126,9 @@ enum class AttributeKind : uint8_t {
     Test,
     Raw,
     Safe,
+    /// The scope attribute marks a macro as scope-aware, allowing the outer
+    /// `name: macro(args) { }` named-block-with-marker form.
+    Scope,
 };
 
 enum class AttributeTarget : uint8_t { Function, Struct, Variable, Other };
@@ -345,6 +348,13 @@ struct Expression {
     ScopeId scope;
     /// Label on `for`/`while`/`ForIn` loops (`outer: for (...) { ... }`).
     std::string label;
+    /// Descriptive name on a named block (`setup: { ... }`), and on the block
+    /// of the named-block-with-marker form. Never a `break`/`continue` target.
+    std::string block_name;
+    /// For a named block with a marker (`render: marker(a, b) { ... }`): the
+    /// MacroCall expression whose expansion provides the block's managed
+    /// enter/leave cleanup. Zero for a plain named block.
+    ExprId marker;
     // Used by ExprKind::StructLiteral: parallel field name per operand
     std::vector<std::string> field_names;
     // Used by ExprKind::When: parallel case condition per operand (operand[0] is

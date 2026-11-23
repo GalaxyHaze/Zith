@@ -724,13 +724,24 @@ TypeId PerModuleSema::inferPipe(frontend::ExprId id) {
     const bool was_observing = pipeObserving_;
     std::vector<uint32_t> borrowed_uses;
     auto *const previous_borrowed_uses = pipeBorrowedUses_;
+    const bool saved_pipe_stage_sema   = in_pipe_stage_sema_;
     pipeCurrentType_         = source;
     pipeObserving_           = expr.kind == frontend::ExprKind::PipeDo;
     pipeBorrowedUses_        = &borrowed_uses;
+    in_pipe_stage_sema_      = true;
     const TypeId stage_type = inferExpr(expr.operands[1]);
+    in_pipe_stage_sema_      = saved_pipe_stage_sema;
     pipeCurrentType_        = current;
     pipeObserving_          = was_observing;
     pipeBorrowedUses_        = previous_borrowed_uses;
+
+    // A named stage (`left |> step: { ... }`) is position-valid here; validate
+    // its name and, for a marked stage, the marker arguments.
+    if (expr.operands[1] && expr.operands[1].value <= snapshot.expressions().size()) {
+        const auto &stage = snapshot.expressions()[expr.operands[1].value - 1U];
+        if (stage.kind == frontend::ExprKind::Block && !stage.block_name.empty())
+            validateNamedBlock(stage, true);
+    }
 
     const PipeUseRange current_uses =
         pipeCurrentUses(expr.operands[1], snapshot, borrowed_uses);

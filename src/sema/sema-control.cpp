@@ -459,6 +459,14 @@ bool PerModuleSema::exprAlwaysTerminates(frontend::ExprId id) const noexcept {
 }
 TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
+    // Entering the fn/state body block resets per-body named-block tracking and
+    // records the body block so direct-child position checks can run. The body
+    // block is the one whose scope matches the current declaration body scope.
+    const bool is_body_block = expr.scope == currentBodyScope_ && currentBodyScope_;
+    if (is_body_block) {
+        active_named_blocks_.clear();
+        current_body_block_ = id;
+    }
     const bool is_macro_expansion =
         std::any_of(snapshot.expressions().begin(), snapshot.expressions().end(),
                     [id](const frontend::Expression &candidate) {
@@ -486,6 +494,12 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
                 (void)inferExpr(stmt.expression);
                 last = void_type;
             } else if (stmt.kind == frontend::StmtKind::Expression && stmt.expression) {
+                if (stmt.expression.value <= snapshot.expressions().size()) {
+                    const auto &target = snapshot.expressions()[stmt.expression.value - 1U];
+                    if (target.kind == frontend::ExprKind::Block && !target.block_name.empty() &&
+                        !in_pipe_stage_sema_)
+                        validateNamedBlock(target, false);
+                }
                 last = inferExpr(stmt.expression);
                 // `_ = call()` remains mandatory inside a void function body
                 // even when the call is lexically last: the expression is a
@@ -593,6 +607,14 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
             (void)inferExpr(stmt.expression);
             last = void_type;
         } else if (stmt.kind == frontend::StmtKind::Expression && stmt.expression) {
+            // A plain named block as a body statement (not a pipeline stage) is
+            // validated here; named pipeline stages are validated in inferPipe.
+            if (stmt.expression.value <= snapshot.expressions().size()) {
+                const auto &target = snapshot.expressions()[stmt.expression.value - 1U];
+                if (target.kind == frontend::ExprKind::Block && !target.block_name.empty() &&
+                    !in_pipe_stage_sema_)
+                    validateNamedBlock(target, false);
+            }
             last = inferExpr(stmt.expression);
             // Blocks used as values may return their final expression; a
             // statement inside a void context must still be discarded
@@ -693,6 +715,122 @@ void PerModuleSema::checkLoopControl(const frontend::Statement &stmt, bool is_br
             report(stmt.span,
                    std::string(kind) + " label '" + stmt.label + "' does not name an active loop",
                    diagnostics::err::UnsupportedSyntax);
+        }
+    }
+}
+
+namespace {
+/// A marker argument must name a stable place: a binding, parameter, global, or
+/// a field/arrow chain rooted at one. Temporaries (calls, literals, and other
+/// rvalues) are rejected because a guard cannot bind to a value with no owner.
+bool isPlaceExpression(const frontend::FrontendSnapshot &snapshot, frontend::ExprId id) {
+    if (!id || id.value > snapshot.expressions().size())
+        return false;
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    switch (expr.kind) {
+    case frontend::ExprKind::Name:
+        return true;
+    case frontend::ExprKind::Field:
+    case frontend::ExprKind::Arrow:
+    case frontend::ExprKind::Index:
+        return !expr.operands.empty() && isPlaceExpression(snapshot, expr.operands[0]);
+    default:
+        return false;
+    }
+}
+} // namespace
+
+bool PerModuleSema::typeImplementsScope(TypeId type) const {
+    if (!type)
+        return false;
+    const TypeId trait = type_table.lookupNamed("Scope");
+    if (!trait)
+        return false;
+    return type_table.conformanceTable().satisfies(type_table.stripQualifiers(type), trait);
+}
+
+void PerModuleSema::validateNamedBlock(const frontend::Expression &expr, bool is_pipe_stage) {
+    if (expr.block_name.empty())
+        return;
+
+    // Position: valid directly in a fn/state body (the named block is a direct
+    // statement of `current_body_block_`) or as a pipeline stage. Anything
+    // deeper (inside `if`, a loop, an anonymous block, or another named block)
+    // is rejected.
+    const auto &body = current_body_block_ && current_body_block_.value <= snapshot.expressions().size()
+                           ? snapshot.expressions()[current_body_block_.value - 1U]
+                           : expr;
+    const bool direct_child_of_body =
+        current_body_block_ &&
+        std::any_of(body.statements.begin(), body.statements.end(),
+                    [&](frontend::StmtId sid) {
+                        if (!sid || sid.value > snapshot.statements().size())
+                            return false;
+                        const auto &s = snapshot.statements()[sid.value - 1U];
+                        return s.kind == frontend::StmtKind::Expression && s.expression == expr.id;
+                    });
+    if (!is_pipe_stage && !direct_child_of_body) {
+        report(expr.span,
+               "named block '" + expr.block_name +
+                   "' is only allowed directly in a fn/state body or as a pipeline stage",
+               diagnostics::err::NamedBlockInvalidPosition);
+    }
+
+    // Uniqueness per fn/state body, including collisions with loop labels.
+    const bool duplicate =
+        std::find(active_named_blocks_.begin(), active_named_blocks_.end(), expr.block_name) !=
+            active_named_blocks_.end() ||
+        std::find(active_loop_labels_.begin(), active_loop_labels_.end(), expr.block_name) !=
+            active_loop_labels_.end();
+    if (duplicate) {
+        report(expr.span,
+               "duplicate named block '" + expr.block_name +
+                   "' in this body (also checked against loop labels)",
+               diagnostics::err::NamedBlockDuplicateName);
+    } else {
+        active_named_blocks_.push_back(expr.block_name);
+    }
+
+    if (!expr.marker)
+        return;
+
+    // Marker form: the macro must exist and be scope-aware (`#[scope]`).
+    const auto &marker = snapshot.expressions()[expr.marker.value - 1U];
+    if (marker.kind == frontend::ExprKind::MacroCall) {
+        const frontend::Declaration *macro_decl =
+            findDeclNamed(marker.text, frontend::DeclKind::Macro);
+        const bool scope_aware =
+            macro_decl != nullptr &&
+            std::any_of(macro_decl->attributes.begin(), macro_decl->attributes.end(),
+                        [](const frontend::Attribute &attr) {
+                            return attr.kind == frontend::AttributeKind::Scope;
+                        });
+        if (!scope_aware) {
+            report(marker.span,
+                   "macro '" + marker.text +
+                       "' is not scope-aware; only #[scope] macros may mark a named block",
+                   diagnostics::err::NamedBlockInvalidPosition);
+        }
+        // Each argument must be a place-expression implementing Scope.
+        for (const auto arg : marker.operands) {
+            if (!isPlaceExpression(snapshot, arg)) {
+                report(arg && arg.value <= snapshot.expressions().size()
+                           ? snapshot.expressions()[arg.value - 1U].span
+                           : marker.span,
+                       "named block marker argument must be a place (binding, parameter, global, "
+                       "or field); temporaries are rejected",
+                       diagnostics::err::NamedBlockArgNotScope);
+                continue;
+            }
+            const TypeId arg_type = inferExpr(arg);
+            if (arg_type && !typeImplementsScope(arg_type)) {
+                report(arg && arg.value <= snapshot.expressions().size()
+                           ? snapshot.expressions()[arg.value - 1U].span
+                           : marker.span,
+                       "named block marker argument of type '" +
+                           type_table.typeToString(arg_type) + "' does not implement Scope",
+                       diagnostics::err::NamedBlockArgNotScope);
+            }
         }
     }
 }
@@ -1034,6 +1172,10 @@ TypeId PerModuleSema::inferWhile(frontend::ExprId id) {
         }
     }
     active_loop_labels_.push_back(expr.label);
+    // A loop label also reserves the name against named blocks in the
+    // same body, so `outer: for` and `outer: { }` cannot coexist.
+    if (!expr.label.empty())
+        active_named_blocks_.push_back(expr.label);
     if (!expr.operands.empty()) {
         (void)inferCondition(expr.operands[0], "loop condition must be boolean", expr.span);
     }
@@ -1059,6 +1201,10 @@ TypeId PerModuleSema::inferFor(frontend::ExprId id) {
         }
     }
     active_loop_labels_.push_back(expr.label);
+    // A loop label also reserves the name against named blocks in the
+    // same body, so `outer: for` and `outer: { }` cannot coexist.
+    if (!expr.label.empty())
+        active_named_blocks_.push_back(expr.label);
     // operands: [cond, body, step].
     if (!expr.operands.empty()) {
         (void)inferCondition(expr.operands[0], "loop condition must be boolean", expr.span);
@@ -1088,6 +1234,10 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
         }
     }
     active_loop_labels_.push_back(expr.label);
+    // A loop label also reserves the name against named blocks in the
+    // same body, so `outer: for` and `outer: { }` cannot coexist.
+    if (!expr.label.empty())
+        active_named_blocks_.push_back(expr.label);
 
     const auto &iterable_node = expr.operands[0].value <= snapshot.expressions().size()
                                     ? snapshot.expressions()[expr.operands[0].value - 1U]

@@ -959,6 +959,41 @@ std::vector<StmtId> AstLowerer::parseStatements() {
         }
         return {addStatement(std::move(statement))};
     }
+    // Named block: `name: { ... }` or `name: @macro(args) { ... }`. The name is
+    // descriptive, never a loop label. The marker form keeps the MacroCall on
+    // `marker` so sema can validate scope-awareness and place arguments; the
+    // block itself is always parsed into `expression`.
+    if (word != "let" && word != "var" && word != "const" &&
+        snapshot_.tokens_[index_].kind == TokenKind::Identifier && index_ + 1U < token_count_ &&
+        punctuation(index_ + 1U, ':') && index_ + 2U < token_count_ &&
+        (punctuation(index_ + 2U, '{') || text(index_ + 2U) == "@")) {
+        const std::string block_name = std::string(word);
+        index_ += 2U; // consume `name :`
+        ExprId marker_call;
+        if (text(index_) == "@") {
+            marker_call = parseExpression();
+        }
+        if (!punctuation(index_, '{')) {
+            snapshot_.diagnostics_.push_back(
+                {range(start, index_), "expected '{' to open named block '" + block_name + "'",
+                 false, diagnostics::err::ExpectedControlBody});
+            statement.kind = StmtKind::Error;
+            statement.span = range(start, index_);
+            return {addStatement(std::move(statement))};
+        }
+        ExprId block_id  = parseBlock();
+        auto &block_expr = snapshot_.expressions_[block_id.value - 1U];
+        block_expr.block_name = block_name;
+        block_expr.marker     = marker_call;
+        block_expr.span       = range(start, index_);
+        statement.expression  = block_id;
+        statement.span        = range(start, index_);
+        if (punctuation(index_, ';')) {
+            statement.hasSemicolon = true;
+            ++index_;
+        }
+        return {addStatement(std::move(statement))};
+    }
     if (word == "let" || word == "var" || word == "const") {
         statement.kind                = StmtKind::Binding;
         statement.binding.bindingKind = bindingKind(word);

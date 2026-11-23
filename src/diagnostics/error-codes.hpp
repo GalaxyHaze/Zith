@@ -67,6 +67,9 @@ inline constexpr ErrCode const UnknownAttribute             = 2028;
 inline constexpr ErrCode const AttributeNotApplicable       = 2029;
 inline constexpr ErrCode const RawCallRequired              = 2030;
 inline constexpr ErrCode const ExternalCallBoundary         = 2031;
+inline constexpr ErrCode const NamedBlockInvalidPosition    = 2032;
+inline constexpr ErrCode const NamedBlockArgNotScope        = 2033;
+inline constexpr ErrCode const NamedBlockDuplicateName      = 2034;
 
 // Types (3001-3999)
 inline constexpr ErrCode const TypeMismatch           = 3001;

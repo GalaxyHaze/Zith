@@ -34,12 +34,17 @@ inline AttributeKind classifyAttribute(Attribute &attr, AttributeTarget target,
         classified = attr.text == "raw" ? AttributeKind::Raw : AttributeKind::Safe;
     } else if (attr.text == "volatile" && target == AttributeTarget::Variable) {
         classified = AttributeKind::Volatile;
+    } else if (attr.text == "scope") {
+        // Scope-awareness is a property of a macro declaration; the parser
+        // classifies it under Other because macros are not declarations with a
+        // dedicated AttributeTarget here.
+        classified = AttributeKind::Scope;
     }
 
     const bool known = attr.text == "alignas" || attr.text == "noalias" || attr.text == "likely" ||
                        attr.text == "unlikely" || attr.text == "test" ||
                        attr.text == "discardable" || attr.text == "volatile" ||
-                       attr.text == "raw" || attr.text == "safe";
+                       attr.text == "raw" || attr.text == "safe" || attr.text == "scope";
     if (classified == AttributeKind::Unknown && !known) {
         diagnostics.push_back({attr.span, "unknown attribute '" + attr.text + "'", true,
                                diagnostics::err::UnknownAttribute});
