@@ -82,6 +82,9 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
   execution IR v1 and a pointer to the VM v2 contract.
 - [vm-v2-drawing.md](vm-v2-drawing.md): VM v2 boundaries and the typed
   register semantics required for floating-point execution.
+- [wasm-playground-asyncify-input.md](wasm-playground-asyncify-input.md):
+  browser input must pass every read through Asyncify, including queued bytes
+  and EOF, or guest execution may remain suspended after a line is submitted.
 - [stdlib-io-format.md](stdlib-io-format.md): proposed `std/io/consoleIn`/
   `consoleOut` format design, `TextSink`/`dyn` probe facts, and target access
   pattern for variadic `Formatable` values.

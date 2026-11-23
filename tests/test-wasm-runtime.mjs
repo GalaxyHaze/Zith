@@ -1,8 +1,7 @@
 // WASM VM v2 runtime ABI smoke test.
 //
-// This harness is intentionally free of Emscripten glue. It loads the
-// compiler/runtime .wasm, supplies only the zith.host_write import, and
-// exercises the public execution ABI:
+// This harness uses the generated Emscripten glue so Asyncify-backed host
+// input follows the same boundary as the browser playground. It exercises:
 //
 //   zith_emit_hir(ptr, len)     -> HIR flat blob, then
 //   zith_execute_hir(ptr, len)  -> lowers HIR flat to VM v2 IR and runs it.
@@ -16,15 +15,24 @@
 
 import { readFile } from "node:fs/promises";
 import { Buffer } from "node:buffer";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
-const wasmPath = process.argv[2];
-const stdlibPath = process.argv[3];
-if (!wasmPath || !stdlibPath) {
-  throw new Error("usage: node tests/test-wasm-runtime.mjs <zith-playground.wasm> <zith-stdlib.pack>");
+const gluePath = process.argv[2];
+const actualWasmPath = process.argv[3];
+const stdlibPath = process.argv[4];
+if (!gluePath || !actualWasmPath || !stdlibPath) {
+  throw new Error(
+    "usage: node tests/test-wasm-runtime.mjs <zith-playground.mjs> <zith-playground.wasm> <zith-stdlib.pack>",
+  );
 }
 
 const stdoutChunks = [];
 const stderrChunks = [];
+let moduleRuntime;
+let inputQueue = [];
+let inputClosed = false;
+let pendingInput = null;
 
 function writeOut(text) {
   process.stdout.write(text);
@@ -34,20 +42,54 @@ function writeErr(text) {
   process.stderr.write(text);
 }
 
+function drainInput() {
+  if (!pendingInput) return;
+  if (inputQueue.length > 0) {
+    const byte = inputQueue.shift();
+    const wakeUp = pendingInput;
+    pendingInput = null;
+    queueMicrotask(() => wakeUp(byte));
+  } else if (inputClosed) {
+    const wakeUp = pendingInput;
+    pendingInput = null;
+    queueMicrotask(() => wakeUp(-1));
+  }
+}
+
+function hostReadByte() {
+  return moduleRuntime.Asyncify.handleSleep((wakeUp) => {
+    if (pendingInput) throw new Error("WASM requested more than one input byte at a time.");
+    pendingInput = wakeUp;
+    drainInput();
+  });
+}
+
+function queueInput(bytes) {
+  inputQueue.push(...bytes);
+  drainInput();
+}
+
+function closeInput() {
+  inputClosed = true;
+  drainInput();
+}
+
+function resetInput() {
+  inputQueue = [];
+  inputClosed = false;
+  pendingInput = null;
+}
+
 async function loadInstance() {
-  const bytes = await readFile(wasmPath);
-  const module = await WebAssembly.compile(bytes);
-  const imports = WebAssembly.Module.imports(module);
-  const wasiNames = new Set(
-    imports
-      .filter((entry) => entry.module === "wasi_snapshot_preview1" && entry.kind === "function")
-      .map((entry) => entry.name),
-  );
-  const wasi = Object.fromEntries([...wasiNames].map((name) => [name, () => 0]));
-  const importObject = {
-    zith: {
-      host_write(stream, ptr, len) {
-        const view = new Uint8Array(instance.exports.memory.buffer, ptr, len);
+  const wasmBytes = await readFile(actualWasmPath);
+  const wasmModule = await WebAssembly.compile(wasmBytes);
+  const { default: createModule } = await import(pathToFileURL(resolve(gluePath)).href);
+  moduleRuntime = await createModule({
+    wasmBinary: wasmBytes,
+    instantiateWasm(imports, receiveInstance) {
+      imports.zith ??= {};
+      imports.zith.host_write = (stream, ptr, len) => {
+        const view = new Uint8Array(moduleRuntime.HEAPU8.buffer, ptr, len);
         const text = Buffer.from(view).toString("utf8");
         if (stream === 1) {
           stdoutChunks.push(text);
@@ -56,16 +98,30 @@ async function loadInstance() {
           stderrChunks.push(text);
           writeErr(text);
         }
+      };
+      imports.zith.host_read_byte = hostReadByte;
+      const wasmInstance = new WebAssembly.Instance(wasmModule, imports);
+      return receiveInstance(wasmInstance);
+    },
+  });
+
+  const exports = new Proxy(
+    {},
+    {
+      get(_target, property) {
+        if (property === "memory") {
+          return {
+            get buffer() {
+              return moduleRuntime.HEAPU8.buffer;
+            },
+          };
+        }
+        if (typeof property === "string") return moduleRuntime[`_${property}`];
+        return undefined;
       },
     },
-    wasi_snapshot_preview1: wasi,
-    env: Object.fromEntries(
-      imports
-        .filter((entry) => entry.module === "env" && entry.kind === "function")
-        .map((entry) => [entry.name, () => 0]),
-    ),
-  };
-  return WebAssembly.instantiate(module, importObject);
+  );
+  return { exports };
 }
 
 // Keep instance scoped to the import callback via a mutable binding.
@@ -128,6 +184,21 @@ function runHir(hir) {
   return instance.exports.zith_execute_hir(ptr, hir.length);
 }
 
+async function runSourceAsync(source) {
+  const { ptr, len } = writeString(source);
+  try {
+    return await moduleRuntime.ccall(
+      "zith_run_source",
+      "number",
+      ["number", "number"],
+      [ptr, len],
+      { async: true },
+    );
+  } finally {
+    instance.exports.zith_free(ptr, len);
+  }
+}
+
 const stdHello = `from std/io/console
 from std/memory
 
@@ -182,6 +253,67 @@ async function main() {
   assertEqual(instance.exports.zith_register_stdlib_pack(stdlibBuffer.ptr, stdlibBuffer.len), 0,
               "stdlib pack registration");
 
+  stdoutChunks.length = 0;
+  resetInput();
+  const inputSource = `from std/io/console
+from soon/memory
+
+fn main(): i32 {
+    let heap = HeapAllocator {};
+    _ = print(heap, "ready");
+    var longLine = input(heap);
+    if (not longLine.good()) { return 1; }
+    let longLength = longLine.len();
+    let longText = longLine.text();
+    var index: u64 = 0;
+    for (index < longLength) {
+        if (raw longText[index] != ('x' as char)) { return 4; }
+        index = index + 1;
+    }
+    longLine.destroy();
+    var partialLine = input(heap);
+    if (not partialLine.good()) { return 2; }
+    let partialLength = partialLine.len();
+    let partialText = partialLine.text();
+    if (raw partialText[0u64] != ('a' as char) or
+        raw partialText[1u64] != ('b' as char) or
+        raw partialText[2u64] != ('c' as char)) { return 5; }
+    partialLine.destroy();
+    var eofLine = input(heap);
+    if (eofLine.good()) { return 3; }
+    eofLine.destroy();
+    (longLength + partialLength) as i32
+}
+`;
+  const inputRun = runSourceAsync(inputSource);
+  if (!pendingInput) throw new Error("guest did not suspend while waiting for input");
+  assertEqual(stdoutChunks.join(""), "ready", "guest output is flushed before input wait");
+  queueInput(Buffer.from(`${"x".repeat(1024)}\nabc`, "utf8"));
+  await new Promise((resolveTurn) => setTimeout(resolveTurn, 0));
+  if (!pendingInput) throw new Error("partial final line did not wait for EOF");
+  closeInput();
+  assertEqual(await inputRun, 0, "interactive input program completes");
+  assertEqual(Number(instance.exports.zith_exit_code()), 1027,
+              "long line and partial final line are returned before EOF");
+  assertEqual(stdoutChunks.join(""), "ready", "guest output is flushed before input and EOF");
+
+  resetInput();
+  const cancelledRun = runSourceAsync(`from std/io/console
+from soon/memory
+
+fn main(): i32 {
+    let heap = HeapAllocator {};
+    var line = input(heap);
+    if (line.good()) { return 1; }
+    0
+}
+`);
+  if (!pendingInput) throw new Error("guest did not suspend before cancellation");
+  const cancelInput = pendingInput;
+  pendingInput = null;
+  cancelInput(-2);
+  assertEqual(await cancelledRun, 6, "host cancellation has its own ABI status");
+
   const dumpSource = writeString(`fn main(): i32 {
     1 + 2
 }
@@ -229,7 +361,7 @@ async function main() {
   const externStatus = runHir(externHir);
   assertEqual(externStatus, 0, "extern fn puts program runs");
   assertEqual(stdoutChunks.join(""), "hello-puts\n", "puts output");
-  assertEqual(instance.exports.zith_exit_code(), 7n, "extern fn main exit code");
+  assertEqual(Number(instance.exports.zith_exit_code()), 7, "extern fn main exit code");
 
   stdoutChunks.length = 0;
   stderrChunks.length = 0;
@@ -257,7 +389,7 @@ fn main(): i32 {
   assertEqual(instance.exports.zith_run_source(printSource.ptr, printSource.len), 0,
               "print and 4-arg function execute through VM v2");
   assertEqual(stdoutChunks.join(""), "one-two", "print outputs continuous text without newline");
-  assertEqual(instance.exports.zith_exit_code(), 10n, "add4 computes 10 as main exit code");
+  assertEqual(Number(instance.exports.zith_exit_code()), 10, "add4 computes 10 as main exit code");
 
   stdoutChunks.length = 0;
   stderrChunks.length = 0;
@@ -279,7 +411,7 @@ fn main(): i32 {
 `);
   assertEqual(instance.exports.zith_run_source(bitwiseSource.ptr, bitwiseSource.len), 0,
               "bitwise operations execute through WASM VM v2");
-  assertEqual(instance.exports.zith_exit_code(), 13n, "bitwise operations exit code (1+8+4=13)");
+  assertEqual(Number(instance.exports.zith_exit_code()), 13, "bitwise operations exit code (1+8+4=13)");
 
   stdoutChunks.length = 0;
   stderrChunks.length = 0;
@@ -295,7 +427,7 @@ fn main(): i32 {
   const controlArrayHir = compileSource(controlArrayText);
   assertEqual(runHir(controlArrayHir), 0,
               "control flow and dynamic array index execute through WASM VM v2");
-  assertEqual(instance.exports.zith_exit_code(), 20n,
+  assertEqual(Number(instance.exports.zith_exit_code()), 20,
               "dynamic array index returns the selected element in WASM");
 
   stdoutChunks.length = 0;
@@ -311,7 +443,7 @@ fn main(): i32 {
   const controlFlowBuffer = writeString(controlFlowSource);
   assertEqual(instance.exports.zith_run_source(controlFlowBuffer.ptr, controlFlowBuffer.len), 0,
               "for loop executes through the playground WASM ABI");
-  assertEqual(instance.exports.zith_exit_code(), 5050n,
+  assertEqual(Number(instance.exports.zith_exit_code()), 5050,
               "for loop sums the range 0..100");
 
   stdoutChunks.length = 0;
@@ -360,7 +492,7 @@ fn main(): i32 {
 `);
   assertEqual(instance.exports.zith_run_source(reallocSource.ptr, reallocSource.len), 0,
               "realloc executes through the playground WASM ABI");
-  assertEqual(instance.exports.zith_exit_code(), 0n,
+  assertEqual(Number(instance.exports.zith_exit_code()), 0,
               "realloc program returns successfully in WASM");
 
   stdoutChunks.length = 0;
@@ -378,7 +510,7 @@ fn main(): i32 {
 `);
   assertEqual(instance.exports.zith_run_source(callocSource.ptr, callocSource.len), 0,
               "calloc and strncmp execute through the playground WASM ABI");
-  assertEqual(instance.exports.zith_exit_code(), 0n,
+  assertEqual(Number(instance.exports.zith_exit_code()), 0,
               "calloc-backed block compares equal to itself in WASM");
 
   const outOfBoundsText = `fn main(): i32 {
@@ -403,13 +535,13 @@ fn main(): i32 {
   assertEqual(instance.exports.zith_run_source(runSource.ptr, runSource.len), 0,
               "run_source executes through VM v2");
   assertEqual(stdoutChunks.join(""), "run-source\n", "run_source output");
-  assertEqual(instance.exports.zith_exit_code(), 9n, "run_source exit code");
+  assertEqual(Number(instance.exports.zith_exit_code()), 9, "run_source exit code");
 
   stdoutChunks.length = 0;
   stderrChunks.length = 0;
   const dynHir = compileSource(dynDispatchSource);
   assertEqual(runHir(dynHir), 0, "dyn dispatch executes from flat HIR");
-  assertEqual(instance.exports.zith_exit_code(), 73n,
+  assertEqual(Number(instance.exports.zith_exit_code()), 73,
               "flat HIR dyn dispatch selects both implementations");
 
   stdoutChunks.length = 0;
@@ -417,7 +549,7 @@ fn main(): i32 {
   const dynSource = writeString(dynDispatchSource);
   assertEqual(instance.exports.zith_run_source(dynSource.ptr, dynSource.len), 0,
               "dyn dispatch executes through run_source");
-  assertEqual(instance.exports.zith_exit_code(), 73n,
+  assertEqual(Number(instance.exports.zith_exit_code()), 73,
               "run_source dyn dispatch selects both implementations");
 
   stdoutChunks.length = 0;
@@ -437,9 +569,9 @@ fn main(): i32 {
     assertEqual(instance.exports.zith_execute_cached(cacheSource.ptr, cacheSource.len), 0,
                 "cached replay succeeds");
     assertEqual(stdoutChunks.join(""), "cache-once\n", "cached replay output");
-    assertEqual(instance.exports.zith_exit_code(), 5n, "cached replay exit code");
+    assertEqual(Number(instance.exports.zith_exit_code()), 5, "cached replay exit code");
   }
-  assertEqual(instance.exports.zith_hir_cache_hits() - hitsBefore, 2n,
+  assertEqual(Number(instance.exports.zith_hir_cache_hits() - hitsBefore), 2,
               "both replays hit the artifact cache");
 
   const missSource = writeString("fn main(): i32 {\n    1\n}\n");

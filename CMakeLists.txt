@@ -319,8 +319,53 @@ endif()
 if(ZITH_IS_WASM)
     add_executable(zith-playground src/wasm/playground.cpp src/wasm/wasi-stubs.cpp)
     target_link_libraries(zith-playground PRIVATE zithcLib)
-    set_target_properties(zith-playground PROPERTIES OUTPUT_NAME zith-playground SUFFIX ".wasm")
-    target_link_options(zith-playground PRIVATE -Wl,--no-entry -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=134217728 -sMAXIMUM_MEMORY=268435456 -sSTACK_SIZE=16777216 -Wl,--export=zith_alloc -Wl,--export=zith_free -Wl,--export=zith_run_source -Wl,--export=zith_compile_source -Wl,--export=zith_emit_hir -Wl,--export=zith_execute_hir -Wl,--export=zith_compile_hir -Wl,--export=zith_execute_cached -Wl,--export=zith_restore_cached -Wl,--export=zith_hir_cache_hits -Wl,--export=zith_hir_cache_misses -Wl,--export=zith_hir_cache_stale -Wl,--export=zith_hir_cache_size -Wl,--export=zith_register_stdlib_pack -Wl,--export=zith_last_buffer_ptr -Wl,--export=zith_last_buffer_len -Wl,--export=zith_exit_code -Wl,--export=zith_last_error_ptr -Wl,--export=zith_last_error_len -Wl,--export=zith_last_output_ptr -Wl,--export=zith_last_output_len -Wl,--export=zith_error_count -Wl,--export=zith_error_at -Wl,--export=zith_last_diagnostics_json_ptr -Wl,--export=zith_last_diagnostics_json_len -Wl,--export=zith_compiler_version_ptr -Wl,--export=zith_compiler_version_len )
+    set(ZITH_PLAYGROUND_EXPORTED_FUNCTIONS
+        _zith_alloc
+        _zith_free
+        _zith_run_source
+        _zith_compile_source
+        _zith_emit_hir
+        _zith_execute_hir
+        _zith_compile_hir
+        _zith_execute_cached
+        _zith_restore_cached
+        _zith_hir_cache_hits
+        _zith_hir_cache_misses
+        _zith_hir_cache_stale
+        _zith_hir_cache_size
+        _zith_register_stdlib_pack
+        _zith_last_buffer_ptr
+        _zith_last_buffer_len
+        _zith_exit_code
+        _zith_last_error_ptr
+        _zith_last_error_len
+        _zith_last_output_ptr
+        _zith_last_output_len
+        _zith_error_count
+        _zith_error_at
+        _zith_last_diagnostics_json_ptr
+        _zith_last_diagnostics_json_len
+        _zith_compiler_version_ptr
+        _zith_compiler_version_len
+    )
+    string(REPLACE ";" "','" ZITH_PLAYGROUND_EXPORTED_FUNCTIONS_JS
+        "${ZITH_PLAYGROUND_EXPORTED_FUNCTIONS}")
+    set_target_properties(zith-playground PROPERTIES OUTPUT_NAME zith-playground SUFFIX ".mjs")
+    target_link_options(zith-playground PRIVATE
+        -Wl,--no-entry
+        -sALLOW_MEMORY_GROWTH=1
+        -sINITIAL_MEMORY=134217728
+        -sMAXIMUM_MEMORY=268435456
+        -sSTACK_SIZE=16777216
+        -sASYNCIFY=1
+        "-sASYNCIFY_IMPORTS=['zith.host_read_byte']"
+        -sERROR_ON_UNDEFINED_SYMBOLS=0
+        "-sEXPORTED_FUNCTIONS=['${ZITH_PLAYGROUND_EXPORTED_FUNCTIONS_JS}']"
+        "-sEXPORTED_RUNTIME_METHODS=['Asyncify','ccall']"
+        -sMODULARIZE=1
+        -sEXPORT_ES6=1
+        -sEXPORT_NAME=createZithPlaygroundModule
+    )
     target_compile_options(zith-playground PRIVATE -Wno-unknown-attributes -Wno-missing-prototypes)
 endif()
 

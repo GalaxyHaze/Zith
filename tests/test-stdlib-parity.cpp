@@ -35,6 +35,7 @@ constexpr int kStatusOk          = 0;
 constexpr int kStatusTrap        = 3;
 constexpr int kStatusOom         = 4;
 constexpr int kStatusUnsupported = 5;
+constexpr int kStatusCancelled = 6;
 
 struct ParityCase {
     const char *name;
@@ -428,6 +429,8 @@ int playgroundStatus(vm::RunStatus status) {
         return kStatusUnsupported;
     case vm::RunStatus::Oom:
         return kStatusOom;
+    case vm::RunStatus::Cancelled:
+        return kStatusCancelled;
     }
     return kStatusTrap;
 }
@@ -442,6 +445,8 @@ const char *playgroundStatusName(int status) {
         return "oom";
     case kStatusUnsupported:
         return "status-5";
+    case kStatusCancelled:
+        return "cancelled";
     }
     return "unknown";
 }
@@ -557,6 +562,8 @@ void test_parity_requires_success_status() {
           "VM OOM keeps its distinct parity status");
     CHECK(playgroundStatus(vm::RunStatus::Unsupported) == kStatusUnsupported,
           "VM unsupported keeps its distinct parity status");
+    CHECK(playgroundStatus(vm::RunStatus::Cancelled) == kStatusCancelled,
+          "VM cancellation keeps its distinct status");
 }
 
 } // namespace

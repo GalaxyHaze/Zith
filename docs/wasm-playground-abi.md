@@ -4,9 +4,13 @@ This document describes the stable ABI exported by `zith-playground.wasm` for th
 playground. The playground performs lexing, parsing, type checking, HIR lowering, and execution through
 the portable VM v2. It does not include LLVM codegen.
 
-The module is a standalone Emscripten build with no entry function. JavaScript provides the
-`zith.host_write` import; the `wasi_snapshot_preview1.fd_write` stub forwards writes to that same
-host callback so compiler and program streams can be rendered without a filesystem.
+Interactive terminal input behavior is specified in
+[`docs/specs/wasm-playground-interactive-input.md`](specs/wasm-playground-interactive-input.md).
+
+The module is an Emscripten build with no entry function and generated JavaScript glue. The glue
+provides `zith.host_write` and the Asyncify-backed `zith.host_read_byte` imports;
+`wasi_snapshot_preview1.fd_write` forwards writes to the same host callback so compiler and
+program streams can be rendered without a filesystem.
 
 The playground can compile a source buffer once into a flat HIR blob and then execute that blob
 with the portable VM. The flat HIR format is versioned and self-contained; it is defined by
@@ -15,7 +19,7 @@ with the portable VM. The flat HIR format is versioned and self-contained; it is
 ## Flat HIR Version 7
 
 The flat HIR envelope is version 7. This format version is independent of the
-WASM execution ABI version 2 and the `.zirl` cache format. The decoder rejects
+WASM execution ABI version 3 and the `.zirl` cache format. The decoder rejects
 blobs from another flat HIR version.
 
 Version 7 adds section marker `6` for module-local vtables and their ordered
@@ -66,6 +70,7 @@ or backend support for every `dyn` construct.
 | Module | Import | Purpose |
 |---|---|---|
 | `zith` | `host_write(stream: i32, ptr: i32, len: i32)` | Render UTF-8 bytes to the playground terminal. Stream `1` is stdout, stream `2` is stderr. |
+| `zith` | `host_read_byte() -> i32` | Return one byte (`0..255`), EOF (`-1`), or cancellation (`-2`). Asyncify suspends the guest while the browser waits for a byte. |
 | `wasi_snapshot_preview1` | standard WASI imports | Stubs; `fd_write` forwards write buffers to `zith.host_write`. |
 
 ## Return Codes
@@ -78,6 +83,7 @@ or backend support for every `dyn` construct.
 | `3` | VM v2 runtime trap or missing guest `main`. |
 | `4` | VM v2 ran out of linear memory or guest memory capacity. |
 | `5` | The flat HIR uses a construct outside the current VM v2 lowering slice. |
+| `6` | The host cancelled execution while the guest was waiting for input. |
 
 `zith_register_stdlib_pack` returns `2` for a malformed pack and clears the previously registered
 pack before attempting registration. `zith_emit_hir` returns `1` when the source fails HIR

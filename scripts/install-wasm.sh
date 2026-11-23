@@ -88,6 +88,7 @@ echo "Extracting to $INSTALL_DIR..."
 rm -rf "$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 unzip -o "$TMP_DIR/zithc-wasm.zip" -d "$INSTALL_DIR"
+test -s "$INSTALL_DIR/zith-playground.mjs"
 test -s "$INSTALL_DIR/zith-playground.wasm"
 test -s "$INSTALL_DIR/zith-stdlib.pack"
 

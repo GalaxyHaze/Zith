@@ -38,6 +38,7 @@ struct Frame {
 struct RunState {
     const Module *module = nullptr;
     LinearMemory *memory = nullptr;
+    IoCallbacks io;
     std::vector<std::size_t> stringAddresses;
     common::TestOutputBuffer output;
     std::string message;
@@ -45,6 +46,12 @@ struct RunState {
     std::size_t lastInstruction = 0;
     RunStatus status            = RunStatus::Ok;
 };
+
+void appendOutput(RunState &state, std::string_view bytes) {
+    state.output.append(bytes);
+    if (state.io.writeStdout != nullptr)
+        state.io.writeStdout(state.io.context, bytes);
+}
 
 auto statusText(RunStatus status) -> std::string_view {
     switch (status) {
@@ -58,6 +65,8 @@ auto statusText(RunStatus status) -> std::string_view {
         return "unsupported";
     case RunStatus::Oom:
         return "out of linear memory";
+    case RunStatus::Cancelled:
+        return "cancelled";
     }
     return "unknown status";
 }
@@ -154,15 +163,15 @@ auto externPuts(RunState &state, const ExternCall &args, std::int64_t &result) -
     const std::string_view text = state.memory->cstring(static_cast<std::size_t>(args.arg0));
     if (text.empty())
         return false;
-    state.output.append(text);
-    state.output.append("\n");
+    appendOutput(state, text);
+    appendOutput(state, "\n");
     return true;
 }
 
 auto externPutchar(RunState &state, const ExternCall &args, std::int64_t &result) -> bool {
     (void)result;
     const char value = static_cast<char>(args.arg0);
-    state.output.append(std::string_view(&value, 1U));
+    appendOutput(state, std::string_view(&value, 1U));
     return true;
 }
 
@@ -171,7 +180,7 @@ auto externWriteStdout(RunState &state, const ExternCall &args, std::int64_t &re
     if (args.arg1 > 0) {
         const std::string_view text = state.memory->stringView(static_cast<std::size_t>(args.arg0),
                                                                static_cast<std::size_t>(args.arg1));
-        state.output.append(text);
+        appendOutput(state, text);
     }
     return true;
 }
@@ -360,12 +369,21 @@ auto externMemcmp(RunState &state, const ExternCall &args, std::int64_t &result)
     return true;
 }
 
-/// The playground has no stdin stream, so `getchar` reports end of input. This
-/// keeps the stdlib `input` loop deterministic instead of trapping.
+/// Without a reader, `getchar` reports EOF. Host callbacks may instead deliver
+/// a byte, EOF, or the dedicated cancellation signal.
 auto externGetchar(RunState &state, const ExternCall &args, std::int64_t &result) -> bool {
-    (void)state;
     (void)args;
-    result = -1;
+    result = state.io.readByte == nullptr ? -1 : state.io.readByte(state.io.context);
+    if (result == -2) {
+        state.status = RunStatus::Cancelled;
+        state.message = "execution cancelled while waiting for input";
+        return false;
+    }
+    if (result < -1 || result > 255) {
+        state.status = RunStatus::Trap;
+        state.message = "input callback returned a value outside the byte/EOF range";
+        return false;
+    }
     return true;
 }
 
@@ -1007,7 +1025,7 @@ auto runFunction(RunState &state, const Function &fn, std::vector<int64_t> &regs
                             state.memory->cstring(static_cast<std::size_t>(args[0]));
                         if (!formatVariadic(format, args, 1, formatted))
                             return {false, 0};
-                        state.output.append(formatted);
+                        appendOutput(state, formatted);
                     } else {
                         const auto buffer   = args[0];
                         const auto capacity = args[1];
@@ -1173,7 +1191,7 @@ auto runFunction(RunState &state, const Function &fn, std::vector<int64_t> &regs
 
 Vm::Vm(std::size_t linearMemoryCapacity) : memory_(linearMemoryCapacity) {}
 
-auto Vm::runMain(const Module &module) -> RunResult {
+auto Vm::runMain(const Module &module, IoCallbacks io) -> RunResult {
     RunResult result;
     const auto *main = findFunction(module, "main");
     if (main == nullptr) {
@@ -1192,6 +1210,7 @@ auto Vm::runMain(const Module &module) -> RunResult {
     RunState state;
     state.module = &module;
     state.memory = &memory_;
+    state.io = io;
     state.stringAddresses.reserve(module.strings.size());
     for (std::size_t i = 0; i < module.strings.size(); ++i) {
         const std::string_view text = module.strings[i];
@@ -1212,19 +1231,20 @@ auto Vm::runMain(const Module &module) -> RunResult {
     }
     std::vector<int64_t> regs(main->regCount, 0);
     const auto outcome = runFunction(state, *main, regs);
+    result.output      = state.output.take();
     if (!outcome.ok) {
-        result.status  = RunStatus::Trap;
-        result.message = state.message.empty()
-                             ? std::string(statusText(RunStatus::Trap)) + " in " +
-                                   std::string(state.lastFunction) + " at instruction " +
-                                   std::to_string(state.lastInstruction)
-                             : state.message;
+        result.status = state.status == RunStatus::Ok ? RunStatus::Trap : state.status;
+        result.message =
+            state.message.empty()
+                ? std::string(statusText(result.status)) + " in " +
+                      std::string(state.lastFunction) + " at instruction " +
+                      std::to_string(state.lastInstruction)
+                : state.message;
         return result;
     }
 
     result.status   = RunStatus::Ok;
     result.exitCode = outcome.value;
-    result.output   = state.output.take();
     return result;
 }
 

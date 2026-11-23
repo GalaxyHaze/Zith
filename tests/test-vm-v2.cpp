@@ -22,6 +22,30 @@ using namespace zith;
 
 namespace {
 
+struct TestVmIo {
+    std::string input;
+    std::size_t inputOffset = 0;
+    bool cancel = false;
+    std::string output;
+    std::string events;
+};
+
+auto readTestVmByte(void *context) -> int {
+    auto &io = *static_cast<TestVmIo *>(context);
+    io.events.push_back('r');
+    if (io.cancel)
+        return -2;
+    if (io.inputOffset >= io.input.size())
+        return -1;
+    return static_cast<unsigned char>(io.input[io.inputOffset++]);
+}
+
+void writeTestVmBytes(void *context, std::string_view bytes) {
+    auto &io = *static_cast<TestVmIo *>(context);
+    io.events.push_back('w');
+    io.output.append(bytes);
+}
+
 auto makeModule(memory::Arena &arena) -> vm::Module {
     vm::Module module(arena);
     module.strings.push("zith-vm-v2");
@@ -982,6 +1006,53 @@ void test_vm_v2_ffi_getchar_reports_eof() {
     CHECK_EQ(result.exitCode, -1, "getchar reports end of input in the playground");
 }
 
+void test_vm_v2_byte_io_callbacks() {
+    memory::Arena arena;
+    vm::Module module(arena);
+    module.strings.push("prompt");
+    module.externs.push(std::string_view("puts"));
+    module.externs.push(std::string_view("getchar"));
+
+    auto &main      = module.functions.emplace(arena);
+    main.name       = "main";
+    main.paramCount = 0;
+    main.returnType = vm::ValueType::I32;
+    main.regCount   = 3;
+    main.body.push(vm::Instr::withImm(vm::Op::LoadString, 0, 0));
+    main.body.push(vm::Instr::callExtern(vm::Op::CallExtern, 1, 0, 0, 0));
+    main.body.push(vm::Instr::callExtern(vm::Op::CallExtern, 2, 0, 0, 1));
+    main.body.push(vm::Instr{vm::Op::Ret, 2, 0, 0, 0});
+
+    TestVmIo io;
+    io.input = "x";
+    vm::IoCallbacks callbacks{&io, readTestVmByte, writeTestVmBytes};
+    vm::Vm vm;
+    const auto result = vm.runMain(module, callbacks);
+    CHECK(result.status == vm::RunStatus::Ok, "byte input callback completes the VM run");
+    CHECK_EQ(result.exitCode, static_cast<int64_t>('x'), "input callback delivers its byte");
+    CHECK_EQ(io.output, std::string("prompt\n"), "output callback streams guest output");
+    CHECK_EQ(result.output, std::string("prompt\n"), "streaming preserves accumulated output");
+    CHECK_EQ(io.events, std::string("wwr"),
+             "guest output reaches the host before the input callback is invoked");
+
+    TestVmIo eof;
+    callbacks.context = &eof;
+    const auto eofResult = vm.runMain(module, callbacks);
+    CHECK(eofResult.status == vm::RunStatus::Ok, "EOF is an ordinary input result");
+    CHECK_EQ(eofResult.exitCode, -1, "input callback EOF remains distinct from cancellation");
+
+    TestVmIo cancelled;
+    cancelled.cancel = true;
+    callbacks.context = &cancelled;
+    const auto cancelledResult = vm.runMain(module, callbacks);
+    CHECK(cancelledResult.status == vm::RunStatus::Cancelled,
+          "input cancellation returns its dedicated run status");
+    CHECK_EQ(cancelled.output, std::string("prompt\n"),
+             "output is streamed before cancellation while waiting for input");
+    CHECK_EQ(cancelledResult.output, std::string("prompt\n"),
+             "cancelled runs retain output accumulated before input");
+}
+
 void test_vm_v2_ffi_strcpy_strcat_strcmp_memcmp() {
     // Positive path: strcpy then strcat builds "abc", which strcmp and memcmp
     // (over four bytes, including the terminator) both report as equal.
@@ -1097,6 +1168,76 @@ void test_vm_v2_hello_stdlib_import_println() {
     session.setBuffered(true);
     CHECK(session.runTo(session::Stage::HirLowered),
           "current stdlib println call lowers through the modern pipeline");
+}
+
+void test_vm_v2_stdlib_input_grows_and_returns_partial_eof_line() {
+    const auto root = std::filesystem::temp_directory_path() / "zith-vm-v2-input-tests";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+
+    const auto source = root / "main.zithm";
+    {
+        std::ofstream output(source, std::ios::binary | std::ios::trunc);
+        output << "from std/io/console\n"
+                  "from soon/memory\n"
+                  "\n"
+                  "fn main(): i32 {\n"
+                  "    let heap = HeapAllocator {};\n"
+                  "    var longLine = input(heap);\n"
+                  "    if (not longLine.good()) { return 1; }\n"
+                  "    let longLength = longLine.len();\n"
+                  "    let longText = longLine.text();\n"
+                  "    var index: u64 = 0;\n"
+                  "    for (index < longLength) {\n"
+                  "        if (raw longText[index] != ('x' as char)) { return 4; }\n"
+                  "        index = index + 1;\n"
+                  "    }\n"
+                  "    longLine.destroy();\n"
+                  "    var partialLine = input(heap);\n"
+                  "    if (not partialLine.good()) { return 2; }\n"
+                  "    let partialLength = partialLine.len();\n"
+                  "    let partialText = partialLine.text();\n"
+                  "    if (raw partialText[0u64] != ('a' as char) or\n"
+                  "        raw partialText[1u64] != ('b' as char) or\n"
+                  "        raw partialText[2u64] != ('c' as char)) { return 5; }\n"
+                  "    partialLine.destroy();\n"
+                  "    var eofLine = input(heap);\n"
+                  "    if (eofLine.good()) { return 3; }\n"
+                  "    eofLine.destroy();\n"
+                  "    (longLength + partialLength) as i32\n"
+                  "}\n";
+    }
+
+    memory::Arena arena;
+    Options options(arena);
+    options.includeDirs.push(ZITH_STDLIB_DIR);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, source.string());
+    session.setBuffered(true);
+    const bool hirReady = session.runTo(session::Stage::HirLowered);
+    CHECK(hirReady, "dynamic InputLine program lowers through the modern pipeline");
+    if (!hirReady)
+        return;
+
+    memory::Arena vmArena;
+    vm::Module module(vmArena);
+    const auto lowered =
+        vm::lowerModule(session.hirModule(), session.interner(), session.types(), vmArena, module);
+    CHECK(lowered.ok, "dynamic InputLine program lowers into VM v2");
+    if (!lowered.ok)
+        return;
+
+    TestVmIo io;
+    io.input.assign(1024, 'x');
+    io.input.push_back('\n');
+    io.input += "abc";
+    vm::IoCallbacks callbacks{&io, readTestVmByte, writeTestVmBytes};
+    vm::Vm machine;
+    const auto result = machine.runMain(module, callbacks);
+    CHECK(result.status == vm::RunStatus::Ok, "InputLine accepts long and partial input");
+    CHECK_EQ(result.exitCode, 1027, "long line grows and the partial EOF line is returned once");
+    CHECK_EQ(result.output, io.output, "InputLine output remains available in the VM result");
 }
 
 void test_vm_v2_hello_virtual_stdlib() {
@@ -2283,12 +2424,14 @@ void test_vm_v2() {
     test_vm_v2_ffi_calloc_zeroes_and_strncmp();
     test_vm_v2_ffi_strncmp_ordering();
     test_vm_v2_ffi_getchar_reports_eof();
+    test_vm_v2_byte_io_callbacks();
     test_vm_v2_ffi_strcpy_strcat_strcmp_memcmp();
     test_vm_v2_ffi_unsupported_extern_names();
 #ifdef ZITH_ENABLE_C_INTEROP
     test_vm_v2_external_global_fallback();
     test_vm_v2_hello_stdlib_import_println();
     test_vm_v2_hello_stdlib_import_print();
+    test_vm_v2_stdlib_input_grows_and_returns_partial_eof_line();
     test_vm_v2_hello_virtual_stdlib();
     test_vm_v2_functions_with_stdlib();
 #endif // ZITH_ENABLE_C_INTEROP

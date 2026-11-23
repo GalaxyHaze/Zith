@@ -13,6 +13,8 @@ extern "C" long long zith_hir_cache_misses();
 extern "C" long long zith_hir_cache_stale();
 extern "C" long long zith_hir_cache_size();
 extern "C" long long zith_exit_code();
+extern "C" const char *zith_last_output_ptr();
+extern "C" int zith_last_output_len();
 extern "C" const char *zith_last_diagnostics_json_ptr();
 extern "C" int zith_last_diagnostics_json_len();
 
@@ -20,6 +22,9 @@ namespace {
 
 std::string host_output;
 std::string host_errors;
+std::string host_input;
+std::size_t host_input_offset = 0;
+bool host_input_cancelled = false;
 
 auto diagnosticsJson() -> std::string {
     const char *ptr = zith_last_diagnostics_json_ptr();
@@ -57,6 +62,14 @@ extern "C" void host_write(int stream, const char *ptr, int len) {
         return;
     auto &output = stream == 1 ? host_output : host_errors;
     output.append(ptr, static_cast<std::size_t>(len));
+}
+
+extern "C" int host_read_byte() {
+    if (host_input_cancelled)
+        return -2;
+    if (host_input_offset >= host_input.size())
+        return -1;
+    return static_cast<unsigned char>(host_input[host_input_offset++]);
 }
 
 void test_wasm_playground_structured_diagnostics() {
@@ -210,9 +223,42 @@ void test_wasm_playground_hir_cache() {
           "stale artifact is reported through the structured diagnostics channel");
 }
 
+void test_wasm_playground_interactive_input() {
+    host_output.clear();
+    host_errors.clear();
+    host_input = "A\n";
+    host_input_offset = 0;
+    host_input_cancelled = false;
+    constexpr std::string_view source =
+        "extern fn puts(msg: *char)\n"
+        "extern fn getchar(): i32\n"
+        "\n"
+        "fn main(): i32 {\n"
+        "    _ = puts(\"prompt\");\n"
+        "    getchar()\n"
+        "}\n";
+    CHECK_EQ(runSource(source), 0, "playground forwards bytes to the VM input callback");
+    CHECK_EQ(host_output, std::string("prompt\n"),
+             "playground streams output before the VM reads input");
+    CHECK_EQ(zith_exit_code(), 65, "playground guest receives the submitted byte");
+    CHECK_EQ(std::string(zith_last_output_ptr(), static_cast<std::size_t>(zith_last_output_len())),
+             std::string("prompt\n"), "playground retains output accumulated by a guest run");
+
+    host_output.clear();
+    host_input_cancelled = true;
+    CHECK_EQ(runSource(source), 6, "playground cancellation has a distinct status");
+    CHECK_EQ(host_output, std::string("prompt\n"),
+             "playground streams output before returning cancellation");
+    CHECK_EQ(std::string(zith_last_output_ptr(), static_cast<std::size_t>(zith_last_output_len())),
+             std::string("prompt\n"), "playground retains output accumulated before cancellation");
+    CHECK_EQ(diagnosticsJson(), std::string("{\"diagnostics\":[]}"),
+             "cancellation is not reported as a compiler/runtime diagnostic");
+}
+
 void test_wasm_playground() {
     test_wasm_playground_structured_diagnostics();
     test_wasm_playground_hir_cache();
+    test_wasm_playground_interactive_input();
 }
 
 TEST_MAIN(wasm_playground)

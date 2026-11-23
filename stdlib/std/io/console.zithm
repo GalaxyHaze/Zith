@@ -9,12 +9,13 @@ pub trait ParseInput {
     fn parse(self: view InputLine): ?Self;
 }
 
-/// Owned single-line input. `ok` is false only when the stream ended or a
-/// read failed; `text` is then empty.
+/// Owned single-line input. `good` is true when a line was read, including a
+/// partial final line returned at EOF. It is false when EOF arrives first.
 pub struct InputLine {
     allocator: dyn Allocator,
     data: ?*char = null,
     length: u64 = 0,
+    capacity: u64 = 0,
     ok: bool = false,
 
     fn text(self: view InputLine): view []char {
@@ -36,10 +37,11 @@ pub struct InputLine {
     fn destroy(var self) {
         let data = self.data;
         if (not (data is null)) {
-            deallocate(self.allocator, data as raw opaque, 256u64, 1u64);
+            deallocate(self.allocator, data as raw opaque, self.capacity, 1u64);
         }
         self.data = null;
         self.length = 0;
+        self.capacity = 0;
         self.ok = false;
     }
 }
@@ -68,24 +70,25 @@ fn parseSliceCopy(src: ?*char, len: u64, dest: ?*char, capacity: u64): u64 {
 }
 
 fn parseI32(self: view InputLine): ?i32 {
-    var scratch: ?raw opaque = allocate(self.allocator, 64u64, 1u64);
+    let capacity = self.length + 1;
+    var scratch: ?raw opaque = allocate(self.allocator, capacity, 1u64);
     if (scratch is null) {
         return null;
     }
     let chars: ?*char = scratch as ?*char;
     if (self.data is null) {
-        deallocate(self.allocator, scratch, 64u64, 1u64);
+        deallocate(self.allocator, scratch, capacity, 1u64);
         return null;
     }
-    let len = parseSliceCopy(self.data, self.length, chars, 64u64);
+    let len = parseSliceCopy(self.data, self.length, chars, capacity);
     if (len == 0) {
-        deallocate(self.allocator, scratch, 64u64, 1u64);
+        deallocate(self.allocator, scratch, capacity, 1u64);
         return null;
     }
     var value: i32 = 0;
     var count: i32 = 0;
     let status = sscanf(chars, "%d%n", lend value, lend count);
-    deallocate(self.allocator, scratch, 64u64, 1u64);
+    deallocate(self.allocator, scratch, capacity, 1u64);
     if (status == 1 and count == len as i32) {
         return value;
     }
@@ -106,24 +109,25 @@ fn parseBool(self: view InputLine): ?bool {
 }
 
 fn parseDouble(self: view InputLine): ?f64 {
-    var scratch: ?raw opaque = allocate(self.allocator, 64u64, 1u64);
+    let capacity = self.length + 1;
+    var scratch: ?raw opaque = allocate(self.allocator, capacity, 1u64);
     if (scratch is null) {
         return null;
     }
     let chars: ?*char = scratch as ?*char;
     if (self.data is null) {
-        deallocate(self.allocator, scratch, 64u64, 1u64);
+        deallocate(self.allocator, scratch, capacity, 1u64);
         return null;
     }
-    let len = parseSliceCopy(self.data, self.length, chars, 64u64);
+    let len = parseSliceCopy(self.data, self.length, chars, capacity);
     if (len == 0) {
-        deallocate(self.allocator, scratch, 64u64, 1u64);
+        deallocate(self.allocator, scratch, capacity, 1u64);
         return null;
     }
     var value: f64 = 0;
     var count: i32 = 0;
     let status = sscanf(chars, "%lf%n", lend value, lend count);
-    deallocate(self.allocator, scratch, 64u64, 1u64);
+    deallocate(self.allocator, scratch, capacity, 1u64);
     if (status == 1 and count == len as i32) {
         return value;
     }
@@ -142,24 +146,25 @@ fn parseF32(self: view InputLine): ?f32 {
 }
 
 fn parseU32(self: view InputLine): ?u32 {
-    var scratch: ?raw opaque = allocate(self.allocator, 64u64, 1u64);
+    let capacity = self.length + 1;
+    var scratch: ?raw opaque = allocate(self.allocator, capacity, 1u64);
     if (scratch is null) {
         return null;
     }
     let chars: ?*char = scratch as ?*char;
     if (self.data is null) {
-        deallocate(self.allocator, scratch, 64u64, 1u64);
+        deallocate(self.allocator, scratch, capacity, 1u64);
         return null;
     }
-    let len = parseSliceCopy(self.data, self.length, chars, 64u64);
+    let len = parseSliceCopy(self.data, self.length, chars, capacity);
     if (len == 0) {
-        deallocate(self.allocator, scratch, 64u64, 1u64);
+        deallocate(self.allocator, scratch, capacity, 1u64);
         return null;
     }
     var value: u32 = 0;
     var count: i32 = 0;
     let status = sscanf(chars, "%u%n", lend value, lend count);
-    deallocate(self.allocator, scratch, 64u64, 1u64);
+    deallocate(self.allocator, scratch, capacity, 1u64);
     if (status == 1 and count == len as i32) {
         return value as u32;
     }
@@ -203,20 +208,42 @@ implement u32 as ParseInput {
 pub fn input(allocator: dyn Allocator): InputLine {
     var data: ?*char = inputLineAllocate(allocator);
     if (data is null) {
-        return InputLine { allocator, null, 0, false };
+        return InputLine { allocator, null, 0, 0, false };
     }
+    var capacity: u64 = 256;
     var length: u64 = 0;
     var ch = getchar();
     var ok = ch != -1;
-    for (ok and ch != 10 and length + 1 < 256) {
-        var chars: []char = raw data[0u64..256u64];
+    for (ok and ch != 10) {
+        if (length + 1 >= capacity) {
+            let newCapacity = capacity * 2;
+            if (newCapacity <= capacity) {
+                ok = false;
+                break;
+            }
+            var oldData = data;
+            if (oldData is null) {
+                ok = false;
+                break;
+            } else {
+                let resized = reallocate(allocator, oldData as raw opaque, capacity, 1u64,
+                                         newCapacity, 1u64);
+                if (resized is null) {
+                    ok = false;
+                    break;
+                }
+                data = resized as ?*char;
+                capacity = newCapacity;
+            }
+        }
+        var chars: []char = raw data[0u64..capacity];
         chars[length] = ch as char;
         length = length + 1;
         let next = getchar();
         ok = next != -1;
         ch = next;
     }
-    var line = InputLine { allocator, data, length, ok };
+    var line = InputLine { allocator, data, length, capacity, ok or length > 0 };
     return line;
 }
 

@@ -18,6 +18,8 @@ extern "C" {
 // Import from JS: zith.host_write
 __attribute__((import_module("zith"), import_name("host_write"))) void
 host_write(int stream, const char *ptr, int len);
+// Import from JS: zith.host_read_byte
+__attribute__((import_module("zith"), import_name("host_read_byte"))) int host_read_byte();
 }
 
 static std::string last_error;
@@ -139,8 +141,9 @@ constexpr int kPlaygroundStatusInvalidParam  = 2;
 constexpr int kPlaygroundStatusTrap          = 3;
 constexpr int kPlaygroundStatusOom           = 4;
 constexpr int kPlaygroundStatusUnsupported   = 5;
+constexpr int kPlaygroundStatusCancelled     = 6;
 constexpr std::string_view kStdlibPackMagic  = "ZSTDLIB2";
-constexpr uint32_t kStdlibPackAbi            = 2;
+constexpr uint32_t kStdlibPackAbi            = 3;
 
 constexpr bool isPlaygroundMode(int mode) {
     return mode == 0 || mode == 1;
@@ -400,8 +403,19 @@ int runStatusToPlaygroundStatus(zith::vm::RunStatus status) {
         return kPlaygroundStatusUnsupported;
     case zith::vm::RunStatus::Oom:
         return kPlaygroundStatusOom;
+    case zith::vm::RunStatus::Cancelled:
+        return kPlaygroundStatusCancelled;
     }
     return kPlaygroundStatusTrap;
+}
+
+int readHostInputByte(void *) {
+    return host_read_byte();
+}
+
+void writeHostOutput(void *, std::string_view bytes) {
+    if (!bytes.empty())
+        host_write(1, bytes.data(), static_cast<int>(bytes.size()));
 }
 
 int runPlayground(const char *ptr, int len, bool is_compile, int mode = 0, int opt_level = 0,
@@ -569,15 +583,15 @@ int executeHirBlob(const char *ptr, int len, bool fromCache) {
     }
 
     zith::vm::Vm vm;
-    const auto result = vm.runMain(module);
+    const auto result = vm.runMain(module, {nullptr, readHostInputByte, writeHostOutput});
     last_exit_code    = result.exitCode;
+    last_output       = result.output;
     if (result.status == zith::vm::RunStatus::Ok) {
-        if (!result.output.empty()) {
-            last_output = result.output;
-            host_write(1, last_output.data(), last_output.size());
-        }
         return kPlaygroundStatusOk;
     }
+
+    if (result.status == zith::vm::RunStatus::Cancelled)
+        return kPlaygroundStatusCancelled;
 
     setErrorMessage(result.message.empty() ? "VM v2 could not execute the program"
                                            : result.message);
