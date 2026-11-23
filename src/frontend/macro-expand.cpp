@@ -164,6 +164,12 @@ void MacroExpander::run(const std::vector<ImportedMacroRecord> &imported) {
         info.isRaw                    = decl.isRawMacro;
         info.isTag                    = decl.isTagMacro;
         info.hasAttributes            = decl.hasAttributesParam;
+        for (const auto &attribute : decl.attributes) {
+            if (attribute.kind == AttributeKind::Scope) {
+                info.isScope = true;
+                break;
+            }
+        }
         bool validVariadicDeclaration = true;
         for (size_t i = 0; i < decl.parameters.size(); ++i) {
             const auto &parameter = decl.parameters[i];
@@ -212,6 +218,7 @@ void MacroExpander::run(const std::vector<ImportedMacroRecord> &imported) {
         info.isRaw                    = record.isRawMacro;
         info.isTag                    = record.isTagMacro;
         info.hasAttributes            = record.hasAttributesParam;
+        info.isScope                  = record.isScopeMacro;
         info.span                     = record.span;
         info.source                   = record.source;
         bool validVariadicDeclaration = true;
@@ -302,6 +309,16 @@ void MacroExpander::run(const std::vector<ImportedMacroRecord> &imported) {
         if (decl.initializer)
             expandExpr(decl.initializer, macros, stack);
     }
+
+    // Named blocks with a scope-aware marker are rewritten after expansion so
+    // the marker's macro name can be matched against every visible `#[scope]`
+    // macro, local or imported.
+    std::vector<std::string> scope_macros;
+    for (const auto &macro : macros) {
+        if (macro.isScope)
+            scope_macros.push_back(macro.name);
+    }
+    desugarNamedBlocks(scope_macros);
 }
 
 void MacroExpander::expandExpr(ExprId id, const std::vector<MacroInfo> &macros,
@@ -825,6 +842,127 @@ void MacroExpander::collectHygieneNames(ExprId body, std::vector<std::string> &n
     }
     for (auto op : expr.operands)
         collectHygieneNames(op, names, source);
+}
+
+void MacroExpander::desugarNamedBlocks(const std::vector<std::string> &scope_macros) {
+    if (scope_macros.empty())
+        return;
+
+    const auto isScopeMacro = [&](std::string_view name) {
+        return std::find(scope_macros.begin(), scope_macros.end(), name) != scope_macros.end();
+    };
+
+    // Collect first: cloning arguments appends to the snapshot vectors, so the
+    // scan cannot hold references across the rewrite.
+    const size_t expression_count = snapshot_.expressions_.size();
+    std::vector<ExprId> named_blocks;
+    for (size_t index = 0; index < expression_count; ++index) {
+        const auto id = ExprId{static_cast<uint32_t>(index + 1U)};
+        if (snapshot_.isMacroTemplateExpr(id))
+            continue;
+        const auto &expr = snapshot_.expressions_[index];
+        if (expr.kind != ExprKind::Block || expr.block_name.empty() || !expr.marker)
+            continue;
+        if (expr.marker.value > snapshot_.expressions_.size())
+            continue;
+        const auto &marker = snapshot_.expressions_[expr.marker.value - 1U];
+        if (marker.kind != ExprKind::MacroCall || !isScopeMacro(marker.text))
+            continue;
+        named_blocks.push_back(id);
+    }
+
+    for (const ExprId block_id : named_blocks) {
+        const TextSpan block_span = snapshot_.expressions_[block_id.value - 1U].span;
+        const ExprId marker_id    = snapshot_.expressions_[block_id.value - 1U].marker;
+        const std::vector<ExprId> arguments = snapshot_.expressions_[marker_id.value - 1U].operands;
+
+        // Record scope-awareness so sema skips the "not #[scope]" rejection and
+        // still validates each argument's place/Scope conformance.
+        snapshot_.expressions_[block_id.value - 1U].markerScopeAware = true;
+
+        std::vector<StmtId> scaffolding;
+        scaffolding.reserve(arguments.size() * 2U);
+        for (const ExprId argument : arguments) {
+            if (!argument || argument.value > snapshot_.expressions_.size())
+                continue;
+            // A guard binding is hidden and hygienic: `$` never appears in a
+            // user identifier, so the generated name cannot collide.
+            const std::string guard_name =
+                "__scope$" + std::to_string(nextLocalId_);
+            const LocalId guard_local = LocalId{nextLocalId_++};
+
+            ExprMap arg_expr_map(snapshot_.expressions_.size() + 1U);
+            StmtMap arg_stmt_map(snapshot_.statements_.size() + 1U);
+            LocalMap arg_local_map;
+            const ExprId arg_clone = cloneExpr(argument, {}, block_span, {}, nullptr, arg_expr_map,
+                                               arg_stmt_map, arg_local_map, snapshot_);
+
+            const ScopeId block_scope = snapshot_.expressions_[block_id.value - 1U].scope;
+
+            Expression enter_field;
+            enter_field.kind  = ExprKind::Field;
+            enter_field.text  = "enter";
+            enter_field.scope = block_scope;
+            enter_field.span  = block_span;
+            enter_field.operands.push_back(arg_clone);
+            const ExprId enter_field_id = addExpression(std::move(enter_field));
+
+            Expression enter_call;
+            enter_call.kind  = ExprKind::Call;
+            enter_call.scope = block_scope;
+            enter_call.span  = block_span;
+            enter_call.operands.push_back(enter_field_id);
+            const ExprId enter_call_id = addExpression(std::move(enter_call));
+            snapshot_.expressions_[enter_field_id.value - 1U].isSyntheticCleanup = true;
+            snapshot_.expressions_[enter_call_id.value - 1U].isSyntheticCleanup  = true;
+
+            Statement guard_binding;
+            guard_binding.kind                  = StmtKind::Binding;
+            guard_binding.span                  = block_span;
+            guard_binding.binding.id            = guard_local;
+            guard_binding.binding.name          = guard_name;
+            guard_binding.binding.bindingKind   = BindingKind::Let;
+            guard_binding.binding.span          = block_span;
+            guard_binding.binding.initializer   = enter_call_id;
+            guard_binding.isSyntheticCleanup    = true;
+            scaffolding.push_back(addStatement(std::move(guard_binding)));
+
+            Expression guard_name_expr;
+            guard_name_expr.kind  = ExprKind::Name;
+            guard_name_expr.text  = guard_name;
+            guard_name_expr.scope = block_scope;
+            guard_name_expr.span  = block_span;
+            const ExprId guard_name_id = addExpression(std::move(guard_name_expr));
+            snapshot_.expressions_[guard_name_id.value - 1U].isSyntheticCleanup = true;
+
+            Expression leave_field;
+            leave_field.kind  = ExprKind::Field;
+            leave_field.text  = "leave";
+            leave_field.scope = block_scope;
+            leave_field.span  = block_span;
+            leave_field.operands.push_back(guard_name_id);
+            const ExprId leave_field_id = addExpression(std::move(leave_field));
+
+            Expression leave_call;
+            leave_call.kind  = ExprKind::Call;
+            leave_call.scope = block_scope;
+            leave_call.span  = block_span;
+            leave_call.operands.push_back(leave_field_id);
+            const ExprId leave_call_id = addExpression(std::move(leave_call));
+            snapshot_.expressions_[leave_field_id.value - 1U].isSyntheticCleanup = true;
+            snapshot_.expressions_[leave_call_id.value - 1U].isSyntheticCleanup  = true;
+
+            Statement leave_defer;
+            leave_defer.kind       = StmtKind::Defer;
+            leave_defer.span       = block_span;
+            leave_defer.expression = leave_call_id;
+            leave_defer.isSyntheticCleanup = true;
+            scaffolding.push_back(addStatement(std::move(leave_defer)));
+        }
+
+        auto &statements = snapshot_.expressions_[block_id.value - 1U].statements;
+        statements.insert(statements.begin(), scaffolding.begin(), scaffolding.end());
+    }
 }
 
 ExprId MacroExpander::substituteAttribute(ExprId src, const MacroInfo *macro, ExprId *outClone,

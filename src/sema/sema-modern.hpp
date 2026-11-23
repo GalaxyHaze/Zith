@@ -344,6 +344,10 @@ private:
     /// True while inferring a pipeline stage (`|>` / `also`), where a named
     /// block is a valid stage regardless of nesting depth.
     bool in_pipe_stage_sema_ = false;
+    /// Statement ids of the enter/leave scaffolding the frontend generated for
+    /// a named-block marker whose arguments sema rejected. Inferring them would
+    /// only produce cascading errors, so they are skipped.
+    std::vector<uint32_t> skipped_marker_statements_;
     /// Type of the current value inside an active `|>` / `also` stage.
     /// Invalid while no stage is being inferred, so `it` outside a chain is
     /// rejected.

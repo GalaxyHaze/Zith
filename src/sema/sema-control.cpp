@@ -128,7 +128,12 @@ void PerModuleSema::inferExpressionTypesForDecls() {
     // own module context, so a detached clone re-validated out of order does
     // not carry this module's state-machine grouping.
     for (const auto &expr : snapshot.expressions()) {
-        if (snapshot.isMacroTemplateExpr(expr.id) || expr.isAttributeValue)
+        // Synthetic cleanup (`arg.enter()`/`guard.leave()`) is typed through its
+        // owning named block; re-inferring it here would duplicate the block's
+        // own result and, for a rejected marker, cascade on top of the
+        // dedicated diagnostic.
+        if (snapshot.isMacroTemplateExpr(expr.id) || expr.isAttributeValue ||
+            expr.isSyntheticCleanup)
             continue;
         if (!typeOfExpr(expr.id))
             (void)inferExpr(expr.id);
@@ -460,11 +465,16 @@ bool PerModuleSema::exprAlwaysTerminates(frontend::ExprId id) const noexcept {
 TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     // Entering the fn/state body block resets per-body named-block tracking and
-    // records the body block so direct-child position checks can run. The body
-    // block is the one whose scope matches the current declaration body scope.
-    const bool is_body_block = expr.scope == currentBodyScope_ && currentBodyScope_;
+    // records the body block so direct-child position checks can run. Match the
+    // declaration's own body, not the scope: a `for` with an init clause wraps
+    // the loop in a synthetic block that reuses the body scope and would
+    // otherwise clobber the body block.
+    const bool is_body_block =
+        currentDeclId_ != 0U && currentDeclId_ <= snapshot.declarations().size() &&
+        snapshot.declarations()[currentDeclId_ - 1U].body == id;
     if (is_body_block) {
         active_named_blocks_.clear();
+        skipped_marker_statements_.clear();
         current_body_block_ = id;
     }
     const bool is_macro_expansion =
@@ -484,6 +494,9 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
             if (!stmt_id)
                 continue;
             if (stmt_id.value > snapshot.statements().size())
+                continue;
+            if (std::find(skipped_marker_statements_.begin(), skipped_marker_statements_.end(),
+                          stmt_id.value) != skipped_marker_statements_.end())
                 continue;
             const auto &stmt = snapshot.statements()[stmt_id.value - 1U];
             if (snapshot.isMacroTemplateStmt(stmt.id))
@@ -599,6 +612,9 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
         if (!stmt_id)
             continue;
         if (stmt_id.value > snapshot.statements().size())
+            continue;
+        if (std::find(skipped_marker_statements_.begin(), skipped_marker_statements_.end(),
+                      stmt_id.value) != skipped_marker_statements_.end())
             continue;
         const auto &stmt = snapshot.statements()[stmt_id.value - 1U];
         if (snapshot.isMacroTemplateStmt(stmt.id))
@@ -796,20 +812,17 @@ void PerModuleSema::validateNamedBlock(const frontend::Expression &expr, bool is
 
     // Marker form: the macro must exist and be scope-aware (`#[scope]`).
     const auto &marker = snapshot.expressions()[expr.marker.value - 1U];
+    bool marker_invalid = false;
     if (marker.kind == frontend::ExprKind::MacroCall) {
-        const frontend::Declaration *macro_decl =
-            findDeclNamed(marker.text, frontend::DeclKind::Macro);
-        const bool scope_aware =
-            macro_decl != nullptr &&
-            std::any_of(macro_decl->attributes.begin(), macro_decl->attributes.end(),
-                        [](const frontend::Attribute &attr) {
-                            return attr.kind == frontend::AttributeKind::Scope;
-                        });
-        if (!scope_aware) {
+        // The frontend records scope-awareness on the block because an imported
+        // `#[scope]` macro is not a declaration in this module, so its attribute
+        // cannot be re-resolved here from `marker.text`.
+        if (!expr.markerScopeAware) {
             report(marker.span,
                    "macro '" + marker.text +
                        "' is not scope-aware; only #[scope] macros may mark a named block",
                    diagnostics::err::NamedBlockInvalidPosition);
+            marker_invalid = true;
         }
         // Each argument must be a place-expression implementing Scope.
         for (const auto arg : marker.operands) {
@@ -820,6 +833,7 @@ void PerModuleSema::validateNamedBlock(const frontend::Expression &expr, bool is
                        "named block marker argument must be a place (binding, parameter, global, "
                        "or field); temporaries are rejected",
                        diagnostics::err::NamedBlockArgNotScope);
+                marker_invalid = true;
                 continue;
             }
             const TypeId arg_type = inferExpr(arg);
@@ -830,7 +844,19 @@ void PerModuleSema::validateNamedBlock(const frontend::Expression &expr, bool is
                        "named block marker argument of type '" +
                            type_table.typeToString(arg_type) + "' does not implement Scope",
                        diagnostics::err::NamedBlockArgNotScope);
+                marker_invalid = true;
             }
+        }
+    }
+    // When a marker argument is rejected, the frontend has already prepended
+    // enter/leave scaffolding that would only cascade on top of the dedicated
+    // diagnostic. Record just those synthetic statements so `inferBlock` skips
+    // them while still inferring the user's own body.
+    if (marker_invalid) {
+        for (const auto stmt_id : expr.statements) {
+            if (stmt_id && stmt_id.value <= snapshot.statements().size() &&
+                snapshot.statements()[stmt_id.value - 1U].isSyntheticCleanup)
+                skipped_marker_statements_.push_back(stmt_id.value);
         }
     }
 }

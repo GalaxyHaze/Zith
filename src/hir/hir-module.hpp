@@ -150,6 +150,22 @@ struct HirVTable {
     explicit HirVTable(memory::Arena &arena) : slots(arena) {}
 };
 
+/// A descriptive name of a named block (`setup: { ... }`) preserved for tooling
+/// and diagnostics. Named blocks lower into ordinary control flow, so there is
+/// no dedicated HIR expression node; this side table records the name, the
+/// function it belongs to, and the source span. It is never serialized into
+/// ZIRL and has no ABI effect, so a block can be renamed without changing any
+/// compiled artifact.
+struct HirNamedScope {
+    HirFunctionId function = kInvalidHirFunction;
+    memory::InternedId name = memory::kInvalidInternedId;
+    memory::Span span{};
+
+    explicit HirNamedScope(memory::Arena &arena) {
+        (void)arena;
+    }
+};
+
 class HirModule {
     memory::DynArray<HirExpr> exprs_;
     memory::DynArray<HirFunction> fns_;
@@ -157,6 +173,7 @@ class HirModule {
     memory::DynArray<HirTemplate> templates_;
     memory::DynArray<HirGlobalConst> globals_;
     memory::DynArray<HirVTable> vtables_;
+    memory::DynArray<HirNamedScope> named_scopes_;
     HirAttrs attrs_;
 
 public:
@@ -189,6 +206,13 @@ public:
         return vtables_.size();
     }
     const HirVTable &getVTable(size_t idx) const;
+    /// Records the descriptive name of a named block. Purely informational:
+    /// `named_scopes_` is not serialized and carries no ABI meaning.
+    void addNamedScope(HirFunctionId function, memory::InternedId name, memory::Span span);
+    [[nodiscard]] size_t namedScopeCount() const noexcept {
+        return named_scopes_.size();
+    }
+    const HirNamedScope &getNamedScope(size_t idx) const;
     const HirExpr &getExpr(HirExprId id) const;
     HirExpr &getExprMut(HirExprId id);
     [[nodiscard]] size_t exprCount() const noexcept {

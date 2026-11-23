@@ -1,0 +1,35 @@
+// Managed scope markers for named blocks.
+//
+// A named block may carry a scope-aware marker:
+//
+//     render: @scoped(renderer, log) {
+//         renderer.draw();
+//         log.write("frame");
+//     }
+//
+// Each argument must be a place (binding, parameter, global, or field) whose
+// type implements `Scope`. The compiler expands the marker into one hidden
+// `enter` per argument, left to right, and registers the matching `leave` in
+// reverse order through `defer`, so the cleanup runs on every exit from the
+// block. `enter` and `leave` do not fail at the language surface; a failing
+// implementation records the failure in its own stream.
+
+/// The value returned by `Scope.enter`. Each implementation chooses its own
+/// guard type and the effect `leave` performs (a render checkpoint, a log
+/// flush, and so on).
+pub trait Guard {
+    fn leave(var self): void;
+}
+
+/// A resource whose lifetime can be bracketed by a named block marker.
+pub trait Scope {
+    fn enter(var self): dyn Guard;
+}
+
+/// Marker macro for a named block with managed cleanup. The body is empty: the
+/// compiler generates the `enter`/`leave` scaffolding from the arguments. The
+/// `#[scope]` attribute is what reserves the outer position for this macro, so
+/// no macro name is hardcoded in the compiler.
+#[scope]
+pub macro scoped(resources: identifier...) {
+}

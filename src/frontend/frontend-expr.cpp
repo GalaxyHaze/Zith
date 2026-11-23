@@ -219,19 +219,32 @@ ExprId AstLowerer::parseExpression(int minimum_precedence) {
             chain.operands.push_back(left);
             const bool saved_pipe_stage = in_pipe_stage_;
             in_pipe_stage_              = true;
-            // A stage may be a named block (`left |> step: { ... }`). The name
+            // A stage may be a named block (`left |> step: { ... }`) or a
+            // marked named block (`left |> step: @scoped(a) { ... }`). The name
             // is descriptive; the block keeps every pipeline rule (consumes or
             // observes `it`, control flow stays local to the stage).
             if (index_ + 1U < token_count_ &&
                 snapshot_.tokens_[index_].kind == TokenKind::Identifier &&
                 punctuation(index_ + 1U, ':') && index_ + 2U < token_count_ &&
-                punctuation(index_ + 2U, '{')) {
+                (punctuation(index_ + 2U, '{') || text(index_ + 2U) == "@")) {
                 const std::string stage_name = std::string(text(index_));
                 index_ += 2U; // consume `name :`
-                ExprId stage_block  = parseBlock();
-                auto &blk           = snapshot_.expressions_[stage_block.value - 1U];
-                blk.block_name      = stage_name;
-                chain.operands.push_back(stage_block);
+                ExprId stage_marker;
+                if (text(index_) == "@")
+                    stage_marker = parseExpression();
+                if (punctuation(index_, '{')) {
+                    ExprId stage_block  = parseBlock();
+                    auto &blk           = snapshot_.expressions_[stage_block.value - 1U];
+                    blk.block_name      = stage_name;
+                    blk.marker          = stage_marker;
+                    chain.operands.push_back(stage_block);
+                } else {
+                    snapshot_.diagnostics_.push_back(
+                        {range(start, index_),
+                         "expected '{' to open named block '" + stage_name + "'", false,
+                         diagnostics::err::ExpectedControlBody});
+                    chain.operands.push_back(parseExpression(1));
+                }
             } else {
                 chain.operands.push_back(parseExpression(1));
             }

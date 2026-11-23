@@ -11,7 +11,7 @@ namespace {} // namespace
 
 HirModule::HirModule(memory::Arena &arena)
     : exprs_(arena), fns_(arena), declarations_(arena), templates_(arena), globals_(arena),
-      vtables_(arena), attrs_(arena) {}
+      vtables_(arena), named_scopes_(arena), attrs_(arena) {}
 
 HirExprId HirModule::addExpr(HirExpr expr) {
     HirExprId id = static_cast<HirExprId>(exprs_.size());
@@ -81,6 +81,18 @@ HirVTable &HirModule::addVTable(memory::InternedId name) {
 
 const HirVTable &HirModule::getVTable(size_t idx) const {
     return vtables_[idx];
+}
+
+void HirModule::addNamedScope(HirFunctionId function, memory::InternedId name,
+                              memory::Span span) {
+    named_scopes_.emplace(exprs_.arena());
+    named_scopes_.back().function = function;
+    named_scopes_.back().name     = name;
+    named_scopes_.back().span     = span;
+}
+
+const HirNamedScope &HirModule::getNamedScope(size_t idx) const {
+    return named_scopes_[idx];
 }
 
 size_t HirModule::getFnCount() const {

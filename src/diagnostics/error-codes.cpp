@@ -187,6 +187,18 @@ memory::Optional<ErrorInfo> lookupError(ErrCode code) noexcept {
         return ErrorInfo{code, 'W', "semantic", "External C call boundary",
                          "The compiler cannot guarantee the behavioral boundary of this C "
                          "function"};
+    case err::NamedBlockInvalidPosition:
+        return ErrorInfo{code, 'E', "semantic", "Named block in invalid position",
+                         "Place the named block directly in a fn/state body, or make it a "
+                         "pipeline stage"};
+    case err::NamedBlockArgNotScope:
+        return ErrorInfo{code, 'E', "semantic", "Named block marker argument is not a Scope",
+                         "Pass a place-expression (binding, parameter, global, or field) whose "
+                         "type implements Scope"};
+    case err::NamedBlockDuplicateName:
+        return ErrorInfo{code, 'E', "semantic", "Duplicate named block",
+                         "Rename the block: names must be unique per fn/state body and must not "
+                         "collide with a loop label"};
     // Types
     case err::TypeMismatch:
         return ErrorInfo{code, 'E', "types", "Type mismatch",

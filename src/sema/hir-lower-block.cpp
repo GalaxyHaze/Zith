@@ -15,6 +15,14 @@ namespace modern {
 hir::HirExprId HirLowerModern::lowerBlock(const frontend::Expression &expr) {
     cleanup_stack_.push_back(CleanupFrame(arena_));
     pending_defers_.emplace_back();
+    // A named block (`setup: { ... }`) lowers into ordinary control flow; the
+    // descriptive name is preserved in a non-serialized side table for tooling
+    // and diagnostics, matching how loop labels are kept during lowering.
+    if (!expr.block_name.empty() && current_fn_ != nullptr) {
+        hir_.addNamedScope(static_cast<hir::HirFunctionId>(current_fn_index_),
+                           interner_.intern(expr.block_name),
+                           memory::Span{0, expr.span.start, expr.span.end});
+    }
     hir::HirExprId last = hir::kInvalidHirExpr;
     for (const auto statement : expr.statements) {
         if (!pending_defers_.back().empty() && statement) {

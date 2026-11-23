@@ -336,6 +336,12 @@ struct Statement {
     /// True when `...` repeats this expression statement for a macro's
     /// variadic parameter.
     bool isMacroRepetition = false;
+    /// True for a statement the frontend synthesized for a named block's
+    /// marker cleanup (the hidden guard binding and its `defer`). `inferBlock`
+    /// skips it when the marker argument was rejected, so the generated
+    /// `arg.enter()`/`guard.leave()` calls do not cascade on top of the
+    /// dedicated diagnostic.
+    bool isSyntheticCleanup = false;
 };
 
 struct Expression {
@@ -355,6 +361,15 @@ struct Expression {
     /// MacroCall expression whose expansion provides the block's managed
     /// enter/leave cleanup. Zero for a plain named block.
     ExprId marker;
+    /// True when `marker` names a `#[scope]` macro. The frontend records this
+    /// because imported macros are not declarations in the importing module,
+    /// so sema cannot re-resolve the macro's attribute from `marker.text`.
+    bool markerScopeAware = false;
+    /// True for an expression the frontend synthesized for a named block's
+    /// marker cleanup (`arg.enter()` and `guard.leave()`). The standalone
+    /// expression sweep skips these: a valid marker types them through the
+    /// block, while a rejected marker must not report cascading errors.
+    bool isSyntheticCleanup = false;
     // Used by ExprKind::StructLiteral: parallel field name per operand
     std::vector<std::string> field_names;
     // Used by ExprKind::When: parallel case condition per operand (operand[0] is
@@ -613,6 +628,9 @@ struct ImportedMacroRecord {
     bool isRawMacro         = false;
     bool isTagMacro         = false;
     bool hasAttributesParam = false;
+    /// True when the macro carries the `#[scope]` attribute, so it may mark a
+    /// named block (written `name: ` then the macro call, then a body block).
+    bool isScopeMacro = false;
     std::vector<Parameter> parameters;
     ExprId body;
     const FrontendSnapshot *source = nullptr;

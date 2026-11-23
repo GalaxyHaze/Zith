@@ -136,6 +136,12 @@ FrontendContext::importedMacrosFor(const ModuleArtifact &module,
             record.isRawMacro         = decl.isRawMacro;
             record.isTagMacro         = decl.isTagMacro;
             record.hasAttributesParam = decl.hasAttributesParam;
+            for (const auto &attribute : decl.attributes) {
+                if (attribute.kind == frontend::AttributeKind::Scope) {
+                    record.isScopeMacro = true;
+                    break;
+                }
+            }
             record.parameters         = decl.parameters;
             record.body               = decl.body;
             record.source             = target->frontend.get();

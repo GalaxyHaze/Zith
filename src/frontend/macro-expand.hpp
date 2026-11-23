@@ -20,6 +20,9 @@ private:
         bool isRaw         = false;
         bool isTag         = false;
         bool hasAttributes = false;
+        /// True when the macro declares `#[scope]`, so it may mark a named
+        /// block and drive the compiler's managed enter/leave expansion.
+        bool isScope = false;
         size_t variadicParamIndex = static_cast<size_t>(-1);
         std::vector<std::string> paramNames;
         std::vector<std::string> paramMetaTypes;
@@ -63,6 +66,16 @@ private:
                              const FrontendSnapshot &source);
     bool contextIsValue(ExprId eid);
     std::string hygieneName(const std::string &original);
+
+    /// Rewrites a named block with a `#[scope]` marker (a marker call followed
+    /// by a body block) into the explicit managed-cleanup
+    /// shape: one hidden `let guard = arg.enter();` plus a matching
+    /// `defer guard.leave();` per argument, entered left to right and left in
+    /// reverse order through the defer infrastructure. Runs after expansion so
+    /// the marker's macro name can be matched against the visible `#[scope]`
+    /// macros. Blocks whose marker is not scope-aware are left untouched for
+    /// sema to reject.
+    void desugarNamedBlocks(const std::vector<std::string> &scope_macros);
 
     bool expandCall(ExprId callId, const std::vector<MacroInfo> &macros,
                     std::vector<std::string> &stack);
