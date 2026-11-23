@@ -1,6 +1,6 @@
 # Zith-- Implementation Status
 
-> Last updated: 2026-11-21.
+> Last updated: 2026-11-23.
 
 This document is the single source of truth for what the compiler supports in `Zith--` today.
 `Zith--` is a sibling language to Zith, so these statuses do not describe Zith or imply that
@@ -146,7 +146,7 @@ Implementation work that is incomplete or needs review is tracked in
 | `when` / `match` pattern match | **Working** | Arms are written `(pattern) body`, comma-separated; optional later islands are boolean guards (`(pattern) and (guard) body`). `match` is a parser synonym for `when`. Equality, boolean and range (`1..3`) patterns lower through HIR to codegen, and the first island may combine non-boolean patterns with `and`/`or`/`xor`. An `(f is Member)` arm narrows `f` for that arm's body. `(_)` must be the sole island of the last arm; a value-producing `when` without a default reports non-exhaustive. Legacy `~>` stays accepted but emits `W1008`. Covered by runtime tests |
 | `state` / `jump` | **Working** | `state Name(params): ReturnType` declares a state with the machine return type; `jump Next(args)` terminates the current block and validates arity/types against the target's own parameters before a direct `musttail tailcc` transfer |
 | `dock` | **Working** | `dock State(args)` is a `tailcc` call expression that returns the machine's final `state` return value; the old `dock { ... }` block form is rejected |
-| `defer expr;` scope guards | **Working** | `defer expr;` and `defer { ... }` register cleanup on the nearest lexical block and run in reverse registration order on normal exit, `return`, `break`, `continue`, and `state` `jump`. A defer may capture same-block bindings declared later; exits before initializing a captured binding are rejected. The deferred body is cleanup-only and rejects `return`/`break`/`continue`/`jump` |
+| `defer expr;` scope guards | **Working** | `defer expr;` and `defer { ... }` register cleanup on the nearest lexical block and run in reverse registration order on normal exit, `return`, `break`, `continue`, and `state` `jump`. A `defer` emitted by a `raw macro` registers with the block containing the invocation. A defer may capture same-block bindings declared later; exits before initializing a captured binding are rejected. The deferred body is cleanup-only and rejects `return`/`break`/`continue`/`jump` |
 | `drop` cleanup hooks | **Rejected for Zith--** | The token remains reserved, but automatic per-owner cleanup is not part of the language design. See [ADR-0055](adr/0055-zith-minusminus-explicit-ownership-and-pipelines.md) |
 
 ### Words, Contexts, Macros
@@ -156,7 +156,7 @@ Implementation work that is incomplete or needs review is tracked in
 | `prefix`, `suffix`, `infix`, `nop` decls | **Parse skipped** | Body skipped via `skipDelimited` |
 | `context` declarations | **Parse skipped** | Body skipped |
 | `use` statements | **Parse skipped** | Body skipped |
-| `macro` / `raw macro` declarations and `@name(...)` calls | **Working** | Normal macros rename template-local bindings hygienically and resolve other template names through the call-site scope (globals/imports visible when not shadowed). `raw macro` splices literally into the call-site scope and names resolve there before module/global fallback. Templates are not analysed as code; resolution is keyed by node id |
+| `macro` / `raw macro` declarations and `@name(...)` calls | **Working** | Normal macros rename template-local bindings hygienically and resolve other template names through the call-site scope (globals/imports visible when not shadowed). `raw macro` splices literally into the call-site scope and names resolve there before module/global fallback. A macro may declare one final variadic parameter of kind `val`, `identifier`, or `ast`; postfix `...` repeats an expression statement once per captured argument in order. Variadic parameters outside a repeated statement and repetition outside templates are diagnosed. |
 | `tag` calls (formerly `tag macro`) | **Parse reported / full Zith** | `<Section ...> ... </Section>` and named attributes parse, but the declaration is rejected in the Zith-- pipeline with `E2010`; `tag` is a full-Zith item, not a Zith-- macro. Use normal or `raw macro` in Zith-- |
 | word call expressions | **Parse error** | No parser support |
 | word sequence expressions | **Parse error** | No parser support |

@@ -100,6 +100,22 @@ binário com precedências 3, 2 e 4, em paralelo com `FmtVisitor::binaryPreceden
 
 O lexer agrupa `..` e `...` num único `TokenKind::Dots`, distinguindo-os pelo lexeme. O range literal, o placeholder de pipeline, os imports relativos, a profundidade `mod(..)` e os variadic slices consomem esse token em vez de dois pontos separados. `++` e `--` são lexados e rejeitados com `E2010 UnsupportedSyntax`; a mensagem pede atribuição explícita ao valor atualizado.
 
+### Macros Variádicas e Repetição de Statements
+
+O parser aceita um único parâmetro variádico final em macros normais e `raw
+macro`, com os tipos de argumento `val`, `identifier` ou `ast`. O expansor
+captura o tail depois dos parâmetros fixos, valida cada argumento e clona a
+expression statement marcada com `...` uma vez por argumento, em ordem. O
+expansor rejeita parâmetros variádicos fora de uma statement repetida e o
+marcador fora de templates de macro.
+
+As statements emitidas por um `raw macro` permanecem no bloco lexical que
+contém a chamada. Por isso, o sema associa um `defer` expandido a esse bloco,
+e o lowering mantém o cleanup até à saída do bloco. As statements de uma
+repetição dentro de um mesmo corpo adiado preservam a ordem dos argumentos;
+registos `defer` diferentes preservam a ordem LIFO. Os testes de frontend e
+codegen verificam diagnósticos, repetição e a ordem observável do cleanup.
+
 ## SRA (Small Resource Analysis)
 
 O Zith-- não implementa o NRA completo. O que existe é o SRA, uma análise

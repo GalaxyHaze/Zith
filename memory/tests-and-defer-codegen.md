@@ -20,9 +20,22 @@ registration order before that block's terminator, and also runs before
 does not produce a block value, and rejects `return`, `break`, `continue`, and
 `jump`.
 
+`tests/test-macro.cpp` covers variadic kind validation (`val`, `identifier`,
+and `ast`), unsupported kinds, and missing fixed arguments.
+`tests/test-codegen.cpp` verifies ordered repetition, empty tails, caller-block
+cleanup on fallthrough, return, and loop break, and LIFO ordering between
+separate defer registrations.
+
+In this sandbox, LeakSanitizer can terminate before tests with a fatal
+ptrace-related error. Running an ASan/UBSan test binary with
+`ASAN_OPTIONS=detect_leaks=0` works, but does not verify leaks.
+
 ## Current Verification
 
 `cmake --build build -j`, `ctest --test-dir build --output-on-failure`, and
 `./build/zithc --include stdlib check build/main.zithm` pass with the
 `defer`/void-`state` work in the tree. The modern file type-alias codegen test
 also passes after the current parser/sema state in this worktree.
+
+On 2026-11-23, the focused `test-macro` and `test-codegen` CTest cases passed
+for variadic macro repetition and caller-block cleanup.

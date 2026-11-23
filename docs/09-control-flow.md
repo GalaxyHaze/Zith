@@ -213,6 +213,11 @@ fn main(): i32 {
 - A `defer` body may not itself contain `return`, `break`, `continue`, or
   `jump`.
 
+In Zith--, a `defer` emitted by a `raw macro` registers with the lexical block
+containing the macro call. The expansion does not create a cleanup scope.
+Repeated statements inside that deferred body run in argument order, while
+separate defer registrations keep reverse registration order.
+
 Inside a loop, cleanup runs each time the loop body exits, including a
 `break` or `continue`. For Zith--, `drop` remains a reserved keyword but
 automatic per-owner cleanup is not planned. Cleanup stays explicit. ADR-0055

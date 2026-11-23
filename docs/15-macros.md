@@ -35,9 +35,31 @@ raw macro swap(a: identifier, b: identifier) {
 // Default/raw macro with attribute parameter
 macro closure(attributes, body1: block) { body1; }
 @closure|k: 1|({ ... })
-
-// Zith-- macro parameter meta-types: identifier, expr, condition, block, body
 ```
+
+### Variadic Parameters and Statement Repetition
+
+A normal or raw macro may declare one final variadic parameter. It accepts
+zero or more arguments of one declared macro argument kind: `val`,
+`identifier`, or `ast`. Postfix `...` on an expression statement in the macro
+template emits that statement once per captured argument, in argument order.
+`val` arguments use normal call syntax, `ast` arguments use `=expr`, and
+`identifier` arguments are unqualified names without `=`.
+
+```zith
+raw macro deferDestroy(names: identifier...) {
+    defer { names.destroy()...; }
+}
+
+@deferDestroy(vec, arena);
+```
+
+The marker does not create a runtime loop or change function variadic-slice
+forwarding or pack spread. A variadic parameter may only appear in a repeated
+expression statement, and an empty tail emits no statements. In a raw macro,
+emitted statements belong to the caller's lexical block, so a generated
+`defer` runs when that block exits, not when macro expansion finishes.
+Separate `defer` registrations retain LIFO order.
 
 ### Scope and Hygiene
 

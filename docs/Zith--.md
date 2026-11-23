@@ -927,6 +927,34 @@ tag Box(content) { <content/> }
 tag macro Box(content) { <content/> }
 ```
 
+Macros podem declarar um único parâmetro variádico final, do tipo `val`,
+`identifier` ou `ast`. O parâmetro captura zero ou mais argumentos depois dos
+parâmetros fixos. O postfix `...` numa expression statement de um template
+repete essa statement uma vez por argumento, em ordem.
+`val` usa a sintaxe normal de argumento, `ast` exige `=expr`, e `identifier`
+exige um nome não qualificado sem `=`.
+
+```zith
+raw macro deferDestroy(names: identifier...) {
+    defer {
+        names.destroy()...;
+    }
+}
+
+@deferDestroy(vec, arena);
+```
+
+O marcador aplica-se apenas a expression statements em templates, e um
+parâmetro variádico só pode aparecer numa statement repetida. Uma lista vazia
+não emite statements. Se essas forem o único conteúdo do corpo de um `defer`
+gerado, não é registado cleanup.
+
+Um `raw macro` não cria um bloco lexical para as statements que emite. Assim,
+um `defer` gerado regista cleanup no bloco que contém a chamada da macro. As
+statements repetidas dentro do corpo adiado correm em ordem de argumentos;
+registos `defer` distintos continuam a correr em ordem LIFO. Function
+variadic slices e pack spread mantêm semânticas independentes.
+
 ## Diagnósticos e warnings
 
 Atributos desconhecidos emitem `W2028 UnknownAttribute`; atributos conhecidos usados
