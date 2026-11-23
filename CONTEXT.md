@@ -648,7 +648,7 @@ A `|>` stage that transfers the current value to its operation exactly once on e
 _Avoid_: observing stage, implicit pipeline injection
 
 **Observing pipeline stage**:
-An `also` stage that borrows the current value for read-only use and leaves the chain value unchanged. Its `it` may be unused or read more than once, but the borrow cannot escape the stage.
+An `also` stage that borrows the current value for read-only use and leaves the chain value unchanged. Its `it` may be observed zero or more times, but the borrow, aliases, and derived references cannot escape the stage; independent copies may.
 _Avoid_: consuming stage, chain transform
 
 **Storage block**:

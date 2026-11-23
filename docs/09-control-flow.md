@@ -95,7 +95,9 @@ reference the current value exactly once on every execution path.
 `also` is a side-effect stage: it may observe `it` zero or more times, keeps
 the chain value unchanged, and is valid only as a chain operator. An
 observation may only pass `it` to a read-only `view` parameter, and the borrow
-cannot escape the stage. `it` is valid only inside a pipeline stage.
+cannot escape the stage: the borrowed value, aliases, and derived references
+stay inside the stage, while independent copies of fields or computed values
+may escape. `it` is valid only inside a pipeline stage.
 
 `|>` replaces the chain value with the stage result. `also` performs a
 side-effect stage and keeps the chain value unchanged, so `x also f(view it)`
@@ -121,6 +123,11 @@ readFile("data.bin")
     also { let header = parse_header(view it); validate(header); }
     |> process_body(it);
 ```
+
+An `also` block discards its final value: the chain keeps the source value.
+`return`, `jump`, and `break`/`continue` that would exit the stage are
+rejected; `break`/`continue` aimed at loops declared inside the stage are
+allowed.
 
 ### 9.4 `state` Functions & State Machines
 

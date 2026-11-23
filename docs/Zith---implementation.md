@@ -639,7 +639,12 @@ seja consumido exatamente uma vez em cada caminho. `also` aceita zero ou mais
 observações, mas cada argumento derivado de `it` tem de corresponder a um
 parâmetro read-only `view`; o empréstimo não pode escapar do stage. Ambos
 rejeitam pipelines aninhados no stage. Um bloco `also { ... }` não produz um
-valor e não pode transferir controlo com `return`/`break`/`continue`/`jump`.
+valor. A regra aceite distingue saídas não locais (`return`, `jump`, e
+`break`/`continue` que saiam do stage), sempre rejeitadas, de
+`break`/`continue` dirigidos a loops declarados dentro do stage, que são
+permitidos. A implementação atual rejeita qualquer `return`/`break`/`continue`/
+`jump` num bloco `also` via `deferBodyHasControlFlow`; distinguir os
+`break`/`continue` locais ainda não está implementado.
 O lowering `HirLowerModern::lowerPipe` materializa a source num slot, baixa o
 stage com `HirPipeCurrent` para esse slot e emite `HirPipe`. Um bloco `also`
 usa um cleanup stage sintetizado quando não produz valor, para que o efeito e
@@ -648,7 +653,9 @@ depois lê o slot para preservar o valor da chain.
 
 O contador de usos trata sequências, ramos de `if`/`when`, curto-circuito
 booleano e loops. Funções anónimas isolam o contexto do pipeline exterior e
-podem conter um pipeline próprio.
+podem conter um pipeline próprio. Como funções anónimas não capturam, não há
+regra especial para `it` em closures: o `it` de um pipeline interior nunca se
+refere ao valor de um pipeline exterior.
 
 ## Expansão de Packs em Chamadas
 

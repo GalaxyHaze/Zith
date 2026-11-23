@@ -119,7 +119,7 @@ Implementation work that is incomplete or needs review is tracked in
 | dereference `*p` | **Working** | Pointer dereference via unary `*` |
 | address-of `&x` | **Working** | Address-of via unary `&` |
 | `p->field` | **Working** | Arrow access on struct pointers |
-| `|>` / `also` pipeline | **Working** | `it` is explicit inside each stage. `|>` consumes it exactly once on every path; `also` keeps the chain value and permits repeated observations only through read-only `view` parameters whose borrows do not escape. No automatic injection or `?`/`!`/tag propagation |
+| `|>` / `also` pipeline | **Working** | `it` is explicit inside each stage. `|>` consumes it exactly once on every path; `also` keeps the chain value and permits repeated observations only through read-only `view` parameters whose borrows do not escape. The accepted rule allows `break`/`continue` aimed at loops inside an `also` block, but the current check rejects any `return`/`break`/`continue`/`jump` there. No automatic injection or `?`/`!`/tag propagation |
 | index `a[i]` | **Working** | On arrays, slices, pointers; array/slice reads return `?T` with bounds checks. `raw a[i]` skips bounds handling and returns `T` |
 | `?` postfix propagation | **Working** | Requires optional operand in an optional-returning function. `?T` conditions are implicit (`if (x)`), so `x?` is propagation only and is rejected in condition position unless the enclosing function propagates |
 | `must` / `raw` optional extraction | **Working** | `must x` extracts a `?T` payload and terminates with runtime panic `R10003` on `null`; `raw x` extracts the payload without a null check. `is null` remains the only flow-narrowing mechanism |

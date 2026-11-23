@@ -9,10 +9,10 @@ current compiler support.
 
 ## Context
 
-The current pipeline spells the observing stage `do` and the current value
-`..`. The SRA holder proposal rejects every unnamed owner temporary, including
-one passed to a consuming function. The existing cleanup roadmap also proposes
-a language-level `drop` hook. These choices do not match the desired Zith--
+Earlier drafts spelled the observing stage `do` and the current value `..`.
+The SRA holder proposal rejects every unnamed owner temporary, including one
+passed to a consuming function. The existing cleanup roadmap also proposes a
+language-level `drop` hook. These choices do not match the desired Zith--
 model, which makes ownership transfer explicit through consuming calls and
 keeps cleanup under programmer control.
 
@@ -40,9 +40,16 @@ keeps cleanup under programmer control.
   by-value parameter, returning it, or moving it into another owner counts as
   consumption. A new owner receives the cleanup obligation.
 - A consuming stage may not pass `it` to a `retain` parameter.
-- `also` is an observing stage. It borrows `it` read-only, may use it zero or
-  more times, and leaves the chain value unchanged. The borrow cannot escape
-  the stage. `it` may only be passed to read-only `view` parameters.
+- `also` is an observing stage. It borrows `it` read-only, may observe it zero
+  or more times, and leaves the chain value unchanged. `it` may only be passed
+  to read-only `view` parameters. The borrowed value, aliases of it, and
+  references derived from it cannot escape the stage; independent copies of
+  fields or computed values may escape freely.
+- An `also` stage is an expression or a block. A block may bind locals, and
+  its final value is discarded: the chain keeps the source value. Control flow
+  stays local to the stage. `return`, `jump`, and any `break`/`continue` that
+  would exit the stage are rejected; `break`/`continue` aimed at loops declared
+  inside the stage are allowed.
 - When `it` is a pack, `...it` expands its elements in order into positional
   arguments. A pack can also be destructured explicitly. Its element names do
   not enter scope implicitly, though a named pack permits field access such as
@@ -50,8 +57,11 @@ keeps cleanup under programmer control.
 - In `|>`, spreading or destructuring the pack consumes its elements under the
   normal ownership rules. In `also`, spreading lends each element to read-only
   `view` parameters, and those borrows cannot escape the stage.
-- Pipeline stages cannot be nested. Anonymous functions remain allowed, do
-  not capture outer locals, and may contain independent pipelines.
+- Pipeline stages cannot be nested. Anonymous functions remain allowed, do not
+  capture outer locals, and may contain independent pipelines with their own
+  `it`. There is no special rule for `it` inside closures: since anonymous
+  functions cannot capture, an inner pipeline's `it` never refers to an outer
+  pipeline value.
 - Zith-- reserves `also` and `it`. `also` replaces pipeline `do`, and `it`
   replaces the pipeline placeholder `..`. Other uses of `..` are unchanged.
 
