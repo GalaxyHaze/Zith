@@ -4,6 +4,7 @@
 #include "sema/sema-modern.hpp"
 #include "support/int-literal.hpp"
 #include <algorithm>
+#include <limits>
 
 namespace zith::sema::modern {
 
@@ -527,26 +528,184 @@ TypeId PerModuleSema::inferBinary(frontend::ExprId id) {
     return result;
 }
 
-static std::size_t pipeCurrentCount(frontend::ExprId id,
-                                    const frontend::FrontendSnapshot &snapshot) {
+struct PipeUseRange {
+    size_t minimum = 0U;
+    size_t maximum = 0U;
+};
+
+static size_t addPipeUseCounts(size_t left, size_t right) {
+    if (left == std::numeric_limits<size_t>::max() ||
+        right > std::numeric_limits<size_t>::max() - left)
+        return std::numeric_limits<size_t>::max();
+    return left + right;
+}
+
+static PipeUseRange sequencePipeUses(PipeUseRange left, PipeUseRange right) {
+    return {addPipeUseCounts(left.minimum, right.minimum),
+            addPipeUseCounts(left.maximum, right.maximum)};
+}
+
+static PipeUseRange branchPipeUses(PipeUseRange left, PipeUseRange right) {
+    return {std::min(left.minimum, right.minimum), std::max(left.maximum, right.maximum)};
+}
+
+static PipeUseRange pipeCurrentUses(frontend::ExprId id,
+                                    const frontend::FrontendSnapshot &snapshot,
+                                    const std::vector<uint32_t> &borrowed_uses) {
     if (!id || id.value > snapshot.expressions().size())
-        return 0;
+        return {};
     const auto &expr = snapshot.expressions()[id.value - 1U];
-    if (expr.kind == frontend::ExprKind::PipeCurrent)
-        return 1;
-    std::size_t count = 0;
+    if (expr.kind == frontend::ExprKind::PipeCurrent) {
+        const bool borrowed =
+            std::find(borrowed_uses.begin(), borrowed_uses.end(), expr.id.value) !=
+            borrowed_uses.end();
+        return borrowed ? PipeUseRange{} : PipeUseRange{1U, 1U};
+    }
+    if (expr.kind == frontend::ExprKind::FunctionLiteral)
+        return {};
+
+    if (expr.kind == frontend::ExprKind::If && expr.operands.size() >= 2U) {
+        PipeUseRange condition = pipeCurrentUses(expr.operands[0], snapshot, borrowed_uses);
+        const PipeUseRange then_branch =
+            pipeCurrentUses(expr.operands[1], snapshot, borrowed_uses);
+        PipeUseRange else_branch{};
+        if (expr.operands.size() == 3U) {
+            else_branch = pipeCurrentUses(expr.operands[2], snapshot, borrowed_uses);
+        } else if (expr.operands.size() >= 4U) {
+            else_branch =
+                sequencePipeUses(pipeCurrentUses(expr.operands[2], snapshot, borrowed_uses),
+                                 pipeCurrentUses(expr.operands[3], snapshot, borrowed_uses));
+        }
+        return sequencePipeUses(condition, branchPipeUses(then_branch, else_branch));
+    }
+
+    if (expr.kind == frontend::ExprKind::Binary &&
+        (expr.text == "and" || expr.text == "or") && expr.operands.size() == 2U) {
+        const PipeUseRange left = pipeCurrentUses(expr.operands[0], snapshot, borrowed_uses);
+        const PipeUseRange right = pipeCurrentUses(expr.operands[1], snapshot, borrowed_uses);
+        return sequencePipeUses(left, branchPipeUses({}, right));
+    }
+
+    if (expr.kind == frontend::ExprKind::When && !expr.operands.empty()) {
+        PipeUseRange branches{};
+        PipeUseRange tested_conditions{};
+        bool has_branch = false;
+        bool has_default = false;
+        for (size_t index = 1U; index < expr.operands.size(); ++index) {
+            const size_t condition_index = index - 1U;
+            const frontend::ExprId condition =
+                condition_index < expr.conditions.size() ? expr.conditions[condition_index]
+                                                         : frontend::ExprId{};
+            if (condition) {
+                tested_conditions = sequencePipeUses(
+                    tested_conditions, pipeCurrentUses(condition, snapshot, borrowed_uses));
+            } else {
+                has_default = true;
+            }
+            const PipeUseRange path =
+                sequencePipeUses(tested_conditions,
+                                 pipeCurrentUses(expr.operands[index], snapshot, borrowed_uses));
+            branches = has_branch ? branchPipeUses(branches, path) : path;
+            has_branch = true;
+        }
+        if (!has_default)
+            branches = has_branch ? branchPipeUses(branches, tested_conditions)
+                                  : tested_conditions;
+        return sequencePipeUses(pipeCurrentUses(expr.operands[0], snapshot, borrowed_uses),
+                                branches);
+    }
+
+    if (expr.kind == frontend::ExprKind::While || expr.kind == frontend::ExprKind::For ||
+        expr.kind == frontend::ExprKind::ForIn) {
+        PipeUseRange loop_uses{};
+        for (const auto operand : expr.operands)
+            loop_uses =
+                sequencePipeUses(loop_uses, pipeCurrentUses(operand, snapshot, borrowed_uses));
+        if (loop_uses.maximum != 0U)
+            return {0U, std::numeric_limits<size_t>::max()};
+        return loop_uses;
+    }
+
+    PipeUseRange count{};
     for (const auto operand : expr.operands)
-        count += pipeCurrentCount(operand, snapshot);
+        count = sequencePipeUses(count, pipeCurrentUses(operand, snapshot, borrowed_uses));
     for (const auto stmt_id : expr.statements) {
         if (!stmt_id || stmt_id.value > snapshot.statements().size())
             continue;
         const auto &stmt = snapshot.statements()[stmt_id.value - 1U];
         if (stmt.expression)
-            count += pipeCurrentCount(stmt.expression, snapshot);
-        if (stmt.kind == frontend::StmtKind::Binding && stmt.binding.initializer)
-            count += pipeCurrentCount(stmt.binding.initializer, snapshot);
+            count = sequencePipeUses(
+                count, pipeCurrentUses(stmt.expression, snapshot, borrowed_uses));
+        if (stmt.kind == frontend::StmtKind::Binding && stmt.binding.initializer &&
+            stmt.binding.initializer != stmt.expression)
+            count = sequencePipeUses(
+                count, pipeCurrentUses(stmt.binding.initializer, snapshot, borrowed_uses));
     }
     return count;
+}
+
+static bool containsNestedPipe(frontend::ExprId id,
+                               const frontend::FrontendSnapshot &snapshot) {
+    if (!id || id.value > snapshot.expressions().size())
+        return false;
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.kind == frontend::ExprKind::FunctionLiteral)
+        return false;
+    if (expr.kind == frontend::ExprKind::Pipe || expr.kind == frontend::ExprKind::PipeDo)
+        return true;
+    for (const auto operand : expr.operands) {
+        if (containsNestedPipe(operand, snapshot))
+            return true;
+    }
+    for (const auto stmt_id : expr.statements) {
+        if (!stmt_id || stmt_id.value > snapshot.statements().size())
+            continue;
+        const auto &stmt = snapshot.statements()[stmt_id.value - 1U];
+        if (containsNestedPipe(stmt.expression, snapshot) ||
+            (stmt.kind == frontend::StmtKind::Binding &&
+             containsNestedPipe(stmt.binding.initializer, snapshot)))
+            return true;
+    }
+    return false;
+}
+
+bool PerModuleSema::containsPipeCurrent(frontend::ExprId id) const noexcept {
+    if (!id || id.value > snapshot.expressions().size())
+        return false;
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.kind == frontend::ExprKind::PipeCurrent)
+        return true;
+    if (expr.kind == frontend::ExprKind::FunctionLiteral)
+        return false;
+    for (const auto operand : expr.operands) {
+        if (containsPipeCurrent(operand))
+            return true;
+    }
+    for (const auto stmt_id : expr.statements) {
+        if (!stmt_id || stmt_id.value > snapshot.statements().size())
+            continue;
+        const auto &stmt = snapshot.statements()[stmt_id.value - 1U];
+        if (containsPipeCurrent(stmt.expression) ||
+            (stmt.kind == frontend::StmtKind::Binding &&
+             containsPipeCurrent(stmt.binding.initializer)))
+            return true;
+    }
+    return false;
+}
+
+void PerModuleSema::markPipeCurrentBorrowed(frontend::ExprId id) {
+    if (!id || id.value > snapshot.expressions().size())
+        return;
+    const auto &expr = snapshot.expressions()[id.value - 1U];
+    if (expr.kind == frontend::ExprKind::PipeCurrent) {
+        if (pipeBorrowedUses_ != nullptr)
+            pipeBorrowedUses_->push_back(expr.id.value);
+        return;
+    }
+    if (expr.kind == frontend::ExprKind::FunctionLiteral)
+        return;
+    for (const auto operand : expr.operands)
+        markPipeCurrentBorrowed(operand);
 }
 
 TypeId PerModuleSema::inferPipe(frontend::ExprId id) {
@@ -555,32 +714,41 @@ TypeId PerModuleSema::inferPipe(frontend::ExprId id) {
         return error_type;
 
     const TypeId source = inferExpr(expr.operands[0]);
+    if (containsNestedPipe(expr.operands[1], snapshot)) {
+        report(snapshot.expressions()[expr.operands[1].value - 1U].span,
+               "pipeline stages cannot contain nested pipelines",
+               diagnostics::err::UnsupportedSyntax);
+        return error_type;
+    }
     const auto current  = pipeCurrentType_;
-    pipeCurrentType_    = source;
+    const bool was_observing = pipeObserving_;
+    std::vector<uint32_t> borrowed_uses;
+    auto *const previous_borrowed_uses = pipeBorrowedUses_;
+    pipeCurrentType_         = source;
+    pipeObserving_           = expr.kind == frontend::ExprKind::PipeDo;
+    pipeBorrowedUses_        = &borrowed_uses;
     const TypeId stage_type = inferExpr(expr.operands[1]);
     pipeCurrentType_        = current;
+    pipeObserving_          = was_observing;
+    pipeBorrowedUses_        = previous_borrowed_uses;
 
-    const std::size_t current_count = pipeCurrentCount(expr.operands[1], snapshot);
+    const PipeUseRange current_uses =
+        pipeCurrentUses(expr.operands[1], snapshot, borrowed_uses);
     switch (expr.kind) {
     case frontend::ExprKind::Pipe:
-        if (current_count == 0U) {
+        if (current_uses.minimum == 0U && current_uses.maximum == 0U) {
             report(expr.span,
-                   "pipeline stage must reference the current value exactly once with '..'",
+                   "pipeline stage must consume 'it' exactly once on every execution path",
                    diagnostics::err::ExpectedExpr);
             return error_type;
         }
-        if (current_count > 1U) {
-            report(expr.span, "a pipeline stage may use '..' only once",
+        if (current_uses.minimum != 1U || current_uses.maximum != 1U) {
+            report(expr.span, "pipeline stage must consume 'it' exactly once on every execution path",
                    diagnostics::err::UnsupportedSyntax);
             return error_type;
         }
         break;
     case frontend::ExprKind::PipeDo:
-        if (current_count > 1U) {
-            report(expr.span, "a 'do' stage may use '..' at most once",
-                   diagnostics::err::UnsupportedSyntax);
-            return error_type;
-        }
         break;
     default:
         return error_type;
@@ -589,7 +757,7 @@ TypeId PerModuleSema::inferPipe(frontend::ExprId id) {
         const auto &stage = snapshot.expressions()[expr.operands[1].value - 1U];
         if (stage.kind == frontend::ExprKind::Block && deferBodyHasControlFlow(expr.operands[1])) {
             report(stage.span,
-                   "'do { ... }' cannot transfer control out of the effect stage",
+                   "'also { ... }' cannot transfer control out of the observing stage",
                    diagnostics::err::UnsupportedSyntax);
         }
         return source;
@@ -601,7 +769,7 @@ TypeId PerModuleSema::inferPipeCurrent(frontend::ExprId id) {
     if (pipeCurrentType_ == kInvalidTypeId) {
         if (id && id.value <= snapshot.expressions().size()) {
             const auto &expr = snapshot.expressions()[id.value - 1U];
-            report(expr.span, "'..' is only valid inside a '|>' or 'do' pipeline stage",
+            report(expr.span, "'it' is only valid inside a '|>' or 'also' pipeline stage",
                    diagnostics::err::UnsupportedSyntax);
         }
         return error_type;

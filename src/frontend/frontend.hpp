@@ -203,14 +203,13 @@ enum class ExprKind : uint8_t {
     /// `and`/`or`/`xor`. The AST keeps this wrapper so sema can distinguish the
     /// first pattern island from later boolean guards.
     WhenGuard,
-    /// `left |> stage(..)`: explicit pipeline stage. The current value is
-    /// substituted for the single `..` placeholder inside `stage`.
+    /// `left |> stage(it)`: consuming pipeline stage. The current value is
+    /// referenced explicitly inside `stage`.
     Pipe,
-    /// `left do stage(..)`: a side-effect stage that sees the current value
-    /// but keeps the pipeline result unchanged.
+    /// `left also stage(it)`: observing pipeline stage that keeps the
+    /// pipeline result unchanged.
     PipeDo,
-    /// `..` inside a `|>` or `do` stage: a placeholder for the current value.
-    /// Exactly one placeholder is allowed per stage in Zith--.
+    /// `it` inside a `|>` or `also` stage: a reference to the current value.
     PipeCurrent,
     /// Layout and value intrinsics. Layout intrinsics parse a type argument;
     /// lengthOf/ptrOf parse a normal expression.

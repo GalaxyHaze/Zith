@@ -205,16 +205,16 @@ ExprId AstLowerer::parseExpression(int minimum_precedence) {
             left            = addExpression(std::move(range_expr));
             continue;
         }
-        // `|>` and `do` are the canonical chain operators. Both are left
+        // `|>` and `also` are the canonical chain operators. Both are left
         // associative and sit below assignment; the stage is parsed with a
         // higher minimum so the next chain stage stays at this level.
-        const bool is_pipe      = isOperatorToken("|>");
-        const bool is_do_stage  = isKeywordToken("do");
-        if ((is_pipe || is_do_stage) && 0 >= minimum_precedence) {
+        const bool is_pipe       = isOperatorToken("|>");
+        const bool is_also_stage = isKeywordToken("also");
+        if ((is_pipe || is_also_stage) && 0 >= minimum_precedence) {
             ++index_;
             Expression chain;
             chain.kind  = is_pipe ? ExprKind::Pipe : ExprKind::PipeDo;
-            chain.text  = is_pipe ? "|>" : "do";
+            chain.text  = is_pipe ? "|>" : "also";
             chain.scope = current_scope_;
             chain.operands.push_back(left);
             const bool saved_pipe_stage  = in_pipe_stage_;

@@ -1271,6 +1271,16 @@ hir::HirExprId
 
 HirLowerModern::lowerVariadicSliceTail(sema::modern::TypeId slice_sema_type,
                                        const std::vector<frontend::ExprId> &tail_exprs) {
+    std::vector<ExpandedCallArgument> args;
+    args.reserve(tail_exprs.size());
+    for (size_t index = 0; index < tail_exprs.size(); ++index)
+        args.push_back({tail_exprs[index], semaTypeOfExpr(tail_exprs[index]), ~uint32_t{0}, false,
+                        static_cast<uint32_t>(index)});
+    return lowerExpandedVariadicSliceTail(slice_sema_type, args);
+}
+
+hir::HirExprId HirLowerModern::lowerExpandedVariadicSliceTail(
+    sema::modern::TypeId slice_sema_type, const std::vector<ExpandedCallArgument> &tail_args) {
     const types::TypeId slice_type = lowerType(slice_sema_type);
     const auto *slice              = std::get_if<types::TypeSlice>(&types_.lookup(slice_type));
     if (slice == nullptr)
@@ -1283,25 +1293,49 @@ HirLowerModern::lowerVariadicSliceTail(sema::modern::TypeId slice_sema_type,
     const sema::modern::TypeId sema_element =
         sema_slice != nullptr ? sema_.typeTable().stripQualifiers(sema_slice->element)
                               : sema::modern::kInvalidTypeId;
-    const size_t tail_count = tail_exprs.size();
+    const size_t tail_count = tail_args.size();
     const types::TypeId array_type =
         types_.internArray(element_type, static_cast<uint32_t>(tail_count));
 
     hir::HirArrayLiteral array(arena_);
     array.type = array_type;
+    std::vector<std::pair<uint32_t, hir::HirExprId>> lowered_sources;
     for (size_t index = 0; index < tail_count; ++index) {
+        const auto &arg = tail_args[index];
         const auto &arg_expr =
-            current_module_->frontend->expressions()[tail_exprs[index].value - 1U];
+            current_module_->frontend->expressions()[arg.source.value - 1U];
         const bool annotated =
-            arg_expr.kind == frontend::ExprKind::OwnershipCoerce && !arg_expr.operands.empty();
-        const frontend::ExprId inner_id = annotated ? arg_expr.operands[0] : tail_exprs[index];
+            !arg.isPackMember() && arg_expr.kind == frontend::ExprKind::OwnershipCoerce &&
+            !arg_expr.operands.empty();
+        const frontend::ExprId inner_id = annotated ? arg_expr.operands[0] : arg.source;
         const bool inner_is_borrow_pointer =
-            annotated &&
+            !arg.isPackMember() && annotated &&
             current_module_->frontend->expressions()[inner_id.value - 1U].kind ==
                 frontend::ExprKind::Unary &&
             current_module_->frontend->expressions()[inner_id.value - 1U].text == "&";
-        auto argument = lowerExpr(inner_id);
-        if (sema_element && sema_.typeTable().kindOf(sema_element) == sema::modern::TypeKind::Dyn)
+        hir::HirExprId argument = hir::kInvalidHirExpr;
+        if (arg.isPackMember()) {
+            auto found = std::find_if(lowered_sources.begin(), lowered_sources.end(),
+                                      [&](const auto &item) {
+                                          return item.first == arg.source.value;
+                                      });
+            hir::HirExprId pack_value = hir::kInvalidHirExpr;
+            if (found != lowered_sources.end()) {
+                pack_value = found->second;
+            } else {
+                pack_value = lowerExpr(arg.source);
+                lowered_sources.emplace_back(arg.source.value, pack_value);
+            }
+            if (pack_value != hir::kInvalidHirExpr) {
+                const types::TypeId pack_type = typeOfExpr(arg.source);
+                argument = addExpr(hir::HirField{pack_value, arg.packMember, lowerType(arg.type),
+                                                 pack_type, hir::HirSafetyMode::Intrinsic});
+            }
+        } else {
+            argument = lowerExpr(inner_id);
+        }
+        if (!arg.isPackMember() && sema_element &&
+            sema_.typeTable().kindOf(sema_element) == sema::modern::TypeKind::Dyn)
             argument = lowerCoerceToDyn(sema_element, inner_id, argument, sema_element);
         if (annotated) {
             if (inner_is_borrow_pointer) {

@@ -12,10 +12,14 @@ fn classify(score: i32): i32 {
     };
 }
 
+fn showBucket(heap: dyn Allocator, bucket: view i32) {
+    println(heap, "bucket=#", bucket as i32);
+}
+
 fn main(): i32 {
     let heap = HeapAllocator {};
     73
-        |> classify(..)
-        do { println(heap, "bucket=#", ..) };
+        |> classify(it)
+        also { showBucket(heap, view it); };
     0
 }

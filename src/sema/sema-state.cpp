@@ -66,52 +66,80 @@ void PerModuleSema::inferDockCall(frontend::ExprId id) {
         } else {
             if (const auto *fn = type_table.function(target_type)) {
                 result = fn->result;
+                const ExpandedCallArguments expanded =
+                    expandCallArguments(expr.operands, expr.argIsSpread);
+                if (expanded.invalidSpread) {
+                    const auto &spread = snapshot.expressions()[expanded.invalidSpread.value - 1U];
+                    report(spread.span, "spread operand must be a pack or a final variadic slice",
+                           diagnostics::err::NoMatchingFn);
+                    setExprType(id, result);
+                    return;
+                }
                 const bool target_is_slice =
                     resolved != nullptr && resolved->isVariadicSlice && !fn->params.empty();
                 const size_t slice_index =
                     target_is_slice ? fn->params.size() - 1U : fn->params.size();
+                std::vector<bool> slice_spreads(expr.argIsSpread.size(), false);
+                size_t slice_spread_count = 0U;
+                size_t slice_spread_index = ~size_t{0};
+                for (const auto &arg : expanded.values) {
+                    if (!arg.isSliceForwarding)
+                        continue;
+                    ++slice_spread_count;
+                    slice_spread_index = arg.sourceArgument;
+                    if (arg.sourceArgument < slice_spreads.size())
+                        slice_spreads[arg.sourceArgument] = true;
+                }
+                if (slice_spread_count > 1U ||
+                    (slice_spread_count != 0U &&
+                     (slice_spread_index + 1U != expr.operands.size() - 1U ||
+                      !target_is_slice))) {
+                    report(expr.span, "slice forwarding requires the final variadic slice argument",
+                           diagnostics::err::NoMatchingFn);
+                    setExprType(id, result);
+                    return;
+                }
+                const size_t provided_args = expanded.values.size();
+                const bool explicit_slice = slice_spread_count != 0U;
+                const size_t fixed_provided = explicit_slice ? provided_args - 1U : provided_args;
                 const bool defaults_cover =
-                    target != nullptr && expr.operands.size() - 1U < fn->params.size() &&
-                    missingArgsHaveDefaults(*target, expr.operands.size() - 1U, 0U, slice_index);
-                if (!target_is_slice && expr.operands.size() - 1U != fn->params.size() &&
+                    target != nullptr && fixed_provided < (target_is_slice ? slice_index
+                                                                           : fn->params.size()) &&
+                    missingArgsHaveDefaults(*target, fixed_provided, 0U, slice_index);
+                if (!target_is_slice && provided_args != fn->params.size() &&
                     !defaults_cover) {
                     report(expr.span, "dock call arity mismatch", diagnostics::err::NoMatchingFn);
                 }
                 const VariadicCallPlan plan = makeVariadicCallPlan(expr.span, expr.operands, fn,
                                                                    target_is_slice, slice_index,
-                                                                   expr.argIsSpread);
+                                                                   slice_spreads);
                 const bool auto_collected   = plan.autoCollectTail;
                 typed_map.variadicCallPlans.insert(expr.id.value, plan);
-                const size_t written_args = expr.operands.size() - 1U;
-                if (!spreadMarkersAreValid(expr.argIsSpread, written_args,
-                                           target_is_slice ? slice_index : written_args) ||
-                    (!target_is_slice &&
-                     std::any_of(expr.argIsSpread.begin(), expr.argIsSpread.end(),
-                                 [](bool spread) { return spread; }))) {
-                    report(expr.span, "spread requires the final variadic slice argument",
-                           diagnostics::err::NoMatchingFn);
-                    result = fn->result;
-                    setExprType(id, result);
-                    return;
-                }
-                if (target_is_slice && expr.operands.size() - 1U < slice_index &&
+                typed_map.expandedCallArguments.insert(id.value, expanded.values);
+                if (target_is_slice && fixed_provided < slice_index &&
                     !(target != nullptr &&
-                      missingArgsHaveDefaults(*target, expr.operands.size() - 1U, 0U,
-                                              slice_index))) {
+                      missingArgsHaveDefaults(*target, fixed_provided, 0U, slice_index))) {
                     report(expr.span, "dock call arity mismatch", diagnostics::err::NoMatchingFn);
                     result = fn->result;
-                } else if (target_is_slice && !auto_collected && !defaults_cover &&
-                           expr.operands.size() - 1U != fn->params.size()) {
+                } else if (target_is_slice && explicit_slice && fixed_provided > slice_index) {
+                    report(expr.span, "dock call arity mismatch", diagnostics::err::NoMatchingFn);
+                } else if (target_is_slice && !auto_collected && !explicit_slice &&
+                           provided_args != slice_index && !defaults_cover) {
                     report(expr.span, "dock call arity mismatch", diagnostics::err::NoMatchingFn);
                 } else {
                     const size_t checked_params =
                         target_is_slice ? (plan.explicitSliceArg ? slice_index + 1U : slice_index)
                                         : fn->params.size();
                     for (size_t index = 0; index < checked_params; ++index) {
-                        if (index + 1U < expr.operands.size()) {
-                            const TypeId arg_type = inferExpr(expr.operands[index + 1U]);
-                            if (!coerceValue(expr.operands[index + 1U], fn->params[index],
-                                             arg_type)) {
+                        if (index < expanded.values.size()) {
+                            const auto &arg = expanded.values[index];
+                            TypeId arg_type = arg.type;
+                            checkPipeObservationArgument(arg.source, fn->params[index], expr.span);
+                            const bool fits =
+                                arg.isPackMember()
+                                    ? coercesTo(fn->params[index], arg_type)
+                                    : coerceValue(arg.source, fn->params[index], arg_type);
+                            if (!fits) {
                                 reportCoercionFailure(expr.span, fn->params[index], arg_type,
                                                       "dock argument type mismatch",
                                                       diagnostics::err::NoMatchingFn);
@@ -129,8 +157,9 @@ void PerModuleSema::inferDockCall(frontend::ExprId id) {
                         }
                     }
                     if (plan.autoCollectTail)
-                        (void)checkVariadicTail(expr.span, expr.operands, fn, plan.sliceParam,
-                                                true);
+                        (void)checkExpandedVariadicTail(expr.span, expanded.values,
+                                                        fn->params[plan.sliceParam],
+                                                        plan.sliceParam, true);
                 }
                 setExprType(expr.operands[0], target_type);
                 if (direct_state && target != nullptr)
@@ -179,42 +208,75 @@ void PerModuleSema::inferJump(const frontend::Statement &stmt) {
     const bool target_is_slice =
         resolved != nullptr && resolved->isVariadicSlice && !fn->params.empty();
     const size_t slice_index = target_is_slice ? fn->params.size() - 1U : fn->params.size();
+    const ExpandedCallArguments expanded =
+        expandCallArguments(stmt.arguments, stmt.argumentIsSpread, false);
+    if (expanded.invalidSpread) {
+        const auto &spread = snapshot.expressions()[expanded.invalidSpread.value - 1U];
+        report(spread.span, "spread operand must be a pack or a final variadic slice",
+               diagnostics::err::NoMatchingFn);
+        return;
+    }
+    std::vector<bool> slice_spreads(stmt.argumentIsSpread.size(), false);
+    size_t slice_spread_count = 0U;
+    size_t slice_spread_index = ~size_t{0};
+    for (const auto &arg : expanded.values) {
+        if (!arg.isSliceForwarding)
+            continue;
+        ++slice_spread_count;
+        slice_spread_index = arg.sourceArgument;
+        if (arg.sourceArgument < slice_spreads.size())
+            slice_spreads[arg.sourceArgument] = true;
+    }
+    if (slice_spread_count > 1U ||
+        (slice_spread_count != 0U &&
+         (slice_spread_index + 1U != stmt.arguments.size() || !target_is_slice))) {
+        report(stmt.span, "slice forwarding requires the final variadic slice argument",
+               diagnostics::err::NoMatchingFn);
+        return;
+    }
+    const size_t provided_args = expanded.values.size();
+    const bool explicit_slice = slice_spread_count != 0U;
+    const size_t fixed_provided = explicit_slice ? provided_args - 1U : provided_args;
     const bool defaults_cover =
-        stmt.arguments.size() < fn->params.size() &&
-        missingArgsHaveDefaults(*target, stmt.arguments.size(), 0U, slice_index);
-    if (!target_is_slice && stmt.arguments.size() != fn->params.size() && !defaults_cover) {
+        fixed_provided < (target_is_slice ? slice_index : fn->params.size()) &&
+        missingArgsHaveDefaults(*target, fixed_provided, 0U, slice_index);
+    if (!target_is_slice && provided_args != fn->params.size() && !defaults_cover) {
         report(stmt.span, "state transition arity mismatch", diagnostics::err::NoMatchingFn);
         return;
     }
     const VariadicCallPlan plan =
         makeVariadicCallPlan(stmt.span, stmt.arguments, fn, target_is_slice, slice_index,
-                             stmt.argumentIsSpread, false);
+                             slice_spreads, false);
     const bool auto_collected = plan.autoCollectTail;
     typed_map.variadicStmtPlans.insert(stmt.id.value, plan);
-    if (!spreadMarkersAreValid(stmt.argumentIsSpread, stmt.arguments.size(),
-                               target_is_slice ? slice_index : stmt.arguments.size()) ||
-        (!target_is_slice &&
-         std::any_of(stmt.argumentIsSpread.begin(), stmt.argumentIsSpread.end(),
-                     [](bool spread) { return spread; }))) {
-        report(stmt.span, "spread requires the final variadic slice argument",
-               diagnostics::err::NoMatchingFn);
-        return;
-    }
-    if (target_is_slice && stmt.arguments.size() < slice_index &&
-        !missingArgsHaveDefaults(*target, stmt.arguments.size(), 0U, slice_index)) {
+    typed_map.expandedStmtArguments.insert(stmt.id.value, expanded.values);
+    if (target_is_slice && fixed_provided < slice_index &&
+        !missingArgsHaveDefaults(*target, fixed_provided, 0U, slice_index)) {
         report(stmt.span, "state transition arity mismatch", diagnostics::err::NoMatchingFn);
         return;
-    } else if (target_is_slice && !auto_collected && stmt.arguments.size() != fn->params.size()) {
+    } else if (target_is_slice && explicit_slice && fixed_provided > slice_index) {
+        report(stmt.span, "state transition arity mismatch", diagnostics::err::NoMatchingFn);
+        return;
+    } else if (target_is_slice && !auto_collected && !explicit_slice &&
+               provided_args != slice_index && !defaults_cover) {
         report(stmt.span, "state transition arity mismatch", diagnostics::err::NoMatchingFn);
         return;
     }
     const size_t checked_params =
         target_is_slice ? (plan.explicitSliceArg ? slice_index + 1U : slice_index)
                         : fn->params.size();
+    std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
     for (size_t index = 0; index < checked_params; ++index) {
-        if (index < stmt.arguments.size()) {
-            const TypeId arg_type = inferExpr(stmt.arguments[index]);
-            if (!coerceValue(stmt.arguments[index], fn->params[index], arg_type)) {
+        if (index < expanded.values.size()) {
+            const auto &arg = expanded.values[index];
+            TypeId arg_type = arg.type;
+            checkPipeObservationArgument(arg.source, fn->params[index], stmt.span);
+            (void)checkOwnershipCoercion(arg.source, fn->params[index], seen_roots, stmt.span,
+                                         true);
+            const bool fits = arg.isPackMember()
+                                  ? coercesTo(fn->params[index], arg_type)
+                                  : coerceValue(arg.source, fn->params[index], arg_type);
+            if (!fits) {
                 reportCoercionFailure(stmt.span, fn->params[index], arg_type,
                                       "state transition argument type mismatch",
                                       diagnostics::err::NoMatchingFn);
@@ -230,7 +292,8 @@ void PerModuleSema::inferJump(const frontend::Statement &stmt) {
         }
     }
     if (plan.autoCollectTail)
-        (void)checkVariadicTail(stmt.span, stmt.arguments, fn, plan.sliceParam, true);
+        (void)checkExpandedVariadicTail(stmt.span, expanded.values, fn->params[plan.sliceParam],
+                                        plan.sliceParam, true);
 }
 void PerModuleSema::checkReturnStatement(const frontend::Statement &stmt) {
     if (inferringReturnType_) {

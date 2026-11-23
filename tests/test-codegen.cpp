@@ -3036,13 +3036,61 @@ static void test_variadic_slice_runtime() {
     CHECK_EQ(r.exitCode, 6, "auto-collected tail values are materialized and summed at runtime");
 }
 
+static void test_pack_spread_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zithm", "fn sum(a: i32, b: i32, c: i32, d: i32, e: i32): i32 {\n"
+                         "    return a + b + c + d + e;\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    let first = |2, 3|;\n"
+                         "    let second = |5|;\n"
+                         "    return sum(1, ...first, 4, ...second);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "multiple pack spreads among ordinary arguments compile and run");
+    CHECK_EQ(r.exitCode, 15, "pack members are passed in written order");
+}
+
+static void test_pack_spread_selects_overload_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zithm", "fn choose(first: i32, second: i32): i32 { return 1; }\n"
+                         "fn choose(first: i32, second: i64): i32 { return 2; }\n"
+                         "fn main(): i32 {\n"
+                         "    let args = |7, 9i64|;\n"
+                         "    return choose(...args);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "expanded pack argument types select the matching overload");
+    CHECK_EQ(r.exitCode, 2, "overload resolution sees each expanded member type");
+}
+
+static void test_generic_method_pack_spread_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zithm", "struct Agg { value: i32 }\n"
+                         "impl Agg {\n"
+                         "    fn pick<T>(self, first: T, rest: [...]T): T {\n"
+                         "        return raw rest[0];\n"
+                         "    }\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    let agg = Agg { value: 0 };\n"
+                         "    return agg.pick(...|2, 3|);\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "generic method inference and variadic lowering use expanded pack arguments");
+    CHECK_EQ(r.exitCode, 3, "generic method receives expanded fixed and tail members");
+}
+
 static void test_pipe_variadic_slice_runtime() {
     ModernFileCodegenTest t;
     t.write("main.zithm", "fn sum(rest: [...]i32): i32 {\n"
                          "    return raw rest[0] + raw rest[1] + raw rest[2];\n"
                          "}\n"
                          "fn main(): i32 {\n"
-                         "    10 |> sum(.., 20, 30)\n"
+                         "    10 |> sum(it, 20, 30)\n"
                          "}\n");
 
     auto r = t.run();
@@ -3235,6 +3283,24 @@ static void test_variadic_slice_state_runtime() {
     auto r = t.run();
     CHECK(r.ok, "variadic slice state/dock/jump program compiles, links and runs");
     CHECK_EQ(r.exitCode, 4, "jump auto-collects the tail for the next state transition");
+}
+
+static void test_pack_spread_state_dock_and_jump_runtime() {
+    ModernFileCodegenTest t;
+    t.write("main.zithm", "state Sum(a: i32, b: i32): i32 {\n"
+                         "    return a + b;\n"
+                         "}\n"
+                         "state Relay(args: |first: i32, second: i32|): i32 {\n"
+                         "    jump Sum(...args);\n"
+                         "}\n"
+                         "fn main(): i32 {\n"
+                         "    let args = |20, 22|;\n"
+                         "    return dock Relay(args) + dock Sum(...args) - 84;\n"
+                         "}\n");
+
+    auto r = t.run();
+    CHECK(r.ok, "pack spreads in dock and jump compile, link, and run");
+    CHECK_EQ(r.exitCode, 0, "dock and jump receive expanded state arguments");
 }
 
 static void test_optional_and_slice_layouts() {
@@ -4421,7 +4487,8 @@ static void test_imported_variadic_c_promotes_tail_arguments() {
             "fn main(): i32 {\n"
             "    let small: u8 = 250;\n"
             "    let fraction: f32 = 1.25;\n"
-            "    if (raw c_check_variadic_promotions(17, small, fraction) != 1) { return 1; }\n"
+            "    let tail = |small, fraction|;\n"
+            "    if (raw c_check_variadic_promotions(17, ...tail) != 1) { return 1; }\n"
             "    return 0;\n"
             "}\n");
 
@@ -5208,6 +5275,12 @@ static void test_codegen() {
     test_mutable_slice_from_c();
     printf("Running test_variadic_slice_runtime\n");
     test_variadic_slice_runtime();
+    printf("Running test_pack_spread_runtime\n");
+    test_pack_spread_runtime();
+    printf("Running test_pack_spread_selects_overload_runtime\n");
+    test_pack_spread_selects_overload_runtime();
+    printf("Running test_generic_method_pack_spread_runtime\n");
+    test_generic_method_pack_spread_runtime();
     printf("Running test_pipe_variadic_slice_runtime\n");
     test_pipe_variadic_slice_runtime();
     printf("Running test_variadic_slice_explicit_vs_auto_runtime\n");
@@ -5220,6 +5293,8 @@ static void test_codegen() {
     test_variadic_slice_state_runtime_forms();
     printf("Running test_variadic_slice_state_runtime\n");
     test_variadic_slice_state_runtime();
+    printf("Running test_pack_spread_state_dock_and_jump_runtime\n");
+    test_pack_spread_state_dock_and_jump_runtime();
 }
 
 TEST_MAIN(codegen)

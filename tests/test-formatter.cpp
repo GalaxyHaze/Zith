@@ -438,7 +438,7 @@ static void test_formatter_state_machine_round_trip() {
                                "\n"
                                "fn main(): i32 {\n"
                                "    send(...values);\n"
-                               "    let piped: i32 = 10 |> send(..);\n"
+                               "    let piped: i32 = 10 |> send(it);\n"
                                "    let result: i32 = dock Start(...41);\n"
                                "    return result;\n"
                                "}\n";

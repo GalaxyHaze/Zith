@@ -14,7 +14,7 @@ The `..` and `...` spellings previously travelled through the lexer as two or th
 
 Zith-- removes `++` and `--`. The lexer is updated to emit `TokenKind::Dots` for both `..` and `...`, with the lexeme distinguishing the intended use. Increment and decrement forms are lexed as operators only so the frontend can reject them with a clear diagnostic pointing to explicit assignment.
 
-Range `1..<4` still uses the `..` spelling, `|> f(..)` still uses `..` as the pipe placeholder, `from ../lib` still uses a relative parent segment, and `mod(..)` still means unlimited module depth. `...` marks variadic declarations and macro repetition. In a call, `f(...values)` explicitly forwards one final slice or array to a variadic-slice parameter. See [ADR-0060](0060-explicit-variadic-slice-forwarding.md).
+Range `1..<4` still uses the `..` spelling, `from ../lib` still uses a relative parent segment, and `mod(..)` still means unlimited module depth. Pipelines name their current value `it`. `...` marks variadic declarations and macro repetition. In a call, `f(...values)` either expands a pack or explicitly forwards one final slice or array to a variadic-slice parameter. The distinction is specified in [ADR-0061](0061-zith-minusminus-pack-spread.md), alongside the forwarding contract in [ADR-0060](0060-explicit-variadic-slice-forwarding.md).
 
 ## Consequences
 

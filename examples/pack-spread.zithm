@@ -1,0 +1,12 @@
+// Exercises: ordered pack spread among ordinary call arguments.
+// Expected exit code: 37
+
+fn weighted(a: i32, b: i32, c: i32, d: i32): i32 {
+    a * 10 + b * 7 + c * 3 + d
+}
+
+fn main(): i32 {
+    let first = |2|;
+    let second = |4|;
+    weighted(1, ...first, 3, ...second)
+}

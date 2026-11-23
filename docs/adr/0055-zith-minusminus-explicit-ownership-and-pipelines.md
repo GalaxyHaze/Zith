@@ -43,10 +43,22 @@ keeps cleanup under programmer control.
 - `also` is an observing stage. It borrows `it` read-only, may use it zero or
   more times, and leaves the chain value unchanged. The borrow cannot escape
   the stage. `it` may only be passed to read-only `view` parameters.
+- When `it` is a pack, `...it` expands its elements in order into positional
+  arguments. A pack can also be destructured explicitly. Its element names do
+  not enter scope implicitly, though a named pack permits field access such as
+  `it.name`.
+- In `|>`, spreading or destructuring the pack consumes its elements under the
+  normal ownership rules. In `also`, spreading lends each element to read-only
+  `view` parameters, and those borrows cannot escape the stage.
 - Pipeline stages cannot be nested. Anonymous functions remain allowed, do
   not capture outer locals, and may contain independent pipelines.
 - Zith-- reserves `also` and `it`. `also` replaces pipeline `do`, and `it`
   replaces the pipeline placeholder `..`. Other uses of `..` are unchanged.
+
+General pack spreading in argument lists is recorded separately in
+[ADR-0061](0061-zith-minusminus-pack-spread.md). The compiler implements most
+call-spread forms, but the observing-stage borrow rule for expanded pack
+members remains incomplete.
 
 ### Type-kind predicates
 

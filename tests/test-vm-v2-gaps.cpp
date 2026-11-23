@@ -323,7 +323,7 @@ void test_runtime_pipe_evaluates_source_once() {
                                      "fn addOne(value: i32): i32 { value + 1 }\n"
                                      "fn main(): i32 {\n"
                                      "    var counter = Counter { value: 0 };\n"
-                                     "    let result = counter.next() |> addOne(..);\n"
+                                     "    let result = counter.next() |> addOne(it);\n"
                                      "    if (result == 2 and counter.value == 1) { return 0; }\n"
                                      "    return 1;\n"
                                      "}\n");
@@ -337,7 +337,7 @@ void test_runtime_do_keeps_chain_value() {
     const auto result = runVmProgram("runtime-do-keeps-chain-value",
                                      "fn main(): i32 {\n"
                                      "    var observed: i32 = 0;\n"
-                                     "    let result = 41 do { observed = ..; };\n"
+                                     "    let result = 41 also { observed = it; };\n"
                                      "    if (observed == 41 and result == 41) { return 0; }\n"
                                      "    return 1;\n"
                                      "}\n");

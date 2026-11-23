@@ -56,7 +56,7 @@ namespace {
         "when",    "match",  "return", "break",   "continue",  "jump",     "while",     "marker",
         "spawn",   "await",  "with",   "catch",   "must",      "throw",    "fail",      "drop",
         "require", "is",     "prefix", "suffix",  "infix",     "nop",      "and",       "or",
-        "not",     "xor",    "tag",    "defer",   "opaque",    "optional", "do",
+        "not",     "xor",    "tag",    "defer",   "opaque",    "optional", "also",      "it",
     };
     return std::any_of(std::begin(keywords), std::end(keywords),
                        [&](const std::string_view keyword) { return word == keyword; });

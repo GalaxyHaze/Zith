@@ -45,6 +45,25 @@ struct VariadicCallPlan {
     frontend::TextSpan span{};
 };
 
+/// One positional argument after expanding marked pack arguments. Pack
+/// members retain their source expression and member index for HIR projection.
+struct ExpandedCallArgument {
+    frontend::ExprId source;
+    TypeId type = kInvalidTypeId;
+    uint32_t packMember = ~uint32_t{0};
+    bool isSliceForwarding = false;
+    uint32_t sourceArgument = ~uint32_t{0};
+
+    [[nodiscard]] bool isPackMember() const noexcept {
+        return packMember != ~uint32_t{0};
+    }
+};
+
+struct ExpandedCallArguments {
+    std::vector<ExpandedCallArgument> values;
+    frontend::ExprId invalidSpread;
+};
+
 struct Diagnostic {
     frontend::TextSpan primary_span{};
     std::string message;
@@ -114,6 +133,12 @@ struct TypedMap {
     /// Variadic-slice lowering decisions produced by sema for calls, keyed by
     /// the call expression id.
     memory::FlatMap<uint32_t, VariadicCallPlan> variadicCallPlans;
+    /// Ordered positional arguments after expanding marked pack operands.
+    /// HIR uses these descriptors to project each pack member from one
+    /// evaluation of its source expression.
+    memory::FlatMap<uint32_t, std::vector<ExpandedCallArgument>> expandedCallArguments;
+    /// Ordered positional arguments after expanding marked packs in `jump`.
+    memory::FlatMap<uint32_t, std::vector<ExpandedCallArgument>> expandedStmtArguments;
     /// Variadic-slice lowering decisions produced by sema for `jump`
     /// statements, keyed by statement id.
     memory::FlatMap<uint32_t, VariadicCallPlan> variadicStmtPlans;
@@ -123,7 +148,7 @@ struct TypedMap {
           forInElementIndex(), forInEndIndex(), forInUnionType(), forInOptionalType(),
           traitQualifiedReceiverBase(), opaqueSourceTypes(), dynSourceTypes(), provenNonNullExprs(),
           provenNonNullOptionalExprs(), optionalPayloadReads(), variadicCallPlans(),
-          variadicStmtPlans() {}
+          expandedCallArguments(), expandedStmtArguments(), variadicStmtPlans() {}
 };
 
 class SemaPipeline;
@@ -309,10 +334,12 @@ private:
     /// Labels of loops currently being inferred. A non-empty label must be
     /// unique among active loops so it can name a `break`/`continue` target.
     std::vector<std::string> active_loop_labels_;
-    /// Type of the current value consumed by `..` inside an active `|>` /
-    /// `do` stage. Invalid while no stage is being inferred. Set only around
-    /// the stage RHS, so a `..` outside a chain is rejected.
+    /// Type of the current value inside an active `|>` / `also` stage.
+    /// Invalid while no stage is being inferred, so `it` outside a chain is
+    /// rejected.
     TypeId pipeCurrentType_ = kInvalidTypeId;
+    bool pipeObserving_     = false;
+    std::vector<uint32_t> *pipeBorrowedUses_ = nullptr;
 
     /// Whether the resolved binding's function accepts a trailing variadic tail.
     [[nodiscard]] static bool bindingIsVariadic(const session::ResolvedName &binding) noexcept;
@@ -348,6 +375,19 @@ private:
     [[nodiscard]] bool spreadMarkersAreValid(const std::vector<bool> &spread_args,
                                              size_t written_args,
                                              size_t fixed_explicit_args) const noexcept;
+    /// Expands marked pack operands to their ordered positional members.
+    /// Marked slices/arrays remain one argument so the variadic-slice contract
+    /// can validate them separately.
+    [[nodiscard]] ExpandedCallArguments
+    expandCallArguments(const std::vector<frontend::ExprId> &args,
+                        const std::vector<bool> &spread_args,
+                        bool has_callee_prefix = true);
+    /// Validates an expanded variadic-slice tail, including pack members.
+    [[nodiscard]] TypeId
+    checkExpandedVariadicTail(frontend::TextSpan span,
+                              const std::vector<ExpandedCallArgument> &args,
+                              TypeId slice_type, size_t first_tail_index,
+                              bool allow_literals);
 
     /// Validates the `[...]T` tail arguments after the first explicit index
     /// in `args`. The element type comes from `slice_type`, so method paths
@@ -388,6 +428,11 @@ private:
     /// True when `type` is the lowered ABI type of a `lend`/`view` parameter
     /// (a pointer whose pointee keeps a Lend/View qualifier).
     [[nodiscard]] bool isBorrowParamType(TypeId type) const noexcept;
+    [[nodiscard]] bool isViewParamType(TypeId type) const noexcept;
+    void checkPipeObservationArgument(frontend::ExprId argument, TypeId param_type,
+                                      frontend::TextSpan call_span);
+    void markPipeCurrentBorrowed(frontend::ExprId expression);
+    [[nodiscard]] bool containsPipeCurrent(frontend::ExprId expression) const noexcept;
     /// Builds/returns the named concrete type for a template application. Shared
     /// by type expressions and generic struct literals. The generic arguments
     /// are written in the caller module and are lowered against this snapshot;
@@ -433,11 +478,10 @@ private:
     TypeId inferName(frontend::ExprId id, std::string_view text);
     TypeId inferUnary(frontend::ExprId id);
     TypeId inferBinary(frontend::ExprId id);
-    /// Infers a `|>` / `do` stage. The source is evaluated once into the
-    /// active pipe current value; `..` is the only placeholder and there is
-    /// no automatic propagation into the stage.
+    /// Infers a `|>` / `also` stage. The source is evaluated once into the
+    /// active current value; the stage references it explicitly with `it`.
     TypeId inferPipe(frontend::ExprId id);
-    /// Infers the `..` placeholder of the enclosing `|>` / `do` stage.
+    /// Infers `it` in the enclosing `|>` / `also` stage.
     TypeId inferPipeCurrent(frontend::ExprId id);
     /// Resolves `x in rhs` through the `Contains` duck-typed protocol
     /// `contains(self, value): bool`. A literal integer/float range is valid

@@ -16,11 +16,14 @@ ExprId AstLowerer::parseFunctionLiteral() {
     // silently producing a broken function that needs a closure environment.
     const ScopeId literal_scope = current_scope_;
     const ScopeId saved_scope   = current_scope_;
+    const bool saved_pipe_stage = in_pipe_stage_;
     current_scope_              = root_scope_;
+    in_pipe_stage_              = false;
     const DeclId decl = lowerDeclaration(start, DeclKind::Function, Visibility::Private, {}, {},
                                          false, FunctionKind::Standard, {}, false, true,
                                          literal_scope, current_local_parent_name_, {}, true);
     current_scope_    = saved_scope;
+    in_pipe_stage_    = saved_pipe_stage;
 
     Expression literal;
     literal.kind        = ExprKind::FunctionLiteral;
@@ -41,12 +44,11 @@ ExprId AstLowerer::parsePrimary() {
     // parser before an expression is ever attempted.
     if (isKeywordToken("fn"))
         return parseFunctionLiteral();
-    if (in_pipe_stage_ && snapshot_.tokens_[index_].kind == TokenKind::Dots &&
-        text(index_) == "..") {
+    if (in_pipe_stage_ && isKeywordToken("it")) {
         ++index_;
         Expression current;
         current.kind  = ExprKind::PipeCurrent;
-        current.text  = "..";
+        current.text  = "it";
         current.scope = current_scope_;
         current.span  = range(start, index_);
         return parsePostfix(addExpression(std::move(current)), start);

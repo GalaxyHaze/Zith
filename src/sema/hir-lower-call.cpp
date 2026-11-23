@@ -610,34 +610,71 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
         slice_param = call_plan->sliceParam;
     bool tail_lowered = false;
 
-    for (size_t index = 1; index < expr.operands.size(); ++index) {
-        const size_t call_index          = is_receiver_method ? index : index - 1U;
+    std::vector<ExpandedCallArgument> fallback_arguments;
+    const auto *expanded_arguments =
+        current_types_ != nullptr
+            ? current_types_->expandedCallArguments.get(expr.id.value)
+            : nullptr;
+    if (expanded_arguments == nullptr) {
+        fallback_arguments.reserve(expr.operands.size() - 1U);
+        for (size_t index = 1; index < expr.operands.size(); ++index)
+            fallback_arguments.push_back({expr.operands[index],
+                                          semaTypeOfExpr(expr.operands[index]), ~uint32_t{0}, false,
+                                          static_cast<uint32_t>(index - 1U)});
+        expanded_arguments = &fallback_arguments;
+    }
+    std::vector<std::pair<uint32_t, hir::HirExprId>> lowered_pack_sources;
+    const auto lower_expanded_argument = [&](const ExpandedCallArgument &argument) {
+        if (!argument.isPackMember())
+            return lowerExpr(argument.source);
+        auto found = std::find_if(lowered_pack_sources.begin(), lowered_pack_sources.end(),
+                                  [&](const auto &item) {
+                                      return item.first == argument.source.value;
+                                  });
+        hir::HirExprId pack_value = hir::kInvalidHirExpr;
+        if (found != lowered_pack_sources.end()) {
+            pack_value = found->second;
+        } else {
+            pack_value = lowerExpr(argument.source);
+            lowered_pack_sources.emplace_back(argument.source.value, pack_value);
+        }
+        if (pack_value == hir::kInvalidHirExpr)
+            return pack_value;
+        const auto pack_type = typeOfExpr(argument.source);
+        return addExpr(hir::HirField{pack_value, argument.packMember, lowerType(argument.type),
+                                     pack_type, hir::HirSafetyMode::Intrinsic});
+    };
+
+    for (size_t arg_index = 0; arg_index < expanded_arguments->size(); ++arg_index) {
+        const auto &arg = (*expanded_arguments)[arg_index];
+        const frontend::ExprId source_id = arg.source;
+        const size_t call_index          = arg_index + (is_receiver_method ? 1U : 0U);
         const bool is_first_tail_element = collect_tail && call_index >= slice_param;
         if (is_first_tail_element) {
-            std::vector<frontend::ExprId> tail;
-            tail.reserve(expr.operands.size() - index);
-            for (size_t tail_index = index; tail_index < expr.operands.size(); ++tail_index)
-                tail.push_back(expr.operands[tail_index]);
+            std::vector<ExpandedCallArgument> tail(expanded_arguments->begin() +
+                                                       static_cast<ptrdiff_t>(arg_index),
+                                                   expanded_arguments->end());
             const sema::modern::TypeId slice_sema = callee_fn->params[slice_param];
-            auto slice                            = lowerVariadicSliceTail(slice_sema, tail);
+            auto slice = lowerExpandedVariadicSliceTail(slice_sema, tail);
             if (slice == hir::kInvalidHirExpr)
                 return hir::kInvalidHirExpr;
             // `lowerVariadicSliceTail` already erases each tail element to the
             // slice element type (`dyn Trait` or `opaque`). Do not erase the
             // whole `[]dyn` slice again as if it were a single value.
-            slice = lowerCoerceToOpaque(slice_sema, expr.operands[index], slice);
+            slice = lowerCoerceToOpaque(slice_sema, source_id, slice);
             args.push(slice);
             arg_types.push(lowerType(slice_sema));
             tail_lowered = true;
             break;
         }
         const auto &arg_expr =
-            current_module_->frontend->expressions()[expr.operands[index].value - 1U];
+            current_module_->frontend->expressions()[source_id.value - 1U];
         const bool annotated =
-            arg_expr.kind == frontend::ExprKind::OwnershipCoerce && !arg_expr.operands.empty();
-        const frontend::ExprId inner_id = annotated ? arg_expr.operands[0] : expr.operands[index];
-        auto argument                   = lowerExpr(inner_id);
-        if (is_console_format && index == 1)
+            !arg.isPackMember() && arg_expr.kind == frontend::ExprKind::OwnershipCoerce &&
+            !arg_expr.operands.empty();
+        const frontend::ExprId inner_id = annotated ? arg_expr.operands[0] : source_id;
+        auto argument                   = lower_expanded_argument(arg);
+        if (is_console_format && arg_index == 0U)
             argument = lowerFormatMessage(inner_id, argument);
         const bool inner_is_borrow_pointer =
             sema_.isBorrowParameter(current_module_->key, inner_id) ||
@@ -669,27 +706,32 @@ hir::HirExprId HirLowerModern::lowerCall(const frontend::Expression &expr) {
         const auto param_type     = param_sema_raw != sema::modern::kInvalidTypeId
                                         ? lowerType(param_sema_raw)
                                         : types::kInvalidType;
-        const auto argument_type  = annotated && param_type != types::kInvalidType
-                                        ? param_type
-                                        : typeOfExpr(expr.operands[index]);
+        const auto argument_type =
+            annotated && param_type != types::kInvalidType
+                ? param_type
+                : arg.isPackMember() ? lowerType(arg.type) : typeOfExpr(source_id);
         if (argument_type != types::kInvalidType)
             arg_types.push(argument_type);
         hir::HirExprId lowered_argument =
-            annotated ? argument : lowerCoerceToTarget(param_type, expr.operands[index], argument);
+            (annotated || (arg.isPackMember() && argument_type == param_type))
+                ? argument
+                : lowerCoerceToTarget(param_type, source_id, argument);
         if (param_sema_raw != sema::modern::kInvalidTypeId) {
             const auto param_sema = param_sema_raw;
             if (sema_.typeTable().kindOf(param_sema) == sema::modern::TypeKind::Dyn ||
                 sema_.typeTable().kindOf(sema_.typeTable().canonical(param_sema)) ==
-                    sema::modern::TypeKind::Dyn)
-                lowered_argument = lowerCoerceToDyn(param_sema, expr.operands[index],
-                                                    lowered_argument, param_sema);
-            else
+                    sema::modern::TypeKind::Dyn) {
+                if (!arg.isPackMember())
+                    lowered_argument =
+                        lowerCoerceToDyn(param_sema, source_id, lowered_argument, param_sema);
+            } else if (!arg.isPackMember()) {
                 lowered_argument =
-                    lowerCoerceToOpaque(param_sema, expr.operands[index], lowered_argument);
-            const auto arg_sema = semaTypeOfExpr(expr.operands[index]);
-            if (types_.kindOf(param_type) == types::TypeKind::Optional) {
+                    lowerCoerceToOpaque(param_sema, source_id, lowered_argument);
+            }
+            const auto arg_sema = arg.type;
+            if (!arg.isPackMember() && types_.kindOf(param_type) == types::TypeKind::Optional) {
                 const auto erased = lowerCoerceToOptionalErased(
-                    param_type, param_sema, expr.operands[index], lowered_argument);
+                    param_type, param_sema, source_id, lowered_argument);
                 if (erased != hir::kInvalidHirExpr)
                     lowered_argument = erased;
                 else

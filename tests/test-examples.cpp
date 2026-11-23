@@ -53,6 +53,7 @@ constexpr Example kExamples[] = {
     {"optionals-advanced.zithm", 14, false},
     {"ownership-simple.zithm", 42, false},
     {"ownership-advanced.zithm", 16, false},
+    {"pack-spread.zithm", 37, false},
     {"slices-variadic-simple.zithm", 6, false},
     {"slices-variadic-advanced.zithm", 24, false},
     {"state-defer-simple.zithm", 42, false},

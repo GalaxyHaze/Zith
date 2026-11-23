@@ -84,41 +84,42 @@ fn main() {
 The tagged-union `{ T, End }` protocol remains accepted during migration, but the optional
 protocol is canonical and should be used for new iterators.
 
-### 9.3 Pipeline (`|>` and `do`)
+### 9.3 Pipeline (`|>` and `also`)
 
 Pipelines are C-style and explicitly threaded. Each stage reads the current
-value through `..`; there is no automatic injection, implicit argument, or
-tag/`?`/`!` propagation. `x |> f(..)` is equivalent to `f(x)` except that the
+value through `it`; there is no automatic injection, implicit argument, or
+tag/`?`/`!` propagation. `x |> f(it)` is equivalent to `f(x)` except that the
 source value is materialized once before the stage runs. A `|>` stage must
-reference the current value exactly once.
+reference the current value exactly once on every execution path.
 
-`do` is a side-effect stage: it may use `..` zero or one times, keeps the
-chain value unchanged, and is valid only as a chain operator. `..` is valid
-only inside a pipeline stage.
+`also` is a side-effect stage: it may observe `it` zero or more times, keeps
+the chain value unchanged, and is valid only as a chain operator. An
+observation may only pass `it` to a read-only `view` parameter, and the borrow
+cannot escape the stage. `it` is valid only inside a pipeline stage.
 
-`|>` replaces the chain value with the stage result. `do` performs a
-side-effect stage and keeps the chain value unchanged, so `x do f(..)` returns
-`x`. `do` is only a chain operator, not a standalone statement. Both operators
+`|>` replaces the chain value with the stage result. `also` performs a
+side-effect stage and keeps the chain value unchanged, so `x also f(view it)`
+returns `x`. `also` is only a chain operator, not a standalone statement. Both operators
 are left-associative and have lower precedence than calls; do not use `->` for
 this role.
 
 ```zith
-getData() |> process(..) |> save(..);
+getData() |> process(it) |> save(it);
 
 getData()
-    |> parse(..)
-    |> validate(..)
-    |> save(..);
+    |> parse(it)
+    |> validate(it)
+    |> save(it);
 
 // Inline side-effect: log the current value without advancing the chain.
 readFile("data.bin")
-    do log(..)
-    |> process_body(..);
+    also log(view it)
+    |> process_body(it);
 
 // A block effect stage can bind locals, but must not transfer control.
 readFile("data.bin")
-    do { let header = parse_header(..); validate(header); }
-    |> process_body(..);
+    also { let header = parse_header(view it); validate(header); }
+    |> process_body(it);
 ```
 
 ### 9.4 `state` Functions & State Machines

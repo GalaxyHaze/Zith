@@ -354,6 +354,9 @@ private:
     /// slice as the final argument; bounds are the statically-known `[0, N]`.
     hir::HirExprId lowerVariadicSliceTail(sema::modern::TypeId slice_sema_type,
                                           const std::vector<frontend::ExprId> &tail_exprs);
+    hir::HirExprId
+    lowerExpandedVariadicSliceTail(sema::modern::TypeId slice_sema_type,
+                                   const std::vector<ExpandedCallArgument> &tail_args);
     /// Converts a concrete aggregate to a `dyn Trait`/`dyn Interface` fat
     /// pointer, materialising the vtable for the concrete source type if the
     /// pairing has not been emitted before.

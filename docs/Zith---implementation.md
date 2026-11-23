@@ -624,25 +624,56 @@ são emitidos primeiro. O cleanup final é `HirExprKind::Cleanup` em reverse ord
 antes de `ret`, branches de `break`/`continue` e `HirStateTailCall`. `state`
 sem return type declarado é tratado como `void` e nunca tem tipo inferido do corpo.
 
-## Pipelines `|>` e `do`
+## Pipelines `|>` e `also`
 
-O frontend baixa `x |> stage` para `ExprKind::Pipe` e `x do stage` para
-`ExprKind::PipeDo`; dentro de um stage o `..` é `ExprKind::PipeCurrent`. O
-stage é explicitamente threaded: `x |> f(..)` equivale a `f(x)` com `x`
-materializado uma vez, e `x do f(..)` executa o stage como efeito mas mantém a
-chain em `x`. Não há injeção implícita de argumentos nem propagação automática
-de `?`/`!`/tags.
+O frontend baixa `x |> stage` para `ExprKind::Pipe` e `x also stage` para
+`ExprKind::PipeDo`; dentro de um stage, `it` é `ExprKind::PipeCurrent`. O stage
+é explicitamente threaded: `x |> f(it)` equivale a `f(x)` com `x`
+materializado uma vez, e `x also f(view it)` executa o stage como efeito mas
+mantém a chain em `x`. Não há injeção implícita de argumentos nem propagação
+automática de `?`/`!`/tags.
 
-`PerModuleSema::inferPipe` guarda o tipo da source, infera o stage com um
-contexto `PipeCurrent` e rejeita `..` fora desse contexto. `|>` exige
-exatamente um `..`; `do` aceita zero ou um `..`. `do { ... }` é cleanup-only:
-não produz um valor e não pode transferir controlo com `return`/`break`/
-`continue`/`jump`. O lowering
-`HirLowerModern::lowerPipe` materializa a source num slot, baixa o stage com
-`HirPipeCurrent` para esse slot e emite `HirPipe`. `do` com um bloco sem valor
-usa um `HirCleanup` vazio como stage sintetizado para que o efeito e a ordem
-continuem visíveis no HIR e no codegen; codegen executa o stage e depois volta
-a ler o slot para preservar o valor da chain.
+`PerModuleSema::inferPipe` guarda o tipo da source, infere o stage com um
+contexto `PipeCurrent` e rejeita `it` fora desse contexto. `|>` exige que `it`
+seja consumido exatamente uma vez em cada caminho. `also` aceita zero ou mais
+observações, mas cada argumento derivado de `it` tem de corresponder a um
+parâmetro read-only `view`; o empréstimo não pode escapar do stage. Ambos
+rejeitam pipelines aninhados no stage. Um bloco `also { ... }` não produz um
+valor e não pode transferir controlo com `return`/`break`/`continue`/`jump`.
+O lowering `HirLowerModern::lowerPipe` materializa a source num slot, baixa o
+stage com `HirPipeCurrent` para esse slot e emite `HirPipe`. Um bloco `also`
+usa um cleanup stage sintetizado quando não produz valor, para que o efeito e
+a ordem continuem visíveis no HIR e no codegen; o codegen executa o stage e
+depois lê o slot para preservar o valor da chain.
+
+O contador de usos trata sequências, ramos de `if`/`when`, curto-circuito
+booleano e loops. Funções anónimas isolam o contexto do pipeline exterior e
+podem conter um pipeline próprio.
+
+## Expansão de Packs em Chamadas
+
+`...pack` expande um valor `Pack` em argumentos posicionais ordenados antes da
+seleção de overload e da verificação de aridade. Packs vazios contribuem zero
+argumentos, spreads múltiplos são permitidos e um membro que também seja pack
+permanece um único argumento. A expansão não reinterpreta `...slice` ou
+`...array`, que continuam a encaminhar uma cauda `[...]T` inteira conforme
+ADR-0060.
+
+`PerModuleSema::expandCallArguments` produz a sequência comum usada por
+chamadas livres, overloads, métodos genéricos e não genéricos, `dock` e
+`jump`. `TypedMap.expandedCallArguments` conserva essa decisão para o lowering.
+O HIR avalia cada expressão de pack uma vez e projeta os membros necessários
+na ordem dos argumentos. Em caudas `[...]T`, os membros são validados e
+recolhidos como elementos. Em chamadas C variádicas, cada membro segue as
+promoções e regras ABI de um argumento explícito.
+
+Nos pipelines, `...it` usa a mesma expansão de valores. `|>` aplica as regras
+normais de ownership. A regra aceite prevê que `also` empreste cada membro
+expandido apenas a parâmetros read-only `view`, sem permitir que os empréstimos
+escapem do stage. Essa combinação ainda não está implementada. `also` com
+observações escalares continua suportado. Esta funcionalidade não cria nem
+expande generic type packs: `Ts...` e `...Ts` pertencem a Zith e ficam fora
+desta implementação. A especificação de Zith-- está em ADR-0061.
 
 For-in usa o protocolo canonico `next(self): ?T`: `null` é o fim da iteração e `Some(T)` é um
 elemento. `next(self): ??T` suporta iteradores com elementos opcionais; o loop variable é `?T`

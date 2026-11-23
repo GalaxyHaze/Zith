@@ -1202,7 +1202,7 @@ void FmtVisitor::visitExpr(const frontend::ExprId id, const int parent_prec) {
         emit("_");
         break;
     case frontend::ExprKind::PipeCurrent:
-        emit("..");
+        emit("it");
         break;
     case frontend::ExprKind::LayoutIntrinsic:
         emitOriginal(expr->span);

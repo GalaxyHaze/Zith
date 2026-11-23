@@ -348,6 +348,34 @@ bool PerModuleSema::isBorrowParamType(TypeId type) const noexcept {
     return qualified != nullptr && (qualified->ownership == types::OwnershipKind::Lend ||
                                     qualified->ownership == types::OwnershipKind::View);
 }
+bool PerModuleSema::isViewParamType(TypeId type) const noexcept {
+    if (!type)
+        return false;
+    TypeId current = type;
+    for (unsigned guard = 0; guard < 8U; ++guard) {
+        current = type_table.canonical(current);
+        if (const auto *qualified = type_table.qualified(current); qualified != nullptr) {
+            current = qualified->inner;
+            continue;
+        }
+        break;
+    }
+    const auto *pointer = type_table.pointer(current);
+    if (pointer == nullptr)
+        return false;
+    const auto *qualified = type_table.qualified(type_table.canonical(pointer->pointee));
+    return qualified != nullptr && qualified->ownership == types::OwnershipKind::View;
+}
+void PerModuleSema::checkPipeObservationArgument(frontend::ExprId argument, TypeId param_type,
+                                                frontend::TextSpan call_span) {
+    if (!containsPipeCurrent(argument))
+        return;
+    if (isBorrowParamType(param_type))
+        markPipeCurrentBorrowed(argument);
+    if (pipeObserving_ && !isViewParamType(param_type))
+        report(call_span, "an 'also' stage may pass 'it' only to read-only 'view' parameters",
+               diagnostics::err::OwnershipCoercionRequired);
+}
 bool PerModuleSema::checkOwnershipCoercion(
     frontend::ExprId arg, TypeId param_type,
     std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> &seen_roots,

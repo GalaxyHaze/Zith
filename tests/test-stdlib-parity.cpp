@@ -159,7 +159,7 @@ constexpr ParityCase kCases[] = {
      "fn addOne(value: i32): i32 { value + 1 }\n"
      "fn main(): i32 {\n"
      "    var counter = Counter { value: 0 };\n"
-     "    let result = counter.next() |> addOne(..);\n"
+     "    let result = counter.next() |> addOne(it);\n"
      "    if (result == 2 and counter.value == 1) { return 0; }\n"
      "    return 1;\n"
      "}\n",
@@ -167,7 +167,7 @@ constexpr ParityCase kCases[] = {
     {"runtime_do_keeps_chain_value",
      "fn main(): i32 {\n"
      "    var observed: i32 = 0;\n"
-     "    let result = 41 do { observed = ..; };\n"
+     "    let result = 41 also { observed = it; };\n"
      "    if (observed == 41 and result == 41) { return 0; }\n"
      "    return 1;\n"
      "}\n",
@@ -338,10 +338,10 @@ constexpr ParityCase kCases[] = {
      "    let heap = HeapAllocator {};\n"
      "    let a = s.string.init(heap, \"abc\");\n"
      "    var str = raw a;\n"
-     "    var it = str.iter();\n"
+     "    var iter = str.iter();\n"
      "    var seen: i32 = 0;\n"
      "    for (var i = 0), (i < 10), (i = i + 1) {\n"
-     "        var step = it.next();\n"
+     "        var step = iter.next();\n"
      "        if (step is s.End) { break; }\n"
      "        seen = seen + 1;\n"
      "    }\n"

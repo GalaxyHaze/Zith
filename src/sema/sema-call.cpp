@@ -99,7 +99,27 @@ PerModuleSema::selectOverload(const frontend::Expression &call,
                               std::vector<OverloadCandidate> &candidates, size_t implicit_args,
                               bool &reported) {
     reported                  = false;
-    const size_t written_args = call.operands.size() - 1U;
+    const ExpandedCallArguments expanded =
+        expandCallArguments(call.operands, call.argIsSpread);
+    if (expanded.invalidSpread) {
+        const auto &spread = snapshot.expressions()[expanded.invalidSpread.value - 1U];
+        report(spread.span, "spread operand must be a pack or a variadic slice",
+               diagnostics::err::NoMatchingFn);
+        reported = true;
+        return nullptr;
+    }
+    const size_t written_args = expanded.values.size();
+    std::vector<bool> slice_spreads(call.argIsSpread.size(), false);
+    size_t slice_spread_count = 0U;
+    size_t slice_spread_index = ~static_cast<size_t>(0);
+    for (const auto &arg : expanded.values) {
+        if (!arg.isSliceForwarding)
+            continue;
+        ++slice_spread_count;
+        slice_spread_index = arg.sourceArgument;
+        if (arg.sourceArgument < slice_spreads.size())
+            slice_spreads[arg.sourceArgument] = true;
+    }
     std::vector<const OverloadCandidate *> viable;
     std::vector<const OverloadCandidate *> exact_matches;
     bool widened_pointer = false;
@@ -128,22 +148,23 @@ PerModuleSema::selectOverload(const frontend::Expression &call,
         if (fixed_params < implicit_args)
             continue;
         const size_t fixed_explicit_args = fixed_params - implicit_args;
-        const bool has_spread =
-            std::any_of(call.argIsSpread.begin(), call.argIsSpread.end(), [](bool spread) {
-                return spread;
-            });
-        if (!spreadMarkersAreValid(call.argIsSpread, written_args, fixed_explicit_args) ||
-            (has_spread && !slice_candidate))
+        if ((slice_spread_count != 0U &&
+             (!slice_candidate || slice_spread_count != 1U ||
+              slice_spread_index + 1U != call.operands.size() - 1U)) ||
+            (!slice_candidate && slice_spread_count != 0U))
             continue;
-        candidate.variadicPlan =
-            makeVariadicCallPlan(call.span, call.operands, candidate.fn, slice_candidate,
-                                 fixed_explicit_args, call.argIsSpread);
+        candidate.variadicPlan = makeVariadicCallPlan(
+            call.span, call.operands, candidate.fn, slice_candidate, fixed_explicit_args,
+            slice_spreads);
+        const size_t provided_fixed = slice_spread_count != 0U ? written_args - 1U : written_args;
+        if (slice_spread_count != 0U && provided_fixed != fixed_explicit_args)
+            continue;
         const bool defaults_cover =
-            written_args < fixed_explicit_args && candidate_decl != nullptr &&
-            missingArgsHaveDefaults(*candidate_decl, written_args, implicit_args,
+            provided_fixed < fixed_explicit_args && candidate_decl != nullptr &&
+            missingArgsHaveDefaults(*candidate_decl, provided_fixed, implicit_args,
                                     slice_candidate ? fixed_params : ~static_cast<size_t>(0));
         if (slice_candidate) {
-            if (!defaults_cover && written_args < fixed_explicit_args)
+            if (!defaults_cover && provided_fixed < fixed_explicit_args)
                 continue;
         } else {
             const size_t expected = written_args + implicit_args;
@@ -155,24 +176,28 @@ PerModuleSema::selectOverload(const frontend::Expression &call,
         bool fits       = true;
         bool exact      = true;
         bool widens_ptr = false;
-        const size_t probe_params =
-            std::min(written_args, slice_candidate
-                                       ? fixed_explicit_args
-                                       : candidate.fn->params.size() - implicit_args);
+        const size_t probe_params = std::min(
+            provided_fixed,
+            slice_candidate ? fixed_explicit_args : candidate.fn->params.size() - implicit_args);
         for (size_t index = 0; index < probe_params && fits; ++index) {
-            const frontend::ExprId arg = call.operands[index + 1U];
-            const TypeId arg_type      = inferExpr(arg);
-            const size_t param_index   = index + implicit_args;
-            const TypeId param_type    = candidate.fn->params[param_index];
+            const auto &arg          = expanded.values[index];
+            const TypeId arg_type    = arg.type;
+            const size_t param_index = index + implicit_args;
+            const TypeId param_type  = candidate.fn->params[param_index];
             // Probe without mutating the recorded type: a rejected candidate must
             // not leave a literal retyped for a signature that was not chosen.
             std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
-            const bool borrow_ok =
-                checkOwnershipCoercion(arg, param_type, seen_roots, call.span, false);
+            const bool borrow_ok = arg.isPackMember()
+                                       ? true
+                                       : checkOwnershipCoercion(arg.source, param_type, seen_roots,
+                                                                call.span, false);
             const bool type_fits =
-                isBorrowParamType(param_type)
-                    ? coerceValue(arg, param_type, arg_type)
-                    : (coercesTo(param_type, arg_type) || literalAdaptsTo(arg, param_type));
+                arg.isPackMember()
+                    ? coercesTo(param_type, arg_type)
+                    : (isBorrowParamType(param_type)
+                           ? coerceValue(arg.source, param_type, arg_type)
+                           : (coercesTo(param_type, arg_type) ||
+                              literalAdaptsTo(arg.source, param_type)));
             fits            = type_fits && borrow_ok;
             const bool same = sameType(param_type, arg_type);
             exact           = exact && same;
@@ -183,19 +208,16 @@ PerModuleSema::selectOverload(const frontend::Expression &call,
             const auto *slice = type_table.slice(candidate.fn->params.back());
             if (slice != nullptr) {
                 if (candidate.variadicPlan.explicitSliceArg) {
-                    const frontend::ExprId arg = call.operands.back();
-                    const TypeId arg_type      = inferExpr(arg);
-                    fits = fits && coercesTo(candidate.fn->params.back(), arg_type);
-                    exact = exact && sameType(candidate.fn->params.back(), arg_type);
+                    const auto &arg = expanded.values.back();
+                    fits = fits && coercesTo(candidate.fn->params.back(), arg.type);
+                    exact = exact && sameType(candidate.fn->params.back(), arg.type);
                 } else {
-                    // Numeric literals also adapt here so `f(1, 2)` can match
-                    // `f(xs: [...]i32)`.
-                    for (size_t index = fixed_explicit_args; index < written_args && fits;
-                         ++index) {
-                        const frontend::ExprId arg = call.operands[index + 1U];
-                        const TypeId arg_type      = inferExpr(arg);
-                        fits = coercesTo(slice->element, arg_type) ||
-                               literalAdaptsTo(arg, slice->element);
+                    for (size_t index = fixed_explicit_args; index < written_args && fits; ++index) {
+                        const auto &arg = expanded.values[index];
+                        fits = arg.isPackMember()
+                                   ? coercesTo(slice->element, arg.type)
+                                   : (coercesTo(slice->element, arg.type) ||
+                                      literalAdaptsTo(arg.source, slice->element));
                         if (fits)
                             exact = false;
                     }
@@ -340,19 +362,30 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id, TypeId expected_result) {
             if (candidates.size() > 1U) {
                 bool reported = false;
                 if (const auto *chosen = selectOverload(expr, candidates, 0U, reported)) {
+                    const ExpandedCallArguments expanded =
+                        expandCallArguments(expr.operands, expr.argIsSpread);
                     std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
                     const size_t probe_params = chosen->variadicSlice
                                                     ? chosen->fn->params.size() - 1U
                                                     : chosen->fn->params.size();
                     for (size_t index = 0;
-                         index < probe_params && index < expr.operands.size() - 1U; ++index) {
-                        const TypeId arg_type = inferExpr(expr.operands[index + 1U]);
-                        (void)checkOwnershipCoercion(expr.operands[index + 1U],
-                                                     chosen->fn->params[index], seen_roots,
-                                                     expr.span, true);
-                        if (!coerceValue(expr.operands[index + 1U], chosen->fn->params[index],
-                                         arg_type)) {
-                            reportCoercionFailure(expr.span, chosen->fn->params[index], arg_type,
+                         index < probe_params && index < expanded.values.size(); ++index) {
+                        const auto &arg = expanded.values[index];
+                        TypeId arg_type = arg.type;
+                        bool fits = false;
+                        checkPipeObservationArgument(arg.source, chosen->fn->params[index],
+                                                     expr.span);
+                        if (arg.isPackMember()) {
+                            (void)checkOwnershipCoercion(arg.source, chosen->fn->params[index],
+                                                         seen_roots, expr.span, true);
+                            fits = coercesTo(chosen->fn->params[index], arg_type);
+                        } else {
+                            (void)checkOwnershipCoercion(arg.source, chosen->fn->params[index],
+                                                         seen_roots, expr.span, true);
+                            fits = coerceValue(arg.source, chosen->fn->params[index], arg_type);
+                        }
+                        if (!fits) {
+                            reportCoercionFailure(expr.span, chosen->fn->params[index], arg.type,
                                                   "function call argument type mismatch",
                                                   diagnostics::err::NoMatchingFn);
                         }
@@ -367,8 +400,9 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id, TypeId expected_result) {
                     setResolvedCallTarget(callee.id, target, decl);
                     const VariadicCallPlan chosen_plan = chosen->variadicPlan;
                     typed_map.variadicCallPlans.insert(expr.id.value, chosen_plan);
+                    typed_map.expandedCallArguments.insert(expr.id.value, expanded.values);
                     if (chosen_plan.explicitSliceArg) {
-                        const frontend::ExprId arg = expr.operands.back();
+                        const frontend::ExprId arg = expanded.values.back().source;
                         const TypeId arg_type      = inferExpr(arg);
                         std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> roots;
                         (void)checkOwnershipCoercion(arg, chosen_plan.sliceType, roots, expr.span,
@@ -379,8 +413,9 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id, TypeId expected_result) {
                                                   diagnostics::err::NoMatchingFn);
                     }
                     if (chosen_plan.autoCollectTail)
-                        (void)checkVariadicTail(expr.span, expr.operands, chosen->fn,
-                                                chosen_plan.sliceParam, true);
+                        (void)checkExpandedVariadicTail(expr.span, expanded.values,
+                                                        chosen_plan.sliceType,
+                                                        chosen_plan.sliceParam, true);
                     report_call_boundary(declarationForResolved(*chosen->binding),
                                          chosen->binding->foreignFunction != nullptr);
                     return chosen->fn->result;
@@ -416,30 +451,42 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id, TypeId expected_result) {
         report(expr.span, "callee is not a function", diagnostics::err::NoMatchingFn);
         return error_type;
     }
-    size_t arg_count       = expr.operands.size() - 1;
+    ExpandedCallArguments expanded = expandCallArguments(expr.operands, expr.argIsSpread);
+    if (expanded.invalidSpread) {
+        const auto &spread = snapshot.expressions()[expanded.invalidSpread.value - 1U];
+        report(spread.span, "spread operand must be a pack or a final variadic slice",
+               diagnostics::err::NoMatchingFn);
+        return fn->result;
+    }
+    const size_t arg_count = expanded.values.size();
     size_t fixed_arg_count = is_variadic ? fn->params.size() : 0;
     size_t slice_index =
         is_variadic_slice ? variadicSliceParam(resolved_callee, fn) : fn->params.size();
+    std::vector<bool> slice_spreads(expr.argIsSpread.size(), false);
+    size_t slice_spread_count = 0U;
+    size_t slice_spread_index = ~size_t{0};
+    for (const auto &arg : expanded.values) {
+        if (!arg.isSliceForwarding)
+            continue;
+        ++slice_spread_count;
+        slice_spread_index = arg.sourceArgument;
+        if (arg.sourceArgument < slice_spreads.size())
+            slice_spreads[arg.sourceArgument] = true;
+    }
+    if (slice_spread_count > 1U ||
+        (slice_spread_count != 0U &&
+         (slice_spread_index + 1U != expr.operands.size() - 1U || !is_variadic_slice))) {
+        report(expr.span, "slice forwarding requires the final variadic slice argument",
+               diagnostics::err::NoMatchingFn);
+        return fn->result;
+    }
     const VariadicCallPlan plan =
         makeVariadicCallPlan(expr.span, expr.operands, fn, is_variadic_slice, slice_index,
-                             expr.argIsSpread);
+                             slice_spreads);
     const bool explicit_slice_arg  = plan.explicitSliceArg;
     const bool auto_collected_tail = plan.autoCollectTail;
     typed_map.variadicCallPlans.insert(expr.id.value, plan);
-    if (!spreadMarkersAreValid(expr.argIsSpread, arg_count,
-                               is_variadic_slice ? slice_index : arg_count)) {
-        report(expr.span, "spread is only allowed on the final variadic slice argument",
-               diagnostics::err::NoMatchingFn);
-        return fn->result;
-    }
-    if (!is_variadic_slice &&
-        std::any_of(expr.argIsSpread.begin(), expr.argIsSpread.end(), [](bool spread) {
-            return spread;
-        })) {
-        report(expr.span, "spread requires a variadic slice parameter",
-               diagnostics::err::NoMatchingFn);
-        return fn->result;
-    }
+    typed_map.expandedCallArguments.insert(expr.id.value, expanded.values);
     if (is_variadic_slice) {
         // The slice parameter is not auto-collected when the caller passes an
         // explicit slice as the final argument. That keeps `fn f(xs: [...]T)`
@@ -449,7 +496,10 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id, TypeId expected_result) {
                    diagnostics::err::NoMatchingFn);
             return fn->result;
         }
-        if (arg_count < slice_index) {
+        const size_t fixed_provided = explicit_slice_arg ? arg_count - 1U : arg_count;
+        if (fixed_provided < slice_index &&
+            (callee_decl == nullptr ||
+             !missingArgsHaveDefaults(*callee_decl, fixed_provided, 0U, slice_index))) {
             report(expr.span, "variadic slice function call has too few arguments",
                    diagnostics::err::NoMatchingFn);
             return fn->result;
@@ -535,22 +585,22 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id, TypeId expected_result) {
                 // If the caller passes a single explicit slice value, keep it
                 // so `f([]T)` still instantiates `T`; otherwise infer `[]T`
                 // from the first auto-collected element.
-                if (plan.explicitSliceArg && index + 1U < expr.operands.size()) {
+                if (plan.explicitSliceArg && !expanded.values.empty()) {
+                    const auto &arg = expanded.values.back();
                     weak_args.push_back(false);
-                    argument_types.push_back(
-                        inferExpr(expr.operands[static_cast<size_t>(index + 1U)]));
-                } else if (arg_count > slice_index && index + 1U < expr.operands.size()) {
-                    weak_args.push_back(weakLiteral(expr.operands[static_cast<size_t>(index + 1U)]));
-                    const TypeId element_sample =
-                        inferExpr(expr.operands[static_cast<size_t>(index + 1U)]);
-                    argument_types.push_back(type_table.internSlice(element_sample));
+                    argument_types.push_back(arg.type);
+                } else if (arg_count > slice_index) {
+                    const auto &arg = expanded.values[slice_index];
+                    weak_args.push_back(!arg.isPackMember() && weakLiteral(arg.source));
+                    argument_types.push_back(type_table.internSlice(arg.type));
                 } else {
                     weak_args.push_back(false);
                     argument_types.push_back(kInvalidTypeId);
                 }
-            } else if (index + 1U < expr.operands.size()) {
-                weak_args.push_back(weakLiteral(expr.operands[static_cast<size_t>(index + 1U)]));
-                argument_types.push_back(inferExpr(expr.operands[static_cast<size_t>(index + 1U)]));
+            } else if (index < expanded.values.size()) {
+                const auto &arg = expanded.values[index];
+                weak_args.push_back(!arg.isPackMember() && weakLiteral(arg.source));
+                argument_types.push_back(arg.type);
             } else if (callee_decl != nullptr && index < callee_decl->parameters.size() &&
                        callee_decl->parameters[index].defaultValue) {
                 weak_args.push_back(false);
@@ -594,18 +644,26 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id, TypeId expected_result) {
         const auto *instance_fn              = type_table.function(instance_type);
         const VariadicCallPlan instance_plan = makeVariadicCallPlan(
             expr.span, expr.operands, instance_fn, is_variadic_slice, slice_index,
-            expr.argIsSpread);
+            slice_spreads);
         typed_map.variadicCallPlans.insert(expr.id.value, instance_plan);
         std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
         const size_t checked_params = is_variadic_slice ? slice_index : fn->params.size();
         for (size_t index = 0;
              index < checked_params && instance_fn != nullptr && index < instance_fn->params.size();
-             ++index) {
+            ++index) {
             const TypeId arg_type = argument_types[index];
-            if (index + 1U < expr.operands.size()) {
-                (void)checkOwnershipCoercion(expr.operands[index + 1U], instance_fn->params[index],
-                                             seen_roots, expr.span, true);
-                if (!coerceValue(expr.operands[index + 1U], instance_fn->params[index], arg_type))
+            if (index < expanded.values.size()) {
+                const auto &arg = expanded.values[index];
+                bool fits = false;
+                checkPipeObservationArgument(arg.source, instance_fn->params[index], expr.span);
+                if (arg.isPackMember()) {
+                    fits = coercesTo(instance_fn->params[index], arg.type);
+                } else {
+                    (void)checkOwnershipCoercion(arg.source, instance_fn->params[index],
+                                                 seen_roots, expr.span, true);
+                    fits = coerceValue(arg.source, instance_fn->params[index], arg_type);
+                }
+                if (!fits)
                     reportCoercionFailure(expr.span, instance_fn->params[index], arg_type,
                                           "generic function call argument type mismatch",
                                           diagnostics::err::NoMatchingFn);
@@ -619,10 +677,11 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id, TypeId expected_result) {
             }
         }
         if (instance_plan.autoCollectTail && instance_fn != nullptr) {
-            (void)checkVariadicTail(expr.span, expr.operands, instance_fn, instance_plan.sliceParam,
-                                    true);
+            (void)checkExpandedVariadicTail(expr.span, expanded.values,
+                                            instance_fn->params[instance_plan.sliceParam],
+                                            instance_plan.sliceParam, true);
         } else if (instance_plan.explicitSliceArg && instance_fn != nullptr) {
-            const frontend::ExprId arg = expr.operands.back();
+            const frontend::ExprId arg = expanded.values.back().source;
             const TypeId arg_type      = inferExpr(arg);
             std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> roots;
             (void)checkOwnershipCoercion(arg, instance_fn->params[instance_plan.sliceParam], roots,
@@ -643,11 +702,18 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id, TypeId expected_result) {
                                                 : fn->params.size();
     std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
     for (size_t i = 0; i < checked_params; ++i) {
-        if (i + 1U < expr.operands.size()) {
-            TypeId arg_type = inferExpr(expr.operands[i + 1]);
-            (void)checkOwnershipCoercion(expr.operands[i + 1], fn->params[i], seen_roots, expr.span,
-                                         true);
-            if (!coerceValue(expr.operands[i + 1], fn->params[i], arg_type))
+        if (i < expanded.values.size()) {
+            const auto &arg = expanded.values[i];
+            TypeId arg_type = arg.type;
+            bool fits = false;
+            checkPipeObservationArgument(arg.source, fn->params[i], expr.span);
+            if (arg.isPackMember()) {
+                fits = coercesTo(fn->params[i], arg_type);
+            } else {
+                (void)checkOwnershipCoercion(arg.source, fn->params[i], seen_roots, expr.span, true);
+                fits = coerceValue(arg.source, fn->params[i], arg_type);
+            }
+            if (!fits)
                 reportCoercionFailure(expr.span, fn->params[i], arg_type,
                                       "function call argument type mismatch",
                                       diagnostics::err::NoMatchingFn);
@@ -661,12 +727,9 @@ TypeId PerModuleSema::inferCall(frontend::ExprId id, TypeId expected_result) {
         }
     }
     if (auto_collected_tail) {
-        (void)checkVariadicTail(expr.span, expr.operands, fn, slice_index, true);
+        (void)checkExpandedVariadicTail(expr.span, expanded.values, fn->params[slice_index],
+                                        slice_index, true);
     }
-    // The trailing variadic arguments have no declared Zith type: infer them
-    // (for diagnostics) but do not require a conversion or a fixed arity.
-    for (size_t i = std::max<size_t>(1, checked_params + 1); i < expr.operands.size(); ++i)
-        (void)inferExpr(expr.operands[i]);
     return fn->result;
 }
 bool PerModuleSema::bindingIsVariadic(const session::ResolvedName &binding) noexcept {
@@ -702,11 +765,9 @@ VariadicCallPlan PerModuleSema::makeVariadicCallPlan(frontend::TextSpan span,
     plan.isVariadicSlice       = true;
     const size_t prefix_args = has_callee_prefix ? 1U : 0U;
     const size_t written_args = args.size() >= prefix_args ? args.size() - prefix_args : 0U;
-    if (written_args == fixed_explicit_args + 1U && !args.empty()) {
-        if (spread_args.size() == written_args && spread_args.back()) {
-            plan.explicitSliceArg = true;
-        }
-    }
+    (void)fixed_explicit_args;
+    if (!spread_args.empty() && spread_args.size() == written_args && spread_args.back())
+        plan.explicitSliceArg = true;
     plan.autoCollectTail = !plan.explicitSliceArg;
     return plan;
 }
@@ -725,6 +786,120 @@ bool PerModuleSema::spreadMarkersAreValid(const std::vector<bool> &spread_args,
     }
     return spread_count <= 1U;
 }
+
+ExpandedCallArguments PerModuleSema::expandCallArguments(
+    const std::vector<frontend::ExprId> &args, const std::vector<bool> &spread_args,
+    bool has_callee_prefix) {
+    ExpandedCallArguments expanded;
+    const size_t first_arg = has_callee_prefix ? 1U : 0U;
+    for (size_t index = first_arg; index < args.size(); ++index) {
+        const frontend::ExprId source = args[index];
+        const TypeId source_type     = inferExpr(source);
+        const size_t marker_index    = index - first_arg;
+        const bool is_spread =
+            marker_index < spread_args.size() && spread_args[marker_index];
+        if (!is_spread) {
+            expanded.values.push_back(
+                {source, source_type, ~uint32_t{0}, false, static_cast<uint32_t>(marker_index)});
+            continue;
+        }
+
+        const TypeId canonical = resolve(type_table.stripQualifiers(source_type));
+        if (type_table.kindOf(canonical) == TypeKind::Pack) {
+            const auto *pack = type_table.pack(canonical);
+            if (pack == nullptr) {
+                expanded.invalidSpread = source;
+                return expanded;
+            }
+            for (size_t member = 0; member < pack->members.size(); ++member) {
+                expanded.values.push_back({source, pack->members[member],
+                                           static_cast<uint32_t>(member), false,
+                                           static_cast<uint32_t>(marker_index)});
+            }
+            continue;
+        }
+
+        if (type_table.kindOf(canonical) == TypeKind::Slice ||
+            type_table.kindOf(canonical) == TypeKind::Array) {
+            expanded.values.push_back({source, source_type, ~uint32_t{0}, true,
+                                       static_cast<uint32_t>(marker_index)});
+            continue;
+        }
+
+        expanded.invalidSpread = source;
+        return expanded;
+    }
+    return expanded;
+}
+
+TypeId PerModuleSema::checkExpandedVariadicTail(
+    frontend::TextSpan span, const std::vector<ExpandedCallArgument> &args, TypeId slice_type,
+    size_t first_tail_index, bool allow_literals) {
+    const TypeId resolved_slice = resolve(slice_type);
+    const auto *slice           = type_table.slice(resolved_slice);
+    if (slice == nullptr) {
+        report(span, "variadic slice parameter is not a slice type",
+               diagnostics::err::NoMatchingFn);
+        return error_type;
+    }
+
+    const TypeId element = slice->element;
+    std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> seen_roots;
+    for (size_t index = first_tail_index; index < args.size(); ++index) {
+        const auto &arg = args[index];
+        if (arg.isSliceForwarding) {
+            TypeId arg_type = arg.type;
+            if (index + 1U != args.size() ||
+                !coerceValue(arg.source, slice_type, arg_type)) {
+                report(span, "explicit variadic slice spread must be the final matching argument",
+                       diagnostics::err::NoMatchingFn);
+                return error_type;
+            }
+            checkPipeObservationArgument(arg.source, slice_type, span);
+            std::vector<std::pair<frontend::ExprId, types::OwnershipKind>> roots;
+            (void)checkOwnershipCoercion(arg.source, slice_type, roots, span, true);
+            return slice_type;
+        }
+
+        if (arg.isPackMember()) {
+            checkPipeObservationArgument(arg.source, slice->element, span);
+            if (coercesTo(slice->element, arg.type))
+                continue;
+            if (type_table.kindOf(resolve(slice->element)) == TypeKind::Dyn &&
+                satisfiesConformance(arg.type,
+                                     resolve(type_table.dyn_type(slice->element)->target))) {
+                primeDynImplementations(slice->element, arg.type);
+                continue;
+            }
+            reportCoercionFailure(span, slice->element, arg.type,
+                                  "variadic slice argument type mismatch",
+                                  diagnostics::err::NoMatchingFn);
+            return error_type;
+        }
+
+        TypeId arg_type = arg.type;
+        checkPipeObservationArgument(arg.source, slice->element, span);
+        (void)checkOwnershipCoercion(arg.source, slice->element, seen_roots, span, true);
+        if (!coerceValue(arg.source, slice->element, arg_type)) {
+            if (type_table.kindOf(resolve(slice->element)) == TypeKind::Dyn &&
+                satisfiesConformance(arg_type,
+                                     resolve(type_table.dyn_type(slice->element)->target))) {
+                primeDynImplementations(slice->element, arg_type);
+                typed_map.dynSourceTypes.insert(arg.source.value, arg_type);
+                setExprType(arg.source, slice->element);
+                continue;
+            }
+            if (!allow_literals || !adaptNumericLiteral(arg.source, slice->element)) {
+                reportCoercionFailure(span, slice->element, arg_type,
+                                      "variadic slice argument type mismatch",
+                                      diagnostics::err::NoMatchingFn);
+                return error_type;
+            }
+        }
+    }
+    return type_table.internSlice(element);
+}
+
 TypeId PerModuleSema::checkVariadicTail(frontend::TextSpan span,
                                         const std::vector<frontend::ExprId> &args,
                                         const FunctionType *fn, size_t slice_index,

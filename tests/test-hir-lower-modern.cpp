@@ -3328,8 +3328,9 @@ void test_when_guards_lower_contextually_without_diagnostics() {
 void test_pipe_lowers_to_hir_pipeline_nodes() {
     Workspace workspace;
     workspace.writeFile("main.zithm", "fn addOne(x: i32): i32 { x + 1 }\n"
+                                     "fn observe(x: view i32): void {}\n"
                                      "fn main(): i32 {\n"
-                                     "    10 |> addOne(..) do addOne(..) |> addOne(..)\n"
+                                     "    10 |> addOne(it) also observe(view it) |> addOne(it)\n"
                                      "}\n");
 
     memory::Arena arena;
@@ -3343,7 +3344,7 @@ void test_pipe_lowers_to_hir_pipeline_nodes() {
     CHECK(countExprKind(hir, hir::HirExprKind::Pipe) >= 2u,
           "pipeline stages lower to HirPipe");
     CHECK(countExprKind(hir, hir::HirExprKind::PipeCurrent) >= 2u,
-          "'..' placeholders lower to HirPipeCurrent reads");
+          "'it' references lower to HirPipeCurrent reads");
 }
 
 void test_pipe_block_effect_stage_lowers() {
@@ -3351,8 +3352,9 @@ void test_pipe_block_effect_stage_lowers() {
     workspace.writeFile(
         "main.zithm", "fn addOne(x: i32): i32 { x + 1 }\n"
                     "fn double(x: i32): i32 { x * 2 }\n"
+                    "fn observe(x: view i32): void {}\n"
                     "fn main(): i32 {\n"
-                    "    10 |> addOne(..) do { let ignored = double(..); } |> double(..)\n"
+                    "    10 |> addOne(it) also { observe(view it); } |> double(it)\n"
                     "}\n");
 
     memory::Arena arena;
@@ -3360,8 +3362,8 @@ void test_pipe_block_effect_stage_lowers() {
     auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
-          "do block stage lowers through sema and HIR");
-    CHECK(!session.hasErrors(), "do block stage reports no diagnostics");
+          "also block stage lowers through sema and HIR");
+    CHECK(!session.hasErrors(), "also block stage reports no diagnostics");
 }
 
 namespace {
@@ -3394,14 +3396,36 @@ void test_pipe_rejects_missing_placeholder() {
     checkPipeDiagnostic(
         "fn addOne(x: i32): i32 { x + 1 }\n"
         "fn main(): i32 { 10 |> addOne(0) }\n",
-        "pipeline stage must reference the current value exactly once with '..'");
+        "pipeline stage must consume 'it' exactly once on every execution path");
 }
 
 void test_pipe_rejects_multiple_placeholders() {
     checkPipeDiagnostic(
         "fn add(x: i32, y: i32): i32 { x + y }\n"
-        "fn main(): i32 { 10 |> add(.., ..) }\n",
-        "a pipeline stage may use '..' only once");
+        "fn main(): i32 { 10 |> add(it, it) }\n",
+        "pipeline stage must consume 'it' exactly once on every execution path");
+}
+
+void test_pipe_accepts_mutually_exclusive_consumption() {
+    Workspace workspace;
+    workspace.writeFile("main.zithm", "fn identity(value: i32): i32 { value }\n"
+                                     "fn choose(flag: bool): i32 {\n"
+                                     "    10 |> if (flag) { let value = identity(it); value }\n"
+                                     "             else { let value = identity(it); value }\n"
+                                     "}\n"
+                                     "fn main(): i32 { choose(true) }\n");
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zithm");
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "one consumption in each exclusive branch is accepted");
+    CHECK(!session.hasErrors(), "exclusive branch consumption reports no diagnostics");
+}
+
+void test_pipe_rejects_short_circuit_consumption() {
+    checkPipeDiagnostic(
+        "fn main(): i32 { false |> if (false and it) { 1 } else { 0 } }\n",
+        "pipeline stage must consume 'it' exactly once on every execution path");
 }
 
 void test_pipe_rejects_placeholder_outside_stage() {
@@ -3410,12 +3434,19 @@ void test_pipe_rejects_placeholder_outside_stage() {
         "expected an expression");
 }
 
+void test_pipe_also_requires_view_parameters() {
+    checkPipeDiagnostic(
+        "fn observe(value: i32): void {}\n"
+        "fn main(): i32 { 10 also observe(it) }\n",
+        "an 'also' stage may pass 'it' only to read-only 'view' parameters");
+}
+
 void test_pipe_block_accepts_effect_without_current() {
     Workspace workspace;
     workspace.writeFile("main.zithm",
                         "fn addOne(x: i32): i32 { x + 1 }\n"
                         "fn main(): i32 {\n"
-                        "    10 do { let ignored = addOne(1); }\n"
+                        "    10 also { let ignored = addOne(1); }\n"
                         "}\n");
 
     memory::Arena arena;
@@ -3423,22 +3454,30 @@ void test_pipe_block_accepts_effect_without_current() {
     auto session = makeSession(workspace, arena, options, "main.zithm");
 
     CHECK(session.runTo(session::Stage::HirLowered),
-          "'do' without '..' lowers as an effect stage");
-    CHECK(!session.hasErrors(), "'do' without '..' reports no diagnostics");
+          "'also' without 'it' lowers as an observing stage");
+    CHECK(!session.hasErrors(), "'also' without 'it' reports no diagnostics");
 }
 
-void test_pipe_do_rejects_multiple_placeholders() {
-    checkPipeDiagnostic(
-        "fn add(x: i32, y: i32): i32 { x + y }\n"
-        "fn main(): i32 { 10 do add(.., ..) }\n",
-        "a 'do' stage may use '..' at most once");
+void test_pipe_also_allows_multiple_observations() {
+    Workspace workspace;
+    workspace.writeFile("main.zithm", "fn observe(value: view i32): void {}\n"
+                                     "fn main(): i32 {\n"
+                                     "    10 also { observe(view it); observe(view it); }\n"
+                                     "    0\n"
+                                     "}\n");
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zithm");
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "also stages allow repeated observations");
+    CHECK(!session.hasErrors(), "repeated also observations report no diagnostics");
 }
 
 void test_pipe_variadic_slice_current_lowers() {
     Workspace workspace;
     workspace.writeFile("main.zithm", "fn sum(rest: [...]i32): i32 { 0 }\n"
                                      "fn main(): i32 {\n"
-                                     "    10 |> sum(..)\n"
+                                     "    10 |> sum(it)\n"
                                      "}\n");
 
     memory::Arena arena;
@@ -3453,7 +3492,7 @@ void test_pipe_variadic_slice_current_lowers() {
     CHECK(countExprKind(hir, hir::HirExprKind::Pipe) >= 1u,
           "pipeline stage lowers to HirPipe");
     CHECK(countExprKind(hir, hir::HirExprKind::PipeCurrent) >= 1u,
-          "'..' lowers to HirPipeCurrent");
+          "'it' lowers to HirPipeCurrent");
     CHECK(countExprKind(hir, hir::HirExprKind::MakeSlice) >= 1u,
           "variadic tail auto-collection lowers to HirMakeSlice");
 }
@@ -3461,8 +3500,8 @@ void test_pipe_variadic_slice_current_lowers() {
 void test_pipe_block_rejects_control_flow() {
     checkPipeDiagnostic(
         "fn addOne(x: i32): i32 { x + 1 }\n"
-        "fn main(): i32 { 10 do { return addOne(..); } }\n",
-        "'do { ... }' cannot transfer control out of the effect stage");
+        "fn main(): i32 { 10 also { return addOne(it); } }\n",
+        "'also { ... }' cannot transfer control out of the observing stage");
 }
 
 void test_imported_bare_opaque_cross_module() {
@@ -3599,9 +3638,12 @@ static void test_hir_lower_modern() {
     test_pipe_block_effect_stage_lowers();
     test_pipe_rejects_missing_placeholder();
     test_pipe_rejects_multiple_placeholders();
+    test_pipe_accepts_mutually_exclusive_consumption();
+    test_pipe_rejects_short_circuit_consumption();
     test_pipe_rejects_placeholder_outside_stage();
+    test_pipe_also_requires_view_parameters();
     test_pipe_block_accepts_effect_without_current();
-    test_pipe_do_rejects_multiple_placeholders();
+    test_pipe_also_allows_multiple_observations();
     test_pipe_variadic_slice_current_lowers();
     test_pipe_block_rejects_control_flow();
     test_anonymous_pack_literal_lowers_to_hir();

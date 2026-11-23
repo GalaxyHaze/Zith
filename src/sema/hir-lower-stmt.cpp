@@ -332,19 +332,57 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
         const bool explicit_slice_arg = jump_plan != nullptr && jump_plan->explicitSliceArg;
         const bool auto_collect_tail  = jump_plan != nullptr && jump_plan->autoCollectTail;
 
+        std::vector<ExpandedCallArgument> fallback_arguments;
+        const auto *expanded_arguments =
+            current_types_ != nullptr
+                ? current_types_->expandedStmtArguments.get(statement.id.value)
+                : nullptr;
+        if (expanded_arguments == nullptr) {
+            fallback_arguments.reserve(statement.arguments.size());
+            for (size_t index = 0; index < statement.arguments.size(); ++index)
+                fallback_arguments.push_back({statement.arguments[index],
+                                              semaTypeOfExpr(statement.arguments[index]),
+                                              ~uint32_t{0}, false,
+                                              static_cast<uint32_t>(index)});
+            expanded_arguments = &fallback_arguments;
+        }
+        std::vector<std::pair<uint32_t, hir::HirExprId>> lowered_pack_sources;
+        const auto lower_expanded_argument = [&](const ExpandedCallArgument &arg) {
+            if (!arg.isPackMember())
+                return lowerExpr(arg.source);
+            auto found = std::find_if(lowered_pack_sources.begin(), lowered_pack_sources.end(),
+                                      [&](const auto &item) {
+                                          return item.first == arg.source.value;
+                                      });
+            hir::HirExprId pack_value = hir::kInvalidHirExpr;
+            if (found != lowered_pack_sources.end()) {
+                pack_value = found->second;
+            } else {
+                pack_value = lowerExpr(arg.source);
+                lowered_pack_sources.emplace_back(arg.source.value, pack_value);
+            }
+            if (pack_value == hir::kInvalidHirExpr)
+                return pack_value;
+            const auto pack_type = typeOfExpr(arg.source);
+            return addExpr(hir::HirField{pack_value, arg.packMember, lowerType(arg.type), pack_type,
+                                         hir::HirSafetyMode::Intrinsic});
+        };
+
         // Sema already rejected arity/type mismatches before HIR lowering.
         // Lower only the arguments that exist; a variadic slice tail is packed
         // below, and an explicit slice argument is kept as-is.
         size_t lowered_fixed = 0;
-        for (; lowered_fixed < std::min(statement.arguments.size(), slice_index); ++lowered_fixed) {
+        for (; lowered_fixed < std::min(expanded_arguments->size(), slice_index); ++lowered_fixed) {
+            const auto &arg = (*expanded_arguments)[lowered_fixed];
             const auto &arg_expr =
                 current_module_->frontend
-                    ->expressions()[statement.arguments[lowered_fixed].value - 1U];
+                    ->expressions()[arg.source.value - 1U];
             const bool annotated =
-                arg_expr.kind == frontend::ExprKind::OwnershipCoerce && !arg_expr.operands.empty();
+                !arg.isPackMember() && arg_expr.kind == frontend::ExprKind::OwnershipCoerce &&
+                !arg_expr.operands.empty();
             const frontend::ExprId inner_id =
-                annotated ? arg_expr.operands[0] : statement.arguments[lowered_fixed];
-            auto argument = lowerExpr(inner_id);
+                annotated ? arg_expr.operands[0] : arg.source;
+            auto argument = lower_expanded_argument(arg);
             const bool inner_is_borrow_pointer =
                 sema_.isBorrowParameter(current_module_->key, inner_id) ||
                 types_.kindOf(typeOfExpr(inner_id)) == types::TypeKind::Ptr;
@@ -367,10 +405,12 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
             }
             if (argument == hir::kInvalidHirExpr)
                 return false;
-            argument = lowerCoerceToTarget(lowerType(target_fn->params[lowered_fixed]),
-                                           statement.arguments[lowered_fixed], argument);
-            argument = lowerCoerceToOpaque(target_fn->params[lowered_fixed],
-                                           statement.arguments[lowered_fixed], argument);
+            if (!arg.isPackMember()) {
+                argument = lowerCoerceToTarget(lowerType(target_fn->params[lowered_fixed]),
+                                               arg.source, argument);
+                argument = lowerCoerceToOpaque(target_fn->params[lowered_fixed], arg.source,
+                                               argument);
+            }
             tail.call.argument_types.push(lowerType(target_fn->params[lowered_fixed]));
             tail.call.args.push(argument);
         }
@@ -405,11 +445,11 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                 tail.call.argument_types.push(lowerType(target_fn->params[index]));
             }
         }
-        if (auto_collect_tail && statement.arguments.size() > slice_index) {
-            std::vector<frontend::ExprId> tail_exprs(statement.arguments.begin() +
-                                                         static_cast<ptrdiff_t>(slice_index),
-                                                     statement.arguments.end());
-            auto slice = lowerVariadicSliceTail(target_fn->params[slice_index], tail_exprs);
+        if (auto_collect_tail && expanded_arguments->size() > slice_index) {
+            std::vector<ExpandedCallArgument> tail_args(
+                expanded_arguments->begin() + static_cast<ptrdiff_t>(slice_index),
+                expanded_arguments->end());
+            auto slice = lowerExpandedVariadicSliceTail(target_fn->params[slice_index], tail_args);
             if (slice == hir::kInvalidHirExpr)
                 return false;
             tail.call.argument_types.push(lowerType(target_fn->params[slice_index]));
@@ -426,12 +466,15 @@ bool HirLowerModern::lowerStatement(frontend::StmtId id, hir::HirExprId &last_va
                 tail.call.argument_types.push(lowerType(target_fn->params[slice_index]));
                 tail.call.args.push(slice);
             } else {
-                auto argument = lowerExpr(statement.arguments.back());
+                const auto &arg = expanded_arguments->back();
+                auto argument = lower_expanded_argument(arg);
                 if (argument == hir::kInvalidHirExpr)
                     return false;
-                argument = lowerCoerceToTarget(slice_type, statement.arguments.back(), argument);
-                argument = lowerCoerceToOpaque(target_fn->params[slice_index],
-                                               statement.arguments.back(), argument);
+                if (!arg.isPackMember()) {
+                    argument = lowerCoerceToTarget(slice_type, arg.source, argument);
+                    argument = lowerCoerceToOpaque(target_fn->params[slice_index], arg.source,
+                                                   argument);
+                }
                 tail.call.argument_types.push(lowerType(target_fn->params[slice_index]));
                 tail.call.args.push(argument);
             }

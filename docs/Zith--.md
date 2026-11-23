@@ -341,10 +341,38 @@ o parâmetro é `[...][]i32`. Overloads com arity fixa continuam a preferir a as
 exata sobre o variadic slice. O encaminhamento de `[]dyn` também exige o marcador
 explícito `...`.
 
-Dentro de um pipeline, `..` pode aparecer como argumento do tail: `x |>
-f(..)` passa `x` como elemento auto-coletado do slice. `do` também aceita
-`..` como argumento opcional, mas pode executar efeitos sem o usar. `...` em chamadas
-não substitui o placeholder `..` e não altera as chamadas variádicas de C.
+### Expansão de Packs em Chamadas
+
+Use `...pack` para substituir um pack pelos seus membros posicionais numa lista de
+argumentos. A expansão preserva a ordem, pode aparecer entre argumentos normais e
+aceita vários packs na mesma chamada:
+
+```zith
+fn combine(a: i32, b: i32, c: i32): i32 { a * 100 + b * 10 + c }
+
+fn main(): i32 {
+    let pair = |2, 3|;
+    return combine(1, ...pair);
+}
+```
+
+Um pack vazio contribui zero argumentos. Cada membro é passado como um argumento,
+mesmo quando esse membro também é um pack. O compilador avalia cada operando de
+expansão uma vez e resolve aridade, overloads e tipos depois de expandir os argumentos.
+Numa cauda `[...]T`, cada membro expandido conta como um elemento. Numa cauda variádica
+C, cada membro é um argumento variádico independente.
+
+Em pipelines, `it` nomeia o valor corrente completo. `...it` expande um pack apenas
+dentro de uma lista de argumentos. `also` mantém o valor da cadeia e só permite passar
+`it` a parâmetros read-only `view`; esses empréstimos não podem escapar do stage. Quando
+`...it` expande um pack num stage `also`, cada membro é emprestado ao parâmetro `view`
+correspondente. `|>` consome o valor corrente uma vez em cada caminho de execução. Estes
+operadores não introduzem nomes para os membros do pack.
+
+Esta expansão é de valores em chamadas de Zith--. Não declara nem expande generic type
+packs. O desenho `Ts...` e `...Ts` pertence à linguagem Zith e é uma funcionalidade
+separada. A expansão de valores está definida em
+[ADR-0061](adr/0061-zith-minusminus-pack-spread.md).
 
 ## Inferência genérica com `?T`
 
@@ -993,7 +1021,7 @@ a fazer parte do contrato de Zith-- depois de implementada e verificada no pipel
 
 - Funções, bindings `let`/`var`/`const`, structs, enums, unions, génericos e
   monomorfização antes de HIR.
-- `when`/`match`, `for`, `state`/`dock`/`jump`, pipelines `|>`/`do` com `..`
+- `when`/`match`, `for`, `state`/`dock`/`jump`, pipelines `|>`/`also` com `it`
   explícito, slices, arrays, opcionais, pointers e o protocolo de iterador
   canonico `next(self): ?T` (`??T` para elementos opcionais).
 - Funções não-void não podem cair sem valor. Um corpo só termina implicitamente quando um valor
@@ -1050,9 +1078,10 @@ a fazer parte do contrato de Zith-- depois de implementada e verificada no pipel
 ### Design aceite sem ordem de implementação
 
 As decisões de ownership, pipelines, testes de categoria de tipo e macros
-variádicas estão registadas no ADR-0055. Ainda não definem uma ordem de
-implementação nem alteram o contrato descrito neste documento. A limpeza
-automática por `drop` foi rejeitada para Zith--. A limpeza continua explícita.
+variádicas estão registadas no ADR-0055. O spread geral de packs está registado
+no ADR-0061. Ainda não definem uma ordem de implementação nem alteram o contrato
+descrito neste documento. A limpeza automática por `drop` foi rejeitada para
+Zith--. A limpeza continua explícita.
 
 ### Fora do núcleo até prova em contrário
 

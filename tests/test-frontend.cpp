@@ -480,8 +480,8 @@ static void test_parser_depth_limit() {
 static void test_pipe_operators_parse_as_chain() {
     auto snapshot = frontend::parse("fn addOne(x: i32): i32 { x + 1 }\n"
                                     "fn main(): i32 {\n"
-                                    "    let out = 10 |> addOne(..);\n"
-                                    "    out |> addOne(..) do addOne(..) |> addOne(..)\n"
+                                    "    let out = 10 |> addOne(it);\n"
+                                    "    out |> addOne(it) also addOne(it) |> addOne(it)\n"
                                     "}\n");
 
     CHECK(snapshot.diagnostics().empty(), "pipe syntax lowers without recovery diagnostics");
@@ -501,9 +501,9 @@ static void test_pipe_operators_parse_as_chain() {
             pipe_current_is_not_spread |= !expression.argIsSpread.front();
     }
     CHECK_EQ(pipes, 3u, "three '|>' nodes are lowered");
-    CHECK_EQ(effects, 1u, "one 'do' node is lowered");
-    CHECK_EQ(currents, 4u, "each stage contributes its explicit '..' placeholder");
-    CHECK(pipe_current_is_not_spread, "'..' pipeline arguments remain non-spread arguments");
+    CHECK_EQ(effects, 1u, "one 'also' node is lowered");
+    CHECK_EQ(currents, 4u, "each stage contributes its explicit 'it' reference");
+    CHECK(pipe_current_is_not_spread, "'it' pipeline arguments remain non-spread arguments");
 }
 
 static void test_return_expression_requires_semicolon() {
