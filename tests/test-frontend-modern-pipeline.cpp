@@ -1471,6 +1471,47 @@ void test_break_to_named_block_is_rejected() {
           "break to a named block reports UnsupportedSyntax");
 }
 
+void test_named_pipeline_stage_keeps_it_consumption_rule() {
+    // A named stage is a normal pipeline stage, so the `it`-consumption
+    // contract is unchanged by the name.
+    {
+        Workspace workspace;
+        const auto result = checkSource(workspace, "main.zithm", "fn main(): i32 {\n"
+                                                                 "    let x = 5 |> step: { 42 };\n"
+                                                                 "    x\n"
+                                                                 "}\n");
+        CHECK(!result.ok, "a named stage that ignores 'it' fails type checking");
+        CHECK(hasDiagnostic(result, diagnostics::err::ExpectedExpr),
+              "a named stage that ignores 'it' reports the pipeline consumption error");
+    }
+    {
+        Workspace workspace;
+        const auto result = checkSource(workspace, "main.zithm", "fn main(): i32 {\n"
+                                                                 "    let x = 5 |> step: { it + it };\n"
+                                                                 "    x\n"
+                                                                 "}\n");
+        CHECK(!result.ok, "a named stage that consumes 'it' twice fails type checking");
+        CHECK(hasDiagnostic(result, diagnostics::err::UnsupportedSyntax),
+              "a named stage that consumes 'it' twice reports the pipeline consumption error");
+    }
+    {
+        Workspace workspace;
+        const auto result = checkSource(workspace, "main.zithm",
+                                        "fn main(): i32 {\n"
+                                        "    let x = 5 |> step: {\n"
+                                        "        var s = 0;\n"
+                                        "        for (i in 0..3) {\n"
+                                        "            if (i == 2) { break; }\n"
+                                        "            s = s + i;\n"
+                                        "        }\n"
+                                        "        it + s\n"
+                                        "    };\n"
+                                        "    x\n"
+                                        "}\n");
+        CHECK(result.ok, "local loop control flow inside a named stage stays valid");
+    }
+}
+
 void test_named_block_marker_accepts_each_place_kind() {
     Workspace workspace;
     const auto result = checkSource(
@@ -2076,6 +2117,7 @@ static void test_frontend_modern_pipeline() {
     test_named_block_invalid_positions_are_diagnosed();
     test_named_block_in_state_body_is_allowed();
     test_break_to_named_block_is_rejected();
+    test_named_pipeline_stage_keeps_it_consumption_rule();
     test_named_block_marker_accepts_each_place_kind();
     test_named_block_marker_argument_must_implement_scope();
     test_named_block_marker_macro_must_be_scope_aware();
