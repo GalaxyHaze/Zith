@@ -1182,8 +1182,9 @@ Step 5 website onboarding, 2026-11-24:
   error-fixture behavior: repeated invalid source keeps its status and does not
   accumulate diagnostics, and a later compile clears stale entries.
 - Actions 8 and 9 (viewport and keyboard checks at 375x812 and 1440x900): not
-  run here. The environment has no display, no Xvfb, and no headless browser.
-  These remain open and must be run before the beta gate passes.
+  run in this pass because the environment had no headless browser at the time.
+  Both were run in the follow-up pass recorded below (Playwright Chromium
+  became available); see "Step 5 Actions 8 and 9" in the log.
 - Action 10: `node tests/docs-routing.test.js` passed 7 of 7 and
   `node tests/docs-editor.test.js` passed 4 of 4.
 - Action 11: the limitations table ships in
@@ -1197,7 +1198,8 @@ Step 5 website onboarding, 2026-11-24:
   `make docs-check` reported the fragments current; `npx @vscode/vsce package`
   produced `zith-language-0.4.0.vsix` from the extension source; the install
   page's broken `git chttps://...` command was corrected to `git clone`.
-- Open: Step 5 Actions 8 and 9 need a display and were not verified here.
+- Open at the time: Step 5 Actions 8 and 9 needed a browser. Resolved in the
+  follow-up pass recorded below.
 
 Step 3 and Step 6 editor test runs, 2026-11-24:
 
@@ -1213,7 +1215,57 @@ Step 3 and Step 6 editor test runs, 2026-11-24:
 - The extension integration host (`node test/integration/run-host.js`) and the
   packaged-VSIX host (`run-vsix-host.js`) still cannot complete here. They
   require a VS Code window and the environment has no display, no Xvfb, and no
-  headless browser. Step 3 Actions 4-6 and Step 5 Actions 8-9 stay open for the
-  same reason.
+  headless browser. Step 3 Actions 4-6 stay open for that reason; Step 5
+  Actions 8 and 9 were completed in the pass below.
 - The recorded LSP test count in `docs/vscode-extension-lsp-api.md` section 5.3
   matches this run (86 tests).
+
+Step 5 Actions 8 and 9, 2026-11-24 (headless-browser pass):
+
+- A headless browser became available for this pass. Playwright Chromium
+  (`playwright-core` 1.48.0, Chromium revision 1140) runs against `_site/`
+  served over HTTP on the loopback interface.
+- Action 8: every route enumerated by `tests/docs-routing.test.js` was
+  inspected at 375x812 and 1440x900. The checker asserts horizontal overflow
+  (`scrollWidth - clientWidth <= 1`), presence of the primary navigation,
+  a non-empty page title, non-empty content, and no browser-console or
+  page errors. Result: 36 of 36 route/viewport combinations passed.
+- Real defects found and fixed by Action 8:
+  - Documentation tables rendered as a bare `<table>` pushed the page wider
+    than the viewport at 375px (`reference/D-implementation-status.html`
+    overflowed 629px and `getting-started/D-beta-support.html` overflowed
+    169px). Both renderers now wrap tables in `<div class="docs-table-wrap">`
+    and `docs.css` clips them with `overflow-x: auto`, so the table scrolls
+    instead of the page.
+  - The playground WASM module failed to instantiate on the main thread
+    because its linear memory exceeds the 8 MiB synchronous limit
+    (`WebAssembly.Instance is disallowed on the main thread, if the buffer
+    size is larger than 8MB`). The `instantiateWasm` callback now uses the
+    async `WebAssembly.instantiate` API and the runtime status reaches
+    "Ready".
+- Action 9: keyboard traversal was checked on every route at 1440x900. The
+  checker tabs through the page and asserts that the primary navigation, the
+  page content, and the editor controls (on the playground) are all reachable
+  with visible focus, and that activating a primary navigation link with Enter
+  navigates. Result: 18 of 18 routes passed.
+- Real defect found and fixed by Action 9: `#source-code` and `#terminal-input`
+  cleared the default outline with ID specificity, which also overrode the
+  global `:focus-visible` rule, so keyboard focus was invisible on both
+  controls. Each now carries its own `:focus-visible` outline.
+- Action 5/6 playground parity, verified end to end in the same browser:
+  the default program prints `Hello, World!`. A malformed program prints one
+  diagnostic and does not accumulate it across repeated runs. A corrected
+  program clears the stale diagnostic and runs to exit code 0. The duplicate
+  diagnostic the compiler produced by re-printing `readLastError()` on top of
+  the streamed `zith.host_write` output was removed.
+- Action 10 rerun after the fixes: `node tests/docs-routing.test.js` passed
+  7 of 7, `node tests/docs-editor.test.js` passed 4 of 4, and
+  `node tests/playground-command-chain.test.js` passed 9 of 9.
+- Website commits: `573b747` (table wrapper), `bdbd054` (async WASM load,
+  refreshed default, single diagnostic), `1fb661e` (visible focus ring).
+- Evidence: `make site` built 145 documentation fragments and exited 0. The
+  viewport checker reported 36/36 and the keyboard checker 18/18. The
+  playground diagnostic probe showed one diagnostic per run and a clean
+  corrected run.
+- Still open: Step 3 Actions 4-6 (VS Code extension-host and packaged-VSIX
+  host tests) need a running code-oss window and remain unverified here.
