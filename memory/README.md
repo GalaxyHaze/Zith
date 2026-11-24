@@ -146,3 +146,8 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
 - [source-extension-zithm.md](source-extension-zithm.md): Zith-- reads only
   `.zithm`; the extension lives in `src/support/source-extension.hpp`, and
   `.zith-cache`, `.zith-<kind>`, and `zith_*` stay unchanged.
+- [named-blocks-scope-marker.md](named-blocks-scope-marker.md): named blocks
+  and the `@scoped` scope marker (`#[scope]`), the frontend-desugaring
+  architecture, the synthetic-cleanup diagnostic guard, the position check
+  against `decl.body`, the receiver-move rule for marker arguments, and the
+  `E2032`/`E2033`/`E2034` codes.
