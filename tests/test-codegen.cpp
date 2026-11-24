@@ -2544,6 +2544,69 @@ static void test_defer_reverse_order_on_fallthrough() {
     CHECK_EQ(r.output, "0AB", "separate defers run in reverse registration order on fallthrough");
 }
 
+static void test_named_block_scope_marker_enters_and_leaves_in_order() {
+    CodegenTest t;
+    t.opts.noCache = true;
+    auto r         = t.run(
+        "codegen-named-block-scope.zithm",
+        "#[discardable] extern fn putchar(c: i32): i32\n"
+        "pub trait Guard { fn leave(var self): void; }\n"
+        "pub trait Scope { fn enter(var self): dyn Guard; }\n"
+        "struct AG { }\n"
+        "struct BG { }\n"
+        "struct A { }\n"
+        "struct B { }\n"
+        "implement AG as Guard { fn leave(var self): void { _ = putchar(97); } }\n"
+        "implement BG as Guard { fn leave(var self): void { _ = putchar(98); } }\n"
+        "implement A as Scope {\n"
+        "    fn enter(var self): dyn Guard { _ = putchar(65); return AG { }; }\n"
+        "}\n"
+        "implement B as Scope {\n"
+        "    fn enter(var self): dyn Guard { _ = putchar(66); return BG { }; }\n"
+        "}\n"
+        "#[scope] pub macro scoped(resources: identifier...) { }\n"
+        "fn main() {\n"
+        "    var a = A { };\n"
+        "    var b = B { };\n"
+        "    render: @scoped(a, b) {\n"
+        "        _ = putchar(45);\n"
+        "    }\n"
+        "    _ = putchar(90);\n"
+        "}\n");
+    CHECK(r.ok, "scope-marker named block compiles, links and runs");
+    if (r.output != "AB-baZ")
+        std::printf("  observed named-block scope output: '%s'\n", r.output.c_str());
+    CHECK_EQ(r.output, "AB-baZ",
+             "enter runs left to right and leave runs in reverse on block exit");
+}
+
+static void test_named_block_scope_marker_cleans_up_on_early_return() {
+    CodegenTest t;
+    t.opts.noCache = true;
+    auto r         = t.run(
+        "codegen-named-block-scope-return.zithm",
+        "#[discardable] extern fn putchar(c: i32): i32\n"
+        "pub trait Guard { fn leave(var self): void; }\n"
+        "pub trait Scope { fn enter(var self): dyn Guard; }\n"
+        "struct AG { }\n"
+        "struct A { }\n"
+        "implement AG as Guard { fn leave(var self): void { _ = putchar(97); } }\n"
+        "implement A as Scope {\n"
+        "    fn enter(var self): dyn Guard { _ = putchar(65); return AG { }; }\n"
+        "}\n"
+        "#[scope] pub macro scoped(resources: identifier...) { }\n"
+        "fn main() {\n"
+        "    var a = A { };\n"
+        "    render: @scoped(a) {\n"
+        "        _ = putchar(45);\n"
+        "        return;\n"
+        "    }\n"
+        "    _ = putchar(90);\n"
+        "}\n");
+    CHECK(r.ok, "scope-marker named block with early return compiles and runs");
+    CHECK_EQ(r.output, "A-a", "leave runs on the early return before control leaves main");
+}
+
 static void test_variadic_macro_repetition_and_caller_scope_defer() {
     CodegenTest t;
     t.opts.noCache = true;
@@ -5185,6 +5248,10 @@ static void test_codegen() {
     test_defer_block_runs_on_normal_exit();
     printf("Running test_defer_reverse_order_on_fallthrough\n");
     test_defer_reverse_order_on_fallthrough();
+    printf("Running test_named_block_scope_marker_enters_and_leaves_in_order\n");
+    test_named_block_scope_marker_enters_and_leaves_in_order();
+    printf("Running test_named_block_scope_marker_cleans_up_on_early_return\n");
+    test_named_block_scope_marker_cleans_up_on_early_return();
     printf("Running test_variadic_macro_repetition_and_caller_scope_defer\n");
     test_variadic_macro_repetition_and_caller_scope_defer();
     printf("Running test_raw_macro_defer_runs_before_loop_break\n");

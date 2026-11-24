@@ -1,0 +1,41 @@
+// Language corpus: named blocks and the scope-marker cleanup form.
+from std/scope
+
+struct Renderer { }
+struct RenderGuard { }
+
+implement RenderGuard as Guard {
+    fn leave(var self): void { }
+}
+
+implement Renderer as Scope {
+    fn enter(var self): dyn Guard {
+        return RenderGuard { };
+    }
+}
+
+#[test]
+fn plain_named_block_is_lexical_scope() {
+    var reached = 0;
+    setup: {
+        var inner = 41;
+        reached = inner + 1;
+    }
+    @assert(reached == 42);
+}
+
+#[test]
+fn marker_named_block_runs_its_body() {
+    var r = Renderer { };
+    var reached = 0;
+    render: @scoped(r) {
+        reached = 1;
+    }
+    @assert(reached == 1);
+}
+
+#[test]
+fn named_pipeline_stage_is_allowed() {
+    let value = 5 |> step: { it + 1 };
+    @assert(value == 6);
+}

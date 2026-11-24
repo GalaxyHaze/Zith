@@ -2844,6 +2844,43 @@ void test_defer_captures_later_binding_after_slot_alloca() {
     }
 }
 
+void test_named_block_name_is_preserved_for_tooling() {
+    Workspace workspace;
+    workspace.writeFile("main.zithm", "fn main() {\n"
+                                     "    setup: {\n"
+                                     "        var v: i32 = 1;\n"
+                                     "        _ = v;\n"
+                                     "    }\n"
+                                     "    render: {\n"
+                                     "    }\n"
+                                     "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    auto session = makeSession(workspace, arena, options, "main.zithm");
+
+    CHECK(session.runTo(session::Stage::HirLowered), "named blocks lower to HIR");
+
+    const auto &hir = session.hirModule();
+    CHECK_EQ(hir.namedScopeCount(), 2u, "each named block is recorded in the HIR side table");
+
+    const auto *main = findFunction(hir, session.interner(), "main");
+    CHECK(main != nullptr, "main is present in HIR");
+    bool saw_setup  = false;
+    bool saw_render = false;
+    for (size_t i = 0; i < hir.namedScopeCount(); ++i) {
+        const auto &scope = hir.getNamedScope(i);
+        CHECK(scope.name != memory::kInvalidInternedId, "named scope carries an interned name");
+        const auto name = session.interner().lookup(scope.name);
+        if (name == "setup")
+            saw_setup = true;
+        if (name == "render")
+            saw_render = true;
+    }
+    CHECK(saw_setup, "the 'setup' block name survives lowering");
+    CHECK(saw_render, "the 'render' block name survives lowering");
+}
+
 void test_state_without_return_type_lowers_to_hir() {
     Workspace workspace;
     workspace.writeFile("main.zithm", "state Done() { return; }\n"
@@ -3622,6 +3659,7 @@ static void test_hir_lower_modern() {
     test_distinct_generic_instances_have_distinct_symbols();
     test_defer_lowers_to_cleanup_nodes();
     test_defer_captures_later_binding_after_slot_alloca();
+    test_named_block_name_is_preserved_for_tooling();
     test_state_without_return_type_lowers_to_hir();
     test_variadic_slice_lowers_to_hir();
     test_variadic_slice_state_lowers_to_hir();

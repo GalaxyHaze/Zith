@@ -1329,6 +1329,124 @@ void test_pipeline_raw_macro_lowers() {
           "raw macro expansion produces no semantic diagnostics");
 }
 
+void test_pipeline_named_stage_lowers() {
+    Workspace workspace;
+    workspace.write("main.zithm", "fn main(): i32 {\n"
+                                 "    let x = 5\n"
+                                 "        |> step1: { it + 1 }\n"
+                                 "        |> step2: { it * 2 };\n"
+                                 "    x\n"
+                                 "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "named pipeline stages lower through the modern pipeline");
+    CHECK(session.snapshot() != nullptr && session.snapshot()->diagnostics().empty(),
+          "plain named pipeline stages produce no diagnostics");
+}
+
+void test_pipeline_marked_named_stage_lowers() {
+    Workspace workspace;
+    workspace.write("main.zithm",
+                    "pub trait Guard { fn leave(var self): void; }\n"
+                    "pub trait Scope { fn enter(var self): dyn Guard; }\n"
+                    "struct G { }\n"
+                    "struct R { }\n"
+                    "implement G as Guard { fn leave(var self): void { } }\n"
+                    "implement R as Scope { fn enter(var self): dyn Guard { return G { }; } }\n"
+                    "#[scope] pub macro scoped(resources: identifier...) { }\n"
+                    "fn main(): i32 {\n"
+                    "    var r = R { };\n"
+                    "    let x = 5\n"
+                    "        |> render: @scoped(r) { it * 2 };\n"
+                    "    x\n"
+                    "}\n");
+
+    memory::Arena arena;
+    Options options(arena);
+    options.targetStage = session::Stage::HirLowered;
+
+    session::CompilationSession session(options, (workspace.root / "main.zithm").string());
+    session.setBuffered(true);
+    CHECK(session.runTo(session::Stage::HirLowered),
+          "a marked named pipeline stage lowers through the modern pipeline");
+    CHECK(session.snapshot() != nullptr && session.snapshot()->diagnostics().empty(),
+          "a marked named pipeline stage produces no diagnostics");
+}
+
+void test_named_block_invalid_position_is_diagnosed() {
+    Workspace workspace;
+    const auto result = checkSource(workspace, "main.zithm", "fn main() {\n"
+                                                             "    if (true) {\n"
+                                                             "        setup: { }\n"
+                                                             "    }\n"
+                                                             "}\n");
+    CHECK(!result.ok, "a named block nested in `if` fails type checking");
+    CHECK(hasDiagnostic(result, diagnostics::err::NamedBlockInvalidPosition),
+          "a misplaced named block reports NamedBlockInvalidPosition");
+}
+
+void test_named_block_duplicate_name_is_diagnosed() {
+    Workspace workspace;
+    const auto result = checkSource(workspace, "main.zithm", "fn main() {\n"
+                                                             "    setup: { }\n"
+                                                             "    setup: { }\n"
+                                                             "}\n");
+    CHECK(!result.ok, "duplicate named block names fail type checking");
+    CHECK(hasDiagnostic(result, diagnostics::err::NamedBlockDuplicateName),
+          "a duplicate named block reports NamedBlockDuplicateName");
+}
+
+void test_named_block_marker_argument_must_implement_scope() {
+    Workspace workspace;
+    const auto result = checkSource(
+        workspace, "main.zithm", "pub trait Guard { fn leave(var self): void; }\n"
+                                 "pub trait Scope { fn enter(var self): dyn Guard; }\n"
+                                 "struct NotScope { }\n"
+                                 "#[scope] pub macro scoped(resources: identifier...) { }\n"
+                                 "fn main() {\n"
+                                 "    var x = NotScope { };\n"
+                                 "    render: @scoped(x) { }\n"
+                                 "}\n");
+    CHECK(!result.ok, "a marker argument that is not a Scope fails type checking");
+    CHECK(hasDiagnostic(result, diagnostics::err::NamedBlockArgNotScope),
+          "a non-Scope marker argument reports NamedBlockArgNotScope");
+    size_t scope_errors = 0;
+    for (const auto &diagnostic : result.diagnostics)
+        scope_errors += diagnostic.code == diagnostics::err::NamedBlockArgNotScope ? 1U : 0U;
+    CHECK_EQ(scope_errors, 1U, "exactly one dedicated marker diagnostic, with no cascade");
+}
+
+void test_named_block_marker_rejects_temporary_argument() {
+    Workspace workspace;
+    const auto result = checkSource(
+        workspace, "main.zithm", "pub trait Guard { fn leave(var self): void; }\n"
+                                 "pub trait Scope { fn enter(var self): dyn Guard; }\n"
+                                 "struct G { }\n"
+                                 "struct R { }\n"
+                                 "implement G as Guard { fn leave(var self): void { } }\n"
+                                 "implement R as Scope {\n"
+                                 "    fn enter(var self): dyn Guard { return G { }; }\n"
+                                 "}\n"
+                                 "#[scope] pub macro scoped(resources: identifier...) { }\n"
+                                 "fn make() : R { return R { }; }\n"
+                                 "fn main() {\n"
+                                 "    render: @scoped(make()) { }\n"
+                                 "}\n");
+    CHECK(!result.ok, "a temporary marker argument fails type checking");
+    CHECK(hasDiagnostic(result, diagnostics::err::NamedBlockArgNotScope),
+          "a temporary marker argument reports NamedBlockArgNotScope");
+    size_t scope_errors = 0;
+    for (const auto &diagnostic : result.diagnostics)
+        scope_errors += diagnostic.code == diagnostics::err::NamedBlockArgNotScope ? 1U : 0U;
+    CHECK_EQ(scope_errors, 1U, "a temporary argument reports one diagnostic, with no cascade");
+}
+
 void test_pipeline_normal_macro_hygiene_and_call_site_scope() {
     Workspace workspace;
     workspace.write("main.zithm", "const base: i32 = 100;\n"
@@ -1834,6 +1952,12 @@ static void test_frontend_modern_pipeline() {
     test_c_header_constant_let_duplicate_diagnostic();
     test_pipeline_macro_expansion_lowers();
     test_pipeline_raw_macro_lowers();
+    test_pipeline_named_stage_lowers();
+    test_pipeline_marked_named_stage_lowers();
+    test_named_block_invalid_position_is_diagnosed();
+    test_named_block_duplicate_name_is_diagnosed();
+    test_named_block_marker_argument_must_implement_scope();
+    test_named_block_marker_rejects_temporary_argument();
     test_pipeline_normal_macro_hygiene_and_call_site_scope();
     test_pipeline_raw_macro_sees_call_site_then_module();
     test_pipeline_tag_macro_is_rejected();

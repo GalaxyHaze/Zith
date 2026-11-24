@@ -549,6 +549,66 @@ static void test_macro() {
             frontend::parseWithImports("fn main() { @call_all(first, second); }\n", {imported});
         CHECK(snap.diagnostics().empty(), "imported variadic macro expands cleanly");
     }
+    // 43. a plain named block parses with its descriptive name
+    {
+        auto snap = frontend::parse("fn main() {\n"
+                                    "    setup: {\n"
+                                    "    }\n"
+                                    "}\n");
+        bool found = false;
+        for (const auto &expr : snap.expressions()) {
+            if (expr.kind == frontend::ExprKind::Block && expr.block_name == "setup") {
+                found = true;
+                CHECK(!expr.marker, "a plain named block carries no marker");
+            }
+        }
+        CHECK(found, "the 'setup' named block is parsed");
+    }
+    // 44. a marked named block parses with the marker MacroCall retained
+    {
+        auto snap = frontend::parse("#[scope] pub macro scoped(resources: identifier...) { }\n"
+                                    "fn main() {\n"
+                                    "    render: @scoped(a, b) {\n"
+                                    "    }\n"
+                                    "}\n");
+        bool found = false;
+        for (const auto &expr : snap.expressions()) {
+            if (expr.kind != frontend::ExprKind::Block || expr.block_name != "render")
+                continue;
+            found = true;
+            CHECK(static_cast<bool>(expr.marker), "the marked named block keeps its marker");
+            if (expr.marker) {
+                const auto &marker = snap.expressions()[expr.marker.value - 1U];
+                CHECK_EQ(marker.kind, frontend::ExprKind::MacroCall,
+                         "the marker is a MacroCall");
+                CHECK_EQ(marker.text, std::string("scoped"), "the marker names the scope macro");
+            }
+            CHECK(expr.markerScopeAware, "the marker is recorded as scope-aware");
+        }
+        CHECK(found, "the 'render' marked named block is parsed");
+    }
+    // 45. #[scope] on a macro classifies as AttributeKind::Scope
+    {
+        auto snap = frontend::parse("#[scope] pub macro scoped(resources: identifier...) { }\n");
+        bool classified = false;
+        for (const auto &decl : snap.declarations()) {
+            if (decl.kind != frontend::DeclKind::Macro)
+                continue;
+            for (const auto &attribute : decl.attributes)
+                classified |= attribute.kind == frontend::AttributeKind::Scope;
+        }
+        CHECK(classified, "#[scope] classifies as AttributeKind::Scope");
+    }
+    // 46. a non-scope macro used as a marker is rejected by sema, not the parser
+    {
+        auto snap = frontend::parse("pub macro plain(x: identifier) { }\n"
+                                    "fn main() {\n"
+                                    "    render: @plain(a) {\n"
+                                    "    }\n"
+                                    "}\n");
+        CHECK(snap.diagnostics().empty(),
+              "the marker form parses for any macro; sema rejects the non-scope one");
+    }
 }
 
 TEST_MAIN(macro)
