@@ -13,11 +13,16 @@ Está dividido em seis partes:
    experiência de editor.
 3. [Comandos e notificações Zith](#3-comandos-e-notificacoes-zith): operações
    específicas da linguagem.
-4. [Estado atual da extensão](#4-estado-atual-da-extensao): o que já existe no
-   VS Code e o que falta.
-5. [Lista de implementação](#5-lista-de-implementacao): passos concretos para
-   a próxima versão da extensão.
+4. [Estado atual da extensão](#4-estado-atual-da-extensao): o que já existe e
+   está testado no VS Code e o que continua em falta.
+5. [Referência testada](#5-referencia-testada): nomes de comandos,
+   configurações, evidência de teste e limitações conhecidas.
 6. [Exemplos de configuração](#6-exemplos-de-configuracao): snippets JSON-RPC.
+
+O estado em baixo reflete a extensão `0.4.0` e o servidor `zith-lsp`
+`0.1.0` na revisão de baseline registada no roadmap de beta. As capacidades
+listadas na secção 1 são o contrato do servidor. As secções 4 e 5 descrevem o
+que a extensão consome hoje e onde ficam as lacunas.
 
 ## 1. Contrato do servidor
 
@@ -147,6 +152,16 @@ O `initialize` responde com o seguinte contrato mínimo:
       "zith.new", "zith.build", "zith.check", "zith.run",
       "zith.fmt", "zith.prepareRun", "zith.stop"
     ]
+  },
+  "experimental": {
+    "zith": {
+      "workspaceIndexStatus": true,
+      "requestSaveAll": true,
+      "frontendSharedContext": true,
+      "frontendWarmupStatus": true,
+      "frontendMetrics": true,
+      "crossFileDiagnostics": true
+    }
   }
 }
 ```
@@ -156,6 +171,10 @@ completion, hover, inlay hints, signature help, definição, referências,
 destaques, símbolos, semantic tokens, folding, rename, formatação e code
 actions. Os comandos `zith.*` precisam, além disso, de comandos VS Code
 registados manualmente.
+
+As bandeiras em `capabilities.experimental.zith` anunciam as extensões Zith que
+o cliente pode consumir. A extensão VS Code usa hoje apenas `requestSaveAll`
+através da capacidade experimental enviada no `initialize`.
 
 ## 2. Metodos LSP
 
@@ -291,18 +310,33 @@ ativo.
 
 ### 4.1 Já implementado
 
-O ficheiro `zith-extension/vs-code/extension.js` já tem:
+O ficheiro `zith-extension/vs-code/extension.js` (extensão `0.4.0`) já tem:
 
-- inicialização do `LanguageClient` com `transport: 0`
-- `documentSelector` para `zith`
-- `outputChannel` `Zith LSP`
-- política de reinício após crash (3 reinícios em 60 s)
-- download/instalação do binário `zith-lsp` e do stdlib
-- fallback para binário de build local
-- tratamento de `zith/requestSaveAll`
-- comandos VS Code `zith.build`, `zith.check`, `zith.run`, `zith.clean`,
-  `zith.fmt`, `zith.repl`, `zith.restartLsp` e `zith.downloadLsp`;
-- validação de ficheiro ativo e projeto `ZithProject.toml`.
+- inicialização do `LanguageClient` com `transport: 0` (stdio)
+- `documentSelector` `{ scheme: 'file', language: 'zith' }` e associação da
+  extensão de ficheiro canónica `.zithm` no manifesto
+- `outputChannel` `Zith LSP` para o stderr do servidor
+- política de reinício após crash (3 reinícios em 60 s) e comando manual de
+  reinício que não pára um cliente já parado
+- download/instalação do binário `zith-lsp` e do stdlib através de
+  `scripts/download-lsp.js`, com atualização forçada e fallback para binário de
+  build local
+- tratamento de `zith/requestSaveAll`, `zith/processOutput`, `zith/processExit`
+  e `zith/codegenStatus`
+- comandos VS Code `zith.build`, `zith.check`, `zith.run`, `zith.fmt`,
+  `zith.new`, `zith.stop`, `zith.restartLsp`, `zith.downloadLsp` e
+  `zith.triggerSuggest`, todos encaminhados por `workspace/executeCommand`
+- `zith.prepareRun` registado como comando interno, fora da paleta
+- `DocumentFormattingEditProvider` que aplica os `TextEdit[]` de `zith.fmt`
+- middleware que remove itens de completion sem tipo para manter os ícones
+  específicos de símbolo
+- remoção do auto-registo de comandos do `vscode-languageclient`, porque o
+  servidor anuncia os mesmos nomes `zith.*` que a extensão regista
+
+Estes pontos são cobertos por `test/integration/test-extension.js` (payload de
+inicialização, política de gravação, encaminhamento de comandos, notificações,
+aplicação de `TextEdit[]`, aviso de codegen e limpeza do manifesto) e por
+`test/unit/test-download.js` e `test/unit/test-project.js`.
 
 ### 4.2 Em falta ou desatualizado
 
@@ -310,144 +344,94 @@ A extensão atual não liga ainda, de forma explícita, aos seguintes pontos da
 API:
 
 - `initializationOptions.zithm.frontend` com `enabled`, `warmupStdlib`,
-  `maxWorkers` e `statusNotifications`
+  `maxWorkers` e `statusNotifications`: o `startLspClient` envia apenas
+  `stdlibPath`, portanto o servidor usa os valores por omissão do frontend
 - `zith/frontendStatus` na barra de estado
-- `zith/codegenStatus` com aviso `codegenAvailable: false`
-- notificações `zith/processOutput` e `zith/processExit` para `zith.run`
-- progresso `window/workDoneProgress/create` e `$/progress`
-- `zith.prepareRun` e `zith.stop` através de comandos VS Code
-- cancelamento explícito de pedidos obsoletos
 - `initializationOptions.zithm.performance.metrics` para configuração de
-  depuração
-- remoção do comando `zith.compile`, uma vez que o servidor já não o anuncia
-- `codegenAvailable` nas respostas de `zith.build` e `zith.run`
+  depuração e consumo de `zith/metrics`
+- cancelamento explícito de pedidos obsoletos: o cliente entrega o cancelamento
+  ao `vscode-languageclient`, mas a extensão não envia `$/cancelRequest` por
+  conta própria nem descarta respostas por `(id, version)`
 
-## 5. Lista de implementacao
+Os comandos `zith.compile`, `zith.clean` e `zith.repl` foram removidos e não
+devem ser reenviados. O `zith.prepareRun` existe como comando interno do
+servidor e da extensão, sem entrada na paleta.
 
-### 5.1 Inicialização
+## 5. Referência testada
 
-1. Adicionar no `package.json` configurações para:
+### 5.1 Nomes de comandos
 
-```json
-{
-  "zith.lsp.diagnosticsDebounceMs": 75,
-  "zith.lsp.warmupStdlib": true,
-  "zith.lsp.metrics": false
-}
-```
+Nomes registados pela extensão no VS Code e enviados por
+`workspace/executeCommand`. O `vscode-languageclient` não regista estes nomes
+por conta própria.
 
-2. Construir `initializationOptions` no `startLspClient`:
+| Comando VS Code | Argumentos | Resultado do servidor | Paleta |
+|---|---|---|---|
+| `zith.build` | diretório ou file URI (opcional) | `{ success, programUri, codegenAvailable }` | sim |
+| `zith.check` | file URI (opcional) | `{ success }` | sim |
+| `zith.fmt` | file URI (opcional) | `TextEdit[]` | sim |
+| `zith.run` | diretório ou file URI (opcional) | `{ success, taskId, exitCode, programUri, codegenAvailable }` | sim |
+| `zith.new` | `name` (string, obrigatório) | `{ success, rootUri }` | sim |
+| `zith.stop` | `taskId` (string, obrigatório) | `{ stopped }` | sim |
+| `zith.prepareRun` | file URI (opcional) | descritor de lançamento, sem linkar nem executar | não |
+| `zith.restartLsp` | nenhum | comando local, sem pedido ao servidor | sim |
+| `zith.downloadLsp` | nenhum | comando local, sem pedido ao servidor | sim |
+| `zith.triggerSuggest` | nenhum | comando local que abre o popup de sugestões | sim |
 
-```js
-const metrics = config.get('metrics', false);
-const debounce = config.get('diagnosticsDebounceMs', 75);
-const warmupStdlib = config.get('warmupStdlib', true);
+`zith.build` e `zith.run` operam sobre ficheiros guardados em disco, portanto a
+extensão chama `workspace.saveAll(false)` antes de os invocar. `zith.check`,
+`zith.fmt` e `zith.prepareRun` usam o buffer aberto quando existe.
 
-const clientOptions = {
-  documentSelector: [{ scheme: 'file', language: 'zith' }],
-  outputChannel: getLspOutputChannel(),
-  initializationOptions: {
-    stdlibPath,
-    zith: {
-      performance: {
-        metrics,
-        diagnosticsDebounceMs: debounce,
-      },
-      frontend: {
-        enabled: true,
-        warmupStdlib,
-        maxWorkers: 0,
-        statusNotifications: true,
-      },
-    },
-  },
-};
-```
+### 5.2 Configurações da extensão
 
-3. Manter o envio da capacidade experimental para `fillInitializeParams`, se
-   ainda for necessário para o protocolo atual.
+O `package.json` declara três definições em `zith.*`:
 
-### 5.2 Barra de estado e notificações
+| Definição | Tipo | Predefinição | Consumida por `extension.js` |
+|---|---|---:|---|
+| `zith.lsp.enabled` | boolean | `true` | sim, para desativar o arranque do servidor |
+| `zith.lsp.stdlibPath` | string | `""` | sim, enviada como `initializationOptions.stdlibPath` |
+| `zith.enableHighlighting` | boolean | `true` | não, declarada mas sem leitura no código |
 
-1. Criar um `StatusBarItem` para Zith.
-2. Ouvir `zith/frontendStatus`:
+O `initializationOptions` que a extensão envia contém apenas `stdlibPath`. Os
+campos `zith.performance.*` e `zith.frontend.*` da secção 1 não são enviados
+hoje, pelo que o servidor aplica as predefinições.
 
-```js
-client.onNotification('zith/frontendStatus', params => {
-  if (params.state === 'warming') {
-    statusBar.text = '$(sync~spin) Zith: warming';
-    statusBar.tooltip = 'Pré-aquecer stdlib';
-  } else if (params.state === 'ready') {
-    statusBar.text = '$(check) Zith';
-    statusBar.tooltip = 'Language server pronto';
-  } else if (params.state === 'error') {
-    statusBar.text = '$(error) Zith';
-    statusBar.tooltip = params.message || 'Erro no frontend';
-  }
-  statusBar.show();
-});
-```
+### 5.3 Evidência de teste
 
-3. Ouvir `zith/codegenStatus` e mostrar aviso quando
-   `codegenAvailable === false`.
-4. Ouvir `zith/metrics` quando `metrics` estiver ativa e enviar para o output
-   channel.
+Testes executados nesta revisão:
 
-### 5.3 Build, check e run
+- `python3 -m unittest discover -s tests -p "test_lsp.py"` em `zith-lsp`:
+  86 testes, incluindo o conjunto de comandos `zith.*`, o aviso
+  `zith/codegenStatus`, o fluxo `zith.run`/`zith.stop` e `zith/metrics`.
+- `npm test` em `zith-extension/vs-code`: testes unitários e de integração, com
+  o payload de inicialização, a política de gravação, as notificações
+  `zith/processOutput` e `zith/processExit`, a ausência de `zith.compile` e a
+  associação de `.zithm`.
 
-1. Preservar comandos de `zith.build`, `zith.check` e `zith.run` que chamam
-   `workspace/executeCommand`.
-2. Usar `workspace.saveAll(false)` antes de `zith.build` e `zith.run`, com
-   confirmação opcional.
-3. Ler `codegenAvailable` nas respostas e mostrar aviso quando for `false`.
-4. Registar `zith.prepareRun` para gerar uma configuração de launch sem
-   executar.
-5. Registar `zith.stop` para terminar a tarefa associada ao `taskId`.
-6. Não registar, nem anunciar, `zith.compile`.
+O harness de extension host (`node test/integration/run-host.js`) e o teste de
+VSIX empacotado requerem um host VS Code capaz de abrir janela. Ver a limitação
+em baixo.
 
-### 5.4 Processos e progresso
+### 5.4 Limitações conhecidas
 
-1. Criar um helper `getRunChannel(taskId)` que cria/cacheia um
-   `OutputChannel`.
-2. Ouvir `zith/processOutput`:
-
-```js
-client.onNotification('zith/processOutput', params => {
-  const channel = getRunChannel(params.taskId);
-  channel.append(params.chunk);
-});
-```
-
-3. Ouvir `zith/processExit`:
-
-```js
-client.onNotification('zith/processExit', params => {
-  const channel = getRunChannel(params.taskId);
-  channel.appendLine(`\n[exit ${params.exitCode}]`);
-  // terminar estado de execução, se houver
-});
-```
-
-4. Usar o progresso do `vscode-languageclient` ou tratar
-   `window/workDoneProgress/create` e `$/progress` manualmente.
-
-### 5.5 Cancelamento e estado
-
-1. Guardar o `version` de cada documento quando relevante.
-2. Cancelar pedidos antigos com `client.sendRequest('$/cancelRequest', { id })`
-   apenas quando o cliente do VS Code não os gerir sozinho.
-3. Tratar `-32800` como silencioso.
-4. Quando o servidor reiniciar, limpar canais de run, estado da barra e
-   informação de `taskId`.
-
-### 5.6 Testes
-
-1. Estender `test/integration/test-extension.js` com um mock que responda a
-   `initialize` com as capacidades completas.
-2. Testar `zith/frontendStatus` e `zith/processOutput` no mock.
-3. Testar resposta `zith.build` sem `success` e com `codegenAvailable: false`.
-4. Testar que `zith.compile` já não é anunciado.
-5. Testar que `zith.stop` recebe `taskId` do `zith.run`.
+- macOS e Linux musl estão fora do âmbito de suporte da beta. O downloader
+  mapeia `darwin` para `zith-lsp-macos-universal`, mas essa rota não é uma
+  afirmação de suporte. As plataformas suportadas e os respetivos estados de
+  evidência são os da matriz do passo 1 do roadmap de beta.
+- O harness de extension host em Linux não completa neste ambiente: o wrapper
+  entrega o controlo a uma instância `code-oss` já em execução e expira. As
+  capacidades são verificadas ao nível do LSP e por mocks de extensão, não por
+  um host VS Code real aqui.
+- O caminho de completion parcial `isIncomplete` está adiado e documentado em
+  `zith-lsp/docs/completion-recommendation-plan.md`. O executor só serve
+  completion depois da análise ter chegado a `TypeChecked`.
+- `workspace/symbol` examina os documentos abertos de forma síncrona e usa o
+  índice assíncrono do workspace construído no `initialized`. Não tem limite de
+  resultados documentado nem fase de warm-up bloqueante.
+- A extensão não mostra `zith/frontendStatus` nem `zith/metrics` ao utilizador.
+  O único indicador de estado é o item da barra criado durante `zith.run`.
+- `zith.enableHighlighting` está declarada mas não é lida, portanto alterná-la
+  não altera o comportamento.
 
 ## 6. Exemplos de configuracao
 
