@@ -99,7 +99,9 @@ void PerModuleSema::inferExpressionTypesForDecls() {
             if (decl.parentScope && decl.functionKind == frontend::FunctionKind::State) {
                 currentStateMachineId_ = stateMachineIdOf(decl);
             }
+            in_body_statement_pass_ = true;
             (void)inferExpr(decl.body);
+            in_body_statement_pass_ = false;
         }
         if (decl.initializer) {
             (void)inferExpr(decl.initializer);
@@ -474,6 +476,7 @@ TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
         snapshot.declarations()[currentDeclId_ - 1U].body == id;
     if (is_body_block) {
         active_named_blocks_.clear();
+        body_loop_labels_.clear();
         skipped_marker_statements_.clear();
         current_body_block_ = id;
     }
@@ -765,6 +768,35 @@ bool PerModuleSema::typeImplementsScope(TypeId type) const {
     return type_table.conformanceTable().satisfies(type_table.stripQualifiers(type), trait);
 }
 
+void PerModuleSema::enterLoopLabel(const frontend::Expression &expr) {
+    if (!expr.label.empty()) {
+        // A loop label shares the per-body name space with named blocks. Record
+        // it once per body (the standalone sweep and the ForIn pre-pass re-infer
+        // loops outside the body pass, where the bookkeeping must not run) so a
+        // named block declared later in the body still collides with it.
+        if (in_body_statement_pass_ &&
+            std::find(active_named_blocks_.begin(), active_named_blocks_.end(), expr.label) !=
+                active_named_blocks_.end()) {
+            report(expr.span,
+                   "loop label '" + expr.label +
+                       "' collides with a named block of the same name in this body",
+                   diagnostics::err::NamedBlockDuplicateName);
+        }
+        if (in_body_statement_pass_)
+            body_loop_labels_.push_back(expr.label);
+        // A label must be unique among the active (nested) loops so it can name
+        // a `break`/`continue` target.
+        if (std::find(active_loop_labels_.begin(), active_loop_labels_.end(), expr.label) !=
+            active_loop_labels_.end()) {
+            report(expr.span, "duplicate loop label '" + expr.label + "'",
+                   diagnostics::err::UnsupportedSyntax);
+        }
+    }
+    // Push unconditionally: an empty label still marks "inside a loop" so a
+    // bare `break`/`continue` is accepted.
+    active_loop_labels_.push_back(expr.label);
+}
+
 void PerModuleSema::validateNamedBlock(const frontend::Expression &expr, bool is_pipe_stage) {
     if (expr.block_name.empty())
         return;
@@ -792,12 +824,14 @@ void PerModuleSema::validateNamedBlock(const frontend::Expression &expr, bool is
                diagnostics::err::NamedBlockInvalidPosition);
     }
 
-    // Uniqueness per fn/state body, including collisions with loop labels.
+    // Uniqueness per fn/state body, including collisions with loop labels. A
+    // named block collides with either a named block or a loop label declared
+    // earlier in the body; the loop side is checked in `enterLoopLabel`.
     const bool duplicate =
         std::find(active_named_blocks_.begin(), active_named_blocks_.end(), expr.block_name) !=
             active_named_blocks_.end() ||
-        std::find(active_loop_labels_.begin(), active_loop_labels_.end(), expr.block_name) !=
-            active_loop_labels_.end();
+        std::find(body_loop_labels_.begin(), body_loop_labels_.end(), expr.block_name) !=
+            body_loop_labels_.end();
     if (duplicate) {
         report(expr.span,
                "duplicate named block '" + expr.block_name +
@@ -824,27 +858,32 @@ void PerModuleSema::validateNamedBlock(const frontend::Expression &expr, bool is
                    diagnostics::err::NamedBlockInvalidPosition);
             marker_invalid = true;
         }
-        // Each argument must be a place-expression implementing Scope.
-        for (const auto arg : marker.operands) {
-            if (!isPlaceExpression(snapshot, arg)) {
-                report(arg && arg.value <= snapshot.expressions().size()
-                           ? snapshot.expressions()[arg.value - 1U].span
-                           : marker.span,
-                       "named block marker argument must be a place (binding, parameter, global, "
-                       "or field); temporaries are rejected",
-                       diagnostics::err::NamedBlockArgNotScope);
-                marker_invalid = true;
-                continue;
-            }
-            const TypeId arg_type = inferExpr(arg);
-            if (arg_type && !typeImplementsScope(arg_type)) {
-                report(arg && arg.value <= snapshot.expressions().size()
-                           ? snapshot.expressions()[arg.value - 1U].span
-                           : marker.span,
-                       "named block marker argument of type '" +
-                           type_table.typeToString(arg_type) + "' does not implement Scope",
-                       diagnostics::err::NamedBlockArgNotScope);
-                marker_invalid = true;
+        // Each argument must be a place-expression implementing Scope. Only
+        // checked for a scope-aware macro: when the marker itself is rejected,
+        // the argument diagnostics would be noise on top of the dedicated
+        // "not scope-aware" error.
+        if (expr.markerScopeAware) {
+            for (const auto arg : marker.operands) {
+                if (!isPlaceExpression(snapshot, arg)) {
+                    report(arg && arg.value <= snapshot.expressions().size()
+                               ? snapshot.expressions()[arg.value - 1U].span
+                               : marker.span,
+                           "named block marker argument must be a place "
+                           "(binding, parameter, global, or field); temporaries are rejected",
+                           diagnostics::err::NamedBlockArgNotScope);
+                    marker_invalid = true;
+                    continue;
+                }
+                const TypeId arg_type = inferExpr(arg);
+                if (arg_type && !typeImplementsScope(arg_type)) {
+                    report(arg && arg.value <= snapshot.expressions().size()
+                               ? snapshot.expressions()[arg.value - 1U].span
+                               : marker.span,
+                           "named block marker argument of type '" +
+                               type_table.typeToString(arg_type) + "' does not implement Scope",
+                           diagnostics::err::NamedBlockArgNotScope);
+                    marker_invalid = true;
+                }
             }
         }
     }
@@ -1190,18 +1229,7 @@ TypeId PerModuleSema::inferIf(frontend::ExprId id) {
 }
 TypeId PerModuleSema::inferWhile(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
-    if (!expr.label.empty()) {
-        if (std::find(active_loop_labels_.begin(), active_loop_labels_.end(), expr.label) !=
-            active_loop_labels_.end()) {
-            report(expr.span, "duplicate loop label '" + expr.label + "'",
-                   diagnostics::err::UnsupportedSyntax);
-        }
-    }
-    active_loop_labels_.push_back(expr.label);
-    // A loop label also reserves the name against named blocks in the
-    // same body, so `outer: for` and `outer: { }` cannot coexist.
-    if (!expr.label.empty())
-        active_named_blocks_.push_back(expr.label);
+    enterLoopLabel(expr);
     if (!expr.operands.empty()) {
         (void)inferCondition(expr.operands[0], "loop condition must be boolean", expr.span);
     }
@@ -1219,18 +1247,7 @@ TypeId PerModuleSema::inferWhile(frontend::ExprId id) {
 }
 TypeId PerModuleSema::inferFor(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
-    if (!expr.label.empty()) {
-        if (std::find(active_loop_labels_.begin(), active_loop_labels_.end(), expr.label) !=
-            active_loop_labels_.end()) {
-            report(expr.span, "duplicate loop label '" + expr.label + "'",
-                   diagnostics::err::UnsupportedSyntax);
-        }
-    }
-    active_loop_labels_.push_back(expr.label);
-    // A loop label also reserves the name against named blocks in the
-    // same body, so `outer: for` and `outer: { }` cannot coexist.
-    if (!expr.label.empty())
-        active_named_blocks_.push_back(expr.label);
+    enterLoopLabel(expr);
     // operands: [cond, body, step].
     if (!expr.operands.empty()) {
         (void)inferCondition(expr.operands[0], "loop condition must be boolean", expr.span);
@@ -1252,18 +1269,7 @@ TypeId PerModuleSema::inferForIn(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
     if (expr.operands.size() < 2U)
         return void_type;
-    if (!expr.label.empty()) {
-        if (std::find(active_loop_labels_.begin(), active_loop_labels_.end(), expr.label) !=
-            active_loop_labels_.end()) {
-            report(expr.span, "duplicate loop label '" + expr.label + "'",
-                   diagnostics::err::UnsupportedSyntax);
-        }
-    }
-    active_loop_labels_.push_back(expr.label);
-    // A loop label also reserves the name against named blocks in the
-    // same body, so `outer: for` and `outer: { }` cannot coexist.
-    if (!expr.label.empty())
-        active_named_blocks_.push_back(expr.label);
+    enterLoopLabel(expr);
 
     const auto &iterable_node = expr.operands[0].value <= snapshot.expressions().size()
                                     ? snapshot.expressions()[expr.operands[0].value - 1U]

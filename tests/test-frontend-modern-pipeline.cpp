@@ -1402,6 +1402,76 @@ void test_named_block_duplicate_name_is_diagnosed() {
           "a duplicate named block reports NamedBlockDuplicateName");
 }
 
+void test_named_block_label_collision_is_symmetric() {
+    // A named block and a loop label share the per-body name space, so the
+    // collision must be rejected in either declaration order.
+    {
+        Workspace workspace;
+        const auto result = checkSource(workspace, "main.zithm", "fn main() {\n"
+                                                                 "    outer: for (i in 0..3) { }\n"
+                                                                 "    outer: { }\n"
+                                                                 "}\n");
+        CHECK(!result.ok, "a named block after a loop label of the same name fails");
+        CHECK(hasDiagnostic(result, diagnostics::err::NamedBlockDuplicateName),
+              "label-then-block collision reports NamedBlockDuplicateName");
+    }
+    {
+        Workspace workspace;
+        const auto result = checkSource(workspace, "main.zithm", "fn main() {\n"
+                                                                 "    setup: { }\n"
+                                                                 "    setup: for (i in 0..3) { }\n"
+                                                                 "}\n");
+        CHECK(!result.ok, "a loop label after a named block of the same name fails");
+        CHECK(hasDiagnostic(result, diagnostics::err::NamedBlockDuplicateName),
+              "block-then-label collision reports NamedBlockDuplicateName");
+    }
+}
+
+void test_named_block_invalid_positions_are_diagnosed() {
+    const char *const bodies[] = {
+        "fn main() {\n    for (i in 0..3) {\n        setup: { }\n    }\n}\n",
+        "fn main() {\n    while (true) {\n        setup: { }\n        break;\n    }\n}\n",
+        "fn main() {\n    {\n        setup: { }\n    }\n}\n",
+        "fn main() {\n    outer: {\n        inner: { }\n    }\n}\n",
+    };
+    for (const char *body : bodies) {
+        Workspace workspace;
+        const auto result = checkSource(workspace, "main.zithm", body);
+        CHECK(!result.ok, "a nested named block fails type checking");
+        CHECK(hasDiagnostic(result, diagnostics::err::NamedBlockInvalidPosition),
+              "a nested named block reports NamedBlockInvalidPosition");
+    }
+}
+
+void test_named_block_marker_accepts_each_place_kind() {
+    Workspace workspace;
+    const auto result = checkSource(
+        workspace, "main.zithm", "pub trait Guard { fn leave(var self): void; }\n"
+                                 "pub trait Scope { fn enter(var self): dyn Guard; }\n"
+                                 "struct G { }\n"
+                                 "struct R { }\n"
+                                 "struct Holder { r: R }\n"
+                                 "implement G as Guard { fn leave(var self): void { } }\n"
+                                 "implement R as Scope {\n"
+                                 "    fn enter(var self): dyn Guard { return G { }; }\n"
+                                 "}\n"
+                                 "#[scope] pub macro scoped(resources: identifier...) { }\n"
+                                 "const global_r: R = R { };\n"
+                                 "fn use_param(param: R) {\n"
+                                 "    from_param: @scoped(param) { }\n"
+                                 "}\n"
+                                 "fn main() {\n"
+                                 "    var holder = Holder { r: R { } };\n"
+                                 "    var binding = R { };\n"
+                                 "    from_binding: @scoped(binding) { }\n"
+                                 "    from_field: @scoped(holder.r) { }\n"
+                                 "    from_global: @scoped(global_r) { }\n"
+                                 "    use_param(R { });\n"
+                                 "}\n");
+    CHECK(result.ok,
+          "a marker accepts a binding, a parameter, a global, and a field as arguments");
+}
+
 void test_named_block_marker_argument_must_implement_scope() {
     Workspace workspace;
     const auto result = checkSource(
@@ -1420,6 +1490,24 @@ void test_named_block_marker_argument_must_implement_scope() {
     for (const auto &diagnostic : result.diagnostics)
         scope_errors += diagnostic.code == diagnostics::err::NamedBlockArgNotScope ? 1U : 0U;
     CHECK_EQ(scope_errors, 1U, "exactly one dedicated marker diagnostic, with no cascade");
+}
+
+void test_named_block_marker_macro_must_be_scope_aware() {
+    Workspace workspace;
+    const auto result = checkSource(workspace, "main.zithm", "pub macro plain(x: identifier) { }\n"
+                                                             "fn main() {\n"
+                                                             "    var a = 1;\n"
+                                                             "    render: @plain(a) { }\n"
+                                                             "}\n");
+    CHECK(!result.ok, "a non-scope macro in the outer position fails type checking");
+    CHECK(hasDiagnostic(result, diagnostics::err::NamedBlockInvalidPosition),
+          "a non-scope macro marker reports NamedBlockInvalidPosition");
+    // The argument check must not run for a rejected marker: it would only add
+    // a cascading NamedBlockArgNotScope on top of the dedicated diagnostic.
+    size_t arg_errors = 0;
+    for (const auto &diagnostic : result.diagnostics)
+        arg_errors += diagnostic.code == diagnostics::err::NamedBlockArgNotScope ? 1U : 0U;
+    CHECK_EQ(arg_errors, 0U, "a rejected marker produces no cascading argument diagnostic");
 }
 
 void test_named_block_marker_rejects_temporary_argument() {
@@ -1956,7 +2044,11 @@ static void test_frontend_modern_pipeline() {
     test_pipeline_marked_named_stage_lowers();
     test_named_block_invalid_position_is_diagnosed();
     test_named_block_duplicate_name_is_diagnosed();
+    test_named_block_label_collision_is_symmetric();
+    test_named_block_invalid_positions_are_diagnosed();
+    test_named_block_marker_accepts_each_place_kind();
     test_named_block_marker_argument_must_implement_scope();
+    test_named_block_marker_macro_must_be_scope_aware();
     test_named_block_marker_rejects_temporary_argument();
     test_pipeline_normal_macro_hygiene_and_call_site_scope();
     test_pipeline_raw_macro_sees_call_site_then_module();

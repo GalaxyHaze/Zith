@@ -334,9 +334,18 @@ private:
     /// Labels of loops currently being inferred. A non-empty label must be
     /// unique among active loops so it can name a `break`/`continue` target.
     std::vector<std::string> active_loop_labels_;
-    /// Names of named blocks and loop labels declared in the current fn/state
-    /// body. A named block must not collide with either; reset per body.
+    /// Names of named blocks declared in the current fn/state body. A named
+    /// block must be unique per body; reset per body.
     std::vector<std::string> active_named_blocks_;
+    /// Loop labels declared anywhere in the current fn/state body. A loop label
+    /// shares the per-body name space with named blocks, so a named block and a
+    /// loop label may not collide in either declaration order; reset per body.
+    std::vector<std::string> body_loop_labels_;
+    /// True while iterating the statements of the current fn/state body. The
+    /// per-body name bookkeeping (named blocks and loop labels) is only recorded
+    /// here, so the later standalone sweep and the ForIn pre-pass, which
+    /// re-infer loops outside any body, do not corrupt or duplicate it.
+    bool in_body_statement_pass_ = false;
     /// The block expression id of the fn/state body currently being inferred.
     /// A named block is position-valid only when it is a direct statement of
     /// this block or a pipeline stage; reset per body.
@@ -525,6 +534,10 @@ private:
     /// True when `type` has a registered nominal conformance to the `Scope`
     /// trait (`implement T as Scope`).
     [[nodiscard]] bool typeImplementsScope(TypeId type) const;
+    /// Registers a loop's label while its body is inferred. Reports a duplicate
+    /// active loop label and a collision with a named block already declared in
+    /// the body; the label shares the per-body name space with named blocks.
+    void enterLoopLabel(const frontend::Expression &expr);
     [[nodiscard]] bool calleeIsDiscardable(frontend::ExprId call_id) const noexcept;
     /// Validates a `defer expr;` / `defer { ... }` statement: infers the body
     /// normally and rejects statements that would transfer control away from
