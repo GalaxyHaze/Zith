@@ -1043,16 +1043,21 @@ Step 3 handoff and packaging evidence, 2026-11-24:
   `initialized`.
 - Step 3 Action 7 (server SHA-256), recorded 2026-11-24:
   - reviewed LSP build `zith-lsp/build/zith-lsp` at `zith-lsp` HEAD
-    `3221ccc348302ce108c5b9182ce39de5e0224cf1`:
-    `0cf2fada54ea4208447241c562c8691c5f780d44a7d4c4eca957fec05e94ad74`.
+    `3221ccc348302ce108c5b9182ce39de5e0224cf1` and `Zith` HEAD
+    `66ae5846b4c06d814575dca32eac70895358a792` (the LSP links the local
+    compiler source):
+    `3c58a91c252151e3d18b79b2c59a688e5b20c06e6b1fd1840dc94e48e0f9a8ec`.
   - installed extension server binary
     `zith-extension/vs-code/server/zith-lsp`:
-    `0cf2fada54ea4208447241c562c8691c5f780d44a7d4c4eca957fec05e94ad74`.
+    `3c58a91c252151e3d18b79b2c59a688e5b20c06e6b1fd1840dc94e48e0f9a8ec`.
   - packaged VSIX `/tmp/zith-language-beta.vsix`, entry
     `extension/server/zith-lsp`:
-    `0cf2fada54ea4208447241c562c8691c5f780d44a7d4c4eca957fec05e94ad74`.
+    `3c58a91c252151e3d18b79b2c59a688e5b20c06e6b1fd1840dc94e48e0f9a8ec`.
   All three match, so the packaged server is the reviewed build. The previous
   packaged `zith-lsp` was the stale 2026-11-08 binary, now replaced.
+- The earlier recorded hash `0cf2fada...` was superseded by the frontend fix in
+  `Zith` commit `1942febf`. Any candidate artifact must be re-packaged from the
+  build whose hash is recorded here.
 - Still open for Step 3: the packaged VSIX bundles only 9 stdlib files under
   `server/stdlib`, while the compiler ships 34 under `stdlib/`. The downloader
   fetches the full tree from `GalaxyHaze/Zith-Lang`, so a clean install gets
