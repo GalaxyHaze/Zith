@@ -992,14 +992,13 @@ Two-axis review of the LSP review fixes, 2026-11-24:
   registered.
 - Evidence after the fixes: LSP suite passed 86 tests; the compiler full CTest
   suite passed 51/51.
-- Still open for Step 3, recorded here so it is not mistaken for done: the
-  `isIncomplete` partial-edit completion path is deferred (documented in
-  `zith-lsp/docs/completion-recommendation-plan.md`); the LSP/VS Code handoff
-  document still needs the tested command names, settings, and known
-  limitations beyond the corrected trigger characters; and the packaged/installed
-  server SHA-256 values (Step 3 Action 7) plus the extension-host and
-  five-first-use-task evidence (Step 3 Actions 4-6) remain to be collected on a
-  display-capable host.
+- Resolved since this entry: the LSP/VS Code handoff document now carries the
+  tested command names, settings, and known limitations (commit `4ef28125`),
+  the packaged and installed server SHA-256 values are recorded (Step 3 Action
+  7), and the extension-host and packaged-VSIX host tests pass under a headless
+  X server (Step 3 Actions 4-6, see the headless-X pass later in this log).
+  Still deferred: the `isIncomplete` partial-edit completion path, documented
+  in `zith-lsp/docs/completion-recommendation-plan.md`.
 
 Attach or link the following evidence in the release review:
 
@@ -1299,5 +1298,5 @@ Step 5 Actions 8 and 9, 2026-11-24 (headless-browser pass):
   viewport checker reported 36/36 and the keyboard checker 18/18. The
   playground diagnostic probe showed one diagnostic per run and a clean
   corrected run.
-- Still open: Step 3 Actions 4-6 (VS Code extension-host and packaged-VSIX
-  host tests) need a running code-oss window and remain unverified here.
+- Step 3 Actions 4-6 (VS Code extension-host and packaged-VSIX host tests) were
+  completed in the headless-X pass recorded above.
