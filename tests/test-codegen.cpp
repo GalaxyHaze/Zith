@@ -2642,6 +2642,42 @@ static void test_named_block_scope_marker_borrow_receiver_keeps_argument_usable(
              "the argument stays readable inside the block and after it, and leave still runs");
 }
 
+static void test_named_block_scope_marker_cleans_up_on_state_jump() {
+    // The marker cleanup must run on a labeled exit that leaves the block: a
+    // state `jump` transfers control out, and the deferred `leave` still fires.
+    CodegenTest t;
+    t.opts.noCache = true;
+    auto r         = t.run(
+        "codegen-named-block-scope-jump.zithm",
+        "#[discardable] extern fn putchar(c: i32): i32\n"
+        "pub trait Guard { fn leave(var self): void; }\n"
+        "pub trait Scope { fn enter(var self): dyn Guard; }\n"
+        "struct RG { }\n"
+        "struct R { }\n"
+        "implement RG as Guard { fn leave(var self): void { _ = putchar(97); } }\n"
+        "implement R as Scope {\n"
+        "    fn enter(var self): dyn Guard { _ = putchar(65); return RG { }; }\n"
+        "}\n"
+        "#[scope] pub macro scoped(resources: identifier...) { }\n"
+        "state First(r: R) {\n"
+        "    render: @scoped(r) {\n"
+        "        _ = putchar(45);\n"
+        "        jump Second();\n"
+        "    }\n"
+        "}\n"
+        "state Second() {\n"
+        "    _ = putchar(90);\n"
+        "    return;\n"
+        "}\n"
+        "fn main() {\n"
+        "    dock First(R { });\n"
+        "}\n");
+    CHECK(r.ok, "scope-marker cleanup in a state body compiles and runs");
+    if (r.output != "A-aZ")
+        std::printf("  observed state-jump scope output: '%s'\n", r.output.c_str());
+    CHECK_EQ(r.output, "A-aZ", "leave runs on the state jump before the transfer leaves the block");
+}
+
 static void test_variadic_macro_repetition_and_caller_scope_defer() {
     CodegenTest t;
     t.opts.noCache = true;
@@ -5289,6 +5325,8 @@ static void test_codegen() {
     test_named_block_scope_marker_cleans_up_on_early_return();
     printf("Running test_named_block_scope_marker_borrow_receiver_keeps_argument_usable\n");
     test_named_block_scope_marker_borrow_receiver_keeps_argument_usable();
+    printf("Running test_named_block_scope_marker_cleans_up_on_state_jump\n");
+    test_named_block_scope_marker_cleans_up_on_state_jump();
     printf("Running test_variadic_macro_repetition_and_caller_scope_defer\n");
     test_variadic_macro_repetition_and_caller_scope_defer();
     printf("Running test_raw_macro_defer_runs_before_loop_break\n");
