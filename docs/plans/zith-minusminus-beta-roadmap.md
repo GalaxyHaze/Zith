@@ -935,6 +935,21 @@ support scope (Zith-- only; macOS and Linux musl excluded) is unchanged.
 Step 3 work on the extension/compiler extension mismatch is the next bounded
 task.
 
+Extension source-extension fix, 2026-11-24:
+
+- The `.zith`/`.zithm` mismatch is fixed in `zith-extension` commit
+  `eaf7925`: the manifest associates `.zithm` and adds `Zith--`/`zith--`
+  aliases, `zith.new` opens `src/main.zithm`, the example and completion
+  fixture are renamed, and a package-compatibility test asserts the
+  association. `npm test` passed (unit 9, project 5, integration 21 with the
+  new association test). The compiler scaffolds `src/main.zithm` with
+  `zithc create`, so the opened path matches.
+- The Linux-only extension-host harness (`node test/integration/run-host.js`)
+  did not complete in this environment: the wrapper hands off to an already
+  running code-oss instance and times out even with an isolated profile. This
+  is the known harness limitation recorded in Current CI Evidence Gaps, not a
+  regression from this change.
+
 Attach or link the following evidence in the release review:
 
 - Candidate version and full commit IDs for the compiler, LSP, extension, and
