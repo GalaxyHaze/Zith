@@ -224,6 +224,79 @@ automatic per-owner cleanup is not planned. Cleanup stays explicit. ADR-0055
 records the accepted ownership design, and
 [`defer-drop.md`](plans/defer-drop.md) preserves the superseded proposal.
 
+### 9.6 Named Blocks and Scope Markers
+
+A statement in a `fn` or `state` body may carry a descriptive name:
+
+```zith
+fn main() {
+    setup: {
+        // ordinary lexical scope, name is descriptive only
+    }
+}
+```
+
+The plain named block creates a lexical scope. The name has no runtime effect,
+introduces no cleanup, and is never a `break` or `continue` target.
+
+A named block may also carry a scope marker, a call to a macro declared with
+`#[scope]`:
+
+```zith
+render: @scoped(renderer, log) {
+    renderer.draw();
+    log.write("frame");
+}
+```
+
+Each marker argument must be a place-expression (a binding, a parameter, a
+global, or a field) whose type implements `Scope`. A temporary is rejected.
+The compiler expands the marker into one hidden `enter` per argument, left to
+right, and registers the matching `leave` in reverse order through `defer`, so
+the cleanup runs on every exit from the block, including `return`. The guard
+bindings are hidden and hygienic. `enter` and `leave` do not fail at the
+language surface.
+
+The standard library declares the traits and the marker macro:
+
+```zith
+pub trait Guard {
+    fn leave(var self): void;
+}
+
+pub trait Scope {
+    fn enter(var self): dyn Guard;
+}
+
+#[scope]
+pub macro scoped(resources: identifier...) { }
+```
+
+An implementation chooses its own guard type and the effect `leave` performs.
+The `#[scope]` attribute is the contract: only a macro carrying it may appear
+in the outer position `name: @macro(...) { }`, and no macro name is hardcoded
+in the compiler. The spec names the macro `marker`, but `marker` is a reserved
+keyword, so the stdlib macro is `scoped`.
+
+Position is restricted. A named block is valid only as a direct statement of a
+`fn` or `state` body. It is rejected inside `if`, loops, anonymous blocks, and
+other named blocks. The one composed position is a pipeline stage, where the
+named block is a normal stage with every pipeline rule intact:
+
+```zith
+value
+    |> step1: { it + 1 }
+    |> render: @scoped(r) { it * 2 };
+```
+
+Names are unique per `fn`/`state` body. A duplicate name, including a collision
+with a loop label in the same body, is rejected. Names are preserved in the HIR
+for tooling and diagnostics but are not part of the ABI or the ZIRL format.
+
+Three dedicated diagnostics cover the new rejections: a named block in an
+invalid position, a marker argument that is not a place or does not implement
+`Scope`, and a duplicate name.
+
 ---
 
 *[Zith Language Specification](Zith-spec.md) — Draft v0.9*

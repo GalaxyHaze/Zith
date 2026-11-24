@@ -177,6 +177,12 @@ exacto para o target.
 `unlikely` são reconhecidos, mas não prometem comportamento específico do
 optimizador.
 
+`scope` classifica como `AttributeKind::Scope` e marca uma macro como
+scope-aware. Só uma macro com este atributo pode aparecer na posição outer
+`nome: @macro(...) { }`. `ImportedMacroRecord::isScopeMacro` propaga o
+atributo de uma macro importada, para que o sema valide a posição sem
+re-resolver a declaração.
+
 ## Superfície C/runtime da stdlib
 
 Os módulos `stdlib/c/*.zithm` são bindings C comuns mantidos pela toolchain,
@@ -639,6 +645,58 @@ bindings directas; antes de `return`/`break`/`continue`/`jump` os pending defers
 são emitidos primeiro. O cleanup final é `HirExprKind::Cleanup` em reverse order
 antes de `ret`, branches de `break`/`continue` e `HirStateTailCall`. `state`
 sem return type declarado é tratado como `void` e nunca tem tipo inferido do corpo.
+
+## Blocos Nomeados e Marcadores de Scope
+
+O parser aceita dois statements no corpo de uma `fn`/`state`: `nome: { ... }`
+e `nome: @macro(args) { ... }`. Em ambos, o nome fica em
+`Expression::block_name`; na forma com marcador, o `MacroCall` fica em
+`Expression::marker`. O bloco é sempre o `expression` do statement. Um estágio
+de pipeline também aceita as duas formas (`left |> nome: { ... }`), com o
+estágio a ser o bloco nomeado.
+
+A expansão de macros corre `MacroExpander::desugarNamedBlocks` depois de
+expandir todos os templates. Para cada bloco nomeado cujo `marker` é uma
+`MacroCall` de uma macro visível com `#[scope]`, a forma é reescrita para o
+cleanup gerido: por argumento, da esquerda para a direita, um binding oculto
+`let __scope$N = arg.enter();` seguido de um `defer __scope$N.leave();`, ambos
+prefixados ao corpo do bloco. O `leave` corre por ordem inversa através da
+infraestrutura de `defer`, logo no fallthrough, em `return` e em exits
+labelados. O nome gerado usa `$`, que nunca aparece num identificador do
+utilizador, por isso o guard é higiénico. A macro da stdlib (`scoped`) tem
+corpo vazio: a scaffolding é inteiramente gerada pelo compilador a partir dos
+argumentos. Um marcador que não seja scope-aware fica intacto para o sema
+rejeitar.
+
+O sema valida na posição (`validateNamedBlock`): o bloco nomeado tem de ser
+statement direto do corpo da declaração atual (comparação com
+`decl.body`, não com o scope, porque um `for` com init embrulha o loop num
+bloco sintético que reutiliza o scope do corpo) ou um estágio de pipeline;
+cada argumento do marcador tem de ser uma place-expression
+(`isPlaceExpression`) e o seu tipo tem de satisfazer `Scope`
+(`typeImplementsScope`); e o nome tem de ser único no corpo, incluindo
+colisão com labels de loop. `Expression::markerScopeAware` regista a
+scope-awareness para o sema não re-resolver o atributo de uma macro importada.
+
+Os statements e expressões gerados para a scaffolding ficam marcados com
+`isSyntheticCleanup`. Quando um argumento do marcador é rejeitado, o sema
+regista esses statements em `skipped_marker_statements_` e `inferBlock`
+salta-os, enquanto a varredura de expressões standalone ignora as expressões
+marcadas. Assim o diagnóstico dedicado não é seguido de erros em cascata das
+chamadas `enter`/`leave` geradas. Um marcador válido tipa a scaffolding
+através do próprio bloco.
+
+O lowering preserva o nome em `HirModule::addNamedScope`
+(`HirNamedScope { function, name, span }`), uma tabela lateral para tooling e
+diagnósticos, como os labels de loop. A tabela não é serializada no ZIRL nem
+entra na ABI, por isso renomear um bloco não muda nenhum artefacto compilado.
+
+Os três diagnósticos dedicados são `E2032 NamedBlockInvalidPosition`,
+`E2033 NamedBlockArgNotScope` e `E2034 NamedBlockDuplicateName`. A macro da
+stdlib vive em `stdlib/std/scope.zithm` (`Guard`, `Scope` e `scoped`). O spec
+chama `marker` à macro, mas `marker` é uma palavra reservada do Zith--, por
+isso o nome da stdlib é `scoped`; o compilador despacha pelo atributo
+`#[scope]`, não pelo nome.
 
 ## Pipelines `|>` e `also`
 

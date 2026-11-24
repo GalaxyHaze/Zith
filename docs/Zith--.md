@@ -639,6 +639,78 @@ inicialização do binding capturado puder fazer o cleanup correr sem esse valor
 o compilador rejeita com `defer may run before captured binding '<name>' is
 initialized`.
 
+### Blocos Nomeados e Marcadores de Scope
+
+Um statement direto do corpo de uma `fn` ou `state` pode levar um nome
+descritivo. A forma simples cria um escopo lexical normal, sem efeito runtime e
+sem cleanup:
+
+```zith
+fn main() {
+    setup: {
+        var tmp = compute();
+        use(tmp);
+    }
+}
+```
+
+A forma com marcador aplica cleanup gerido a partir de uma macro marcada com
+`#[scope]`:
+
+```zith
+render: @scoped(renderer, log) {
+    renderer.draw();
+    log.write("frame");
+}
+```
+
+Cada argumento do marcador tem de ser uma place-expression (binding,
+parâmetro, global ou campo) cujo tipo implementa o trait `Scope`; temporários
+são rejeitados. A expansão gera um `enter` por argumento, da esquerda para a
+direita, e regista o `leave` correspondente por ordem inversa através de
+`defer`, por isso o cleanup corre no fallthrough, em `return` e em qualquer
+exit labelado que saia do bloco. Os guards são bindings ocultos e higiénicos, e
+`enter`/`leave` não falham na superfície da linguagem.
+
+A stdlib declara os traits e a macro:
+
+```zith
+pub trait Guard {
+    fn leave(var self): void;
+}
+
+pub trait Scope {
+    fn enter(var self): dyn Guard;
+}
+
+#[scope]
+pub macro scoped(resources: identifier...) { }
+```
+
+Cada implementação escolhe o seu tipo de guard e o efeito de `leave`. O
+atributo `#[scope]` é o contrato: só uma macro com esse atributo pode aparecer
+na posição outer `nome: @macro(...) { }`, e nenhum nome de macro está
+hardcoded no compilador. O spec chama `marker` à macro, mas `marker` é uma
+palavra reservada, por isso a macro da stdlib chama-se `scoped`.
+
+A posição é restrita. Um bloco nomeado só é válido como statement direto do
+corpo de uma `fn` ou `state`, e é rejeitado dentro de `if`, loops, blocos
+anónimos e outros blocos nomeados. A única posição composta é um estágio de
+pipeline, onde o bloco nomeado é um estágio normal com todas as regras de `|>`:
+
+```zith
+value
+    |> step1: { it + 1 }
+    |> render: @scoped(r) { it * 2 };
+```
+
+Os nomes são únicos por corpo de `fn`/`state`; duplicação é erro, incluindo
+colisão com um label de loop do mesmo corpo. Nomes de blocos nomeados nunca são
+alvo de `break`/`continue`. Os nomes são preservados no HIR para tooling e
+diagnósticos, mas não fazem parte da ABI nem do formato ZIRL. Três diagnósticos
+dedicados cobrem as rejeições novas: posição inválida, argumento que não
+implementa `Scope` (incluindo temporários), e nome duplicado.
+
 ## Tipos
 
 Os tipos atuais são mantidos: primitivos, `struct`, `union`, `enum`, genéricos, function types e as formas compostas existentes. `ptr`, `array`, `slice` e `optional` são modificadores/compostos já existentes, não uma lista excludente de tipos.
