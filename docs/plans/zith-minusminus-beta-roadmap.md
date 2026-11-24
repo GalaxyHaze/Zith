@@ -1094,3 +1094,29 @@ Step 2 malformed-source fixtures, 2026-11-24:
 - Evidence: `cmake --build build -j4` exited 0, the full CTest suite passed
   51/51, `./build/test-frontend` passed 467/467, `./build/test-wasm-playground`
   passed 67/67, and `./build/zithc check examples/loops-simple.zithm` passed.
+
+Step 2 discrepancy table and website source-file recheck, 2026-11-24:
+
+- Action 3 deliverable created: `docs/spec-status-discrepancy-table.md`
+  records one row per `docs/impl-status.md` status row plus every public-claim
+  finding, each with the spec section, status entry, compiler evidence (a test
+  id or a `zithc` probe result), discrepancy, and resolution. Every status row
+  was rechecked against the compiler at `Zith` HEAD `29444d4e` and none
+  contradicts the compiler.
+- Actions 1, 3, 4, 9, 10: the table re-audits the four items in
+  `docs/review-website-inconsistencies-2026-11-02.md` and adds two more
+  website discrepancies found by rechecking source-file references. All six
+  are fixed and committed.
+- New public-claim discrepancy (`.zithm` vs `.zith`): `Zith-website`
+  `zith--/reference.md` listed platform-specific import variants as
+  `foo.<arch>.<os>.zith`, and `zith--/guide/first-program.md` plus the CLI
+  pages used `src/main.zith` / `repro.zith`. The compiler scaffolds
+  `src/main.zithm` (`src/cli/cmd/project.cpp`) and resolves module candidates
+  only for `.zithm` (`src/session/frontend-module-analysis.cpp`). Fixed in
+  `Zith-website` commit `3097311` (nine references across eight pages).
+- Evidence: `ctest --test-dir build --output-on-failure -j4` passed 51/51,
+  `ctest -R 'docs-consistency|concepts-consistency|deltas-consistency'` passed
+  3/3, `zithc check` passed 50 of 55 `examples/*.zithm` (the five failures are
+  the exploratory `test-import-*.zithm` probes over the experimental `soon/`
+  tree, not the `test-examples` manifest), `zithc create` wrote
+  `src/main.zithm`, and `git diff --check` passed in both repositories.
