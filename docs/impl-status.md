@@ -72,7 +72,7 @@ Implementation work that is incomplete or needs review is tracked in
 | `raw fn` | **Working** | Direct and method calls require `raw`, including calls made through the `Trust` capability (`E2030`). The marker covers only the call. Arguments and raw function bodies remain checked, and raw functions cannot be used as values. `#[raw("reason")]` adds an optional note to a missing-marker error. C-header functions also require the marker and emit `W2031` at every call, including marked calls. `#[safe]` on a standard external-symbol alias suppresses both the marker requirement and the C-boundary warning. `extern raw fn` and `raw state` remain deferred. |
 | `const fn` | **Parse error** | Rejected by the parser; compile-time evaluation is not part of Zith-- |
 | `extern fn` | **Working** | C ABI interop |
-| `let`, `var`, `const`, `global` | **Working** | All binding forms. `const` means immutable, not comptime |
+| `let`, `var`, `const` | **Working** | All supported binding forms. `const` means immutable, not comptime. The legacy `global name: T = value` form is rejected with `E2010` and a `const` suggestion (see [Removed restrictions](Zith--.md)) |
 | `#[alignas(N)]` on bindings | **Working** | Applies to supported `let`, `var`, or `const` storage. `N` is a positive power-of-two constant supported by the target. It aligns only that binding, not its type, copies, or individual array elements. |
 | `#[noalias]`, `#[likely]`, `#[unlikely]` | **Recognized only** | `noalias` is restricted to functions returning pointers. `likely` and `unlikely` do not promise optimizer behavior. |
 
@@ -100,7 +100,7 @@ Implementation work that is incomplete or needs review is tracked in
 | `implement T as Trait {}` | **Working** | Records a verified nominal conformance edge and resolves calls to concrete trait defaults. The canonical syntax is `implement T as Trait`; the legacy `for Trait` spelling remains parsed |
 | `type` | **Working (Zith-- cast-based)** | `type Name = T` creates a nominal one-field wrapper distinct from `T`; `T as Name` constructs it and `Name as T` extracts the underlying value. `alias` stays transparent |
 | `alias` | **Working** | Transparent alias: `alias Name = T` re-exports the same type |
-| memory qualifiers (`mut`, `lend`, `view`, `own`, `share`, `belong`) | **Working (lend/view slice)** | `lend T`/`view T` parameters lower to pointers and require call-site annotations for `default` bindings (`E4005`); invalid call annotations are rejected (`E4007`); same-binding conflicts in one call are rejected; `view` writes report `E4004`; LLVM adds `readonly` for `view` and `nocapture` for `lend`/`view`. `own`/`share`/`belong`/`mut` as type prefixes remain rejected or legacy-only. NRA residual facts are attached before HIR (F-34, partial F-14) |
+| memory qualifiers (`mut`, `lend`, `view`, `own`, `share`, `belong`) | **Working (lend/view slice)** | `lend T`/`view T` parameters lower to pointers and require call-site annotations for `default` bindings (`E4005`); invalid call annotations are rejected (`E4007`); same-binding conflicts in one call are rejected; `view` writes report `E4004`; LLVM adds `readonly` for `view` and `nocapture` for `lend`/`view`. `own`/`share`/`belong`/`mut` as type prefixes remain rejected or legacy-only. SRA residual facts are attached before HIR (F-34, partial F-14) |
 
 ### Expressions
 
