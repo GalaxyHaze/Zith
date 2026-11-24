@@ -6,7 +6,7 @@ from soon/memory/allocators/allocator
 ///
 /// The generic `HashMap<K, V>` is now consumable across modules; this module
 /// remains the concrete `u64 -> u64` variant. See
-/// `std/collections/hash_map.zithm`.
+/// `soon/collections/hash_map.zithm`.
 pub struct Entry {
     pub key: u64,
     pub value: u64,

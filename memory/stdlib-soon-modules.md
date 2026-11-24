@@ -56,24 +56,27 @@ equal declaration IDs from different modules can resolve a call to the wrong
 generic function. `test_imported_result_runtime` in `tests/test-codegen.cpp`
 covers imported `Result` constructors and `soon/result/fallback` helpers.
 
-## Stable Facade Boundary
+## Facade Boundary
 
-Do not remove `std/` facades as part of the `soon/` promotion work. `std/` is
-not only a compatibility layer: shipped modules such as `std/io/console`,
-`std/io/format`, `std/result`, and `std/test` remain active. The console module
-imports `std/io/format`. `tests/test-interface-satisfaction.cpp` imports the
-`std/memory` facade and writes qualified types under `soon.memory...`, because
-a re-export keeps the target's own path prefix. The facade still injects the
-public symbols (`from std/memory` exposes `HeapAllocator` and `InPlace`), but a
-qualified name resolves through the re-exported `soon/...` module path, so the
-`std.memory...` spelling does not name a type. Cold and warm cache loads are
-both covered. Broader removal requires a separate stable-API migration.
+`std/` holds only the modules the beta needs: `std/io/console`, `std/io/format`,
+`std/scope`, `std/test`, and the `std/memory` facade. The console module imports
+`std/io/format`. The memory contracts live under `soon/memory/*`; both
+`std/memory` and `soon/memory` re-export them.
+`tests/test-interface-satisfaction.cpp` imports the `std/memory` facade and
+writes qualified types under `soon.memory...`, because a re-export keeps the
+target's own path prefix. The facade still injects the public symbols (`from
+std/memory` exposes `HeapAllocator` and `InPlace`), but a qualified name
+resolves through the re-exported `soon/...` module path, so the `std.memory...`
+spelling does not name a type. Cold and warm cache loads are both covered.
+Commit `51bc0487` removed the earlier `std/result`, `std/panic`, `std/alloc`,
+`std/new`, and `std/collections/*` facades; those modules now ship only under
+`soon/`. Broader `std/` growth requires a separate stable-API migration.
 
 ## Facts And Gotchas
 
 - The extraction path for a union is `raw value as Member`; direct
   construction is `Result<A, B>{ value }`.
-- `soon/result/fallback` builds on `std/result` and adds checked
+- `soon/result/fallback` builds on `soon/result` and adds checked
   `unwrapOr`/`unwrapErrOr`; it does not duplicate `Result<T, E>`.
 - `soon/math/scalar` is allocator-free and provides `minI32`, `maxI32`,
   `clampI32`, `degreesToRadians`, and `radiansToDegrees`.

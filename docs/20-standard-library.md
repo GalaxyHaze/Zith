@@ -1,17 +1,22 @@
 ## 20. Standard Library
 
 > **Status:** see [impl-status.md](impl-status.md) for the current status of each module. The
-> shipped modules are `stdlib/c/io.zithm`, `stdlib/c/stdlib.zithm`, `stdlib/c/string.zithm`,
-> `stdlib/c/fs.zithm`, `stdlib/c/posix.linux.zithm`,
-> `stdlib/std/io/console.zithm`, the `std/memory` DAG, `stdlib/std/collections/hash_map_u64.zithm`
-> (a concrete `u64 -> u64` map), `stdlib/std/collections/hash_map.zithm` (a checked generic
-> `HashMap<K, V>`), and `stdlib/std/result.zithm` (the canonical positional
-> `Result<T, E>` union with `Ok`/`Err`/`isOk`/`isErr`/`unwrap`/`unwrapErr` helpers). `std/alloc`
-> and `std/new` remain as legacy compatibility modules.
+> stable modules shipped under `std/` are `stdlib/std/io/console.zithm`,
+> `stdlib/std/io/format.zithm`, `stdlib/std/scope.zithm`, and `stdlib/std/test.zithm`, plus the
+> `std/memory` facade. The raw C bindings ship under `c/`: `stdlib/c/io.zithm`,
+> `stdlib/c/stdlib.zithm`, `stdlib/c/string.zithm`, `stdlib/c/fs.zithm`, and the Linux platform
+> variant `stdlib/c/posix.linux.zithm`. The experimental modules ship under `soon/`: the memory
+> DAG (`soon/memory/in-place`, `soon/memory/allocators/allocator`, `soon/memory/allocators/heap`,
+> `soon/memory/new`, with the `soon/memory` and `std/memory` facades), the concrete
+> `soon/collections/hash_map_u64` (a `u64 -> u64` map), the checked generic
+> `soon/collections/hash_map` (`HashMap<K, V>`) and `soon/collections/dyn_array`
+> (`DynArray<T>`), the canonical positional `soon/result` (`Result<T, E>` with
+> `Ok`/`Err`/`isOk`/`isErr`/`unwrap`/`unwrapErr` helpers), `soon/panic`, and the
+> alloc/new/math/counter/string/json helpers. `soon/` is experimental and is not part of the
+> stable beta surface.
 
-`std`/`soon` remain documentation-only in this iteration, except for the shipped modules listed
-above. The common C bindings used by those modules live under `c/` rather than importing host
-headers directly.
+The common C bindings used by those modules live under `c/` rather than importing host headers
+directly.
 The documented convention uses resource types with `init`/`destroy`, read-only methods with
 `view`, and mutating methods with `lend`. `defer` runs `destroy(self: lend Self)` on resource
 cleanup. `drop` remains outside the current Zith-- contract.
@@ -90,7 +95,7 @@ stdlib surface. `*char` parsing remains out of scope.
 @println("hello");
 ```
 
-#### `std/alloc`
+#### `soon/memory` (allocator and heap)
 
 Raw storage primitives and a default heap allocator. The trait methods use
 `self` read-only receivers because the current compiler invalidates a concrete
@@ -116,17 +121,19 @@ pub fn reallocate(self: dyn Allocator, old: raw opaque, old_size: u64,
 `allocate` returns `null` when the underlying `malloc`/`realloc` call fails.
 The caller owns the storage and must pass the same `size`/`align` to
 `deallocate`. The larger `InPlace`/`new`/`delete`/`make`/`release` contract is
-recorded in [ADR 0010](adr/0010-allocator-inplace-drop.md). `stdlib/std/memory/new.zithm`
-ships real `new<T>`/`delete<T>` bodies, and `stdlib/std/new.zithm` remains as
-legacy compatibility. `new<T>` binds its result-only `T` from the expected
-result type, so `let p: ?*Box = new(0 as opaque);` needs no explicit `<...>`;
-it allocates through the `HeapAllocator` bridge, calls `(*p).inplace(args)`, and
-`delete<T>` calls `(*p).clean()` and frees the block. The `InPlace` trait is
-checked and covered by a conforming type in `tests/test-generic-hashmap.cpp`,
-and the heap pair runs end-to-end in `test-codegen`
-(`test_imported_memory_new_delete_runtime`).
+recorded in [ADR 0010](adr/0010-allocator-inplace-drop.md). The trait lives in
+`stdlib/soon/memory/in-place.zithm`, `Allocator` in
+`stdlib/soon/memory/allocators/allocator.zithm`, and `HeapAllocator` in
+`stdlib/soon/memory/allocators/heap.zithm`. `stdlib/soon/memory/new.zithm`
+ships real `new<T>`/`delete<T>` bodies. `new<T>` binds its result-only `T` from
+the expected result type, so `let p: ?*Box = new(0 as opaque);` needs no
+explicit `<...>`; it allocates through the `HeapAllocator` bridge, calls
+`(*p).inplace(args)`, and `delete<T>` calls `(*p).clean()` and frees the block.
+The `InPlace` trait is checked and covered by a conforming type in
+`tests/test-generic-hashmap.cpp`, and the heap pair runs end-to-end in
+`test-codegen` (`test_imported_memory_new_delete_runtime`).
 
-#### `std/memory` (target DAG)
+#### `std/memory` (facade over the `soon/memory` DAG)
 
 ```zith
 pub trait InPlace {
@@ -154,17 +161,20 @@ continues to demonstrate the local `InPlace` shape.
 The layer DAG is kept strict: `in-place` defines `InPlace` only,
 `allocators/allocator` depends on `in-place` and owns `Allocator`,
 `allocators/heap` implements `HeapAllocator`, and `new` depends on `in-place`
-plus `allocators/heap` without naming `make`/`release`. `std/memory`
-re-exports the same-level contracts, including `Allocator`, `HeapAllocator`,
-the raw free-function bridge, and `new`/`delete`, so callers can use one stable
-import root (`from std/memory`).
+plus `allocators/heap` without naming `make`/`release`. The `std/memory` and
+`soon/memory` facades both re-export the same-level contracts, including
+`Allocator`, `HeapAllocator`, the raw free-function bridge, and `new`/`delete`,
+so callers can use one import root (`from std/memory` or `from soon/memory`).
+The re-export keeps the target module's own `soon/...` prefix, so a qualified
+name resolves as `soon.memory...` even through the `std/memory` facade.
 
-`export` paths that share a namespace prefix (for example the `std/...` roots
-inside the facade) are deduplicated into one qualified namespace; the public
-symbols of every export are injected independently. This keeps a facade usable
-even when it re-exports more than one module under the same top-level segment.
+`export` paths that share a namespace prefix (for example the `soon/memory/...`
+roots inside the facade) are deduplicated into one qualified namespace; the
+public symbols of every export are injected independently. This keeps a facade
+usable even when it re-exports more than one module under the same top-level
+segment.
 
-#### `std/collections/DynArray`
+#### `soon/collections/dyn_array` (DynArray)
 
 ```zith
 struct DynArray<T> {
@@ -182,23 +192,25 @@ constructs an array, `da.DynArray.reserve<i32>`/`da.push<i32>` grow it, and
 passes `zithc check` and runs to exit 0, and `test-codegen` exercises an imported
 `DynArray<i32>` end-to-end.
 
-#### `std/collections/hash_map_u64` (concrete)
+#### `soon/collections/hash_map_u64` (concrete)
 
 The shipped concrete map stores `u64` keys and `u64` values. It uses an
 open-addressed linked chain and owns its backing storage with `calloc`/`free`.
 Callers must call `destroy` after use.
 
 ```zith
-import std/collections/hash_map_u64 as hm;
+import soon/collections/hash_map_u64 as hm;
+from soon/memory
 
-var map = hm.HashMap { count: 0u64, capacity: 0u64, table: null, head: 0u64 };
+let heap = HeapAllocator {};
+var map = hm.create(heap);
 if not(hm.HashMap.reserve(lend map, 64u64)) { /* allocation failed */ }
-hm.HashMap.put(lend map, 1u64, 42u64);
+_ = hm.HashMap.put(lend map, 1u64, 42u64);
 let value = hm.HashMap.get(view map, 1u64); // ?u64
 hm.HashMap.destroy(lend map);
 ```
 
-#### `std/collections/hash_map` (checked generic)
+#### `soon/collections/hash_map` (checked generic)
 
 `HashMap<K, V>`, `Entry<K, V>`, and `Hashable` form the generic checked map
 module. Concrete generic instances are reified with their type arguments
@@ -218,7 +230,7 @@ generic calls inside the body are concretized transitively, so
 concrete shipped runtime example, the `u64 -> u64` module above remains
 available.
 
-#### `std/result`
+#### `soon/result`
 
 The canonical error-handling foundation is a single positional generic union
 plus generic helpers:
@@ -242,7 +254,7 @@ tag check, so the caller must establish `isOk`/`isErr` first. The module is
 type-checked by `test-stdlib-modules` and exercised end-to-end by `test-codegen`
 (`test_imported_result_runtime`).
 
-#### `std/panic`
+#### `soon/panic`
 
 `panic(message)` reports a fatal message and does not recover. It writes
 `message` and a trailing newline, then terminates through the runtime panic

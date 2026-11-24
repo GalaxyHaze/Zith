@@ -32,16 +32,15 @@ fn new<T: InPlace>(args: opaque): ?*T;
 fn delete<T: InPlace>(ptr: *T);
 ```
 
-The shipped `stdlib/std/alloc.zithm` currently implements the `Allocator` raw
-storage surface plus `HeapAllocator` and the free-function bridge
-`allocate`/`deallocate`/`reallocate` over `dyn Allocator`. The target
-`std/memory` DAG moves `Allocator` to `allocators/allocator`, `HeapAllocator`
-to `allocators/heap`, and keeps `new`/`delete` in `new`. The facade
-re-exports `in-place`, `allocator`, `heap`, and `new`. `stdlib/std/new.zithm`
-remains as legacy compatibility. The target modules pass `zithc check` and are
+The allocator surface now ships under `stdlib/soon/memory*` (the `std/memory`
+facade re-exports it). The `soon/memory` DAG holds `Allocator` in
+`allocators/allocator`, `HeapAllocator` in `allocators/heap`, and `new`/`delete`
+in `new`; the free-function bridge `allocate`/`deallocate`/`reallocate` runs
+over `dyn Allocator`. The facade re-exports `in-place`, `allocator`, `heap`, and
+`new`. The modules pass `zithc check` and are
 covered by `tests/test-generic-hashmap.cpp`. The heap pair is now implemented:
 contextual (expected-result) inference instantiates `new<T>` from `?*T`, so
-`stdlib/std/memory/new.zithm` carries real `new`/`delete` bodies that run in
+`stdlib/soon/memory/new.zithm` carries real `new`/`delete` bodies that run in
 `test-codegen` (`test_imported_memory_new_delete_runtime`). The
 allocator-owned `make`/`release` defaults and opaque pack destructuring remain
 open.
@@ -164,7 +163,7 @@ cleanup call is correct.
 2. Shipped: implement `HeapAllocator` and the `dyn Allocator` free-function
    bridge (`allocate`/`deallocate`/`reallocate`).
 3. Shipped: contextual (expected-result) inference instantiates `new<T>` from
-   `?*T`, and `stdlib/std/memory/new.zithm` carries real `new`/`delete` bodies
+   `?*T`, and `stdlib/soon/memory/new.zithm` carries real `new`/`delete` bodies
    in the checked stdlib surface. `make<T>`/`release<T>` still need a trait
    default body to dispatch to another trait method on `self`.
 4. Implement opaque pack matching/destructuring for `make` argument dispatch

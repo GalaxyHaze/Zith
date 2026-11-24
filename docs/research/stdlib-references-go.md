@@ -196,7 +196,7 @@ Transfers well:
   to a trait-object downcast, so Zith needs a cheap "implements trait T" check.
 - Structural error wrapping. `Unwrap` plus `Is`/`As` is an interface method and a
   tree walk, no language feature required. It can complement Zith's
-  `std/result` if Zith error values later expose a wrapped cause.
+  `soon/result` if Zith error values later expose a wrapped cause.
 - Leaf-internal packages to break cycles. A `stringslite`-style subset is the
   proven fix when a low-level module needs text helpers but cannot depend on the
   full string library.

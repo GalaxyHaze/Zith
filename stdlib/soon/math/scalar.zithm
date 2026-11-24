@@ -30,12 +30,12 @@ pub fn clampI32(value: i32, lower: i32, upper: i32): i32 {
     return value;
 }
 
-/// Converts degrees to radians using `std/math.pi`.
+/// Converts degrees to radians using `soon/math.pi`.
 pub fn degreesToRadians(degrees: f64): f64 {
     return degrees * baseMath.pi / 180.0;
 }
 
-/// Converts radians to degrees using `std/math.pi`.
+/// Converts radians to degrees using `soon/math.pi`.
 pub fn radiansToDegrees(radians: f64): f64 {
     return radians * 180.0 / baseMath.pi;
 }

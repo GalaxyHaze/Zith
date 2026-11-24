@@ -58,7 +58,7 @@ PerModuleSema::findMethodsForOwner(std::string_view owner_name,
                 ResolvedMethod{binding.target.module, &decl, decl.traitName, is_trait_method});
         }
     }
-    // `import std/alloc` binds the first path segment as a namespace alias,
+    // `import soon/memory` binds the first path segment as a namespace alias,
     // so methods exported from the target module are visible even though no
     // individual symbol binding exists for their owner/method names.
     for (const auto &alias : resolution.bindings) {

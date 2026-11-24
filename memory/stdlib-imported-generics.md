@@ -2,7 +2,7 @@
 
 Cross-module generic **struct** types were the main compiler blocker on the
 stdlib surface. The imported generic path now reuses the local instantiation
-machinery, so `import std/collections/hash_map as hm` followed by
+machinery, so `import soon/collections/hash_map as hm` followed by
 `hm.HashMap<i64, i64>{}` and `hm.HashMap.init(lend map)` compiles and runs.
 ADR `docs/adr/0020-imported-generic-instantiation.md` is accepted and
 `docs/plans/imported-generic-hashmap.md` is complete.
@@ -73,14 +73,14 @@ the declaring module's sema is reused for the caller's instantiation.
 
 ## Stdlib impact
 
-- `std/collections/hash_map.zithm` (`HashMap<K, V>`, `Entry<K, V>`) is a
+- `soon/collections/hash_map.zithm` (`HashMap<K, V>`, `Entry<K, V>`) is a
   consumable checked generic map. `examples/hash-map.zithm` passes `zithc check`
   and runs to exit 0.
-- `std/collections/dyn_array.zithm` (`DynArray<T>`) shares the same path and is
+- `soon/collections/dyn_array.zithm` (`DynArray<T>`) shares the same path and is
   promoted: `examples/dyn-array.zithm` passes `zithc check` and runs to exit 0,
   and `test-codegen` exercises an imported `DynArray<i32>` end-to-end.
 - The concrete `hash_map_u64.zithm` remains the shipped `u64 -> u64` map.
-- `std/result.zithm` uses the same imported-instantiation path for a generic
+- `soon/result.zithm` uses the same imported-instantiation path for a generic
   `union` (not a struct): `Result<T, E>` and its `Ok`/`Err` helpers reify from
   the declaring module. The union must be `pub` or the import fails `E2001`.
   Result-only parameters bind from the expected result type (contextual

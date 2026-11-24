@@ -35,7 +35,7 @@ Seam: source review of `src/vm/` and a later indirect-call test.
 ### VMV2-03: allocators stay above the VM primitives
 
 The IR/VM exposes allocation primitives (`AllocBytes`, `MallocBytes`,
-`malloc`) but not allocator APIs. `std/alloc`/`HeapAllocator` run in terms of
+`malloc`) but not allocator APIs. `soon/memory`/`HeapAllocator` run in terms of
 these primitives.
 Seam: `tests/test-vm-v2.cpp` for primitives; stdlib tests for higher layers.
 

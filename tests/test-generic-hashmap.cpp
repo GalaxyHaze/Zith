@@ -28,7 +28,7 @@ struct SessionRunner {
         std::filesystem::create_directories(root);
         opts.targetStage = session::Stage::TypeChecked;
 #ifdef ZITH_STDLIB_DIR
-        // Mirror `zithc --include stdlib` so tests can import std/alloc and friends.
+        // Mirror `zithc --include stdlib` so tests can import soon/memory and friends.
         opts.includeDirs.push(ZITH_STDLIB_DIR);
 #endif
     }

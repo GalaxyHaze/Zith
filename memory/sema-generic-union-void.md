@@ -18,7 +18,7 @@ interned and never reaches codegen.
 The diagnostic is reported at the **use site** (`span`, the caller's type
 expression) with a note on the generic member that resolved to `void`, rather
 than pointing at the template declaration line. For an imported template the
-note points into the declaring module (`stdlib/std/result.zithm`), which is
+note points into the declaring module (`stdlib/soon/result.zithm`), which is
 expected.
 
 Regression: `test_generic_union_void_member_rejected` in
@@ -31,4 +31,4 @@ This only turns the hang into a clean rejection. `Result<void, E>` full support
 (a unit/void representation for a union member) is a separate, larger change;
 `memory/stdlib-io-result.md` records that it is out of scope for the first
 stdlib I/O version. The stdlib `Result<T, E>` helpers (`Ok`/`Err`/`isOk`/...)
-live in `stdlib/std/result.zithm`.
+live in `stdlib/soon/result.zithm`.

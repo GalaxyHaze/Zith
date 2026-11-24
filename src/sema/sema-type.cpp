@@ -42,8 +42,8 @@ const frontend::Declaration *PerModuleSema::findDeclNamed(std::string_view name,
             }
         }
     }
-    // Namespace imports such as `import std/alloc` bind the first path
-    // segment (`std`) rather than each public symbol. Sema sees the target
+    // Namespace imports such as `import soon/memory` bind the first path
+    // segment (`soon`) rather than each public symbol. Sema sees the target
     // module through that alias, so `Allocator` remains resolvable without
     // falling back to scanning every loaded module.
     if (owner != nullptr) {

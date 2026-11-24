@@ -1463,8 +1463,8 @@ static void test_imported_panic_runtime() {
     auto safe = ok.run("codegen-panic-safe.zithm",
                        "import soon/panic as pn\n"
                        "fn main(): i32 { return 5; }\n");
-    CHECK(safe.ok, "importing std/panic does not break a program that never panics");
-    CHECK_EQ(safe.exitCode, 5, "a program importing std/panic still returns its value");
+    CHECK(safe.ok, "importing soon/panic does not break a program that never panics");
+    CHECK_EQ(safe.exitCode, 5, "a program importing soon/panic still returns its value");
 
     CodegenTest t;
     auto r = t.run("codegen-panic-abort.zithm",
@@ -1473,10 +1473,10 @@ static void test_imported_panic_runtime() {
                    "    pn.panic(\"fatal: bad state\");\n"
                    "    return 0;\n"
                    "}\n");
-    CHECK(r.ok, "a program calling std/panic still compiles and links");
+    CHECK(r.ok, "a program calling soon/panic still compiles and links");
     CHECK(r.output.find("fatal: bad state") != std::string::npos,
-          "std/panic writes its message before aborting");
-    CHECK(r.exitCode != 0, "std/panic aborts the process");
+          "soon/panic writes its message before aborting");
+    CHECK(r.exitCode != 0, "soon/panic aborts the process");
 }
 
 static void test_imported_memory_new_delete_runtime() {

@@ -90,8 +90,8 @@ contracts, decisions, and gotchas that are not discoverable from the source alon
   pattern for variadic `Formatable` values.
 - [stdlib-io-result.md](stdlib-io-result.md): proposed `Result<T, E>` surface
   and the compiler facts behind generic `Ok`/`Err` helpers; now shipped as
-  `stdlib/std/result.zithm`, plus the shipped fatal `panic(message)`
-  (`stdlib/std/panic.zithm`, `R10004`) and why `Result<void, E>` stays open.
+  `stdlib/soon/result.zithm`, plus the shipped fatal `panic(message)`
+  (`stdlib/soon/panic.zithm`, `R10004`) and why `Result<void, E>` stays open.
 - [comptime-contextual-inference.md](comptime-contextual-inference.md):
   expected-result generic inference (weak literal vs strong expected-result
   binding) and where it lives, enabling `Ok(7)`/`new(3)` without `<...>`.
