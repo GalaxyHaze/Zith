@@ -50,6 +50,22 @@ standard-library surface. Keep the existing compiler architecture. Do not
 build a first-party IDE, redesign unrelated compiler subsystems, or add broad
 language or library features for this beta.
 
+Approved beta-surface decisions:
+
+- macOS and Linux musl are outside this beta's support scope. Do not claim
+  either as supported or include either in the supported beta matrix,
+  regardless of whether an artifact can be built.
+- Do not imply full or general platform support. Any other operating-system
+  and architecture combination remains a candidate, not supported, until its
+  exact compiler and LSP artifacts, installation route, native smoke test, and
+  end-to-end first-use path pass on that target.
+- `c/` is a thin, simple portability layer over C, not a safe wrapper.
+  `std` contains only modules needed by verified examples and first-use tasks.
+  `soon/` remains experimental and is not part of the stable beta surface.
+- The five first-use tasks and user profile below define the beta acceptance
+  experience. They do not imply support for a platform until that platform
+  passes the native evidence gate.
+
 The intended user is new to Zith-- but has some familiarity with a systems
 language. Assume the reader can use a terminal and build tools and understands
 basic types, functions, imports, and explicit resource management. Do not
@@ -69,9 +85,10 @@ not evidence that a workflow has passed or that every artifact works at
 runtime. Recheck each item against the selected candidate:
 
 - The compiler release workflow builds artifacts for Linux, macOS, and Windows
-  across multiple architectures. Installer smoke workflows cover Ubuntu,
-  macOS, Windows, and a WASM bundle, but do not demonstrate native Windows
-  ARM64 execution. See `.github/workflows/build-artifact.yml` and
+  across multiple architectures. macOS is outside this beta's support scope.
+  Installer smoke workflows cover Ubuntu, macOS, Windows, and a WASM bundle,
+  but do not demonstrate native Windows ARM64 execution. See
+  `.github/workflows/build-artifact.yml` and
   `.github/workflows/smoke-installers.yml`.
 - The LSP's routine test workflow runs on Linux amd64. Its release workflow
   builds additional targets without running the same LSP test suite on each.
@@ -87,11 +104,13 @@ runtime. Recheck each item against the selected candidate:
   `/home/diogo/Zith-website/.github/workflows/build.yml`.
 - The extension downloader requests `zith-lsp-macos-universal` from
   `GalaxyHaze/Zith-Lang`. The checked-in release workflows do not establish
-  that this exact asset is published in that repository. See
+  that this exact asset is published in that repository. macOS is excluded
+  from this beta, so this mismatch is not a beta blocker unless the scope is
+  later changed. See
   `/home/diogo/zith-extension/shared/scripts/download-lsp.js` and the
-  LSP/compiler release workflows. Verify the complete repository, asset-name,
-  and architecture contract before including macOS in the supported beta
-  matrix.
+  LSP/compiler release workflows.
+- Linux musl is also outside this beta's support scope. Do not infer Linux
+  support for musl from a Linux artifact or a mocked platform-selection test.
 
 Builds, mocked selection tests, and declared artifacts are not equivalent to
 native runtime or end-to-end support. Mark each matrix row with the evidence
@@ -178,86 +197,106 @@ The beta is ready only when every gate below passes:
 
 **Window:** Week 1.
 
-**Goal:** define the smallest useful beta experience and record the exact
-starting state of every repository.
+**Goal:** freeze a bounded Zith-- beta surface, capture the exact starting
+state of every repository, and establish evidence-based support claims before
+new cross-repository work begins.
 
 **Actions:**
 
 1. Record `git status --short --branch` and `git rev-parse HEAD` in
    `/home/diogo/Zith`, `/home/diogo/zith-lsp`,
    `/home/diogo/zith-extension`, and `/home/diogo/Zith-website`.
-2. In each related repository, inspect tracked and untracked changes, confirm
-   which existing changes are intended, run the relevant focused tests, and
-   commit the reviewed baseline work before making new changes. Keep commits
-   separate by repository. If a change is unexplained or a focused test fails,
-   stop work in that repository and record the blocker. Do not stage generated
-   files or unrelated changes.
-3. Define the user profile as a person new to Zith-- who can use a terminal,
-   build tools, and basic systems-language concepts, but does not need compiler
-   implementation experience.
-4. Write down the proposed compiler targets, installation routes, LSP assets,
+2. Review tracked and untracked changes in each related repository without
+   discarding, overwriting, or staging any existing work. Record which changes
+   are intended. If intent is unknown, mark that repository blocked and do not
+   run tests that could modify its worktree.
+3. Run the focused baseline tests in each repository only after its existing
+   changes are understood. Record the exact commands, revisions, and outcomes.
+   If a test fails, preserve the output and stop new work in that repository.
+4. Commit only reviewed, intended baseline changes, separately in their owning
+   repositories. Do not include generated files or unrelated changes. If
+   intent is unknown or a focused test fails, leave the worktree unchanged and
+   record the blocker instead of committing.
+5. Freeze the beta surface as Zith-- only. Keep macOS and Linux musl outside
+   the beta support matrix. Do not claim any other target as supported until
+   its exact compiler and LSP artifacts, installation route, native smoke
+   test, and end-to-end first-use path have passed on that target.
+6. Define the user profile as a person new to Zith-- who can use a terminal,
+   build tools, and basic systems-language concepts, but does not need
+   compiler implementation experience.
+7. Record candidate compiler targets, installation routes, LSP assets,
    extension download sources, and standard-library modules. For every
-   platform and architecture, distinguish artifact built, selection mocked,
-   native smoke-tested, and end-to-end tested. Claim support only after the
-   platform-support gate passes.
-5. Use five first-use tasks as the acceptance script: install the extension,
+   candidate platform and architecture, separately mark artifact built,
+   selection mocked, native smoke-tested, and end-to-end tested. These are
+   evidence states, not support claims.
+8. Use five first-use tasks as the acceptance script: install the extension,
    open a project, observe an actionable error diagnostic and clear it by
    correcting the source, get one advertised editor result such as completion
-   or hover, and successfully check or run the verified example.
-6. Keep unrelated language features, broad standard-library growth, compiler
+   or hover, and successfully check or run the verified example. Record an
+   expected result and pass/fail evidence for each task.
+9. Keep unrelated language features, broad standard-library growth, compiler
    architecture changes outside the ABI and identity track, and a standalone
-   IDE out of scope. The ABI and identity track is the explicit compiler-work
-   exception and is mandatory for publication.
+   IDE out of scope. Treat `c/` as a thin, simple portability layer rather
+   than a safe wrapper. Limit stable `std` modules to verified examples and
+   first-use tasks, and keep `soon/` experimental. The ABI and identity track
+   is the explicit compiler-work exception and is mandatory for publication.
 
 **Commands:**
 
 ```bash
-agent-run -t 30 -c 50 -- git -C /home/diogo/Zith status --short --branch
-agent-run -t 30 -c 50 -- git -C /home/diogo/Zith rev-parse HEAD
-agent-run -t 30 -c 50 -- git -C /home/diogo/zith-lsp diff --check
-agent-run -t 30 -c 50 -- git -C /home/diogo/zith-lsp diff --cached --check
-agent-run -t 30 -c 50 -- git -C /home/diogo/zith-lsp status --short --branch
-agent-run -t 30 -c 50 -- git -C /home/diogo/zith-lsp rev-parse HEAD
-agent-run -t 30 -c 50 -- git -C /home/diogo/zith-extension diff --check
-agent-run -t 30 -c 50 -- git -C /home/diogo/zith-extension diff --cached --check
-agent-run -t 30 -c 50 -- git -C /home/diogo/zith-extension status --short --branch
-agent-run -t 30 -c 50 -- git -C /home/diogo/zith-extension rev-parse HEAD
-agent-run -t 30 -c 50 -- git -C /home/diogo/Zith-website diff --check
-agent-run -t 30 -c 50 -- git -C /home/diogo/Zith-website diff --cached --check
-agent-run -t 30 -c 50 -- git -C /home/diogo/Zith-website status --short --branch
-agent-run -t 30 -c 50 -- git -C /home/diogo/Zith-website rev-parse HEAD
+agent-run -t 30 -c 0 -- git -C /home/diogo/Zith status --short --branch
+agent-run -t 30 -c 0 -- git -C /home/diogo/Zith rev-parse HEAD
+agent-run -t 30 -c 0 -- git -C /home/diogo/zith-lsp diff --check
+agent-run -t 30 -c 0 -- git -C /home/diogo/zith-lsp diff --cached --check
+agent-run -t 30 -c 0 -- git -C /home/diogo/zith-lsp status --short --branch
+agent-run -t 30 -c 0 -- git -C /home/diogo/zith-lsp rev-parse HEAD
+agent-run -t 30 -c 0 -- git -C /home/diogo/zith-extension diff --check
+agent-run -t 30 -c 0 -- git -C /home/diogo/zith-extension diff --cached --check
+agent-run -t 30 -c 0 -- git -C /home/diogo/zith-extension status --short --branch
+agent-run -t 30 -c 0 -- git -C /home/diogo/zith-extension rev-parse HEAD
+agent-run -t 30 -c 0 -- git -C /home/diogo/Zith-website diff --check
+agent-run -t 30 -c 0 -- git -C /home/diogo/Zith-website diff --cached --check
+agent-run -t 30 -c 0 -- git -C /home/diogo/Zith-website status --short --branch
+agent-run -t 30 -c 0 -- git -C /home/diogo/Zith-website rev-parse HEAD
 agent-run -t 900 -c 0 -- cmake --build /home/diogo/zith-lsp/build -j4
 agent-run -t 900 -c 0 -- bash -lc 'cd /home/diogo/zith-lsp && python3 -m unittest discover -s tests -p "test_lsp.py"'
-agent-run -t 300 -c 50 -- bash -lc 'cd /home/diogo/zith-extension/vs-code && npm test'
+agent-run -t 300 -c 0 -- bash -lc 'cd /home/diogo/zith-extension/vs-code && npm test'
 agent-run -t 900 -c 0 -- make -C /home/diogo/Zith-website build
-agent-run -t 30 -c 50 -- node /home/diogo/Zith-website/tests/docs-routing.test.js
-agent-run -t 30 -c 50 -- node /home/diogo/Zith-website/tests/docs-editor.test.js
+agent-run -t 30 -c 0 -- node /home/diogo/Zith-website/tests/docs-routing.test.js
+agent-run -t 30 -c 0 -- node /home/diogo/Zith-website/tests/docs-editor.test.js
 ```
 
 **Checks and evidence:**
 
 - All four repository revisions and dirty-file lists are recorded in the
   execution table under Final Acceptance Record.
-- Existing intended changes in the three related repositories have been
-  reviewed, the commands above pass, and the changes have been committed
-  separately before new work begins.
-- The beta support matrix names each supported platform, architecture,
-  artifact, installation route, and end-to-end test evidence.
+- Existing changes in the three related repositories are classified as
+  intended, unrelated, or unresolved. Focused tests pass for each reviewed
+  baseline, and intended baseline changes are committed separately before
+  new work begins. An unresolved repository is explicitly blocked.
+- The support matrix names candidate platforms and architectures, artifacts,
+  installation routes, evidence states, and exact end-to-end results. macOS
+  and Linux musl are absent from the supported beta set.
 - The acceptance script has five numbered tasks, expected results, and a
   pass/fail field. It also records the assumed user profile.
 
 **Failure checks:**
 
-- If a related repository has changes that are unexplained or failing focused
-  tests, do not begin new work or package artifacts from it.
-- If a platform lacks native end-to-end evidence, mark it unverified or
-  unsupported. Do not infer support from an artifact build or mocked test.
+- If a related repository has changes of unknown intent or failing focused
+  tests, do not begin new work or package artifacts from it. Preserve its
+  current worktree and record the exact blocker.
+- If macOS or Linux musl appears in a beta support claim, remove that claim.
+- If another platform lacks native end-to-end evidence, mark it a candidate,
+  unverified, or unsupported. Do not infer support from an artifact build or
+  mocked test.
 - If any proposed work requires a language redesign or a new IDE, defer it
   beyond beta.
 
 **Success criterion:** all baseline revisions and intended existing changes
 are recorded, the related baseline changes are committed, and the user profile,
-support matrix, and five-task acceptance script are reviewed.
+support matrix, and five-task acceptance script are reviewed. The supported
+set excludes macOS and Linux musl and contains no other target without native
+end-to-end evidence.
 
 ### 2. Reconcile The Specification, Status, And Compiler
 
@@ -460,9 +499,9 @@ extension, not only from a developer checkout.
    extension requests an artifact that exists in the configured release
    repository and matches the target. Verify the installed compiler and LSP
    natively on that target. Test every claimed route end to end. The
-   `zith-lsp-macos-universal` asset mismatch identified above must be resolved
-   by correcting the download or publication contract, or by removing that
-   combination from the supported beta matrix.
+   `zith-lsp-macos-universal` asset mismatch is outside this beta's scope
+   because macOS is excluded. Reopen that mismatch only if the approved beta
+   support scope changes.
 4. Make the five first-use tasks from Step 1 pass through a clean VS Code
    profile and the packaged VSIX. Include project discovery, diagnostics
    appearing after a malformed import or unbraced control-flow body and
@@ -754,10 +793,147 @@ Fill this table for the selected candidate before release approval:
 
 | Repository | Execution-start HEAD and worktree state | Reviewed existing-work commit | Reviewed candidate commit |
 |---|---|---|---|
-| `/home/diogo/Zith` | Record with Step 1 commands | Record if applicable | Record after review |
-| `/home/diogo/zith-lsp` | Record with Step 1 commands | Record before new work | Record after review |
-| `/home/diogo/zith-extension` | Record with Step 1 commands | Record before new work | Record after review |
-| `/home/diogo/Zith-website` | Record with Step 1 commands | Record before new work | Record after review |
+| `/home/diogo/Zith` | 2026-11-24: `1994a9411476da763cd920980b589f95bf12cf5a`; branch `refactor/zithm-source-extension`, clean | Record if applicable | Record after review |
+| `/home/diogo/zith-lsp` | 2026-11-24: `e55bfb78f794b6854fed580653f7c4faefd4d65f`; branch `main`, 11 commits ahead, modified and untracked files | 2026-11-24: `b40575f58b0b4c9040650f539ce8b8b666b23842` | Record after review |
+| `/home/diogo/zith-extension` | 2026-11-24: `05b1696ea5153679478dcfafbbb173d7fad2a35e`; branch `main`, 6 commits ahead, modified and untracked files | 2026-11-24: `c4c62a61c3fd4b288811e8bcbd1a0145bebdd930` | Record after review |
+| `/home/diogo/Zith-website` | 2026-11-24: `8946b5670795cded6c944c7c7944c02657ea45bd`; branch `gh-pages`, 1 commit ahead, modified and untracked files | 2026-11-24: `3d6d61f58b3531923fe232ca8f090d632c7cbba2` | Record after review |
+
+Execution-start `git status --short --branch` was captured for all four
+repositories on 2026-11-24. The compiler worktree was clean. The LSP,
+extension, and website worktrees contained unreviewed local changes. The
+captured revisions are historical starting points, not reviewed beta
+candidates.
+
+Captured worktree status:
+
+```text
+/home/diogo/Zith
+## refactor/zithm-source-extension...origin/refactor/zithm-source-extension
+
+/home/diogo/zith-lsp
+## main...origin/main [ahead 11]
+ M CMakeLists.txt
+ M README.md
+ M src/features/completion.cpp
+ M src/features/signature.cpp
+ M src/features/symbols.cpp
+ M src/features/symbols.hpp
+ M src/lsp/line-index.cpp
+ M src/lsp/line-index.hpp
+ M src/lsp/lsp-analysis-executor.cpp
+ M src/lsp/lsp-analysis-executor.hpp
+ M src/lsp/lsp-process-runner.cpp
+ M src/lsp/lsp-process-runner.hpp
+ M src/lsp/lsp-protocol.hpp
+ M src/lsp/lsp-scheduler.cpp
+ M src/lsp/lsp-scheduler.hpp
+ M src/lsp/lsp-server.cpp
+ M src/lsp/lsp-transport.cpp
+ M src/lsp/lsp-transport.hpp
+ M src/lsp/lsp-utils.hpp
+ M tests/lsp_client.py
+ M tests/test_files/visibility.zith
+ M tests/test_lsp.py
+?? CONTEXT-MAP.md
+?? CONTEXT.md
+?? docs/adr/
+?? src/features/stdlib-symbol-index.cpp
+?? src/features/stdlib-symbol-index.hpp
+?? tests/__pycache__/
+
+/home/diogo/zith-extension
+## main...origin/main [ahead 6]
+ M vs-code/README.md
+ M vs-code/example.zith
+?? .opencode/
+?? vs-code/.zith-cache/
+?? vs-code/cache/
+?? vs-code/target/
+
+/home/diogo/Zith-website
+## gh-pages...origin/gh-pages [ahead 1]
+ M .vscode/settings.json
+ M README.md
+ M js/playground-command-chain.js
+ M notes/CONTEXT.md
+?? css/glarea-alternative.css
+?? helios/alternative.html
+?? media/Glarea/
+?? scripts/
+?? worker/
+```
+
+Validation update, 2026-11-24:
+
+- In `zith-lsp`, the stdlib auto-import index now enumerates the canonical
+  `.zithm` source extension through the compiler's shared source-extension
+  helper. The auto-import fixtures use `.zithm`, and the cross-module
+  completion fixture now has a workspace root that resolves its sibling
+  module. Existing local fixture content, including `pub struct Hidden`, was
+  preserved.
+- `agent-run -t 900 -c 0 -- cmake --build build -j4` in
+  `/home/diogo/zith-lsp` exited 0. Ninja reported a truncated log and
+  recovered, then rebuilt the existing tree.
+- `agent-run -t 300 -c 0 -- python3 -m unittest discover -s tests -p 'test_lsp.py'`
+  in `/home/diogo/zith-lsp` passed all 82 tests. The focused auto-import and
+  semantic-completion classes also passed, 7 and 5 tests respectively.
+- `agent-run -t 900 -c 0 -- ctest --test-dir build --output-on-failure -j4 -R 'test-frontend-context|test-frontend|test-stdlib-modules|test-frontend-modern-pipeline'`
+  in `/home/diogo/Zith` passed all four selected compiler tests.
+- LSP `git diff --check` and the compiler repository's `git diff --check`
+  passed. Scoped `clang-format --dry-run --Werror` passed for the changed
+  indexer lines. `cppcheck` exited 0 with warnings only in included compiler
+  headers. `clang-tidy` reported numerous findings across included compiler
+  headers, so it is not recorded as clean; no unrelated compiler headers were
+  changed.
+- `agent-run -t 300 -c 0 -- bash -lc 'cd /home/diogo/zith-extension/vs-code && npm test'`
+  passed. In the website repository,
+  `agent-run -t 30 -c 0 -- node /home/diogo/Zith-website/tests/docs-editor.test.js`
+  passed, while
+  `agent-run -t 30 -c 0 -- node /home/diogo/Zith-website/tests/docs-routing.test.js`
+  failed because `docs/D-overview.html` lacks the expected
+  `data-docs-route="zith"` marker. The pending website changes do not modify
+  the routing generator; leave that repository blocked pending triage.
+- The LSP, extension, and website still contain unclassified local changes.
+  No baseline commit was made. The issue-tracker update also remains
+  unavailable because GitHub CLI authentication returned HTTP 401. Sequenta
+  reports no ready task in the LSP module.
+
+Baseline review and commit, 2026-11-24 (later in the session):
+
+- Classified and committed the reviewed existing work in the three related
+  repositories, each in its owning repository and separately from new work:
+  - `zith-lsp` `b40575f58b0b4c9040650f539ce8b8b666b23842` (editor surface:
+    completion, UTF-16 positions, frontend generation, transport, process
+    streams, docs/ADRs, `.zithm` fixtures). `__pycache__/` was excluded and
+    added to `.gitignore`.
+  - `zith-extension` `c4c62a61c3fd4b288811e8bcbd1a0145bebdd930` (README,
+    example, `.gitignore` for local build/cache artifacts).
+  - `Zith-website` `3d6d61f58b3531923fe232ca8f090d632c7cbba2` (landing routes,
+    async command chain, Glarea concept page, docs-editor Worker and wizard,
+    CONTEXT/README). No secret values are present; `wrangler.toml` keeps the
+    placeholder KV namespace id.
+- All three related worktrees are now clean; `zith-lsp` and `zith-extension`
+  are ahead of `origin/main`, and `Zith-website` is ahead of `origin/gh-pages`.
+- The website routing failure is fixed at the source:
+  `docs/pages/overview.md` now links the language routes through `route:` and
+  the implementation status through `neutral:`. The generated
+  `docs/D-overview.html` marker is produced by the build, not edited by hand.
+- Additional evidence this session: the LSP suite passed 83 tests
+  (previously 82) after adding a regression that proves the completion prefix
+  honours UTF-16 columns; the extension `npm test` passed; the website
+  `node --test` routing, editor, and command-chain tests passed 20/20 and
+  `make build` exited 0. `git diff --check` passed in all four repositories.
+- A proven beta blocker is recorded for the next step: the extension declares
+  only the `.zith` language extension and activates on `onLanguage:zith`,
+  while the compiler reads only `.zithm` sources. The extension must associate
+  `.zithm` (and keep `.zith` only if intended for the flagship language) so a
+  clean profile can activate on Zith-- files.
+
+Step 1 is complete: the baseline revisions and intended existing changes are
+recorded and committed, the website routing failure is resolved, and the
+support scope (Zith-- only; macOS and Linux musl excluded) is unchanged.
+Step 3 work on the extension/compiler extension mismatch is the next bounded
+task.
 
 Attach or link the following evidence in the release review:
 
