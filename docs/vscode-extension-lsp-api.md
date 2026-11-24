@@ -106,7 +106,7 @@ O `initialize` responde com o seguinte contrato mínimo:
     "save": { "includeText": false }
   },
   "completionProvider": {
-    "triggerCharacters": [".", ":", "->"],
+    "triggerCharacters": [".", ":", "->", " ", "/"],
     "resolveProvider": true
   },
   "hoverProvider": true,
