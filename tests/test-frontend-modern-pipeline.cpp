@@ -1456,6 +1456,21 @@ void test_named_block_in_state_body_is_allowed() {
     CHECK(result.ok, "a named block is valid directly in a state body");
 }
 
+void test_break_to_named_block_is_rejected() {
+    Workspace workspace;
+    const auto result = checkSource(workspace, "main.zithm", "fn main() {\n"
+                                                             "    setup: {\n"
+                                                             "        break setup;\n"
+                                                             "    }\n"
+                                                             "}\n");
+    CHECK(!result.ok, "a break targeting a named block fails type checking");
+    CHECK(!hasDiagnostic(result, diagnostics::err::NamedBlockDuplicateName),
+          "a named block is not a duplicate-name error target");
+    // The name is descriptive, not a loop label, so the break cannot resolve.
+    CHECK(hasDiagnostic(result, diagnostics::err::UnsupportedSyntax),
+          "break to a named block reports UnsupportedSyntax");
+}
+
 void test_named_block_marker_accepts_each_place_kind() {
     Workspace workspace;
     const auto result = checkSource(
@@ -2060,6 +2075,7 @@ static void test_frontend_modern_pipeline() {
     test_named_block_label_collision_is_symmetric();
     test_named_block_invalid_positions_are_diagnosed();
     test_named_block_in_state_body_is_allowed();
+    test_break_to_named_block_is_rejected();
     test_named_block_marker_accepts_each_place_kind();
     test_named_block_marker_argument_must_implement_scope();
     test_named_block_marker_macro_must_be_scope_aware();
