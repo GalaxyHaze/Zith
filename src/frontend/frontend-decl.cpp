@@ -28,18 +28,35 @@ void AstLowerer::lowerImport(uint32_t start, Visibility visibility,
     const bool starts_with_import = text(index_) == "import";
     const TextSpan import_span    = tokenSpan(index_);
     ++index_;
-    if (starts_with_import && index_ < token_count_ && text(index_) == "from") {
-        const TextSpan from_span = tokenSpan(index_);
-        const auto between =
-            snapshot_.source_.substr(import_span.end, from_span.start - import_span.end);
-        if (between.find_first_of("\r\n") == std::string_view::npos) {
-            declaration.import.isFrom = true;
-            snapshot_.diagnostics_.push_back(
-                {range(start, index_ + 1U),
-                 "unexpected 'from' after 'import'; use 'from path' to import symbols, or "
-                 "'import path' to import a module namespace",
-                 false, diagnostics::err::UnexpectedFromAfterImport});
-            ++index_;
+    if (starts_with_import) {
+        // Detect both malformed prefixes, 'import from path' and
+        // 'import / from path', so the dedicated E1013 diagnostic explains the
+        // two valid import forms instead of the generic 'expected an import
+        // path' followed by a cascading resolution error. Path separators
+        // between 'import' and 'from' are skipped only to reach the same
+        // actionable message; the syntax stays invalid.
+        uint32_t lookahead = index_;
+        while (lookahead < token_count_ &&
+               (text(lookahead) == "/" || text(lookahead) == "." || text(lookahead) == "..")) {
+            ++lookahead;
+        }
+        if (lookahead < token_count_ && text(lookahead) == "from") {
+            const TextSpan from_span = tokenSpan(lookahead);
+            const auto between =
+                snapshot_.source_.substr(import_span.end, from_span.start - import_span.end);
+            if (between.find_first_of("\r\n") == std::string_view::npos) {
+                declaration.import.isFrom = true;
+                snapshot_.diagnostics_.push_back(
+                    {range(start, lookahead + 1U),
+                     "unexpected 'from' after 'import'; use 'from path' to import symbols, or "
+                     "'import path' to import a module namespace",
+                     false, diagnostics::err::UnexpectedFromAfterImport});
+                index_ = lookahead + 1U;
+                // Mark the declaration as an error so resolution does not also
+                // emit a cascading 'could not find module' diagnostic that
+                // would obscure this actionable message.
+                declaration.kind = DeclKind::Error;
+            }
         }
     }
     if (index_ < token_count_ && text(index_) == "asset") {

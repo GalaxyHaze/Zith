@@ -1043,6 +1043,36 @@ static void test_import_from_prefix_has_actionable_diagnostic() {
     const auto separate_lines = frontend::parse("import\nfrom graphics\n");
     CHECK_EQ(countErrorCode(separate_lines, diagnostics::err::UnexpectedFromAfterImport), 0u,
              "the dedicated diagnostic only matches 'import from' on one line");
+
+    const auto slash_prefix = frontend::parse("import / from graphics { draw as paint }\n"
+                                              "fn after_import() { }\n");
+    CHECK_EQ(countErrorCode(slash_prefix, 1013u), 1u,
+             "'import / from path' receives the dedicated parse diagnostic");
+    CHECK_EQ(slash_prefix.diagnostics().size(), 1u,
+             "the slashed malformed import does not cascade a generic diagnostic");
+    if (!slash_prefix.diagnostics().empty()) {
+        const auto &message = slash_prefix.diagnostics().front().message;
+        CHECK(message.find("use 'from path'") != std::string::npos,
+              "the slashed diagnostic suggests 'from path' for importing symbols");
+        CHECK(message.find("'import path'") != std::string::npos,
+              "the slashed diagnostic explains the namespace-import alternative");
+    }
+    CHECK_EQ(slash_prefix.declarations().size(), 2u,
+             "the slashed malformed import is recovered as one declaration");
+    if (!slash_prefix.declarations().empty()) {
+        const auto &import = slash_prefix.declarations().front().import;
+        CHECK(import.isFrom, "slashed recovery keeps the apparent direct-import form");
+        if (!import.path.empty())
+            CHECK_EQ(import.path.front(), std::string("graphics"),
+                     "slashed recovery keeps the module path after the separators");
+    }
+    if (!slash_prefix.declarations().empty())
+        CHECK_EQ(slash_prefix.declarations().back().name, std::string("after_import"),
+                 "the declaration after the slashed import remains available");
+
+    const auto path_then_from = frontend::parse("import graphics/from extra\n");
+    CHECK_EQ(countErrorCode(path_then_from, 1013u), 0u,
+             "a path segment named 'from' after 'import' is not the malformed prefix");
 }
 
 static void test_for_var_var_reports_specific_diagnostic() {

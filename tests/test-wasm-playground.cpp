@@ -117,6 +117,27 @@ void test_wasm_playground_structured_diagnostics() {
     CHECK(missingImportJson.find("could not find module 'missing/module'") != std::string::npos,
           "playground exposes the actionable missing-module diagnostic");
 
+    // Both malformed import prefixes must reach the dedicated E1013 message
+    // through the playground, without the generic 'expected an import path'
+    // cascade.
+    for (const std::string_view malformedImport : {
+             std::string_view("import from graphics { draw as paint }\nfn main() { }\n"),
+             std::string_view("import / from graphics { draw as paint }\nfn main() { }\n"),
+         }) {
+        host_errors.clear();
+        const auto malformedStatus = runSource(malformedImport);
+        CHECK_EQ(malformedStatus, 1, "a malformed import prefix reports a compile failure");
+        const auto malformedJson = diagnosticsJson();
+        CHECK_EQ(countOccurrences(malformedJson, "\"code\":1013"), 1u,
+                 "a malformed import prefix has one structured E1013 diagnostic");
+        CHECK(malformedJson.find("expected an import path") == std::string::npos,
+              "a malformed import prefix does not cascade the generic E0001 message");
+        CHECK(malformedJson.find("use 'from path'") != std::string::npos,
+              "the malformed import diagnostic suggests 'from path'");
+        CHECK_EQ(countOccurrences(host_errors, "error: "), 1u,
+                 "a malformed import prefix writes the actionable diagnostic once");
+    }
+
     constexpr std::string_view missingControlBody = "fn main() {\n"
                                                     "    if (true) 42;\n"
                                                     "}\n";
