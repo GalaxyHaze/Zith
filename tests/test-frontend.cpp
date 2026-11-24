@@ -1844,6 +1844,39 @@ static void test_state_without_return_type_parses() {
     }
 }
 
+static void test_named_block_statement_forms_parse() {
+    auto snapshot = frontend::parse("fn main() {\n"
+                                    "    setup: {\n"
+                                    "        var v = 1;\n"
+                                    "        _ = v;\n"
+                                    "    }\n"
+                                    "}\n");
+    CHECK(snapshot.diagnostics().empty(), "a plain named block parses without diagnostics");
+    bool found = false;
+    for (const auto &expr : snapshot.expressions()) {
+        if (expr.kind != frontend::ExprKind::Block || expr.block_name != "setup")
+            continue;
+        found = true;
+        CHECK(!expr.marker, "a plain named block carries no marker");
+    }
+    CHECK(found, "the 'setup' named block is retained in the snapshot");
+
+    auto marked = frontend::parse("#[scope] pub macro scoped(resources: identifier...) { }\n"
+                                  "fn main() {\n"
+                                  "    render: @scoped(a, b) { }\n"
+                                  "}\n");
+    CHECK(marked.diagnostics().empty(), "a marked named block parses without diagnostics");
+    bool saw_marker = false;
+    for (const auto &expr : marked.expressions()) {
+        if (expr.kind != frontend::ExprKind::Block || expr.block_name != "render")
+            continue;
+        saw_marker = true;
+        CHECK(static_cast<bool>(expr.marker), "a marked named block keeps its marker");
+        CHECK(expr.markerScopeAware, "the scope-aware marker is recorded on the block");
+    }
+    CHECK(saw_marker, "the 'render' marked named block is retained in the snapshot");
+}
+
 static void test_struct_field_visibility_parses() {
     auto snapshot = frontend::parse("struct S {\n"
                                     "    data: i32,\n"
@@ -2092,6 +2125,7 @@ static void test_frontend() {
     test_nested_state_declarations();
     test_defer_statement_syntax();
     test_state_without_return_type_parses();
+    test_named_block_statement_forms_parse();
     test_struct_field_visibility_parses();
     test_external_symbol_aliases();
     test_external_global_declarations();

@@ -1443,6 +1443,19 @@ void test_named_block_invalid_positions_are_diagnosed() {
     }
 }
 
+void test_named_block_in_state_body_is_allowed() {
+    Workspace workspace;
+    const auto result = checkSource(workspace, "main.zithm", "state Done() {\n"
+                                                             "    setup: {\n"
+                                                             "        var v: i32 = 1;\n"
+                                                             "        _ = v;\n"
+                                                             "    }\n"
+                                                             "    return;\n"
+                                                             "}\n"
+                                                             "fn main() { dock Done(); }\n");
+    CHECK(result.ok, "a named block is valid directly in a state body");
+}
+
 void test_named_block_marker_accepts_each_place_kind() {
     Workspace workspace;
     const auto result = checkSource(
@@ -2046,6 +2059,7 @@ static void test_frontend_modern_pipeline() {
     test_named_block_duplicate_name_is_diagnosed();
     test_named_block_label_collision_is_symmetric();
     test_named_block_invalid_positions_are_diagnosed();
+    test_named_block_in_state_body_is_allowed();
     test_named_block_marker_accepts_each_place_kind();
     test_named_block_marker_argument_must_implement_scope();
     test_named_block_marker_macro_must_be_scope_aware();
