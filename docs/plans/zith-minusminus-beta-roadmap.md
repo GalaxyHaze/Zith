@@ -1064,3 +1064,28 @@ Step 3 handoff and packaging evidence, 2026-11-24:
   suite passed 86 tests, and `npm test` in `zith-extension/vs-code` passed.
   `vsce package` produced a 350-file VSIX and `git diff --check` passed in
   both repositories.
+
+Step 2 malformed-source fixtures, 2026-11-24:
+
+- Action 5 found a real gap for the `import / from path{...}` form. Before the
+  fix, `zithc check` emitted a generic `E0001 expected an import path` followed
+  by a cascading `E1006 could not find module`. Commit `1942febf` makes the
+  frontend look past path separators between `import` and `from`, emits the
+  dedicated `E1013` message that names both valid forms (`from path` imports
+  symbols, `import path` imports a namespace), and marks the recovered
+  declaration as an error so resolution does not add the cascade. The syntax
+  stays invalid.
+- `import from path{...}` already reached `E1013` and is unchanged. Both forms
+  now produce exactly one diagnostic with the actionable message and span.
+- Regressions added: `test-frontend.cpp` asserts one `E1013` for the slashed
+  form, a retained following declaration, and that a genuine path segment
+  named `from` (`import graphics/from extra`) is not misread as the malformed
+  prefix. `test-wasm-playground.cpp` submits both malformed prefixes through
+  the playground and asserts one structured `E1013`, no `expected an import
+  path` cascade, and a single host-stderr write.
+- Action 6 is already satisfied: `zithc check` on `if (true) 42;` reports
+  `E1012 expected '{' before if body; write 'if (condition) { ... }'` with the
+  correction note, and the playground asserts one structured `E1012`.
+- Evidence: `cmake --build build -j4` exited 0, the full CTest suite passed
+  51/51, `./build/test-frontend` passed 467/467, `./build/test-wasm-playground`
+  passed 67/67, and `./build/zithc check examples/loops-simple.zithm` passed.
