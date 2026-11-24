@@ -303,7 +303,10 @@ for tooling and diagnostics but are not part of the ABI or the ZIRL format.
 
 Three dedicated diagnostics cover the new rejections: a named block in an
 invalid position, a marker argument that is not a place or does not implement
-`Scope`, and a duplicate name.
+`Scope`, and a duplicate name. Any other diagnostic raised while the body of a
+named block is checked is prefixed with `in block 'name':`, so an error deep in
+a phase points at the phase without the reader having to reconstruct which
+block it belongs to.
 
 ---
 

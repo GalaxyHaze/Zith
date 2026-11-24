@@ -696,7 +696,10 @@ Os três diagnósticos dedicados são `E2032 NamedBlockInvalidPosition`,
 stdlib vive em `stdlib/std/scope.zithm` (`Guard`, `Scope` e `scoped`). O spec
 chama `marker` à macro, mas `marker` é uma palavra reservada do Zith--, por
 isso o nome da stdlib é `scoped`; o compilador despacha pelo atributo
-`#[scope]`, não pelo nome.
+`#[scope]`, não pelo nome. Qualquer outro diagnóstico emitido enquanto o corpo
+de um bloco nomeado é inferido recebe o prefixo `in block 'nome':` em
+`PerModuleSema::report` (a pilha `active_named_block_names_` é empilhada em
+`inferBlock` por um guard RAII), para localizar a fase com problemas.
 
 ## Pipelines `|>` e `also`
 

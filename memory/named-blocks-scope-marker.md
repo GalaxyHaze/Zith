@@ -66,6 +66,16 @@ never `break`/`continue` targets. Names are preserved in the HIR side table
 `HirModule::addNamedScope` (`HirNamedScope`), not serialized into ZIRL and not
 part of the ABI.
 
+## Diagnostics inside a block name the block
+
+`PerModuleSema::report` prefixes any message with `in block 'name':` while
+`active_named_block_names_` is non-empty. The stack is pushed in `inferBlock`
+through a small RAII guard keyed on `Expression::block_name`, so a plain block,
+a marked block, and a named pipeline stage all name the phase at fault. The
+prefix runs at the single `report` choke point, so it also covers messages that
+originate in helper routines called from a block body. `reportWarning` and
+`reportNote` are not prefixed.
+
 ## Docs caveat
 
 `fmt-check` is unusable locally (project pins clang-format 18/17/16; only
