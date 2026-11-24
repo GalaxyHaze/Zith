@@ -77,6 +77,12 @@ Member completion returns fields and methods applicable to the static type of
 the receiver and visible at the request location. Members hidden by private or
 module-level visibility rules are omitted.
 
+Document symbols list the top-level declarations of the open document and, for
+a `fn` or `state` body, its named blocks as outline children. A named block's
+`detail` carries its marker and resource arguments (for example `@scoped(r)`),
+so a reader sees what each phase brackets without opening the body. A plain
+named block has no detail.
+
 The following features are experimental in this contract:
 
 - semantic token delta under cancellation

@@ -76,6 +76,21 @@ prefix runs at the single `report` choke point, so it also covers messages that
 originate in helper routines called from a block body. `reportWarning` and
 `reportNote` are not prefixed.
 
+## Tooling: named blocks in the outline
+
+`collectDocumentSymbols` (`src/ide/lsp-ide-api.cpp`) descends into a `fn`/`state`
+body and adds each named block as a child of its function, so the IDE outline
+shows the phases. A block's `DocumentSymbol::detail` is `@marker(arg, arg)`,
+built from the marker's MacroCall operands; a plain block has an empty detail.
+The walk stops at a named block (they never nest) and skips macro-template
+expressions.
+
+An IDE outline test must use a fresh `Workspace` per document. The shared
+`FrontendContext` assigns module `fileId`s globally, but a session's own
+`SourceMap` restarts at 0, so a second `openDocument` in one workspace makes
+`collectDocumentSymbols` find no frontend for the file (fileId 0). This is a
+pre-existing multi-document limitation, not specific to named blocks.
+
 ## Docs caveat
 
 `fmt-check` is unusable locally (project pins clang-format 18/17/16; only
