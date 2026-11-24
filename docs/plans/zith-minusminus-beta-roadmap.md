@@ -977,6 +977,30 @@ LSP review fixes, 2026-11-24:
   `ctest -R '^(test-ide-api|test-frontend|test-cache|test-hir-lower-modern|test-codegen)$'`
   passed 5/5 in `/home/diogo/Zith`; `git diff --check` passed in both.
 
+Two-axis review of the LSP review fixes, 2026-11-24:
+
+- Standards axis: no hard violations. Actionable finding applied in commit
+  `eb54fb9`: the watched-files glob literal is now derived from
+  `kZithmSourceExtension` instead of duplicating `"**/*.zithm"`. The
+  duplicated `DeclKind` mapping and the field-visibility reimplementation were
+  confirmed removed.
+- Spec axis: found the stdlib-change check was a raw string prefix match.
+  Commit `eb54fb9` replaces it with a normalized, component-aware
+  `pathIsInside` check and registers a second watched-files glob rooted at the
+  stdlib path, since the workspace-relative glob never reaches a stdlib
+  outside the workspace. A regression asserts the stdlib watcher is
+  registered.
+- Evidence after the fixes: LSP suite passed 86 tests; the compiler full CTest
+  suite passed 51/51.
+- Still open for Step 3, recorded here so it is not mistaken for done: the
+  `isIncomplete` partial-edit completion path is deferred (documented in
+  `zith-lsp/docs/completion-recommendation-plan.md`); the LSP/VS Code handoff
+  document still needs the tested command names, settings, and known
+  limitations beyond the corrected trigger characters; and the packaged/installed
+  server SHA-256 values (Step 3 Action 7) plus the extension-host and
+  five-first-use-task evidence (Step 3 Actions 4-6) remain to be collected on a
+  display-capable host.
+
 Attach or link the following evidence in the release review:
 
 - Candidate version and full commit IDs for the compiler, LSP, extension, and
