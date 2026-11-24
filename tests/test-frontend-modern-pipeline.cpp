@@ -1486,6 +1486,20 @@ void test_error_inside_named_block_names_the_block() {
     CHECK(named, "an error inside a named block mentions the block name");
 }
 
+void test_named_block_binding_does_not_leak_out_of_the_block() {
+    Workspace workspace;
+    const auto result = checkSource(workspace, "main.zithm", "fn main(): i32 {\n"
+                                                             "    setup: {\n"
+                                                             "        let inner: i32 = 7;\n"
+                                                             "        _ = inner;\n"
+                                                             "    }\n"
+                                                             "    inner\n"
+                                                             "}\n");
+    CHECK(!result.ok, "a binding declared in a named block is not visible after it");
+    CHECK(hasDiagnostic(result, diagnostics::err::UndefinedIdent),
+          "reading a named-block local outside the block reports UndefinedIdent");
+}
+
 void test_named_pipeline_stage_keeps_it_consumption_rule() {
     // A named stage is a normal pipeline stage, so the `it`-consumption
     // contract is unchanged by the name.
@@ -2133,6 +2147,7 @@ static void test_frontend_modern_pipeline() {
     test_named_block_in_state_body_is_allowed();
     test_break_to_named_block_is_rejected();
     test_error_inside_named_block_names_the_block();
+    test_named_block_binding_does_not_leak_out_of_the_block();
     test_named_pipeline_stage_keeps_it_consumption_rule();
     test_named_block_marker_accepts_each_place_kind();
     test_named_block_marker_argument_must_implement_scope();
