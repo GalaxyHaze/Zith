@@ -1025,3 +1025,42 @@ Attach or link the following evidence in the release review:
   including triaged findings.
 - Known limitations with impact and workarounds, unresolved blockers, and
   explicit release approval.
+
+Step 3 handoff and packaging evidence, 2026-11-24:
+
+- The LSP/VS Code handoff was refreshed in `Zith` commit `4ef28125`
+  (`docs/vscode-extension-lsp-api.md`). Section 4 now lists what extension
+  `0.4.0` implements and tests plus what remains (frontend initialization
+  options, `zith/frontendStatus`, `zith/metrics`, explicit cancellation).
+  Section 5 replaces the stale implementation checklist with the tested
+  command names, the extension settings and which of them `extension.js`
+  reads, the test evidence, and the known limitations (macOS and Linux musl
+  out of scope, extension-host harness limitation, deferred `isIncomplete`
+  path, `workspace/symbol` shape, and the unread `zith.enableHighlighting`).
+- `zith-lsp` commit `3221ccc` corrects `docs/ide-extension-api.md`, which
+  claimed `workspace/symbol` had no background index. It is served from open
+  documents scanned synchronously plus the workspace symbol index built after
+  `initialized`.
+- Step 3 Action 7 (server SHA-256), recorded 2026-11-24:
+  - reviewed LSP build `zith-lsp/build/zith-lsp` at `zith-lsp` HEAD
+    `3221ccc348302ce108c5b9182ce39de5e0224cf1`:
+    `0cf2fada54ea4208447241c562c8691c5f780d44a7d4c4eca957fec05e94ad74`.
+  - installed extension server binary
+    `zith-extension/vs-code/server/zith-lsp`:
+    `0cf2fada54ea4208447241c562c8691c5f780d44a7d4c4eca957fec05e94ad74`.
+  - packaged VSIX `/tmp/zith-language-beta.vsix`, entry
+    `extension/server/zith-lsp`:
+    `0cf2fada54ea4208447241c562c8691c5f780d44a7d4c4eca957fec05e94ad74`.
+  All three match, so the packaged server is the reviewed build. The previous
+  packaged `zith-lsp` was the stale 2026-11-08 binary, now replaced.
+- Still open for Step 3: the packaged VSIX bundles only 9 stdlib files under
+  `server/stdlib`, while the compiler ships 34 under `stdlib/`. The downloader
+  fetches the full tree from `GalaxyHaze/Zith-Lang`, so a clean install gets
+  the full stdlib, but the checked-in VSIX payload is incomplete. Step 3
+  Actions 4-6 (five first-use tasks, duplicate/stale diagnostics, VSIX host
+  test) still need a display-capable host. The Linux extension-host harness
+  does not complete here.
+- Evidence: `cmake --build /home/diogo/zith-lsp/build -j4` exited 0, the LSP
+  suite passed 86 tests, and `npm test` in `zith-extension/vs-code` passed.
+  `vsce package` produced a 350-file VSIX and `git diff --check` passed in
+  both repositories.
