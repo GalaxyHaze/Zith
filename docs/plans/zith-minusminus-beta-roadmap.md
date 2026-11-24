@@ -1120,3 +1120,39 @@ Step 2 discrepancy table and website source-file recheck, 2026-11-24:
   the exploratory `test-import-*.zithm` probes over the experimental `soon/`
   tree, not the `test-examples` manifest), `zithc create` wrote
   `src/main.zithm`, and `git diff --check` passed in both repositories.
+
+Step 4 beta module list and `std`/`soon` drift, 2026-11-24:
+
+- Action 1 recheck found a real drift. Commit `51bc0487` ("refactor(stdlib):
+  remove legacy facades", 2026-11-01) deliberately deleted the `std/`
+  re-export facades for `result`, `panic`, `alloc`, `new`, `counter`, `math`,
+  `collections/{hash_map,hash_map_u64,dyn_array}`, and
+  `memory/{in-place,new,allocators/*}`. The modules now ship only under
+  `soon/`. The commit `650c0acf` migrated the C++ tests to the `soon/`
+  re-export path. Probes against `build/zithc` confirm every `std/...` path
+  above now fails with `E1006 could not find module`, while the `soon/...`
+  paths resolve.
+- Actions 2 and 3: the authoritative docs still advertised the removed `std/`
+  paths. `docs/20-standard-library.md` (module list plus the `std/alloc`,
+  `std/collections/*`, `std/result`, and `std/panic` sections),
+  `docs/impl-status.md` (Stdlib allocation/collections/error-handling rows),
+  `docs/adr/0010`, `docs/adr/0020`, `docs/adr/0021`, the `memory/*` notes,
+  `docs/research/stdlib-references-{zig,go}.md`, two module comments, and one
+  `test-codegen` message were corrected to the `soon/...` paths. The `std/`
+  surface is now only `std/io/console`, `std/io/format`, `std/scope`,
+  `std/test`, and the `std/memory` facade. This follows the roadmap rule to
+  keep the beta surface small and not promote `soon/` modules to enlarge it.
+  The deleted facades are not restored.
+- Action 5 deliverable created: `docs/beta-module-list.md` classifies every
+  `stdlib/**.zithm` module as `std` stable, `c` raw, or `soon` experimental,
+  and gives each stable module its purpose, import path, cleanup expectations,
+  test evidence, and one compiling example. `soon/json` is explicitly excluded
+  from the beta API.
+- Action 4: `test-stdlib-modules` type-checks every `stdlib/**.zithm` in
+  isolation. The stale `hash_map_u64` example in `docs/20-standard-library.md`
+  was corrected to the real `hm.create(heap)` constructor (the old struct
+  literal omitted the required `allocator` field).
+- Evidence: `cmake --build build -j4` exited 0; `ctest --test-dir build -R
+  'test-stdlib-modules|test-stdlib-io|test-stdlib-parity|test-examples'`
+  passed 4 of 4; every module-list snippet passed `zithc --include stdlib
+  check`; `git diff --check` passed.
