@@ -1198,3 +1198,22 @@ Step 5 website onboarding, 2026-11-24:
   produced `zith-language-0.4.0.vsix` from the extension source; the install
   page's broken `git chttps://...` command was corrected to `git clone`.
 - Open: Step 5 Actions 8 and 9 need a display and were not verified here.
+
+Step 3 and Step 6 editor test runs, 2026-11-24:
+
+- Step 6 Action 4, LSP: `python3 -m unittest discover -s tests -p test_lsp.py`
+  in `zith-lsp` ran 86 tests and passed. The suite covers the `zith.*`
+  command set, the `zith/codegenStatus` warning, the `zith.run`/`zith.stop`
+  flow, and `zith/metrics`.
+- Step 6 Action 4, extension unit tests: `node test/unit/test-download.js`
+  passed 9 of 9 and `node test/unit/test-project.js` passed 5 of 5. The
+  downloader test verifies asset-name selection per OS and architecture. The
+  project test verifies the `zith.new` rootUri normalization and TextEdit
+  helpers.
+- The extension integration host (`node test/integration/run-host.js`) and the
+  packaged-VSIX host (`run-vsix-host.js`) still cannot complete here. They
+  require a VS Code window and the environment has no display, no Xvfb, and no
+  headless browser. Step 3 Actions 4-6 and Step 5 Actions 8-9 stay open for the
+  same reason.
+- The recorded LSP test count in `docs/vscode-extension-lsp-api.md` section 5.3
+  matches this run (86 tests).
