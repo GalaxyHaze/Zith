@@ -278,6 +278,14 @@ in the outer position `name: @macro(...) { }`, and no macro name is hardcoded
 in the compiler. The spec names the macro `marker`, but `marker` is a reserved
 keyword, so the stdlib macro is `scoped`.
 
+The marker argument stays available to the block body only when the `Scope`
+implementation borrows its receiver. An implementation whose `enter` takes the
+receiver by value (a bare `self` or `var self`) moves the caller binding, so a
+later read of that argument reports `E4001 UseAfterMove`. Write
+`fn enter(self: view Self): dyn Guard` (or `self: lend Self`) when the body
+needs to keep using the resource, as in the `render: @scoped(renderer, log)`
+example above.
+
 Position is restricted. A named block is valid only as a direct statement of a
 `fn` or `state` body. It is rejected inside `if`, loops, anonymous blocks, and
 other named blocks. The one composed position is a pipeline stage, where the

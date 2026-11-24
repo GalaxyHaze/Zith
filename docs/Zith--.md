@@ -693,6 +693,14 @@ na posição outer `nome: @macro(...) { }`, e nenhum nome de macro está
 hardcoded no compilador. O spec chama `marker` à macro, mas `marker` é uma
 palavra reservada, por isso a macro da stdlib chama-se `scoped`.
 
+O argumento do marcador só continua disponível ao corpo do bloco quando a
+implementação de `Scope` empresta o recetor. Uma implementação cujo `enter`
+recebe o recetor por valor (`self` ou `var self`) move o binding do chamador,
+por isso uma leitura posterior desse argumento reporta `E4001 UseAfterMove`.
+Escreva `fn enter(self: view Self): dyn Guard` (ou `self: lend Self`) quando o
+corpo precisar de continuar a usar o recurso, como no exemplo
+`render: @scoped(renderer, log)` acima.
+
 A posição é restrita. Um bloco nomeado só é válido como statement direto do
 corpo de uma `fn` ou `state`, e é rejeitado dentro de `if`, loops, blocos
 anónimos e outros blocos nomeados. A única posição composta é um estágio de

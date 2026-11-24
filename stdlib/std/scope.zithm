@@ -13,6 +13,11 @@
 // reverse order through `defer`, so the cleanup runs on every exit from the
 // block. `enter` and `leave` do not fail at the language surface; a failing
 // implementation records the failure in its own stream.
+//
+// The argument stays usable inside the block only when the implementation
+// borrows its receiver (`fn enter(self: view Self)` or `self: lend Self`). A
+// by-value receiver (`self` or `var self`) moves the caller binding, so a later
+// read of the argument reports E4001 UseAfterMove.
 
 /// The value returned by `Scope.enter`. Each implementation chooses its own
 /// guard type and the effect `leave` performs (a render checkpoint, a log

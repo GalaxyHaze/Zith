@@ -65,6 +65,15 @@ on one exit path or to release paired resources in the wrong order.
   `trait Guard { fn leave(var self): void; }`. Each implementation chooses its
   own guard type and the effect `leave` performs, such as a render checkpoint
   or a log flush.
+- A `Scope` implementation that must keep the resource usable inside the block
+  body borrows its receiver (`fn enter(self: view Self)` or
+  `self: lend Self`). An implementation that takes the receiver by value (a
+  bare `self` or `var self`) moves the caller binding, so a later read of the
+  marker argument reports `E4001 UseAfterMove`. This is the existing Zith--
+  receiver-move rule, not a marker-specific restriction; the marker call site
+  is an ordinary method call. The stdlib trait declares the receiver as
+  `var self`, and the implementation chooses `view`/`lend` when the body needs
+  the resource back.
 - The scope marker is an ordinary stdlib macro, `scoped`, marked with
   `#[scope]`. The compiler dispatches on the attribute, not on a macro name,
   so no macro name is hardcoded. Only a `#[scope]` macro may appear in the
