@@ -5,6 +5,31 @@
 
 namespace zith::sema::modern {
 
+namespace {
+/// Pushes a named block's descriptive name while its body is inferred, so a
+/// diagnostic reported inside the block can name the phase at fault. The
+/// previous name is restored on every exit path. An unnamed block (a plain
+/// `{ ... }` or a fn/state body) leaves the stack untouched.
+class NamedBlockContext {
+public:
+    NamedBlockContext(std::vector<std::string> &stack, const std::string &name)
+        : stack_(stack), active_(!name.empty()) {
+        if (active_)
+            stack_.push_back(name);
+    }
+    NamedBlockContext(const NamedBlockContext &)            = delete;
+    NamedBlockContext &operator=(const NamedBlockContext &) = delete;
+    ~NamedBlockContext() {
+        if (active_)
+            stack_.pop_back();
+    }
+
+private:
+    std::vector<std::string> &stack_;
+    bool active_;
+};
+} // namespace
+
 void PerModuleSema::inferExpressionTypes() {
     inferExpressionTypesForDecls();
 }
@@ -466,6 +491,9 @@ bool PerModuleSema::exprAlwaysTerminates(frontend::ExprId id) const noexcept {
 }
 TypeId PerModuleSema::inferBlock(frontend::ExprId id) {
     const auto &expr = snapshot.expressions()[id.value - 1U];
+    // While the body of a named block is inferred, diagnostics name it so a
+    // reader can locate the phase at fault. The guard pops on every exit.
+    const NamedBlockContext block_context(active_named_block_names_, expr.block_name);
     // Entering the fn/state body block resets per-body named-block tracking and
     // records the body block so direct-child position checks can run. Match the
     // declaration's own body, not the scope: a `for` with an init clause wraps

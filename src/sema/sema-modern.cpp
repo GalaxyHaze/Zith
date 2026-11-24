@@ -273,6 +273,10 @@ void PerModuleSema::setLocalType(frontend::LocalId id, TypeId type) {
 void PerModuleSema::report(frontend::TextSpan span, std::string message, uint32_t code) {
     if (suppressDiagnostics_)
         return;
+    // A diagnostic raised while a named block's body is inferred names the
+    // innermost block so a reader can locate the phase at fault.
+    if (!active_named_block_names_.empty())
+        message = "in block '" + active_named_block_names_.back() + "': " + message;
     diagnostics.emplace(arena, span, std::move(message), diagnostics::Severity::Error, code);
 }
 

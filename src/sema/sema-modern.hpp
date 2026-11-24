@@ -337,6 +337,10 @@ private:
     /// Names of named blocks declared in the current fn/state body. A named
     /// block must be unique per body; reset per body.
     std::vector<std::string> active_named_blocks_;
+    /// Names of named blocks whose bodies are currently being inferred,
+    /// innermost last. A diagnostic reported while this is non-empty mentions
+    /// the innermost block name so a reader can locate the phase at fault.
+    std::vector<std::string> active_named_block_names_;
     /// Loop labels declared anywhere in the current fn/state body. A loop label
     /// shares the per-body name space with named blocks, so a named block and a
     /// loop label may not collide in either declaration order; reset per body.

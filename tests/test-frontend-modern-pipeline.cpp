@@ -1471,6 +1471,21 @@ void test_break_to_named_block_is_rejected() {
           "break to a named block reports UnsupportedSyntax");
 }
 
+void test_error_inside_named_block_names_the_block() {
+    Workspace workspace;
+    const auto result = checkSource(workspace, "main.zithm", "fn main(): i32 {\n"
+                                                             "    setup: {\n"
+                                                             "        let x: i32 = \"hello\";\n"
+                                                             "    }\n"
+                                                             "    0\n"
+                                                             "}\n");
+    CHECK(!result.ok, "a type error inside a named block fails type checking");
+    bool named = false;
+    for (const auto &diagnostic : result.diagnostics)
+        named |= diagnostic.message.find("in block 'setup':") != std::string::npos;
+    CHECK(named, "an error inside a named block mentions the block name");
+}
+
 void test_named_pipeline_stage_keeps_it_consumption_rule() {
     // A named stage is a normal pipeline stage, so the `it`-consumption
     // contract is unchanged by the name.
@@ -2117,6 +2132,7 @@ static void test_frontend_modern_pipeline() {
     test_named_block_invalid_positions_are_diagnosed();
     test_named_block_in_state_body_is_allowed();
     test_break_to_named_block_is_rejected();
+    test_error_inside_named_block_names_the_block();
     test_named_pipeline_stage_keeps_it_consumption_rule();
     test_named_block_marker_accepts_each_place_kind();
     test_named_block_marker_argument_must_implement_scope();
