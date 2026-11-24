@@ -94,6 +94,10 @@ struct InlayHint {
 struct DocumentSymbol {
     std::string name;
     int kind = 0;
+    /// Short annotation shown next to the name in an outline. For a named
+    /// block it carries the marker and its resource arguments, so a reader
+    /// sees what the phase brackets without opening the body.
+    std::string detail;
     Range range;
     Range selectionRange;
     std::vector<DocumentSymbol> children;

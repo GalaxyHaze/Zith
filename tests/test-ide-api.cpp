@@ -17,6 +17,8 @@ bool hasLabel(const std::vector<zith::ide::CompletionItem> &items,
 
 } // namespace
 
+void test_ide_api_named_blocks_in_outline();
+
 void test_ide_api() {
     zith::ide::WorkspaceConfig config;
     config.workspaceRoot = "/tmp/zith-ide-tests";
@@ -175,6 +177,59 @@ void test_ide_api() {
     const auto definition = workspace.analyze(snapshot, definition_query);
     CHECK(definition.ok, "definition query succeeds");
     CHECK(!definition.definitions.empty(), "definition location is collected");
+
+    test_ide_api_named_blocks_in_outline();
+}
+
+void test_ide_api_named_blocks_in_outline() {
+    zith::ide::WorkspaceConfig config;
+    config.workspaceRoot = "/tmp/zith-ide-named-blocks-tests";
+    config.stdlibPath = ZITH_STDLIB_DIR;
+
+    zith::ide::Workspace workspace(config);
+    const auto snapshot = workspace.openDocument(
+        "file:///tmp/named.zithm", "/tmp/named.zithm",
+        "pub trait Guard { fn leave(var self): void; }\n"
+        "pub trait Scope { fn enter(var self): dyn Guard; }\n"
+        "struct RG { }\n"
+        "struct Renderer { }\n"
+        "implement RG as Guard { fn leave(var self): void { } }\n"
+        "implement Renderer as Scope {\n"
+        "    fn enter(var self): dyn Guard { return RG { }; }\n"
+        "}\n"
+        "#[scope] pub macro scoped(resources: identifier...) { }\n"
+        "fn main() {\n"
+        "    setup: {\n"
+        "        var v: i32 = 1;\n"
+        "        _ = v;\n"
+        "    }\n"
+        "    var r = Renderer { };\n"
+        "    render: @scoped(r) {\n"
+        "    }\n"
+        "}\n",
+        1);
+
+    zith::ide::Query symbols_query;
+    symbols_query.kind = zith::ide::QueryKind::DocumentSymbols;
+    const auto symbols = workspace.analyze(snapshot, symbols_query);
+    CHECK(symbols.ok, "document symbols query succeeds for a body with named blocks");
+    bool saw_setup  = false;
+    bool saw_render = false;
+    for (const auto &symbol : symbols.documentSymbols) {
+        if (symbol.name != "main") {
+            continue;
+        }
+        for (const auto &child : symbol.children) {
+            if (child.name == "setup" && child.detail.empty()) {
+                saw_setup = true;
+            }
+            if (child.name == "render" && child.detail == "@scoped(r)") {
+                saw_render = true;
+            }
+        }
+    }
+    CHECK(saw_setup, "the outline lists a plain named block as a function child");
+    CHECK(saw_render, "the outline shows the marker resources on a named block");
 }
 
 TEST_MAIN(ide_api)

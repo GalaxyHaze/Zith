@@ -99,6 +99,76 @@ void addMemberToSymbol(DocumentSymbol &symbol, const std::string &source,
                        memory::FileId file_id,
                        const frontend::Declaration &member);
 
+/// Builds the outline label for a named block's marker, listing the marker
+/// name and its resource arguments. A plain named block has no detail.
+std::string namedBlockDetail(const frontend::FrontendSnapshot &frontend,
+                             const std::string &source, const frontend::Expression &block) {
+    if (!block.marker || block.marker.value > frontend.expressions().size()) {
+        return {};
+    }
+    const auto &marker = frontend.expressions()[block.marker.value - 1U];
+    if (marker.kind != frontend::ExprKind::MacroCall) {
+        return {};
+    }
+    std::string detail = "@" + marker.text + "(";
+    for (size_t i = 0; i < marker.operands.size(); ++i) {
+        if (i != 0U) {
+            detail += ", ";
+        }
+        const frontend::ExprId arg = marker.operands[i];
+        if (arg && arg.value <= frontend.expressions().size()) {
+            const auto &arg_expr = frontend.expressions()[arg.value - 1U];
+            const uint32_t source_size = static_cast<uint32_t>(source.size());
+            const uint32_t start = std::min(arg_expr.span.start, source_size);
+            const uint32_t end   = std::min(arg_expr.span.end, source_size);
+            detail.append(source, start, end - start);
+        }
+    }
+    detail += ")";
+    return detail;
+}
+
+/// Appends the named blocks declared in `body` (direct statements and named
+/// pipeline stages) to `out`, in source order. A named block is a `Block`
+/// expression carrying a descriptive `block_name`; its detail lists the marker
+/// resources so the outline shows what each phase brackets.
+void collectNamedBlockSymbols(const frontend::FrontendSnapshot &frontend,
+                              const std::string &source, memory::FileId file_id,
+                              frontend::ExprId body, std::vector<DocumentSymbol> &out) {
+    if (!body || body.value > frontend.expressions().size()) {
+        return;
+    }
+    std::function<void(frontend::ExprId)> visit = [&](frontend::ExprId id) {
+        if (!id || id.value > frontend.expressions().size() ||
+            frontend.isMacroTemplateExpr(id)) {
+            return;
+        }
+        const auto &expr = frontend.expressions()[id.value - 1U];
+        if (expr.kind == frontend::ExprKind::Block && !expr.block_name.empty()) {
+            DocumentSymbol symbol;
+            symbol.name           = expr.block_name;
+            symbol.kind           = 3; // LSP SymbolKind.Namespace: a named scope.
+            symbol.detail         = namedBlockDetail(frontend, source, expr);
+            symbol.range = rangeFromSource(source, file_id, expr.span.start, expr.span.end);
+            symbol.selectionRange = symbol.range;
+            out.push_back(std::move(symbol));
+            // Named blocks never nest, so there is nothing further to collect.
+            return;
+        }
+        for (const auto operand : expr.operands) {
+            visit(operand);
+        }
+        for (const auto stmt_id : expr.statements) {
+            if (!stmt_id || stmt_id.value > frontend.statements().size()) {
+                continue;
+            }
+            const auto &stmt = frontend.statements()[stmt_id.value - 1U];
+            visit(stmt.expression);
+        }
+    };
+    visit(body);
+}
+
 std::vector<DocumentSymbol> collectDocumentSymbols(const session::CompilationSession &session) {
     std::vector<DocumentSymbol> result;
     const auto &snapshot = session.snapshot();
@@ -137,6 +207,10 @@ std::vector<DocumentSymbol> collectDocumentSymbols(const session::CompilationSes
                 child.selectionRange = child.range;
                 symbol.children.push_back(std::move(child));
             }
+        } else if (decl.kind == frontend::DeclKind::Function && decl.body) {
+            // Named blocks are phases of a fn/state body, so they appear as
+            // outline children of their function.
+            collectNamedBlockSymbols(*frontend, source, file_id, decl.body, symbol.children);
         } else if (decl.kind == frontend::DeclKind::Enum) {
             for (const auto &variant : decl.parameters) {
                 DocumentSymbol child;
