@@ -1300,3 +1300,15 @@ Step 5 Actions 8 and 9, 2026-11-24 (headless-browser pass):
   corrected run.
 - Step 3 Actions 4-6 (VS Code extension-host and packaged-VSIX host tests) were
   completed in the headless-X pass recorded above.
+
+Compiler health check on `Zith` HEAD, 2026-11-24:
+
+- `cmake --build build -j4` exited 0 (`ninja: no work to do`).
+- `ctest --test-dir build --output-on-failure -j4` reported 100 percent
+  passed out of 51 tests in 8.17 seconds.
+- `./build/zithc check examples/loops-simple.zithm` printed
+  `[ok] check passed`.
+- HEAD at this check: `aeae6a6426b118755820328d153d5acfc01eb239`. This is a
+  health check, not a frozen release candidate. The ABI and runtime identity
+  track and the pilot remain open, so the final acceptance record still needs
+  reviewed candidate commits.
