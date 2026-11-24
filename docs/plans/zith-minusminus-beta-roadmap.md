@@ -1312,3 +1312,24 @@ Compiler health check on `Zith` HEAD, 2026-11-24:
   health check, not a frozen release candidate. The ABI and runtime identity
   track and the pilot remain open, so the final acceptance record still needs
   reviewed candidate commits.
+
+Two-axis review of the Step 3 and Step 5 changes, 2026-11-24:
+
+- A Standards review and a Spec review ran in parallel over the website diff
+  (`3d6d61f..HEAD`) and the extension harness diff (`c4c62a6..HEAD`).
+- Standards findings fixed: the `runCompiler` failure branch tested the same
+  run-stop condition twice (now one branch), and a semicolon-as-period slipped
+  into one new commit body.
+- Spec finding fixed: the beta support matrix marked Windows AArch64 selection
+  as not mocked, but `zith-extension` `test-download.js` mocks
+  `win32/arm64` to `zith-lsp-windows-arm64.exe`. The cell now reads yes.
+- Spec findings fixed: the onboarding pages now link the Zith-- specification,
+  the standard-library module list, and the editor setup page, and they state
+  the assumed reader background. The first-program guide points at the
+  verified `examples/loops-simple.zithm` example.
+- Accepted residual: the harness `test-host.js` does not assert editor-level
+  diagnostic appearance and clearing, so Step 3 Action 4 and Action 6 stay
+  partially verified through the server-side `test_lsp.py` boundary only.
+- Re-ran after the fixes: `make docs-check` reported 145 fragments current,
+  routing 7 of 7 and editor 4 of 4 passed, and the viewport (36/36) and
+  keyboard (18/18) checks still pass.
