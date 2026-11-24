@@ -204,6 +204,12 @@ struct PerModuleSema {
     std::string_view sourceText(frontend::TextSpan span) const noexcept;
     memory::Span toMemorySpan(frontend::TextSpan span) const noexcept;
 
+    /// Returns true when `field_index` of the struct type is visible from the
+    /// current module. `Private` is allowed only at the struct's declaring
+    /// file; `pub` is always allowed; `mod`/`mod(N)` follows the same depth
+    /// rule used for module declarations.
+    [[nodiscard]] bool fieldVisible(const StructType &st, size_t field_index) const noexcept;
+
 private:
     friend struct CastOverflowProbe;
 
@@ -618,11 +624,6 @@ private:
     bool constantIntegerValue(frontend::ExprId id, std::int64_t &out) const noexcept;
     TypeId inferField(frontend::ExprId id);
     TypeId inferArrow(frontend::ExprId id);
-    /// Returns true when `field_index` of the struct type is visible from the
-    /// current module. `Private` is allowed only at the struct's declaring
-    /// file; `pub` is always allowed; `mod`/`mod(N)` follows the same depth
-    /// rule used for module declarations.
-    [[nodiscard]] bool fieldVisible(const StructType &st, size_t field_index) const noexcept;
     /// When `operand` is a Name that resolves to an enum declaration, returns the enum type
     /// if `variant` names a known variant and reports NoMember otherwise. Returns nullopt
     /// (without diagnostics) when the operand is not an enum-declaration name, so an
