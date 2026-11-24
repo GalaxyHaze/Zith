@@ -407,10 +407,17 @@ Testes executados nesta revisão:
   o payload de inicialização, a política de gravação, as notificações
   `zith/processOutput` e `zith/processExit`, a ausência de `zith.compile` e a
   associação de `.zithm`.
+- `node test/integration/run-host.js` e
+  `node test/integration/run-vsix-host.js` em `zith-extension/vs-code`: ambos
+  completam com o marcador `ok` sob um servidor X sem cabeça (Xvfb). O teste
+  de VSIX empacotado instala o `.vsix` num perfil isolado, carrega o bundle
+  empacotado através de `--extensionDevelopmentPath` e exercita o mesmo
+  `test-host.js` do host de desenvolvimento. Ver a limitação corrigida em
+  baixo.
 
 O harness de extension host (`node test/integration/run-host.js`) e o teste de
-VSIX empacotado requerem um host VS Code capaz de abrir janela. Ver a limitação
-em baixo.
+VSIX empacotado requerem um servidor gráfico. Um servidor X sem cabeça
+(Xvfb) é suficiente. Ver a limitação em baixo.
 
 ### 5.4 Limitações conhecidas
 
@@ -418,10 +425,11 @@ em baixo.
   mapeia `darwin` para `zith-lsp-macos-universal`, mas essa rota não é uma
   afirmação de suporte. As plataformas suportadas e os respetivos estados de
   evidência são os da matriz do passo 1 do roadmap de beta.
-- O harness de extension host em Linux não completa neste ambiente: o wrapper
-  entrega o controlo a uma instância `code-oss` já em execução e expira. As
-  capacidades são verificadas ao nível do LSP e por mocks de extensão, não por
-  um host VS Code real aqui.
+- O harness de extension host em Linux precisa de um servidor gráfico. Sob um
+  Xvfb, `run-host.js` e `run-vsix-host.js` completam. O `run-vsix-host.js`
+  passou a incluir `--extensionDevelopmentPath` a apontar para o diretório
+  instalado: sem essa flag, o VS Code ignora `--extensionTestsPath` em
+  silêncio e o teste fica pendurado até ao tempo limite.
 - O caminho de completion parcial `isIncomplete` está adiado e documentado em
   `zith-lsp/docs/completion-recommendation-plan.md`. O executor só serve
   completion depois da análise ter chegado a `TypeChecked`.

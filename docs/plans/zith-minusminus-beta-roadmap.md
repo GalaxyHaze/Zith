@@ -1058,17 +1058,49 @@ Step 3 handoff and packaging evidence, 2026-11-24:
 - The earlier recorded hash `0cf2fada...` was superseded by the frontend fix in
   `Zith` commit `1942febf`. Any candidate artifact must be re-packaged from the
   build whose hash is recorded here.
-- Still open for Step 3: the packaged VSIX bundles only 9 stdlib files under
-  `server/stdlib`, while the compiler ships 34 under `stdlib/`. The downloader
+- Step 3 Action 5/6 note: the packaged VSIX bundles only 9 stdlib files under
+  `server/stdlib`, while the compiler ships 33 under `stdlib/`. The downloader
   fetches the full tree from `GalaxyHaze/Zith-Lang`, so a clean install gets
-  the full stdlib, but the checked-in VSIX payload is incomplete. Step 3
-  Actions 4-6 (five first-use tasks, duplicate/stale diagnostics, VSIX host
-  test) still need a display-capable host. The Linux extension-host harness
-  does not complete here.
+  the full stdlib, but the checked-in VSIX payload is incomplete. This does not
+  block the host test, which the downloader path covers.
 - Evidence: `cmake --build /home/diogo/zith-lsp/build -j4` exited 0, the LSP
   suite passed 86 tests, and `npm test` in `zith-extension/vs-code` passed.
   `vsce package` produced a 350-file VSIX and `git diff --check` passed in
   both repositories.
+
+Step 3 Actions 4-6, extension host and packaged-VSIX host, 2026-11-24
+(headless-X pass):
+
+- The Step 3 host tests were previously blocked because the environment had no
+  display. A headless X server is now available (Xvfb on `:99`), so both hosts
+  run to completion.
+- Action 4/6, development host: `node test/integration/run-host.js` exits 0 and
+  writes the `ok` marker. The host opens the example, restarts the server,
+  asserts the `zith.*` commands are registered, runs `zith.prepareRun` and
+  `zith.check`, and exercises folding and completion (member, arrow, and empty
+  positions) through the language client.
+- Action 4, packaged VSIX host: a real defect was found and fixed in
+  `zith-extension` commit `afc4a7e`. `run-vsix-host.js` passed
+  `--extensionTestsPath` without `--extensionDevelopmentPath`. VS Code only
+  runs the test host when both `isExtensionDevelopmentHost` and
+  `isExtensionTestHost` are true, and the former is set only by
+  `--extensionDevelopmentPath`, so the test host was silently ignored and the
+  runner hung to its 120s timeout. The runner now discovers the installed
+  extension directory and points `--extensionDevelopmentPath` at it, so the
+  test host loads the packaged bundle. `node test/integration/run-vsix-host.js
+  /tmp/zith-language-beta.vsix` now exits 0 with the `ok` marker.
+- Action 7 recheck: the packaged VSIX `extension/server/zith-lsp` SHA-256 still
+  equals the reviewed build
+  `3c58a91c252151e3d18b79b2c59a688e5b20c06e6b1fd1840dc94e48e0f9a8ec`.
+- Action 6, stale/duplicate diagnostics: the LSP suite covers the behavior at
+  the server boundary. `test_diagnostics_cleared_on_close` and the
+  stale-revision check in `test_lsp.py` confirm the server clears the original
+  diagnostic after a fix and does not emit stale diagnostics.
+- Handoff update: `docs/vscode-extension-lsp-api.md` sections 5.3 and 5.4 now
+  record the passing hosts and replace the stale "harness does not complete"
+  limitation with the corrected `--extensionDevelopmentPath` requirement.
+- Evidence: LSP suite passed 86 tests; `npm test` in `zith-extension/vs-code`
+  passed 9 unit and 5 integration cases; both hosts exited 0 under Xvfb.
 
 Step 2 malformed-source fixtures, 2026-11-24:
 
