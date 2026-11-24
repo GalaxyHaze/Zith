@@ -1156,3 +1156,45 @@ Step 4 beta module list and `std`/`soon` drift, 2026-11-24:
   'test-stdlib-modules|test-stdlib-io|test-stdlib-parity|test-examples'`
   passed 4 of 4; every module-list snippet passed `zithc --include stdlib
   check`; `git diff --check` passed.
+
+Step 5 website onboarding, 2026-11-24:
+
+- Action 1: the Zith-- website pages were already reconciled with the Step 2
+  discrepancy table in commits `92161c1` and `3097311`. Rechecked this turn
+  and found no remaining critical or high public-claim discrepancy.
+- Action 2: the first-use path is now explicit. The new
+  `docs/pages/getting-started/beta-support.md` states the supported route
+  (install, `zithc create`, `zithc check`, correct a diagnostic, `zithc run`),
+  and `zith--/guide/first-program.md` links the support matrix, the editor
+  setup page, and the standard-library reference.
+- Action 3: added `docs/pages/getting-started/editor-setup.md` with the VS Code
+  install path (download `zith-lsp`, install the `.vsix` or build it with
+  `npx @vscode/vsce package`, open a project, check and clear a diagnostic).
+  The page is scoped to the verified Linux x86-64 platform. The standard
+  library, support matrix, and known limitations are now linked from the
+  Zith-- onboarding pages.
+- Action 4: `zith--/overview.md` already separates Zith-- behavior from the
+  Zith design specification. No page mixes the two contracts.
+- Action 5: the playground is labelled experimental on `playground/index.html`
+  and in the limitations table, because parity with the current compiler and
+  stdlib pack is not proven.
+- Action 6: the compiler-side `test-wasm-playground.cpp` already covers the
+  error-fixture behavior: repeated invalid source keeps its status and does not
+  accumulate diagnostics, and a later compile clears stale entries.
+- Actions 8 and 9 (viewport and keyboard checks at 375x812 and 1440x900): not
+  run here. The environment has no display, no Xvfb, and no headless browser.
+  These remain open and must be run before the beta gate passes.
+- Action 10: `node tests/docs-routing.test.js` passed 7 of 7 and
+  `node tests/docs-editor.test.js` passed 4 of 4.
+- Action 11: the limitations table ships in
+  `docs/pages/getting-started/beta-support.md`, one row per affected platform
+  or feature, with what was tested, what was not, the user impact, and the
+  workaround.
+- Website commits: `4d5892b` (support matrix and install fix), `518990e`
+  (editor setup page and cross-links), `81215f5` (playground experimental
+  label).
+- Evidence: `make site` built 145 documentation fragments and exited 0;
+  `make docs-check` reported the fragments current; `npx @vscode/vsce package`
+  produced `zith-language-0.4.0.vsix` from the extension source; the install
+  page's broken `git chttps://...` command was corrected to `git clone`.
+- Open: Step 5 Actions 8 and 9 need a display and were not verified here.
