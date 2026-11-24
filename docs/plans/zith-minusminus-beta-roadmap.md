@@ -950,6 +950,33 @@ Extension source-extension fix, 2026-11-24:
   is the known harness limitation recorded in Current CI Evidence Gaps, not a
   regression from this change.
 
+LSP review fixes, 2026-11-24:
+
+- The same `.zith`/`.zithm` mismatch was still present inside `zith-lsp`: the
+  watched-files glob and handler, the workspace-scan filter, the project
+  scaffold, and the completion module detail all keyed on the reserved
+  `.zith`. Commits `9093bdc` and `c46c10a` route every decision through
+  `support/source-extension.hpp`, register a `**/*.zithm` watcher, and rename
+  the test fixtures to `.zithm`.
+- Commit `f019982` removes the process-global stdlib symbol cache that
+  violated ADR 0005. The index is now workspace-owned by `AnalysisExecutor`
+  and dropped when a watched stdlib source changes. A regression appends a
+  public symbol to a stdlib module and asserts it becomes visible; the test
+  fails when the invalidation is removed.
+- Commits `33397b0e` (compiler) and `db043f9` (LSP) promote the compiler's
+  `PerModuleSema::fieldVisible` to public and consume it from
+  `membersForType`, so the IDE no longer reimplements the field-visibility
+  rule (ADR 0003).
+- Commits `940d78c` and `56df0b8` share a single `DeclKind` to
+  `CompletionItemKind` mapping between the local-declaration and stdlib-symbol
+  completion paths.
+- Commits `6899b1c` and `b6b10cba` correct the documented completion trigger
+  characters to include space and slash.
+- Evidence: `cmake --build build -j4` and the LSP suite passed 85 tests in
+  `/home/diogo/zith-lsp`; the compiler build passed and
+  `ctest -R '^(test-ide-api|test-frontend|test-cache|test-hir-lower-modern|test-codegen)$'`
+  passed 5/5 in `/home/diogo/Zith`; `git diff --check` passed in both.
+
 Attach or link the following evidence in the release review:
 
 - Candidate version and full commit IDs for the compiler, LSP, extension, and
